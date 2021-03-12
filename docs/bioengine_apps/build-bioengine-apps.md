@@ -55,4 +55,4 @@ For example, [Kaibu](https://kaibu.org) is a standlone web app that compatible w
 
 ## How to submit BioEngine Apps to the website?
 
-If you are one of our [community partners](https://github.com/bioimage-io/bioimage.io/blob/master/docs/join-partners.md), you can add the app url to your model repository. Otherwise, please submit your BioEngine Apps to BioImage.IO by posting the url [here](https://github.com/bioimage-io/bioimage-io-models/issues/26).
+If you are one of our [community partners](/community_partners/how-tos_guide.md), you can add the app url to your model repository. Otherwise, please submit your BioEngine Apps to BioImage.IO by posting the url [here](https://github.com/bioimage-io/bioimage-io-models/issues/26).
