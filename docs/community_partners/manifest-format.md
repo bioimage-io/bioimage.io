@@ -102,4 +102,4 @@ Combine all these into your `manifest.bioimage.io.yaml` file and host in your pr
 
 See an example [here](https://github.com/ilastik/bioimage-io-models/blob/master/manifest.bioimage.io.yaml).
 
-If you want to join as a community partner, please send the link to BioImage.IO by following the instructions for [joining community partners](https://github.com/bioimage-io/bioimage.io/blob/master/docs/join-partners.md).
+If you want to join as a community partner, please send the link to BioImage.IO by following the instructions for [joining community partners](/community_partners/how-tos_guide.md).
