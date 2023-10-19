@@ -57,4 +57,3 @@ TBD
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
 
-## Use Cases

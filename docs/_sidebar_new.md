@@ -5,5 +5,5 @@
     - [Developer Guides](/guides/developer_guide.md)
     - [Community Partners Guides](/guides/community_partners_guide.md)
 * [Tools and Resources]()
-* [Help Desk]()
-* [Terms of Service]
+* [Help Desk](/help_desk/README.md)
+* [Terms of Service]()
