@@ -9,6 +9,10 @@ See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a mode
 
 
 ## Using BioImage Model Zoo models in different software
+
+### BiaPy
+TBD
+
 ### DeepImageJ
 
 **Note: deepImageJ supports PyTorch and Tensorflow 1 models**
@@ -42,12 +46,11 @@ The configuration fields should be self-explanatory.
 
 
 ### Ilastik
-
 TBD
 
 ###  ImJoy
-
 TBD
+
 
 ### ZeroCostDL4Mic
 **Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the BioImage Model Zoo or fine-tune existing ones!**
@@ -57,3 +60,12 @@ TBD
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
 
+## Best Practices for Model Usage
+
+## Use Cases
+Here you can 
+
+- [Use-case 1: Stardist H&E nucleus segmentation](usecase1stardist)
+- [Use-case 2: 3D U-Net for cell-segmentation in light microscopy](usecase2finetune)
+- [Use-case 3: Classification, imjoy & python library usage](usecase3devtools)
+- [Use-case 4: Domain adaptation for mitochondria segmentation in EM](usecase4domain)
