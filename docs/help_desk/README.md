@@ -50,6 +50,8 @@ AI4Life is a project closely aligned with the BioImage Model Zoo. It plays a sig
 **Can I use models from the BioImage Model Zoo for commercial purposes?**
 Yes, you are welcome to use the models from the BioImage Model Zoo for commercial purposes. However, we kindly request that you provide appropriate credits when using these models as a gesture of acknowledgment for the contributions of the model creators and the BioImage Model Zoo community.
 
+## Code of Conduct
+The code of conducte of the BioImage Model Zoo can be visited here: [Code of Conduct](/CODE_OF_CONDUCT.md)
 
 ## Contact us
 
