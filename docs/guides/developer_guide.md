@@ -2,7 +2,7 @@
 
 ## Models in the BioImage Model Zoo
 A BioImage.IO model is a zip file containing all the items, technical description and metadata of the model, together with the trained architecture of the model. Briefly, a BioImage.IO model has at least, the following items:
-* Trained model in the correct format (check the Resource Description File Specifications for the [supported formats](https://bioimage.io/docs/#/bioimageio_preprocessing_spec))
+* Trained model in the correct format (check the Resource Description File Specifications for the [supported formats](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md))
 * Example input image (numpy array)
 * Example output (numpy array)
 * Resource description file specifications (`rdf.yaml`)
@@ -12,8 +12,8 @@ In some cases, the model may need additional files.
 
 ### Model contribution requirements
 
-- Follow the [BioImage.IO Model Resource Description File Specification (RDF)](https://bioimage.io/docs/#/bioimageio_model_spec) with `format_version>= 0.4.5`. 
-- The model is expected to be cross-compatible among the [consumer software](https://github.com/bioimage-io/spec-bioimage-io/blob/master/supported_formats_and_operations.md#consumers), and should always run on at least one.
+- Follow the [BioImage.IO Model Resource Description File Specification (RDF)](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md) with `format_version>= 0.4.5`. 
+- The model is expected to be cross-compatible among the consumer software, and should always run on at least one.
 - The model should be well documented (i.e., human readable name and rich description tailored for life-scientists, citations)
 - The model should be public and can be used by anyone under the chosen licensing conditions.
 
@@ -26,7 +26,7 @@ Two options:
         Example code [here](https://github.com/bioimage-io/core-bioimage-io-python/blob/main/example/model_creation.ipynb).
           - The main function to build the model is `bioimageio.core.build_model`. Check its input variables to know what has to be provided.
       - Manual generation of the model:
-         - Create the [BioImage.IO Model Resource Description File Specifications](https://bioimage.io/docs/#/bioimageio_model_spec) (`rdf.yaml` file).
+         - Create the [BioImage.IO Model Resource Description File Specifications](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md) (`rdf.yaml` file).
          - Each field on the file is either mandatory or optional. In the Bioimage Model Zoo web page you can find different examples. 
    2. Check that the model is correctly created:
       - Static validation of the model format using the [bioimageio.core python library](https://github.com/bioimage-io/core-bioimage-io-python) library (*e.g.*, in the terminal, `bioimageio validate /../rdf.yaml`).
@@ -62,18 +62,18 @@ This tutorial will guide you through the process of uploading a model to the Bio
 
 1. Open your web browser and navigate to the Zenodo website at [https://zenodo.org/](https://zenodo.org). You need to create a Zenodo account if you do not have one. 
    <!-- ![Zenodo initial page](contribute_models/zenodo_upload_01.png) -->
-   <img src="contribute_models/zenodo_upload_01.png" alt="Zenodo initial page" align="center" width="1000"/>
+   <img src="./zenodo_upload_01.png" alt="Zenodo initial page" align="center" width="1000"/>
    
 2. On the right, close to your username, click the "New upload" button to begin the model upload process. Make sure that the repository is set as public. 
 The files in the BioImage.io zip have to be uploaded one-by-one (See the example in the image below). Note that you can drag & drop all together at once.
    <!-- ![New upload](contribute_models/zenodo_upload_04.png) -->
-   <img src="contribute_models/zenodo_upload_04.png" alt="New upload" align="center" width="1000"/>
+   <img src="./zenodo_upload_04.png" alt="New upload" align="center" width="1000"/>
 
 3. Add `bioimage.io` on Keywords and subjects. This is crucial for us to identify your submission.
    <!-- ![Find BioImage.IO community](contribute_models/zenodo_upload_03.png) -->
-   <img src="contribute_models/zenodo_upload_03.png" alt="Find BioImage.IO community" align="center" width="1000"/>
+   <img src="./zenodo_upload_03.png" alt="Find BioImage.IO community" align="center" width="1000"/>
    
-4. Follow the on-screen instructions to provide the required information about your model. Make sure to include a clear description, relevant tags, and any necessary documentation. See [this documentation](contribute_models/README.md) for more details on the required files and information.
+4. Follow the on-screen instructions to provide the required information about your model. Make sure to include a clear description, relevant tags, and any necessary documentation.
 
 5. Once finished, click on Submit.
    

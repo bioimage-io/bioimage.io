@@ -64,7 +64,7 @@ TBD
 TBD
 
 ## Use Cases
-- [Use-case 1: Stardist H&E nucleus segmentation](https://raw.githubusercontent.com/bioimage-io/use-cases/main/case1-stardist/README.md)
-- [Use-case 2: 3D U-Net for cell-segmentation in light microscopy](https://raw.githubusercontent.com/bioimage-io/use-cases/main/case2-finetuning/README.md)
-- [Use-case 3: Classification, imjoy & python library usage](https://raw.githubusercontent.com/bioimage-io/use-cases/main/case3-devtools/README.md)
-- [Use-case 4: Domain adaptation for mitochondria segmentation in EM](https://raw.githubusercontent.com/bioimage-io/use-cases/main/case4-research/README.md)
+- [Use-case 1: Stardist H&E nucleus segmentation](https://github.com/bioimage-io/use-cases/tree/main/case1-stardist)
+- [Use-case 2: 3D U-Net for cell-segmentation in light microscopy](https://github.com/bioimage-io/use-cases/tree/main/case2-finetuning)
+- [Use-case 3: Classification, imjoy & python library usage](https://github.com/bioimage-io/use-cases/tree/main/case3-devtools)
+- [Use-case 4: Domain adaptation for mitochondria segmentation in EM](https://github.com/bioimage-io/use-cases/tree/main/case4-research)
