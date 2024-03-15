@@ -4,3 +4,4 @@
 * [Tools and Resources](/docs/tools_and_resources/README.md)
 * [Help Desk](/docs/help_desk/README.md)
 * [Terms of Service](/docs/terms_of_serbice.md)
+* [Code of Conduct](/docs/CODE_OF_CONDUCT.md)
