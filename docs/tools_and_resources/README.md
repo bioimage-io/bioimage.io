@@ -1,8 +1,8 @@
 # Tools and Resources
-Text here...
+In this part of the documentation different tools and resources and its documentation can be found.
 
-## [DL4MicEverywhere](dl4miceverywhere.md)
-## [BioImage.IO Chatbot](bioimageiochatbot.md)
-## [Python BioImage.IO Core Package](bioimageio-core-package.md)
-## [Java Deep Learning Library](jdll.md)
-## [BioEngine](bioengine.md)
+* **[DL4MicEverywhere](dl4miceverywhere.md)**: DL4MicEverywhere is a platform that offers researchers an easy-to-use gateway to cutting-edge deep learning techniques for bioimage analysis. It features interactive Jupyter notebooks with user-friendly graphical interfaces that require no coding skills. The platform utilizes Docker containers to ensure portability and reproducibility, guaranteeing smooth operation across various computing environments.
+* **[BioImage.IO Chatbot](bioimageiochatbot.md)**: The BioImage.IO Chatbot is a versatile conversational agent designed to assist users in accessing information related to bioimage analysis. It leverages the power of Large Language Models (LLMs) and integrates user-specific data to provide contextually accurate and personalized responses. Whether you're a researcher, developer, or scientist, the chatbot is here to make your bioimage analysis journey smoother and more informative.
+* **[Python BioImage.IO Core Package](bioimageio-core-package.md)**: Learn how to leverage the Python BioImage.IO Core Package, an essential toolkit for integrating and using bioimaging models and datasets in Python environments.
+* **[Java Deep Learning Library](jdll.md)**: Explore the capabilities of the Java Deep Learning Library (JDLL), a comprehensive Java-based library designed for building and deploying deep learning models in bioimaging.
+* **[BioEngine](bioengine.md)**: Initially designed to support the BioImage Model Zoo (https://bioimage.io) for effortless model testing, BioEngine empowers both experts and newcomers in the field of bioimage analysis. This cloud-based infrastructure brings AI to the next level by offering a user-friendly, plug-and-play cloud solution that not only simplifies model testing but also pioneers next-generation bioimage analysis capabilities.
