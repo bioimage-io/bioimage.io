@@ -17,11 +17,6 @@ Here there are some slides to ilustrate how the BioImage Model Zoo works. Press 
 api.showDialog({src: "https://slides.imjoy.io/?slides=https://raw.githubusercontent.com/esgomezm/bioimage.io/main/docs/user_guide/welcome_slides.md"})
 ```
 
-## Reference publication
-Wei Ouyang, Fynn Beuttenmueller, Estibaliz Gómez-de-Mariscal, Constantin Pape, Tom Burke, Carlos Garcia-López-de-Haro, Craig Russell, Lucía Moya-Sans, Cristina de-la-Torre-Gutiérrez, Deborah Schmidt, Dominik Kutra, Maksim Novikov, Martin Weigert, Uwe Schmidt, Peter Bankhead, Guillaume Jacquemet, Daniel Sage, Ricardo Henriques, Arrate Muñoz-Barrutia, Emma Lundberg, Florian Jug, Anna Kreshuk, **BioImage Model Zoo: A Community-Driven Resource for Accessible Deep Learning in BioImage Analysis**, bioRxiv 2022.06.07.495102, doi: [https://doi.org/10.1101/2022.06.07.495102](https://doi.org/10.1101/2022.06.07.495102)
-
-<img src="./bioimage-io-paper-figure-1.png" align="center" width="1000"/>
-
 ## How to participate in the BioImage Model Zoo
 Participation into the BioImage Model Zoo is opened to many different profiles. None of them exclude any other. Here are the options in which you can intereact with the BioImage Model Zoo:
 
