@@ -3,4 +3,4 @@ The BioImage Model Zoo is intended to be used by different roles in the communit
 
 ## [User Guide](user_guide.md)
 ## [Developers Guide](developer_guide.md)
-## [Community Partners Guide](community_partners_guide.md)
+## [Community Partners Guide](community_partners_guide/README.md)
