@@ -12,7 +12,7 @@ In some cases, the model may need additional files.
 
 ### Model contribution requirements
 
-- Follow the [BioImage.IO Model Resource Description File Specification (RDF)](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md) with `format_version>= 0.4.5`. 
+- Follow the [BioImage.IO Model Resource Description File Specification (RDF)](#model-resource-description-file-specification-049) with `format_version>= 0.4.5`. 
 - The model is expected to be cross-compatible among the consumer software, and should always run on at least one.
 - The model should be well documented (i.e., human readable name and rich description tailored for life-scientists, citations)
 - The model should be public and can be used by anyone under the chosen licensing conditions.
@@ -105,6 +105,9 @@ The BioImage Model Zoo is a software webpage. Each model is displayed with an in
 #### Representative Covers
 
 You can include different cover images that represent the analysed tissue, imaging modality, image processing task and the performance of the model. This image will be used in the model card to guide the users through the model search.
+
+#### Markdown Documentation (doc.md)
+TBD
 
 
 ### Considerations for the model description file
