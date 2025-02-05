@@ -45,20 +45,53 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
       onClick={handleClick}
     >
       <div style={{ position: 'relative', paddingTop: '56.25%' }}> {/* 16:9 aspect ratio container */}
-        <CardMedia
-          component="img"
-          image={covers[currentImageIndex] || '/placeholder-image.png'}
-          alt={resource.manifest.name}
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
-          }}
-        />
+        {covers.length > 0 ? (
+          <CardMedia
+            component="img"
+            image={covers[currentImageIndex]}
+            alt={resource.manifest.name}
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#f5f5f5',
+              borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
+            }}
+          >
+            {resource.manifest.icon ? (
+              <img
+                src={resource.manifest.icon}
+                alt={resource.manifest.name}
+                style={{
+                  width: '40%',
+                  height: '40%',
+                  objectFit: 'contain'
+                }}
+              />
+            ) : resource.manifest.id_emoji ? (
+              <span style={{ fontSize: '3rem' }}>{resource.manifest.id_emoji}</span>
+            ) : (
+              <div className="w-16 h-16 bg-gray-200 rounded-full" />
+            )}
+          </div>
+        )}
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }}>
         <div className="flex items-start gap-3 mb-3">
