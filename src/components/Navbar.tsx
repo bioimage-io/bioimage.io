@@ -6,6 +6,7 @@ import { BsDatabase } from 'react-icons/bs';
 import { HiOutlineBeaker } from 'react-icons/hi';
 import { IoDocumentTextOutline, IoCloudUploadOutline } from 'react-icons/io5';
 import { AiOutlineInfoCircle } from 'react-icons/ai';
+import { RiLoginBoxLine } from 'react-icons/ri';
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -81,12 +82,15 @@ const Navbar: React.FC = () => {
             {location.pathname !== '/upload' && (
               <Link
                 to="/upload"
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
               >
+                <IoCloudUploadOutline className="mr-2" size={18} />
                 Upload
               </Link>
             )}
-            <LoginButton />
+            <div className="flex items-center">
+              <LoginButton />
+            </div>
             
             {/* Mobile menu button */}
             <button 
