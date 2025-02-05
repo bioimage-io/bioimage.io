@@ -6,7 +6,9 @@
     "cra-template-typescript": "1.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-router-dom": "^6.29.0",
     "react-scripts": "5.0.1",
+    "tailwindcss": "^3.4.1",
     "web-vitals": "^4.2.4"
   },
   "scripts": {
@@ -34,12 +36,21 @@
     ]
   },
   "devDependencies": {
+    "@tailwindcss/forms": "^0.5.10",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "typescript": "^5.0.0",
-    "tailwindcss": "^3.0.0",
+    "autoprefixer": "^10.0.0",
     "postcss": "^8.0.0",
-    "autoprefixer": "^10.0.0"
+    "typescript": "^3.9.10"
+  },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "<rootDir>/src/jest.setup.ts"
+    ]
   }
 }
