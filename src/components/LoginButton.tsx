@@ -24,7 +24,14 @@ const getSavedToken = () => {
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { client, user, setUser, setServer } = useHyphaStore();
+  const { client, user, setUser, setServer, initializeClient } = useHyphaStore();
+
+  // Initialize client only once when component mounts
+  useEffect(() => {
+    if (!client) {
+      initializeClient().catch(console.error);
+    }
+  }, []); // Remove client and initializeClient from dependencies
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -53,18 +60,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   };
 
   const login = async () => {
-    if (!client) {
-      console.error('Hypha client not initialized');
-      return null;
-    }
-
+    const currentClient = await initializeClient();
+    
     const config: LoginConfig = {
       server_url: serverUrl,
       login_callback: loginCallback,
     };
 
     try {
-      const token = await client.login(config);
+      const token = await currentClient.login(config);
       localStorage.setItem("token", token);
       localStorage.setItem("tokenExpiry", new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString());
       return token;
@@ -75,49 +79,44 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   };
 
   const handleLogin = async () => {
-    if (!client) {
-      console.error('Hypha client not initialized');
-      return;
-    }
-    
     setIsLoggingIn(true);
+    
     try {
+      const currentClient = await initializeClient();
       let token = getSavedToken();
-      if (token) {
-        console.log("Using saved token.");
-      } else {
+      
+      if (!token) {
         token = await login();
         if (!token) {
           throw new Error('Failed to obtain token');
         }
       }
 
-      const server = await client.connectToServer({
+      // Connect with authentication
+      const server = await currentClient.connectToServer({
         server_url: serverUrl,
         token: token,
       });
+      
       setServer(server);
       setUser(server.config.user);
       console.log("Logged in as:", server.config.user);
     } catch (error) {
-      console.error("Error connecting to server:", error);
-      // Clear token and tokenExpiry
-      localStorage.setItem("token", "");
-      localStorage.setItem("tokenExpiry", "");
-      // Don't retry automatically to avoid infinite loops
-      setIsLoggingIn(false);
+      console.error("Error during login:", error);
+      localStorage.removeItem("token");
+      localStorage.removeItem("tokenExpiry");
     } finally {
       setIsLoggingIn(false);
     }
   };
 
+  // Update the auto-login effect
   useEffect(() => {
     const savedToken = getSavedToken();
-    if (savedToken && client) {
+    if (savedToken && !user) {
       handleLogin();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client]); // We're intentionally only running this on client changes
+  }, []); // Only run once on mount
 
   return (
     <div className={className}>

@@ -1,32 +1,52 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import SearchBar from './components/SearchBar';
 import PartnerScroll from './components/PartnerScroll';
-import { initializeHyphaClient } from './store/hyphaStore';
+import { useHyphaStore } from './store/hyphaStore';
+import ResourceGrid from './components/ResourceGrid';
+import { ResourceDetails } from './components/ResourceDetails';
 
+// Create a wrapper component that uses Router hooks
+const AppContent: React.FC = () => {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const hasResourceId = searchParams.has('id');
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <main className="container mx-auto px-4">
+        <PartnerScroll />
+        {hasResourceId ? (
+          <ResourceDetails />
+        ) : (
+          <Routes>
+            <Route path="/" element={<ResourceGrid />} />
+            <Route path="/models" element={<ResourceGrid type="model" />} />
+            <Route path="/applications" element={<ResourceGrid type="application" />} />
+            <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
+            <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
+          </Routes>
+        )}
+        <SearchBar />
+      </main>
+    </div>
+  );
+};
+
+// Main App component that provides Router context
 const App: React.FC = () => {
+  const { initializeClient } = useHyphaStore();
+
   useEffect(() => {
-    // Initialize Hypha client when the app loads
-    const init = async () => {
-      try {
-        await initializeHyphaClient();
-      } catch (error) {
-        console.error('Failed to initialize Hypha:', error);
-      }
-    };
-    init();
-  }, []);
+    // Initialize Hypha client only once when app starts
+    initializeClient().catch(console.error);
+  }, []); // Remove initializeClient from dependencies
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
-        <main className="container mx-auto px-4">
-          <PartnerScroll />
-          <SearchBar />
-        </main>
-      </div>
+      <AppContent />
     </Router>
   );
 };
