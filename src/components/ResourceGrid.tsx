@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Resource } from '../types';
 import SearchBar from './SearchBar';
 import ResourceCard from './ResourceCard';
 import PartnerScroll from './PartnerScroll';

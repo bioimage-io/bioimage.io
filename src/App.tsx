@@ -1,8 +1,7 @@
-import React, { useEffect, useCallback } from 'react';
+import React from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 
-import { useHyphaStore } from './store/hyphaStore';
 import ResourceGrid from './components/ResourceGrid';
 import ResourceDetails from './components/ResourceDetails';
 import Snackbar from './components/Snackbar';
