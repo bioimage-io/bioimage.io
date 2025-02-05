@@ -82,7 +82,7 @@ const Navbar: React.FC = () => {
             {location.pathname !== '/upload' && (
               <Link
                 to="/upload"
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
+                className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
               >
                 <IoCloudUploadOutline className="mr-2" size={18} />
                 Upload

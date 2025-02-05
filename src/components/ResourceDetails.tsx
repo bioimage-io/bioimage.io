@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Badge } from './Badge';
 import ReactMarkdown from 'react-markdown';
 import { Resource } from '../types/resource';
-import { Button } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider } from '@mui/material';
+import PersonIcon from '@mui/icons-material/Person';
+import SchoolIcon from '@mui/icons-material/School';
+import DescriptionIcon from '@mui/icons-material/Description';
+import LinkIcon from '@mui/icons-material/Link';
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import DownloadIcon from '@mui/icons-material/Download';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import UpdateIcon from '@mui/icons-material/Update';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -58,76 +64,31 @@ const ResourceDetails = () => {
   const { manifest } = selectedResource as Resource;
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex items-center gap-4 mb-6">
-        {manifest.icon && (
-          <img src={manifest.icon} alt="" className="w-16 h-16 object-contain" />
-        )}
-        <div>
-          <h1 className="text-3xl font-bold mb-2">{manifest.name}</h1>
-          <div className="flex flex-wrap gap-2">
-            {manifest.tags?.map((tag: string, i: number) => (
-              <Badge key={i} text={tag} />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-gray-50 p-4 rounded">
-          <h3 className="font-medium mb-2">Downloads</h3>
-          <p>{(selectedResource as Resource).download_count || 0}</p>
-        </div>
-        <div className="bg-gray-50 p-4 rounded">
-          <h3 className="font-medium mb-2">Views</h3>
-          <p>{(selectedResource as Resource).view_count || 0}</p>
-        </div>
-        <div className="bg-gray-50 p-4 rounded">
-          <h3 className="font-medium mb-2">Last Updated</h3>
-          <p>{new Date((selectedResource as Resource).last_modified * 1000).toLocaleDateString()}</p>
-        </div>
-      </div>
-
-      <div className="prose max-w-none">
-        <ReactMarkdown>
-          {manifest.description || ''}
-        </ReactMarkdown>
-      </div>
-
-      {manifest.links && manifest.links.length > 0 && (
-        <div className="resource-links">
-          <h3>Related Links</h3>
-          {manifest.links.map((link: {url: string, icon?: string, label: string}, index: number) => (
-            <a 
-              key={index} 
-              href={link.url} 
-              className="resource-link"
-              target="_blank" 
-              rel="noopener noreferrer"
-            >
-              <span className="link-icon">{link.icon}</span>
-              <span className="link-label">{link.label}</span>
-            </a>
-          ))}
-        </div>
-      )}
-
-      {documentation && (
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4">Documentation</h2>
-          <div className="prose max-w-none">
-            <ReactMarkdown>{documentation}</ReactMarkdown>
-          </div>
-        </div>
-      )}
-
-      <div style={{ 
-        marginTop: '2rem', 
-        paddingTop: '1rem',
-        borderTop: '1px solid rgba(0, 0, 0, 0.12)',
+    <Box sx={{ p: 3, maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header Section with Flexbox for button alignment */}
+      <Box sx={{ 
+        mb: 4,
         display: 'flex',
-        justifyContent: 'center'
+        justifyContent: 'space-between',
+        alignItems: 'flex-start'  // Aligns items to the top
       }}>
+        {/* Title and Stats Column */}
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            {manifest.name} {manifest.id_emoji}
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary" gutterBottom>
+            ID: {selectedResource.id}
+          </Typography>
+          
+          <Stack direction="row" spacing={3} sx={{ mt: 2 }}>
+            <Chip icon={<DownloadIcon />} label={`Downloads: ${selectedResource.download_count}`} />
+            <Chip icon={<VisibilityIcon />} label={`Views: ${selectedResource.view_count}`} />
+            {manifest.version && <Chip icon={<UpdateIcon />} label={`Version: ${manifest.version}`} />}
+          </Stack>
+        </Box>
+
+        {/* Download Button */}
         <Button
           onClick={handleDownload}
           startIcon={<DownloadIcon />}
@@ -136,16 +97,160 @@ const ResourceDetails = () => {
           sx={{
             minWidth: '200px',
             py: 1.5,
-            backgroundColor: '#2563eb', // blue-600
+            backgroundColor: '#2563eb',
             '&:hover': {
-              backgroundColor: '#1d4ed8', // blue-700 for hover
+              backgroundColor: '#1d4ed8',
             },
           }}
         >
           Download Resource
         </Button>
-      </div>
-    </div>
+      </Box>
+
+      <Grid container spacing={3}>
+        {/* Left Column */}
+        <Grid item xs={12} md={8}>
+          {/* Description Card */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                <DescriptionIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Description
+              </Typography>
+              <Typography variant="body1">{manifest.description}</Typography>
+            </CardContent>
+          </Card>
+
+          {/* Authors Card */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Authors
+              </Typography>
+              {manifest.authors.map((author, index) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1">
+                    {author.name}
+                    {author.orcid && (
+                      <Link 
+                        href={`https://orcid.org/${author.orcid}`}
+                        target="_blank"
+                        sx={{ ml: 1 }}
+                      >
+                        (ORCID: {author.orcid})
+                      </Link>
+                    )}
+                  </Typography>
+                  {author.affiliation && (
+                    <Typography variant="body2" color="text.secondary">
+                      <SchoolIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
+                      {author.affiliation}
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Citations Card */}
+          {manifest.cite && manifest.cite.length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Citations</Typography>
+                {manifest.cite.map((citation, index) => (
+                  <Box key={index} sx={{ mb: 2 }}>
+                    <Typography variant="body1">
+                      {citation.text}
+                      {citation.doi && (
+                        <Link 
+                          href={`https://doi.org/${citation.doi}`}
+                          target="_blank"
+                          sx={{ ml: 1 }}
+                        >
+                          DOI: {citation.doi}
+                        </Link>
+                      )}
+                    </Typography>
+                  </Box>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Documentation Card */}
+          {documentation && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  <DescriptionIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Documentation
+                </Typography>
+                <Box sx={{ 
+                  '& .prose': {
+                    maxWidth: 'none',
+                    '& img': {
+                      maxWidth: '100%',
+                      height: 'auto'
+                    }
+                  }
+                }}>
+                  <ReactMarkdown>{documentation}</ReactMarkdown>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
+        </Grid>
+
+        {/* Right Column */}
+        <Grid item xs={12} md={4}>
+          {/* Tags Card */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Tags
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {manifest.tags.map((tag, index) => (
+                  <Chip key={index} label={tag} size="small" />
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+
+          {/* Links Card */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Links
+              </Typography>
+              <Stack spacing={1}>
+                {manifest.git_repo && (
+                  <Link href={manifest.git_repo} target="_blank">
+                    GitHub Repository
+                  </Link>
+                )}
+                {manifest.documentation && (
+                  <Link href={manifest.documentation} target="_blank">
+                    Documentation
+                  </Link>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+
+          {/* License Card */}
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>License</Typography>
+              <Typography variant="body1">{manifest.license}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
   );
 };
 
