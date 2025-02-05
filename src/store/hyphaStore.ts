@@ -1,14 +1,8 @@
 import { create } from 'zustand';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 // import { hRPC } from 'hypha';
+import { Resource } from '../types/resource';
 
-interface Resource {
-  id: string;
-  name: string;
-  description: string;
-  thumbnail?: string;
-  tags?: string[];
-}
 
 // Add a type for connection config
 interface ConnectionConfig {
@@ -48,6 +42,11 @@ export interface HyphaState {
   login: (username: string, password: string) => Promise<void>;
   isLoggedIn: boolean;
   setLoggedIn: (status: boolean) => void;
+  selectedResource: Resource | null;
+  setSelectedResource: (resource: Resource | null) => void;
+  fetchResource: (id: string) => Promise<void>;
+  isLoading: boolean;
+  error: string | null;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -66,6 +65,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   isLoggingIn: false,
   isAuthenticated: false,
   isLoggedIn: false,
+  selectedResource: null,
+  isLoading: false,
+  error: null,
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -83,6 +85,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   },
   setTotalItems: (total) => set({ totalItems: total }),
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
+  setSelectedResource: (resource) => set({ selectedResource: resource }),
   connect: async (config: ConnectionConfig) => {
     try {
       const client = hyphaWebsocketClient;
@@ -155,6 +158,30 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       set({ 
         resources: [],
         totalItems: 0
+      });
+    }
+  },
+  fetchResource: async (id: string) => {
+    try {
+      set({ isLoading: true, error: null });
+      
+      // Assuming the ID format is workspace/name
+      const [workspace, name] = id.split('/');
+      const url = `https://hypha.aicell.io/${workspace}/artifacts/${name}`;
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch resource: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      set({ selectedResource: data, isLoading: false });
+    } catch (error) {
+      console.error('Error fetching resource:', error);
+      set({ 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'An unknown error occurred',
+        selectedResource: null 
       });
     }
   },

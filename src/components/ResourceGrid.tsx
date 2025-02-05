@@ -5,6 +5,7 @@ import { Resource } from '../types';
 import SearchBar from './SearchBar';
 import ResourceCard from './ResourceCard';
 import PartnerScroll from './PartnerScroll';
+import { Grid } from '@mui/material';
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -54,7 +55,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }: PaginationProps) 
   );
 };
 
-const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
+export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const location = useLocation();
@@ -139,19 +140,16 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       <SearchBar 
         onSearchChange={handleSearchChange}
       />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
-        {loading && (
-          <div className="col-span-full flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-          </div>
-        )}
-        
-        {/* Remove filteredResources and use resources directly since they're already filtered by server */}
+      <Grid container spacing={3} sx={{ p: 2 }}>
         {resources.map((resource) => (
-          <ResourceCard key={resource.id} resource={resource} />
+          <Grid item xs={12} sm={6} md={4} lg={3} key={resource.id} sx={{ display: 'flex' }}>
+            <ResourceCard
+              resource={resource}
+              onClick={() => handleResourceClick(resource)}
+            />
+          </Grid>
         ))}
-        
-      </div>
+      </Grid>
       
       {totalPages > 1 && (
         <Pagination

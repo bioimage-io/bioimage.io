@@ -12,6 +12,7 @@ export interface Resource {
     badges?: Badge[];
     covers?: string[];
     type?: string;
+    documentation?: string;
   };
 }
 

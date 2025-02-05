@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 
 interface SearchBarProps {
-  onSearchChange: (query: string) => void;
+  onSearchChange: (value: string) => void;
+  onSearchConfirm: (value: string) => void;
 }
 
 const SearchBar: React.FC<SearchBarProps> = ({ onSearchChange }) => {
