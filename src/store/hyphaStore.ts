@@ -25,6 +25,7 @@ export interface HyphaState {
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
   hyphaClient: any; // TODO: Add proper type for hyphaClient
+  fetchResources: () => Promise<void>;
 }
 
 // Track initialization status outside the store
@@ -43,7 +44,11 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
   setResources: (resources) => set({ resources }),
-  setResourceType: (type) => set({ resourceType: type }),
+  setResourceType: (type) => {
+    set({ resourceType: type });
+    // Automatically fetch resources when type changes
+    get().fetchResources();
+  },
   initializeClient: async () => {
     const currentClient = get().client;
     if (currentClient && get().isInitialized) return currentClient;
@@ -78,6 +83,23 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     }
 
     return initializationPromise;
+  },
+  fetchResources: async () => {
+    const { server, resourceType } = get();
+    if (!server) return;
+
+    try {
+      // Add type filter to the query
+      const filter = resourceType ? { type: resourceType } : {};
+      const resources = await server.listChildren({
+        filter: filter
+      });
+      
+      set({ resources });
+    } catch (error) {
+      console.error('Failed to fetch resources:', error);
+      set({ resources: [] });
+    }
   }
 }));
 

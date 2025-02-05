@@ -4,7 +4,14 @@ export interface ResourceManifest {
   documentation?: string;
   tags?: string[];
   icon?: string;
+  links?: ResourceLink[];
   // Add other manifest fields as needed
+}
+
+export interface ResourceLink {
+  icon: string;
+  label: string;
+  url: string;
 }
 
 export interface Resource {
@@ -13,5 +20,6 @@ export interface Resource {
   download_count: number;
   view_count: number;
   last_modified: number;
+  
   // Add other resource fields as needed
 } 

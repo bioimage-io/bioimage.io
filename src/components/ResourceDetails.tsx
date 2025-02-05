@@ -86,6 +86,24 @@ export const ResourceDetails = () => {
           {documentation || manifest.description || ''}
         </ReactMarkdown>
       </div>
+
+      {manifest.links && (
+        <div className="resource-links">
+          <h3>Related Links</h3>
+          {manifest.links.map((link: {url: string, icon?: string, label: string}, index: number) => (
+            <a 
+              key={index} 
+              href={link.url} 
+              className="resource-link"
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              <span className="link-icon">{link.icon}</span>
+              <span className="link-label">{link.label}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }; 

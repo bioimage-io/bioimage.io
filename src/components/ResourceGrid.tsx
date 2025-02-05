@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import { Resource } from '../types';
+import SearchBar from './SearchBar';
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -59,6 +60,8 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [totalItems, setTotalItems] = useState(0);
   const location = useLocation();
   const { resourceType, setResourceType } = useHyphaStore();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [serverSearchQuery, setServerSearchQuery] = useState('');
   
   const ITEMS_PER_PAGE = 12;
 
@@ -89,26 +92,39 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
         // Construct the base URL
         let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${ITEMS_PER_PAGE}`;
         
-        // Add filters for resource type if specified
+        // Prepare keywords array
+        const keywords: string[] = [];
+        
         if (resourceType) {
-          const filters = JSON.stringify({ type: resourceType });
-          url += `&filters=${encodeURIComponent(filters)}`;
+          keywords.push(resourceType);
+        }
+        
+        // Add search terms if there's a confirmed search query
+        if (serverSearchQuery) {
+          keywords.push(...serverSearchQuery.split(',').map(k => k.trim()));
+        }
+        
+        // Add keywords to URL if we have any
+        if (keywords.length > 0) {
+          url += `&keywords=${encodeURIComponent(keywords.join(','))}`;
         }
         
         const response = await fetch(url);
         const data = await response.json();
         
-        setResources(data.items);
-        setTotalItems(data.total);
+        setResources(data.items || []);
+        setTotalItems(data.total || 0);
       } catch (error) {
         console.error('Error fetching resources:', error);
+        setResources([]);
+        setTotalItems(0);
       } finally {
         setLoading(false);
       }
     };
 
     fetchResources();
-  }, [location.pathname, currentPage, resourceType]);
+  }, [location.pathname, currentPage, resourceType, serverSearchQuery]);
 
   useEffect(() => {
     getCurrentType();
@@ -120,13 +136,40 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Remove the client-side filtering since we're now filtering on the server
-  const filteredResources = resources;
+  // Client-side filtering for immediate feedback
+  const filteredResources = (resources || []).filter(resource => {
+    if (!searchQuery) return true;
+    
+    const query = searchQuery.toLowerCase();
+    return (
+      resource.manifest.tags?.some(tag => tag?.toLowerCase().includes(query)) ||
+      resource.manifest.name?.toLowerCase().includes(query) ||
+      resource.manifest.description?.toLowerCase().includes(query)
+    );
+  });
+
+  // Handle immediate search for client-side filtering
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+  };
+
+  // Handle confirmed search for server-side filtering
+  const handleSearchConfirm = (query: string) => {
+    setSearchQuery(query);
+    setServerSearchQuery(query);
+    setCurrentPage(1);
+  };
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="container mx-auto px-4">
+        <SearchBar 
+          onSearchChange={handleSearchChange}
+          onSearchConfirm={handleSearchConfirm}
+        />
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        </div>
       </div>
     );
   }
@@ -135,6 +178,10 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="container mx-auto px-4">
+      <SearchBar 
+        onSearchChange={handleSearchChange}
+        onSearchConfirm={handleSearchConfirm}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
         {filteredResources.map((resource) => (
           <Link
@@ -178,16 +225,19 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
                     </span>
                   ))}
                 </div>
-
                 {/* Badges */}
                 <div className="flex flex-wrap gap-1.5">
-                  {resource.manifest.badges?.map((badge: string) => (
-                    <span
-                      key={badge}
-                      className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded-full border border-blue-100"
+                  {resource.manifest.badges?.map((badge) => (
+                    <a
+                      key={badge.url}
+                      href={badge.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded-full border border-blue-100 flex items-center gap-1 hover:bg-blue-100 transition-colors"
                     >
-                      {badge}
-                    </span>
+                      {badge.icon && <img src={badge.icon} alt="" className="h-4" />}
+                      {badge.label}
+                    </a>
                   ))}
                 </div>
               </div>
