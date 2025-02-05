@@ -6,6 +6,12 @@ on:
       - main  # or your default branch
   workflow_dispatch:
 
+# Add permissions block
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
