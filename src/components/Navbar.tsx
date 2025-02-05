@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import LoginButton from './LoginButton';
+import { BiCube } from 'react-icons/bi';
+import { BsDatabase } from 'react-icons/bs';
+import { HiOutlineBeaker } from 'react-icons/hi';
+import { IoDocumentTextOutline } from 'react-icons/io5';
+import { AiOutlineInfoCircle } from 'react-icons/ai';
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -22,11 +27,26 @@ const Navbar: React.FC = () => {
 
           {/* Center section with navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            <Link to="/models" className="px-3 py-2 text-gray-700 hover:text-gray-900">Models</Link>
-            <Link to="/datasets" className="px-3 py-2 text-gray-700 hover:text-gray-900">Datasets</Link>
-            <Link to="/applications" className="px-3 py-2 text-gray-700 hover:text-gray-900">Applications</Link>
-            <Link to="/docs" className="px-3 py-2 text-gray-700 hover:text-gray-900">Docs</Link>
-            <Link to="/about" className="px-3 py-2 text-gray-700 hover:text-gray-900">About</Link>
+            <Link to="/models" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+              <BiCube className="mr-2" size={20} />
+              Models
+            </Link>
+            <Link to="/datasets" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+              <BsDatabase className="mr-2" size={18} />
+              Datasets
+            </Link>
+            <Link to="/applications" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+              <HiOutlineBeaker className="mr-2" size={20} />
+              Applications
+            </Link>
+            <Link to="/docs" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+              <IoDocumentTextOutline className="mr-2" size={18} />
+              Docs
+            </Link>
+            <Link to="/about" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+              <AiOutlineInfoCircle className="mr-2" size={18} />
+              About
+            </Link>
           </div>
 
           {/* Right section with auth buttons */}
@@ -50,32 +70,37 @@ const Navbar: React.FC = () => {
           <div className="px-2 pt-2 pb-3 space-y-1">
             <Link 
               to="/models" 
-              className="block px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
             >
+              <BiCube className="mr-2" size={20} />
               Models
             </Link>
             <Link 
               to="/datasets" 
-              className="block px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
             >
+              <BsDatabase className="mr-2" size={18} />
               Datasets
             </Link>
             <Link 
               to="/applications" 
-              className="block px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
             >
+              <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
             <Link 
               to="/docs" 
-              className="block px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
             >
+              <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
             </Link>
             <Link 
               to="/about" 
-              className="block px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
             >
+              <AiOutlineInfoCircle className="mr-2" size={18} />
               About
             </Link>
           </div>

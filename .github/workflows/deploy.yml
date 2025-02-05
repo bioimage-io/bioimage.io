@@ -1,19 +1,19 @@
-name: Deploy to gh-pages
+name: Deploy to GitHub Pages
 
 on:
   push:
     branches:
-      - main  # or your default branch
+      - main
   workflow_dispatch:
 
 # Add permissions block
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,11 +49,23 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          CI: false  # This will prevent treating warnings as errors
+          CI: false
 
-      - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build
-          force_orphan: true  # Create a new orphan branch each time 
+          path: ./build
+
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 

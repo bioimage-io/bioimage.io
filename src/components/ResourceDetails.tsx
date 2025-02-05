@@ -26,7 +26,6 @@ export const ResourceDetails = () => {
         }
         const data = await response.json();
         setResource(data);
-        debugger
         // Fetch documentation if available
         if (data.manifest.documentation) {
           const docUrl = `https://hypha.aicell.io/${workspace}/artifacts/${name}/files/${data.manifest.documentation}`;

@@ -18,6 +18,7 @@ const AppContent: React.FC = () => {
       <Navbar />
       <main className="container mx-auto px-4">
         <PartnerScroll />
+        <SearchBar />
         {hasResourceId ? (
           <ResourceDetails />
         ) : (
@@ -29,7 +30,7 @@ const AppContent: React.FC = () => {
             <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
           </Routes>
         )}
-        <SearchBar />
+        
       </main>
     </div>
   );
