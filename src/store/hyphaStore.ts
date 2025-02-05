@@ -46,6 +46,8 @@ export interface HyphaState {
   isLoggingIn: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
+  isLoggedIn: boolean;
+  setLoggedIn: (status: boolean) => void;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -63,6 +65,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   isConnected: false,
   isLoggingIn: false,
   isAuthenticated: false,
+  isLoggedIn: false,
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -79,6 +82,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     }));
   },
   setTotalItems: (total) => set({ totalItems: total }),
+  setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
   connect: async (config: ConnectionConfig) => {
     try {
       const client = hyphaWebsocketClient;
@@ -90,12 +94,15 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       const artifactManager = await server.getService('public/artifact-manager');
 
+      const isAuthenticated = !!config.token;
+      
       set({
         client,
         server,
         artifactManager,
         isConnected: true,
-        isAuthenticated: !!config.token,
+        isAuthenticated,
+        isLoggedIn: isAuthenticated,
         user: server.config.user,
         isInitialized: true
       });
@@ -109,6 +116,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         artifactManager: null,
         isConnected: false,
         isAuthenticated: false,
+        isLoggedIn: false,
         user: null,
         isInitialized: false
       });
@@ -178,11 +186,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         token: token
       });
 
+      // Set both isAuthenticated and isLoggedIn to true after successful login
+      set({ 
+        isAuthenticated: true,
+        isLoggedIn: true 
+      });
+
     } catch (error) {
       console.error('Login failed:', error);
       set({ 
         isAuthenticated: false,
         isConnected: false,
+        isLoggedIn: false,
         user: null 
       });
       throw error;

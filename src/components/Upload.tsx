@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import JSZip from 'jszip';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
-import { Snackbar, LinearProgress, Alert } from '@mui/material';
+import { Snackbar, LinearProgress, Alert, Slider } from '@mui/material';
 import yaml from 'js-yaml';
 
 interface FileNode {
@@ -27,30 +27,66 @@ interface UploadStatus {
   progress?: number;
 }
 
+type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html';
+type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
+
 const Upload: React.FC = () => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager } = useHyphaStore();
+  const { artifactManager, isLoggedIn } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-  const getImageDataUrl = (content: string | ArrayBuffer, fileName: string): string => {
+  const isTextFile = (filename: string): boolean => {
+    const textExtensions: SupportedTextFiles[] = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
+    return textExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+  };
+
+  const isImageFile = (filename: string): boolean => {
+    const imageExtensions: SupportedImageFiles[] = ['.png', '.jpg', '.jpeg', '.gif'];
+    return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getImageDataUrl = async (content: string | ArrayBuffer, fileName: string): Promise<string> => {
     if (typeof content === 'string') {
       const encoder = new TextEncoder();
-      // Convert to Uint8Array first, then to ArrayBuffer
-      const uint8Array = encoder.encode(content);
-      content = uint8Array.buffer;
+      content = encoder.encode(content).buffer;
     }
-    
-    // Ensure we're working with a Uint8Array
-    const bytes = content instanceof ArrayBuffer ? new Uint8Array(content) : new Uint8Array(content);
+
+    const extension = fileName.toLowerCase().split('.').pop() || '';
+    const bytes = new Uint8Array(content as ArrayBuffer);
     const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
     const base64 = btoa(binary);
     
-    // Get correct mime type from file extension
-    const extension = fileName.toLowerCase().split('.').pop() || 'png';
     const mimeType = `image/${extension === 'jpg' ? 'jpeg' : extension}`;
-    
     return `data:${mimeType};base64,${base64}`;
+  };
+
+  const getEditorLanguage = (filename: string): string => {
+    const extension = filename.toLowerCase().split('.').pop() || '';
+    const languageMap: Record<string, string> = {
+      'py': 'python',
+      'js': 'javascript',
+      'ts': 'typescript',
+      'jsx': 'javascript',
+      'tsx': 'typescript',
+      'css': 'css',
+      'html': 'html',
+      'json': 'json',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'md': 'markdown',
+      'txt': 'plaintext'
+    };
+    return languageMap[extension] || 'plaintext';
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -66,7 +102,6 @@ const Upload: React.FC = () => {
           const pathParts = path.split('/');
           const fileName = pathParts[pathParts.length - 1];
           
-          // Read images as array buffer, other files as string
           const isImage = fileName.match(/\.(png|jpg|jpeg|gif)$/i);
           const content = await file.async(isImage ? 'arraybuffer' : 'string');
 
@@ -80,6 +115,11 @@ const Upload: React.FC = () => {
       }
 
       setFiles(fileNodes);
+
+      const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
+      if (rdfFile) {
+        handleFileSelect(rdfFile);
+      }
     } catch (error) {
       console.error('Error reading zip file:', error);
     }
@@ -92,8 +132,18 @@ const Upload: React.FC = () => {
     }
   });
 
-  const handleFileSelect = (file: FileNode) => {
+  const handleFileSelect = async (file: FileNode) => {
     setSelectedFile(file);
+    setImageUrl(null);
+    
+    if (isImageFile(file.name)) {
+      try {
+        const url = await getImageDataUrl(file.content, file.name);
+        setImageUrl(url);
+      } catch (error) {
+        console.error('Error generating image URL:', error);
+      }
+    }
   };
 
   const handleEditorChange = (value: string | undefined, file: FileNode) => {
@@ -221,10 +271,10 @@ const Upload: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Main content wrapper */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Main content wrapper - change overflow-hidden to overflow-auto */}
+      <div className="flex flex-1 overflow-auto">
         {/* Left sidebar - File tree */}
-        <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
+        <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
           <div className="p-4 border-b border-gray-200">
             <div 
               {...getRootProps()} 
@@ -265,8 +315,8 @@ const Upload: React.FC = () => {
           </div>
         </div>
 
-        {/* Main content area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Main content area - adjust overflow handling */}
+        <div className="flex-1 flex flex-col">
           {/* Status bar with upload button and progress */}
           <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
             <div className="flex flex-col flex-grow mr-4">
@@ -293,36 +343,68 @@ const Upload: React.FC = () => {
             </div>
             <button
               onClick={handleUpload}
-              disabled={uploadStatus?.severity === 'info' || files.length === 0}
+              disabled={uploadStatus?.severity === 'info' || files.length === 0 || !isLoggedIn}
               className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap
-                ${files.length === 0 || uploadStatus?.severity === 'info'
+                ${files.length === 0 || uploadStatus?.severity === 'info' || !isLoggedIn
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700'}`}
             >
-              {uploadStatus?.severity === 'info' ? 'Uploading...' : 'Upload to Hypha'}
+              {!isLoggedIn 
+                ? 'Please login to upload'
+                : uploadStatus?.severity === 'info' 
+                  ? 'Uploading...' 
+                  : 'Upload to Hypha'}
             </button>
           </div>
 
-          <div className="flex-1 p-6 overflow-y-auto">
+          {/* Content area - adjust padding and overflow */}
+          <div className="flex-1 p-6 overflow-auto">
             {selectedFile ? (
               <div className="h-full">
-                {selectedFile.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
-                  <img 
-                    src={getImageDataUrl(selectedFile.content, selectedFile.name)}
-                    alt={selectedFile.name} 
-                    className="max-w-full h-auto"
-                  />
+                {isImageFile(selectedFile.name) ? (
+                  <div className="flex flex-col gap-4">
+                    {imageUrl ? (
+                      <img 
+                        src={imageUrl}
+                        alt={selectedFile.name} 
+                        className="max-w-full h-auto"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-40 bg-gray-50 rounded-lg">
+                        <div className="text-gray-400">Loading image...</div>
+                      </div>
+                    )}
+                  </div>
+                ) : isTextFile(selectedFile.name) ? (
+                  <div className="flex flex-col gap-4">
+                    <Editor
+                      height="70vh"
+                      language={getEditorLanguage(selectedFile.name)}
+                      value={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
+                      onChange={(value) => handleEditorChange(value, selectedFile)}
+                      options={{
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: true,
+                        readOnly: !isTextFile(selectedFile.name),
+                        wordWrap: 'on',
+                        lineNumbers: 'on',
+                        renderWhitespace: 'selection',
+                        folding: true
+                      }}
+                    />
+                  </div>
                 ) : (
-                  <Editor
-                    height="calc(100vh - 12rem)"
-                    defaultLanguage="yaml"
-                    value={selectedFile.content as string}
-                    onChange={(value) => handleEditorChange(value, selectedFile)}
-                    options={{
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                    }}
-                  />
+                  <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
+                    <div className="bg-gray-50 p-6 rounded-lg">
+                      <h3 className="font-medium text-lg mb-4">File Information</h3>
+                      <div className="space-y-2">
+                        <p><span className="font-medium">Name:</span> {selectedFile.name}</p>
+                        <p><span className="font-medium">Size:</span> {formatFileSize(selectedFile.content instanceof ArrayBuffer ? selectedFile.content.byteLength : selectedFile.content.length)}</p>
+                        <p><span className="font-medium">Type:</span> {selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</p>
+                      </div>
+                      <p className="mt-4 text-sm text-gray-400">This file type cannot be previewed</p>
+                    </div>
+                  </div>
                 )}
               </div>
             ) : (
