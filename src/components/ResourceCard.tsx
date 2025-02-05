@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Resource } from '../types';
-import { Card, CardMedia, CardContent, IconButton } from '@mui/material';
+import { Card, CardMedia, CardContent, IconButton, Button } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
 
 interface ResourceCardProps {
   resource: Resource;
@@ -27,6 +28,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
     navigate(`/resources/${id}`);
   };
 
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click/navigation
+    const id = resource.id.split('/').pop();
+    window.open(`http://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+  };
+
   return (
     <Card 
       sx={{
@@ -36,10 +43,15 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         border: '1px solid rgba(0, 0, 0, 0.12)',
         boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)',
         cursor: 'pointer',
+        position: 'relative',
         '&:hover': {
           boxShadow: '0 4px 8px rgba(0, 0, 0, 0.12)',
           transform: 'translateY(-2px)',
-          transition: 'all 0.2s ease-in-out'
+          transition: 'all 0.2s ease-in-out',
+          '& .download-button': {
+            opacity: 1,
+            transform: 'translateY(0)',
+          },
         }
       }}
       onClick={handleClick}
@@ -146,6 +158,29 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
           </div>
         </div>
       </CardContent>
+
+      <Button
+        className="download-button"
+        onClick={handleDownload}
+        startIcon={<DownloadIcon />}
+        variant="contained"
+        size="small"
+        sx={{
+          position: 'absolute',
+          bottom: 16,
+          right: 16,
+          opacity: 0,
+          transform: 'translateY(10px)',
+          transition: 'all 0.2s ease-in-out',
+          backgroundColor: 'primary.main',
+          color: 'white',
+          '&:hover': {
+            backgroundColor: 'primary.dark',
+          },
+        }}
+      >
+        Download
+      </Button>
     </Card>
   );
 };

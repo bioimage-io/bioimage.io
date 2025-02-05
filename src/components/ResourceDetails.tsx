@@ -4,6 +4,8 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { Badge } from './Badge';
 import ReactMarkdown from 'react-markdown';
 import { Resource } from '../types/resource';
+import { Button } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -33,6 +35,13 @@ const ResourceDetails = () => {
 
     fetchDocumentation();
   }, [selectedResource?.id, selectedResource?.manifest.documentation]);
+
+  const handleDownload = () => {
+    const id = selectedResource?.id.split('/').pop();
+    if (id) {
+      window.open(`http://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    }
+  };
 
   if (isLoading) {
     return <div className="loading">Loading...</div>;
@@ -111,6 +120,27 @@ const ResourceDetails = () => {
           </div>
         </div>
       )}
+
+      <div style={{ 
+        marginTop: '2rem', 
+        paddingTop: '1rem',
+        borderTop: '1px solid rgba(0, 0, 0, 0.12)',
+        display: 'flex',
+        justifyContent: 'center'
+      }}>
+        <Button
+          onClick={handleDownload}
+          startIcon={<DownloadIcon />}
+          variant="contained"
+          size="large"
+          sx={{
+            minWidth: '200px',
+            py: 1.5,
+          }}
+        >
+          Download Resource
+        </Button>
+      </div>
     </div>
   );
 };
