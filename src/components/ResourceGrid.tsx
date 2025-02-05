@@ -69,8 +69,6 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
 
-  const ITEMS_PER_PAGE = 12;
-
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
     // Convert plural path to singular type

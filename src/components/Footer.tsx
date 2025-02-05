@@ -41,7 +41,7 @@ const footerLinks = [
 
 const Footer: React.FC = () => {
   return (
-    <footer className="w-full py-4 px-4 mt-auto">
+    <footer className="w-full py-4 px-4 mt-16 bg-gray-50">
       <div className="flex flex-wrap justify-center items-start gap-2 mb-4">
         {footerLinks.map((link, index) => (
           <div key={index} className="w-[16%] min-w-[120px] text-center">
