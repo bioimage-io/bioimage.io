@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Logo from '../logo.svg';
+import LoginButton from './LoginButton';
+import { useHyphaStore } from '../store/hyphaStore';
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -31,10 +33,7 @@ const Navbar: React.FC = () => {
 
           {/* Right section with auth buttons */}
           <div className="flex items-center space-x-4">
-            <button className="text-gray-700 hover:text-gray-900">Log in</button>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-              Sign Up
-            </button>
+            <LoginButton />
             
             {/* Mobile menu button */}
             <button 

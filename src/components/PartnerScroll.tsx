@@ -1,84 +1,60 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface Partner {
   name: string;
   icon: string;
-  link: string;
+  link?: string;
+  id: string;
 }
 
-
-const partners: Partner[] = [
-  {
-    name: 'ZeroCostDL4Mic',
-    icon: 'https://raw.githubusercontent.com/HenriquesLab/ZeroCostDL4Mic/master/Wiki_files/ZeroCostLogo.png',
-    link: 'https://github.com/HenriquesLab/ZeroCostDL4Mic'
-  },
-  {
-    name: 'DeepImageJ',
-    icon: 'https://raw.githubusercontent.com/deepimagej/models/master/logos/icon.png',
-    link: 'https://deepimagej.github.io/'
-  },
-  {
-    name: 'Fiji',
-    icon: 'https://fiji.sc/site/logo.png',
-    link: 'https://fiji.sc'
-  },
-  {
-    name: 'ImJoy',
-    icon: 'https://imjoy.io/static/img/imjoy-icon.svg',
-    link: 'https://imjoy.io'
-  },
-  {
-    name: 'ilastik',
-    icon: 'https://raw.githubusercontent.com/ilastik/bioimage-io-resources/main/image/ilastik-fist-icon.png',
-    link: 'https://www.ilastik.org'
-  },
-  {
-    name: 'HPA',
-    icon: 'https://raw.githubusercontent.com/bioimage-io/tfjs-bioimage-io/master/apps/hpa-logo.gif',
-    link: 'https://www.proteinatlas.org'
-  },
-  {
-    name: 'Icy',
-    icon: 'https://raw.githubusercontent.com/Icy-imaging/icy-bioimage-io/main/icy_logo.svg',
-    link: 'http://icy.bioimageanalysis.org'
-  },
-  {
-    name: 'QuPath',
-    icon: 'https://raw.githubusercontent.com/qupath/qupath-bioimage-io/main/logos/QuPath_256.png',
-    link: 'https://qupath.github.io'
-  },
-  {
-    name: 'StarDist',
-    icon: 'https://raw.githubusercontent.com/stardist/stardist-bioimage-io/main/logos/stardist_256.png',
-    link: 'https://github.com/stardist/stardist'
-  },
-  {
-    name: 'BiaPy',
-    icon: 'https://raw.githubusercontent.com/BiaPyX/BiaPy-bioimage-io/main/logos/BiaPy_256.png',
-    link: 'https://github.com/BiaPyX/BiaPy'
-  },
-  {
-    name: 'DL4MicEverywhere',
-    icon: 'https://raw.githubusercontent.com/HenriquesLab/DL4MicEverywhere-bioimage-io/main/logo/dl4miceverywhere-logo-small.png',
-    link: 'https://github.com/HenriquesLab/DL4MicEverywhere'
-  },
-  {
-    name: 'SpotMAX',
-    icon: 'https://raw.githubusercontent.com/SchmollerLab/SpotMAX/refs/heads/main/spotmax/resources/spotMAX_logo.svg',
-    link: 'https://github.com/SchmollerLab/SpotMAX'
-  },
-  {
-    name: 'CAREamics',
-    icon: 'https://raw.githubusercontent.com/CAREamics/.github/refs/heads/main/profile/images/logo_careamics_128.png',
-    link: 'https://github.com/CAREamics'
-  }
-];
+interface ManifestResponse {
+  manifest: {
+    config: {
+      partners: Array<{
+        name: string;
+        icon: string;
+        id: string;
+      }>;
+    };
+  };
+}
 
 const PartnerScroll: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPartners = async () => {
+      try {
+        const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
+        if (!response.ok) {
+          throw new Error('Failed to fetch partners');
+        }
+        const data: ManifestResponse = await response.json();
+        
+        // Transform the partners data
+        const partnersList = data.manifest.config.partners.map(partner => ({
+          name: partner.name,
+          icon: partner.icon,
+          id: partner.id,
+          // You can construct a default link if needed
+          link: `https://bioimage.io/#/partners/${partner.id}`
+        }));
+        
+        setPartners(partnersList);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load partners');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPartners();
+  }, []);
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -87,9 +63,25 @@ const PartnerScroll: React.FC = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-32">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center text-red-500 p-4">
+        Error loading partners: {error}
+      </div>
+    );
+  }
+
   return (
     <div className="relative max-w-[1400px] mx-auto px-4 mt-8">
-      <h2 className="text-2xl font-bold text-center mb-6">Community Partners</h2>
+      <h2 className="text font-bold text-center mb-6">Community Partners</h2>
       {showLeftArrow && (
         <button
           onClick={() => scroll('left')}
@@ -114,11 +106,21 @@ const PartnerScroll: React.FC = () => {
       >
         {partners.map((partner) => (
           <a
-            key={partner.name}
+            key={partner.id}
             href={partner.link}
             className="flex flex-col items-center space-y-2 min-w-[100px]"
+            target="_blank"
+            rel="noopener noreferrer"
           >
-            <img src={partner.icon} alt={partner.name} className="w-12 h-12" />
+            <img 
+              src={partner.icon} 
+              alt={partner.name} 
+              className="w-12 h-12 object-contain"
+              onError={(e) => {
+                const img = e.target as HTMLImageElement;
+                img.src = '/fallback-icon.png'; // Add a fallback icon
+              }}
+            />
             <span className="text-sm text-gray-600">{partner.name}</span>
           </a>
         ))}
