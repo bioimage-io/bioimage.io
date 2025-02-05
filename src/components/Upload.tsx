@@ -36,6 +36,7 @@ const Upload: React.FC = () => {
   const { artifactManager, isLoggedIn } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [showDragDrop, setShowDragDrop] = useState(!files.length);
 
   const isTextFile = (filename: string): boolean => {
     const textExtensions: SupportedTextFiles[] = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
@@ -115,6 +116,7 @@ const Upload: React.FC = () => {
       }
 
       setFiles(fileNodes);
+      setShowDragDrop(false);
 
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
@@ -271,25 +273,19 @@ const Upload: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Main content wrapper - change overflow-hidden to overflow-auto */}
       <div className="flex flex-1 overflow-auto">
         {/* Left sidebar - File tree */}
         <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
-          <div className="p-4 border-b border-gray-200">
-            <div 
-              {...getRootProps()} 
-              className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer text-center"
-            >
-              <input {...getInputProps()} />
-              {isDragActive ? (
-                <p className="text-gray-600 text-sm">Drop the zip file here...</p>
-              ) : (
-                <div>
-                  <p className="text-gray-600 text-sm mb-1">Drag & drop a zip file here,</p>
-                  <p className="text-gray-600 text-sm">or click to select one</p>
-                </div>
-              )}
-            </div>
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-600 font-medium">Files</span>
+            {files.length > 0 && (
+              <button
+                onClick={() => setShowDragDrop(true)}
+                className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+              >
+                Upload New
+              </button>
+            )}
           </div>
 
           {/* Scrollable file list */}
@@ -315,7 +311,7 @@ const Upload: React.FC = () => {
           </div>
         </div>
 
-        {/* Main content area - adjust overflow handling */}
+        {/* Main content area */}
         <div className="flex-1 flex flex-col">
           {/* Status bar with upload button and progress */}
           <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
@@ -357,9 +353,26 @@ const Upload: React.FC = () => {
             </button>
           </div>
 
-          {/* Content area - adjust padding and overflow */}
+          {/* Content area */}
           <div className="flex-1 p-6 overflow-auto">
-            {selectedFile ? (
+            {showDragDrop ? (
+              <div className="h-full flex items-center justify-center">
+                <div 
+                  {...getRootProps()} 
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer text-center max-w-xl w-full mx-auto"
+                >
+                  <input {...getInputProps()} />
+                  {isDragActive ? (
+                    <p className="text-gray-600">Drop the zip file here...</p>
+                  ) : (
+                    <div>
+                      <p className="text-gray-600 mb-2">Drag & drop a zip file here,</p>
+                      <p className="text-gray-500">or click to select one</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : selectedFile ? (
               <div className="h-full">
                 {isImageFile(selectedFile.name) ? (
                   <div className="flex flex-col gap-4">

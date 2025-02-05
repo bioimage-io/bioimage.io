@@ -140,13 +140,22 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       <SearchBar 
         onSearchChange={handleSearchChange}
       />
-      <Grid container spacing={3} sx={{ p: 2 }}>
+      <Grid container spacing={3} sx={{ padding: 2 }}>
         {resources.map((resource) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={resource.id} sx={{ display: 'flex' }}>
-            <ResourceCard
-              resource={resource}
-              onClick={() => handleResourceClick(resource)}
-            />
+          <Grid 
+            item 
+            key={resource.id} 
+            xs={12}
+            sm={6} 
+            md={4} 
+            lg={3} 
+            sx={{
+              minWidth: 280,
+              maxWidth: 320,
+              margin: '0 auto'  // Centers the cards if they don't fill the row
+            }}
+          >
+            <ResourceCard resource={resource} />
           </Grid>
         ))}
       </Grid>

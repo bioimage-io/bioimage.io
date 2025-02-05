@@ -44,16 +44,22 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
       }}
       onClick={handleClick}
     >
-      <CardMedia
-        component="img"
-        height="140"
-        image={covers[currentImageIndex] || '/placeholder-image.png'}
-        alt={resource.manifest.name}
-        sx={{
-          objectFit: 'cover',
-          borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
-        }}
-      />
+      <div style={{ position: 'relative', paddingTop: '56.25%' }}> {/* 16:9 aspect ratio container */}
+        <CardMedia
+          component="img"
+          image={covers[currentImageIndex] || '/placeholder-image.png'}
+          alt={resource.manifest.name}
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
+          }}
+        />
+      </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }}>
         <div className="flex items-start gap-3 mb-3">
           <div className="flex-shrink-0 w-8">
