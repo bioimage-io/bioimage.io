@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginButton from './LoginButton';
 import { BiCube } from 'react-icons/bi';
 import { BsDatabase } from 'react-icons/bs';
@@ -10,6 +10,7 @@ import { AiOutlineInfoCircle } from 'react-icons/ai';
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isActivePath = (path: string): boolean => {
     return location.pathname.startsWith(path);
@@ -77,13 +78,14 @@ const Navbar: React.FC = () => {
 
           {/* Right section with auth buttons */}
           <div className="flex items-center space-x-4">
-            <Link
-              to="/upload-model"
-              className="hidden md:flex items-center px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-            >
-              <IoCloudUploadOutline className="mr-2" size={18} />
-              Upload Model
-            </Link>
+            {location.pathname !== '/upload' && (
+              <Link
+                to="/upload"
+                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              >
+                Upload
+              </Link>
+            )}
             <LoginButton />
             
             {/* Mobile menu button */}
@@ -102,7 +104,7 @@ const Navbar: React.FC = () => {
         <div className={`md:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
           <div className="px-2 pt-2 pb-3 space-y-1">
             <Link 
-              to="/upload-model" 
+              to="/upload" 
               className="flex items-center px-3 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700"
             >
               <IoCloudUploadOutline className="mr-2" size={18} />

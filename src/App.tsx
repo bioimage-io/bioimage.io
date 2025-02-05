@@ -10,6 +10,7 @@ import SearchBar from './components/SearchBar';
 import About from './components/About';
 import Footer from './components/Footer';
 import UploadModel from './components/UploadModel';
+import Upload from './components/Upload';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -65,7 +66,7 @@ const AppContent: React.FC = () => {
           <Route path="/applications" element={<ResourceGrid type="application" />} />
           <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
           <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
-          <Route path="/upload-model" element={<UploadModel />} />
+          <Route path="/upload" element={<Upload />} />
         </Routes>
       </main>
       <Footer />
@@ -75,16 +76,6 @@ const AppContent: React.FC = () => {
 
 // Main App component that provides Router context
 const App: React.FC = () => {
-  const { initializeClient } = useHyphaStore();
-
-  const initializeClientCallback = useCallback(() => {
-    initializeClient();
-  }, [initializeClient]);
-
-  useEffect(() => {
-    initializeClientCallback();
-  }, [initializeClientCallback]);
-
   return (
     <HashRouter>
       <AppContent />

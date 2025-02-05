@@ -28,14 +28,7 @@ const getSavedToken = () => {
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { client, user, setUser, setServer, initializeClient } = useHyphaStore();
-
-  // Initialize client only once when component mounts
-  useEffect(() => {
-    if (client) {
-      initializeClient();
-    }
-  }, [client, initializeClient]);
+  const { client, user, connect, setUser, server } = useHyphaStore();
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -55,7 +48,6 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     localStorage.removeItem('token');
     localStorage.removeItem('tokenExpiry');
     setUser(null);
-    setServer(null);
     setIsDropdownOpen(false);
   };
 
@@ -63,16 +55,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     window.open(context.login_url);
   };
 
-  const login = async () => {
-    const currentClient = await initializeClient();
-    
+  const login = async () => {    
     const config: LoginConfig = {
       server_url: serverUrl,
       login_callback: loginCallback,
     };
 
     try {
-      const token = await currentClient.login(config);
+      const token = await client.login(config);
       localStorage.setItem("token", token);
       localStorage.setItem("tokenExpiry", new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString());
       return token;
@@ -86,7 +76,6 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     setIsLoggingIn(true);
     
     try {
-      const currentClient = await initializeClient();
       let token = getSavedToken();
       
       if (!token) {
@@ -95,16 +84,10 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           throw new Error('Failed to obtain token');
         }
       }
-
-      // Connect with authentication
-      const server = await currentClient.connectToServer({
+      await connect({
         server_url: serverUrl,
         token: token,
       });
-      
-      setServer(server);
-      setUser(server.config.user);
-      console.log("Logged in as:", server.config.user);
     } catch (error) {
       console.error("Error during login:", error);
       localStorage.removeItem("token");
@@ -112,14 +95,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     } finally {
       setIsLoggingIn(false);
     }
-  }, [initializeClient, setServer, setUser]);
+  }, [setUser, server]);
 
-  // Update the auto-login effect
   useEffect(() => {
-    if (user) {
-      handleLogin();
+    if (server) {
+      setUser(server.config.user);
+      console.log("Logged in as:", server.config.user);
     }
-  }, [user, handleLogin]);
+  }, [server]);
 
   return (
     <div className={className}>

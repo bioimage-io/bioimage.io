@@ -10,21 +10,29 @@ interface Resource {
   tags?: string[];
 }
 
+// Add a type for connection config
+interface ConnectionConfig {
+  server_url: string;
+  token?: string;
+}
+
+interface LoginConfig {
+  server_url: string;
+  login_callback?: (context: any) => void;
+}
+
 export interface HyphaState {
   client: typeof hyphaWebsocketClient | null;
   server: any;
-  setClient: (client: typeof hyphaWebsocketClient) => void;
   setServer: (server: any) => void;
   user: any;
   setUser: (user: any) => void;
   isInitialized: boolean;
   setIsInitialized: (isInitialized: boolean) => void;
-  initializeClient: () => Promise<typeof hyphaWebsocketClient>;
   resources: Resource[];
   setResources: (resources: Resource[]) => void;
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
-  hyphaClient: any; // TODO: Add proper type for hyphaClient
   fetchResources: (page: number, searchQuery?: string) => Promise<void>;
   resourceTypes: string[];
   setResourceTypes: (types: string[]) => void;
@@ -32,14 +40,16 @@ export interface HyphaState {
   itemsPerPage: number;
   totalItems: number;
   setTotalItems: (total: number) => void;
+  artifactManager: any;
+  isConnected: boolean;
+  connect: (config: ConnectionConfig) => Promise<any>;
+  isLoggingIn: boolean;
+  isAuthenticated: boolean;
+  login: (username: string, password: string) => Promise<void>;
 }
 
-// Track initialization status outside the store
-let initializationPromise: Promise<typeof hyphaWebsocketClient> | null = null;
-let isConnecting = false;
-
 export const useHyphaStore = create<HyphaState>((set, get) => ({
-  client: null,
+  client: hyphaWebsocketClient,
   server: null,
   user: null,
   isInitialized: false,
@@ -49,7 +59,10 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   page: 0,
   itemsPerPage: 12,
   totalItems: 0,
-  setClient: (client) => set({ client }),
+  artifactManager: null,
+  isConnected: false,
+  isLoggingIn: false,
+  isAuthenticated: false,
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -66,40 +79,41 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     }));
   },
   setTotalItems: (total) => set({ totalItems: total }),
-  initializeClient: async () => {
-    const currentClient = get().client;
-    if (currentClient && get().isInitialized) return currentClient;
-    
-    // Prevent multiple concurrent connection attempts
-    if (isConnecting) {
-      return initializationPromise;
-    }
-    
-    if (!initializationPromise) {
-      isConnecting = true;
-      // Create the client first
+  connect: async (config: ConnectionConfig) => {
+    try {
       const client = hyphaWebsocketClient;
-      set({ client });
+      const server = await client.connectToServer(config);
       
-      // Then connect to server without authentication
-      initializationPromise = client.connectToServer({
-        name: 'bioimage-model-zoo',
-        server_url: 'https://hypha.aicell.io',
-      }).then(server => {
-        set({ server, isInitialized: true });
-        console.log('Hypha client initialized');
-        isConnecting = false;
-        return client;
-      }).catch(error => {
-        console.error('Failed to initialize Hypha client:', error);
-        set({ client: null, isInitialized: false });
-        initializationPromise = null;
-        isConnecting = false;
-        throw error;
-      });
-    }
+      if (!server) {
+        throw new Error('Failed to connect to server');
+      }
 
-    return initializationPromise;
+      const artifactManager = await server.getService('public/artifact-manager');
+
+      set({
+        client,
+        server,
+        artifactManager,
+        isConnected: true,
+        isAuthenticated: !!config.token,
+        user: server.config.user,
+        isInitialized: true
+      });
+
+      return server;
+    } catch (error) {
+      console.error('Failed to connect to Hypha:', error);
+      set({ 
+        client: null,
+        server: null,
+        artifactManager: null,
+        isConnected: false,
+        isAuthenticated: false,
+        user: null,
+        isInitialized: false
+      });
+      throw error;
+    }
   },
   fetchResources: async (page: number, searchQuery?: string) => {
     try {
@@ -135,7 +149,45 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         totalItems: 0
       });
     }
-  }
-}));
+  },
+  login: async (username: string, password: string) => {
+    const state = get();
+    
+    if (state.isLoggingIn || state.isAuthenticated) {
+      return;
+    }
 
-// Remove the separate initialization function since it's now part of the store 
+    set({ isLoggingIn: true });
+
+    try {
+      const client = hyphaWebsocketClient;
+
+      // First step: Get the token through login
+      const loginConfig: LoginConfig = {
+        server_url: 'https://hypha.aicell.io',
+      };
+
+      const token = await client.login(loginConfig);
+      if (!token) {
+        throw new Error('Login failed - no token received');
+      }
+
+      // Use the new connect function with the token
+      await get().connect({
+        server_url: 'https://hypha.aicell.io',
+        token: token
+      });
+
+    } catch (error) {
+      console.error('Login failed:', error);
+      set({ 
+        isAuthenticated: false,
+        isConnected: false,
+        user: null 
+      });
+      throw error;
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  }
+})); 
