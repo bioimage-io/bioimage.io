@@ -9,6 +9,7 @@ import Snackbar from './components/Snackbar';
 import SearchBar from './components/SearchBar';
 import About from './components/About';
 import Footer from './components/Footer';
+import UploadModel from './components/UploadModel';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -64,6 +65,7 @@ const AppContent: React.FC = () => {
           <Route path="/applications" element={<ResourceGrid type="application" />} />
           <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
           <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
+          <Route path="/upload-model" element={<UploadModel />} />
         </Routes>
       </main>
       <Footer />
