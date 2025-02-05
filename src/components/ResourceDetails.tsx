@@ -136,6 +136,10 @@ const ResourceDetails = () => {
           sx={{
             minWidth: '200px',
             py: 1.5,
+            backgroundColor: '#2563eb', // blue-600
+            '&:hover': {
+              backgroundColor: '#1d4ed8', // blue-700 for hover
+            },
           }}
         >
           Download Resource

@@ -172,10 +172,10 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
           opacity: 0,
           transform: 'translateY(10px)',
           transition: 'all 0.2s ease-in-out',
-          backgroundColor: 'primary.main',
+          backgroundColor: '#2563eb',
           color: 'white',
           '&:hover': {
-            backgroundColor: 'primary.dark',
+            backgroundColor: '#1d4ed8',
           },
         }}
       >
