@@ -92,21 +92,16 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
         // Construct the base URL
         let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${ITEMS_PER_PAGE}`;
         
-        // Prepare keywords array
-        const keywords: string[] = [];
-        
+        // Add type filter if resourceType is specified
         if (resourceType) {
-          keywords.push(resourceType);
+          const filters = JSON.stringify({ type: resourceType });
+          url += `&filters=${encodeURIComponent(filters)}`;
         }
         
-        // Add search terms if there's a confirmed search query
+        // Add search keywords if there's a confirmed search query
         if (serverSearchQuery) {
-          keywords.push(...serverSearchQuery.split(',').map(k => k.trim()));
-        }
-        
-        // Add keywords to URL if we have any
-        if (keywords.length > 0) {
-          url += `&keywords=${encodeURIComponent(keywords.join(','))}`;
+          const keywords = serverSearchQuery.split(',').map(k => k.trim()).join(',');
+          url += `&keywords=${encodeURIComponent(keywords)}`;
         }
         
         const response = await fetch(url);

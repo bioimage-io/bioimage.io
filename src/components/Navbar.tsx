@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import LoginButton from './LoginButton';
 import { BiCube } from 'react-icons/bi';
 import { BsDatabase } from 'react-icons/bs';
@@ -9,6 +9,27 @@ import { AiOutlineInfoCircle } from 'react-icons/ai';
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const location = useLocation();
+
+  const isActivePath = (path: string): boolean => {
+    return location.pathname.startsWith(path);
+  };
+
+  const navLinkClasses = (path: string): string => {
+    const baseClasses = "flex items-center px-3 py-2";
+    const activeClasses = "text-blue-600 font-medium";
+    const inactiveClasses = "text-gray-700 hover:text-gray-900";
+    
+    return `${baseClasses} ${isActivePath(path) ? activeClasses : inactiveClasses}`;
+  };
+
+  const mobileNavLinkClasses = (path: string): string => {
+    const baseClasses = "flex items-center px-3 py-2 rounded-md hover:bg-gray-50";
+    const activeClasses = "text-blue-600 font-medium bg-blue-50";
+    const inactiveClasses = "text-gray-700 hover:text-gray-900";
+    
+    return `${baseClasses} ${isActivePath(path) ? activeClasses : inactiveClasses}`;
+  };
 
   return (
     <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
@@ -20,30 +41,30 @@ const Navbar: React.FC = () => {
               <img 
                 src="https://bioimage.io/static/img/bioimage-io-logo.svg"
                 alt="BioImage.IO"
-                className="h-8"
+                className="h-12"
               />
             </Link>
           </div>
 
           {/* Center section with navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            <Link to="/models" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+            <Link to="/models" className={navLinkClasses("/models")}>
               <BiCube className="mr-2" size={20} />
               Models
             </Link>
-            <Link to="/datasets" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+            <Link to="/datasets" className={navLinkClasses("/datasets")}>
               <BsDatabase className="mr-2" size={18} />
               Datasets
             </Link>
-            <Link to="/applications" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+            <Link to="/applications" className={navLinkClasses("/applications")}>
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
-            <Link to="/docs" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+            <Link to="/docs" className={navLinkClasses("/docs")}>
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
             </Link>
-            <Link to="/about" className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900">
+            <Link to="/about" className={navLinkClasses("/about")}>
               <AiOutlineInfoCircle className="mr-2" size={18} />
               About
             </Link>
@@ -70,35 +91,35 @@ const Navbar: React.FC = () => {
           <div className="px-2 pt-2 pb-3 space-y-1">
             <Link 
               to="/models" 
-              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className={mobileNavLinkClasses("/models")}
             >
               <BiCube className="mr-2" size={20} />
               Models
             </Link>
             <Link 
               to="/datasets" 
-              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className={mobileNavLinkClasses("/datasets")}
             >
               <BsDatabase className="mr-2" size={18} />
               Datasets
             </Link>
             <Link 
               to="/applications" 
-              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className={mobileNavLinkClasses("/applications")}
             >
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
             <Link 
               to="/docs" 
-              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className={mobileNavLinkClasses("/docs")}
             >
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
             </Link>
             <Link 
               to="/about" 
-              className="flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+              className={mobileNavLinkClasses("/about")}
             >
               <AiOutlineInfoCircle className="mr-2" size={18} />
               About
