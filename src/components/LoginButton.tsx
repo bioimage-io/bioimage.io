@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import type { LoginConfig } from 'hypha-rpc';
 import { UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 
 interface LoginButtonProps {
   className?: string;
+}
+
+interface LoginConfig {
+  server_url: string;
+  login_callback: (context: { login_url: string }) => void;
 }
 
 const serverUrl = "https://hypha.aicell.io";
@@ -28,10 +32,10 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
 
   // Initialize client only once when component mounts
   useEffect(() => {
-    if (!client) {
-      initializeClient().catch(console.error);
+    if (client) {
+      initializeClient();
     }
-  }, []); // Remove client and initializeClient from dependencies
+  }, [client, initializeClient]);
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -78,7 +82,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = useCallback(async () => {
     setIsLoggingIn(true);
     
     try {
@@ -108,15 +112,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     } finally {
       setIsLoggingIn(false);
     }
-  };
+  }, [initializeClient, setServer, setUser]);
 
   // Update the auto-login effect
   useEffect(() => {
-    const savedToken = getSavedToken();
-    if (savedToken && !user) {
+    if (user) {
       handleLogin();
     }
-  }, []); // Only run once on mount
+  }, [user, handleLogin]);
 
   return (
     <div className={className}>

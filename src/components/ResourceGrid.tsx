@@ -1,5 +1,4 @@
-import React from 'react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
@@ -63,8 +62,7 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   
   const ITEMS_PER_PAGE = 12;
 
-  // Update getCurrentType to convert plural to singular
-  const getCurrentType = () => {
+  const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
     // Convert plural path to singular type
     const typeMap: { [key: string]: string } = {
@@ -74,13 +72,13 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       'notebooks': 'notebook'
     };
     return typeMap[path] || null;
-  };
+  }, [location.pathname]);
 
   useEffect(() => {
     // Update resource type in store when path changes
     const currentType = getCurrentType();
     setResourceType(currentType);
-  }, [location.pathname, setResourceType]);
+  }, [getCurrentType, setResourceType]);
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -112,6 +110,10 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     fetchResources();
   }, [location.pathname, currentPage, resourceType]);
 
+  useEffect(() => {
+    getCurrentType();
+  }, [getCurrentType]);
+
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     // Scroll to top when page changes
@@ -133,7 +135,7 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="container mx-auto px-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
         {filteredResources.map((resource) => (
           <Link
             key={resource.id}
@@ -141,19 +143,19 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
             className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200"
           >
             <div className="p-6">
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-start gap-2 mb-3">
                 {resource.manifest.icon ? (
                   <img
                     src={resource.manifest.icon}
                     alt={resource.manifest.name}
-                    className="w-8 h-8 object-contain"
+                    className="w-8 h-8 object-contain flex-shrink-0"
                   />
                 ) : resource.manifest.id_emoji ? (
-                  <span className="text-2xl">{resource.manifest.id_emoji}</span>
+                  <span className="text-2xl flex-shrink-0">{resource.manifest.id_emoji}</span>
                 ) : (
-                  <div className="w-8 h-8 bg-gray-200 rounded-full" />
+                  <div className="w-8 h-8 bg-gray-200 rounded-full flex-shrink-0" />
                 )}
-                <h3 className="text-lg font-semibold">{resource.manifest.name}</h3>
+                <h3 className="text-lg font-semibold break-words">{resource.manifest.name}</h3>
               </div>
               
               <p className="text-gray-600 mb-4 line-clamp-2">
@@ -162,7 +164,7 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
               {/* Tags */}
               <div className="flex flex-wrap gap-2">
-                {resource.manifest.tags?.slice(0, 3).map((tag) => (
+                {resource.manifest.tags?.slice(0, 3).map((tag: string) => (
                   <span
                     key={tag}
                     className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded-full"
@@ -173,18 +175,14 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
               </div>
 
               {/* Badges */}
-              {resource.manifest.badges && resource.manifest.badges.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {resource.manifest.badges.map((badge) => (
-                    <span
-                      key={badge}
-                      className="px-2 py-1 bg-blue-100 text-blue-600 text-sm rounded-full"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {resource.manifest.badges?.map((badge: string) => (
+                <span
+                  key={badge}
+                  className="px-2 py-1 bg-blue-100 text-blue-600 text-sm rounded-full"
+                >
+                  {badge}
+                </span>
+              ))}
             </div>
           </Link>
         ))}

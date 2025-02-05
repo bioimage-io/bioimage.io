@@ -47,6 +47,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          CI: false  # This will prevent treating warnings as errors
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

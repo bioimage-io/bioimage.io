@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import SearchBar from './components/SearchBar';
@@ -39,10 +39,13 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   const { initializeClient } = useHyphaStore();
 
+  const initializeClientCallback = useCallback(() => {
+    initializeClient();
+  }, [initializeClient]);
+
   useEffect(() => {
-    // Initialize Hypha client only once when app starts
-    initializeClient().catch(console.error);
-  }, []); // Remove initializeClient from dependencies
+    initializeClientCallback();
+  }, [initializeClientCallback]);
 
   return (
     <Router>

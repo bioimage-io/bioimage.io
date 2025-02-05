@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from './Badge';
-import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
+import { Resource } from '../types/resource';
 
 export const ResourceDetails = () => {
   const [searchParams] = useSearchParams();
-  const [resource, setResource] = useState(null);
+  const [resource, setResource] = useState<Resource | null>(null);
+  const [documentation, setDocumentation] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const { hyphaClient } = useHyphaStore();
 
   useEffect(() => {
     const fetchResource = async () => {
@@ -17,17 +17,34 @@ export const ResourceDetails = () => {
 
       try {
         setLoading(true);
-        const response = await hyphaClient.getArtifact(`bioimage-io/${id}`);
-        setResource(response);
+        const [workspace, name] = id.split('/');
+        const url = `https://hypha.aicell.io/${workspace}/artifacts/${name}`;
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch resource: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setResource(data);
+        debugger
+        // Fetch documentation if available
+        if (data.manifest.documentation) {
+          const docUrl = `https://hypha.aicell.io/${workspace}/artifacts/${name}/files/${data.manifest.documentation}`;
+          const docResponse = await fetch(docUrl);
+          if (docResponse.ok) {
+            const docText = await docResponse.text();
+            setDocumentation(docText);
+          }
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Error fetching resource:', err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchResource();
-  }, [searchParams, hyphaClient]);
+  }, [searchParams]);
 
   if (loading) return <div>Loading...</div>;
   if (!resource) return <div>Resource not found</div>;
@@ -66,7 +83,9 @@ export const ResourceDetails = () => {
       </div>
 
       <div className="prose max-w-none">
-        <ReactMarkdown>{manifest.documentation || manifest.description}</ReactMarkdown>
+        <ReactMarkdown>
+          {documentation || manifest.description || ''}
+        </ReactMarkdown>
       </div>
     </div>
   );

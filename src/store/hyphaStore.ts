@@ -10,7 +10,7 @@ interface Resource {
   tags?: string[];
 }
 
-interface HyphaState {
+export interface HyphaState {
   client: typeof hyphaWebsocketClient | null;
   server: any;
   setClient: (client: typeof hyphaWebsocketClient) => void;
@@ -24,6 +24,7 @@ interface HyphaState {
   setResources: (resources: Resource[]) => void;
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
+  hyphaClient: any; // TODO: Add proper type for hyphaClient
 }
 
 // Track initialization status outside the store
@@ -36,7 +37,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   user: null,
   isInitialized: false,
   resources: [],
-  resourceType: null,
+  resourceType: 'model',
   setClient: (client) => set({ client }),
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
