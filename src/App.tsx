@@ -1,10 +1,14 @@
 import React, { useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import PartnerScroll from './components/PartnerScroll';
+
 import { useHyphaStore } from './store/hyphaStore';
 import ResourceGrid from './components/ResourceGrid';
 import { ResourceDetails } from './components/ResourceDetails';
+import Snackbar from './components/Snackbar';
+import SearchBar from './components/SearchBar';
+import About from './components/About';
+import Footer from './components/Footer';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -12,23 +16,57 @@ const AppContent: React.FC = () => {
   const searchParams = new URLSearchParams(location.search);
   const hasResourceId = searchParams.has('id');
 
+  // Add state for Snackbar
+  const [snackbarOpen, setSnackbarOpen] = React.useState(false);
+  const [snackbarMessage, setSnackbarMessage] = React.useState('');
+
+  // Add search handlers
+  const handleSearchChange = (value: string) => {
+    // Implement search logic
+  };
+
+  const handleSearchConfirm = (value: string) => {
+    // Implement search confirmation logic
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
+      <Snackbar 
+        isOpen={snackbarOpen}
+        message={snackbarMessage}
+        onClose={() => setSnackbarOpen(false)}
+      />
       <main className="container mx-auto px-4">
-        <PartnerScroll />
-        {hasResourceId ? (
-          <ResourceDetails />
-        ) : (
-          <Routes>
-            <Route path="/" element={<ResourceGrid />} />
-            <Route path="/models" element={<ResourceGrid type="model" />} />
-            <Route path="/applications" element={<ResourceGrid type="application" />} />
-            <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
-            <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
-          </Routes>
-        )}
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
+                <SearchBar 
+                  onSearchChange={handleSearchChange}
+                  onSearchConfirm={handleSearchConfirm}
+                />
+                <ResourceGrid />
+                
+              </>
+            }
+          />
+          <Route 
+            path="/resources/:id" 
+            element={<ResourceDetails />} 
+          />
+          <Route 
+            path="/about" 
+            element={<About />} 
+          />
+          <Route path="/models" element={<ResourceGrid type="model" />} />
+          <Route path="/applications" element={<ResourceGrid type="application" />} />
+          <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
+          <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
+        </Routes>
       </main>
+      <Footer />
     </div>
   );
 };

@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import { Resource } from '../types';
 import SearchBar from './SearchBar';
 import ResourceCard from './ResourceCard';
+import PartnerScroll from './PartnerScroll';
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -161,10 +161,7 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   if (loading) {
     return (
       <div className="container mx-auto px-4">
-        <SearchBar 
-          onSearchChange={handleSearchChange}
-          onSearchConfirm={handleSearchConfirm}
-        />
+  
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
         </div>
@@ -176,6 +173,11 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="container mx-auto px-4">
+      <div className="community-partners">
+                  <div className="partner-logos">
+                    <PartnerScroll />
+                  </div>
+                </div>
       <SearchBar 
         onSearchChange={handleSearchChange}
         onSearchConfirm={handleSearchConfirm}

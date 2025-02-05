@@ -8,7 +8,7 @@ interface SnackbarProps {
   duration?: number;
 }
 
-export const Snackbar = ({ 
+const Snackbar: React.FC<SnackbarProps> = ({
   message, 
   isOpen, 
   onClose, 
@@ -42,3 +42,5 @@ export const Snackbar = ({
     </div>
   );
 }; 
+
+export default Snackbar;

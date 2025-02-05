@@ -60,10 +60,15 @@ const Navbar: React.FC = () => {
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
-            <Link to="/docs" className={navLinkClasses("/docs")}>
+            <a 
+              href="https://bioimage.io/docs" 
+              className={navLinkClasses("/docs")}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
-            </Link>
+            </a>
             <Link to="/about" className={navLinkClasses("/about")}>
               <AiOutlineInfoCircle className="mr-2" size={18} />
               About
@@ -110,13 +115,15 @@ const Navbar: React.FC = () => {
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
-            <Link 
-              to="/docs" 
+            <a 
+              href="https://bioimage.io/docs"
               className={mobileNavLinkClasses("/docs")}
+              target="_blank"
+              rel="noopener noreferrer"
             >
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
-            </Link>
+            </a>
             <Link 
               to="/about" 
               className={mobileNavLinkClasses("/about")}
