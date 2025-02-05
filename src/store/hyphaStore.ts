@@ -25,10 +25,13 @@ export interface HyphaState {
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
   hyphaClient: any; // TODO: Add proper type for hyphaClient
-  fetchResources: () => Promise<void>;
+  fetchResources: (page: number, searchQuery?: string) => Promise<void>;
   resourceTypes: string[];
   setResourceTypes: (types: string[]) => void;
   page: number;
+  itemsPerPage: number;
+  totalItems: number;
+  setTotalItems: (total: number) => void;
 }
 
 // Track initialization status outside the store
@@ -44,6 +47,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   resourceType: 'model',
   resourceTypes: [],
   page: 0,
+  itemsPerPage: 12,
+  totalItems: 0,
   setClient: (client) => set({ client }),
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
@@ -52,7 +57,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setResourceType: (type) => {
     set({ resourceType: type });
     // Automatically fetch resources when type changes
-    get().fetchResources();
+    get().fetchResources(get().page);
   },
   setResourceTypes: (types) => {
     set((state) => ({
@@ -60,6 +65,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       page: 0  // Reset page when filter changes
     }));
   },
+  setTotalItems: (total) => set({ totalItems: total }),
   initializeClient: async () => {
     const currentClient = get().client;
     if (currentClient && get().isInitialized) return currentClient;
@@ -95,21 +101,38 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
     return initializationPromise;
   },
-  fetchResources: async () => {
-    const { server, resourceType } = get();
-    if (!server) return;
-
+  fetchResources: async (page: number, searchQuery?: string) => {
     try {
-      // Add type filter to the query
-      const filter = resourceType ? { type: resourceType } : {};
-      const resources = await server.listChildren({
-        filter: filter
-      });
+      const offset = (page - 1) * get().itemsPerPage;
       
-      set({ resources });
+      // Construct the base URL
+      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}`;
+      
+      // Add type filter if resourceType is specified
+      if (get().resourceType) {
+        const filters = JSON.stringify({ type: get().resourceType });
+        url += `&filters=${encodeURIComponent(filters)}`;
+      }
+      
+      // Add search keywords if there's a search query
+      if (searchQuery) {
+        const keywords = searchQuery.split(',').map(k => k.trim()).join(',');
+        url += `&keywords=${encodeURIComponent(keywords)}`;
+      }
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      set({ 
+        resources: data.items || [],
+        totalItems: data.total || 0
+      });
     } catch (error) {
-      console.error('Failed to fetch resources:', error);
-      set({ resources: [] });
+      console.error('Error fetching resources:', error);
+      set({ 
+        resources: [],
+        totalItems: 0
+      });
     }
   }
 }));

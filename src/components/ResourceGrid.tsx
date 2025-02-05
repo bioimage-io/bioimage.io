@@ -55,15 +55,20 @@ const Pagination = ({ currentPage, totalPages, onPageChange }: PaginationProps) 
 };
 
 const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
-  const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
   const location = useLocation();
-  const { resourceType, setResourceType } = useHyphaStore();
+  const { 
+    resources,
+    resourceType,
+    setResourceType,
+    fetchResources,
+    totalItems,
+    itemsPerPage
+  } = useHyphaStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
-  
+
   const ITEMS_PER_PAGE = 12;
 
   const getCurrentType = useCallback(() => {
@@ -87,42 +92,17 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   }, [getCurrentType, setResourceType]);
 
   useEffect(() => {
-    const fetchResources = async () => {
+    const loadResources = async () => {
       try {
         setLoading(true);
-        const offset = (currentPage - 1) * ITEMS_PER_PAGE;
-        
-        // Construct the base URL
-        let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${ITEMS_PER_PAGE}`;
-        
-        // Add type filter if resourceType is specified
-        if (resourceType) {
-          const filters = JSON.stringify({ type: resourceType });
-          url += `&filters=${encodeURIComponent(filters)}`;
-        }
-        
-        // Add search keywords if there's a confirmed search query
-        if (serverSearchQuery) {
-          const keywords = serverSearchQuery.split(',').map(k => k.trim()).join(',');
-          url += `&keywords=${encodeURIComponent(keywords)}`;
-        }
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        setResources(data.items || []);
-        setTotalItems(data.total || 0);
-      } catch (error) {
-        console.error('Error fetching resources:', error);
-        setResources([]);
-        setTotalItems(0);
+        await fetchResources(currentPage, serverSearchQuery);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchResources();
-  }, [location.pathname, currentPage, resourceType, serverSearchQuery]);
+    loadResources();
+  }, [location.pathname, currentPage, resourceType, serverSearchQuery, fetchResources]);
 
   useEffect(() => {
     getCurrentType();
@@ -169,7 +149,7 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     );
   }
 
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
     <div className="container mx-auto px-4">
