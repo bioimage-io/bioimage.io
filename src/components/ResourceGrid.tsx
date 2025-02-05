@@ -108,64 +108,51 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     getCurrentType();
   }, [getCurrentType]);
 
+  // Add debounced server search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setServerSearchQuery(searchQuery);
+      setCurrentPage(1);
+    }, 500); // 500ms delay before triggering server search
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     // Scroll to top when page changes
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Client-side filtering for immediate feedback
-  const filteredResources = (resources || []).filter(resource => {
-    if (!searchQuery) return true;
-    
-    const query = searchQuery.toLowerCase();
-    return (
-      resource.manifest.tags?.some(tag => tag?.toLowerCase().includes(query)) ||
-      resource.manifest.name?.toLowerCase().includes(query) ||
-      resource.manifest.description?.toLowerCase().includes(query)
-    );
-  });
-
-  // Handle immediate search for client-side filtering
+  // Remove client-side filtering since server handles it
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
   };
-
-  // Handle confirmed search for server-side filtering
-  const handleSearchConfirm = (query: string) => {
-    setSearchQuery(query);
-    setServerSearchQuery(query);
-    setCurrentPage(1);
-  };
-
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4">
-  
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-        </div>
-      </div>
-    );
-  }
 
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
     <div className="container mx-auto px-4">
       <div className="community-partners">
-                  <div className="partner-logos">
-                    <PartnerScroll />
-                  </div>
-                </div>
+        <div className="partner-logos">
+          <PartnerScroll />
+        </div>
+      </div>
       <SearchBar 
         onSearchChange={handleSearchChange}
-        onSearchConfirm={handleSearchConfirm}
       />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
-        {filteredResources.map((resource) => (
+        {loading && (
+          <div className="col-span-full flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          </div>
+        )}
+        
+        {/* Remove filteredResources and use resources directly since they're already filtered by server */}
+        {resources.map((resource) => (
           <ResourceCard key={resource.id} resource={resource} />
         ))}
+        
       </div>
       
       {totalPages > 1 && (

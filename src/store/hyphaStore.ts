@@ -103,6 +103,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   },
   fetchResources: async (page: number, searchQuery?: string) => {
     try {
+      console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
       
       // Construct the base URL

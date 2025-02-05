@@ -1,5 +1,8 @@
 export interface Resource {
   id: string;
+  name: string;
+  description: string;
+  tags: string[];
   manifest: {
     name: string;
     description: string;
