@@ -1,0 +1,223 @@
+/*!
+
+JSZip v3.10.1 - A JavaScript class for generating and reading zip files
+<http://stuartk.com/jszip>
+
+(c) 2009-2016 Stuart Knightley <stuart [at] stuartk.com>
+Dual licenced under the MIT license or GPLv3. See https://raw.github.com/Stuk/jszip/main/LICENSE.markdown.
+
+JSZip uses the library pako released under the MIT license :
+https://github.com/nodeca/pako/blob/main/LICENSE
+*/
+
+/*! . */
+
+/*! ./CachedKeyDecoder.mjs */
+
+/*! ./DecodeError.mjs */
+
+/*! ./Decoder.mjs */
+
+/*! ./Encoder.mjs */
+
+/*! ./ExtData.mjs */
+
+/*! ./ExtensionCodec.mjs */
+
+/*! ./int.mjs */
+
+/*! ./rpc.js */
+
+/*! ./timestamp.mjs */
+
+/*! ./utils */
+
+/*! ./utils/int.mjs */
+
+/*! ./utils/prettyByte.mjs */
+
+/*! ./utils/schema */
+
+/*! ./utils/schema.js */
+
+/*! ./utils/typedArrays.mjs */
+
+/*! ./utils/utf8.mjs */
+
+/*! ./webrtc-client.js */
+
+/*! @msgpack/msgpack */
+
+/*! js-yaml 4.1.0 https://github.com/nodeca/js-yaml @license MIT */
+
+/*!********************!*\
+        !*** ./src/rpc.js ***!
+        \********************/
+
+/*!****************************!*\
+        !*** ./src/utils/index.js ***!
+        \****************************/
+
+/*!*****************************!*\
+        !*** ./src/utils/schema.js ***!
+        \*****************************/
+
+/*!******************************!*\
+        !*** ./src/webrtc-client.js ***!
+        \******************************/
+
+/*!*********************************!*\
+      !*** ./src/websocket-client.js ***!
+      \*********************************/
+
+/*!***************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/decode.mjs ***!
+        \***************************************************************/
+
+/*!***************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/encode.mjs ***!
+        \***************************************************************/
+
+/*!****************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/Decoder.mjs ***!
+        \****************************************************************/
+
+/*!****************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/Encoder.mjs ***!
+        \****************************************************************/
+
+/*!****************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/ExtData.mjs ***!
+        \****************************************************************/
+
+/*!******************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/timestamp.mjs ***!
+        \******************************************************************/
+
+/*!******************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/utils/int.mjs ***!
+        \******************************************************************/
+
+/*!*******************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/utils/utf8.mjs ***!
+        \*******************************************************************/
+
+/*!********************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/DecodeError.mjs ***!
+        \********************************************************************/
+
+/*!***********************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/ExtensionCodec.mjs ***!
+        \***********************************************************************/
+
+/*!*************************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/CachedKeyDecoder.mjs ***!
+        \*************************************************************************/
+
+/*!*************************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/utils/prettyByte.mjs ***!
+        \*************************************************************************/
+
+/*!**************************************************************************!*\
+        !*** ./node_modules/@msgpack/msgpack/dist.es5+esm/utils/typedArrays.mjs ***!
+        \**************************************************************************/
+
+/**
+ * @license React
+ * react-dom.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-is.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-jsx-runtime.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * scheduler.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @mui/styled-engine v6.4.3
+ *
+ * @license MIT
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @remix-run/router v1.22.0
+ *
+ * Copyright (c) Remix Software Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE.md file in the root directory of this source tree.
+ *
+ * @license MIT
+ */
+
+/**
+ * React Router DOM v6.29.0
+ *
+ * Copyright (c) Remix Software Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE.md file in the root directory of this source tree.
+ *
+ * @license MIT
+ */
+
+/**
+ * React Router v6.29.0
+ *
+ * Copyright (c) Remix Software Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE.md file in the root directory of this source tree.
+ *
+ * @license MIT
+ */
+
+/** @license React v16.13.1
+ * react-is.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
