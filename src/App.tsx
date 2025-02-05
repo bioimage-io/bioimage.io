@@ -5,7 +5,6 @@ import Navbar from './components/Navbar';
 import ResourceGrid from './components/ResourceGrid';
 import ResourceDetails from './components/ResourceDetails';
 import Snackbar from './components/Snackbar';
-import SearchBar from './components/SearchBar';
 import About from './components/About';
 import Footer from './components/Footer';
 import Upload from './components/Upload';
@@ -43,12 +42,7 @@ const AppContent: React.FC = () => {
             path="/"
             element={
               <>
-                <SearchBar 
-                  onSearchChange={handleSearchChange}
-                  onSearchConfirm={handleSearchConfirm}
-                />
                 <ResourceGrid />
-                
               </>
             }
           />
