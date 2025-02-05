@@ -273,103 +273,205 @@ const Upload: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Add title section */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Contributing to the BioImage Model Zoo
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Upload and share your AI models with the bioimage analysis community
+          </p>
+        </div>
+      </div>
+
       <div className="flex flex-1 overflow-auto">
-        {/* Left sidebar - File tree */}
-        <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
-          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-            <span className="text-sm text-gray-600 font-medium">Files</span>
-            {files.length > 0 && (
+        {/* Only show sidebar when files are loaded */}
+        {files.length > 0 && (
+          <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <span className="text-sm text-gray-600 font-medium">Package Contents</span>
               <button
                 onClick={() => setShowDragDrop(true)}
                 className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
               >
                 Upload New
               </button>
-            )}
-          </div>
+            </div>
 
-          {/* Scrollable file list */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="py-2">
-              {files.map((file) => (
-                <div
-                  key={file.path}
-                  onClick={() => handleFileSelect(file)}
-                  className={`cursor-pointer px-4 py-2 hover:bg-gray-100 transition-colors flex items-center gap-2
-                    ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}
-                    ${file.edited ? 'font-medium' : ''}`}
-                >
-                  <span className="truncate flex-1">{file.name}</span>
-                  {file.edited && (
-                    <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                      edited
+            {/* Scrollable file list */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="py-2">
+                {files.map((file) => (
+                  <div
+                    key={file.path}
+                    onClick={() => handleFileSelect(file)}
+                    className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3
+                      ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                  >
+                    {/* File Icon */}
+                    <span className="flex-shrink-0">
+                      {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
+                        <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
+                        <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      ) : file.name.endsWith('.py') ? (
+                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                      )}
                     </span>
-                  )}
-                </div>
-              ))}
+
+                    {/* File Name with Star for rdf.yaml */}
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="truncate text-sm font-medium tracking-wide">
+                        {file.name}
+                      </span>
+                      {file.name === 'rdf.yaml' && (
+                        <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      )}
+                    </div>
+
+                    {/* Edit Badge */}
+                    {file.edited && (
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
+                        edited
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Main content area */}
         <div className="flex-1 flex flex-col">
           {/* Status bar with upload button and progress */}
-          <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
-            <div className="flex flex-col flex-grow mr-4">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-500">
-                  {files.length > 0 ? `${files.length} files loaded` : 'No files loaded'}
-                </span>
-                {uploadStatus && (
-                  <>
-                    <span className="text-gray-400">•</span>
-                    <span className={getStatusColor(uploadStatus.severity)}>
-                      {uploadStatus.message}
-                    </span>
-                  </>
+          {files.length > 0 && (
+            <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
+              <div className="flex flex-col flex-grow mr-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 text-base font-medium">
+                    {`${files.length} files loaded`}
+                  </span>
+                  {uploadStatus && (
+                    <>
+                      <span className="text-gray-400">•</span>
+                      <span className={`${getStatusColor(uploadStatus.severity)} text-base`}>
+                        {uploadStatus.message}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {uploadStatus?.progress !== undefined && (
+                  <LinearProgress 
+                    variant="determinate" 
+                    value={uploadStatus.progress} 
+                    sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                  />
                 )}
               </div>
-              {uploadStatus?.progress !== undefined && (
-                <LinearProgress 
-                  variant="determinate" 
-                  value={uploadStatus.progress} 
-                  sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                />
-              )}
+              <div className="flex gap-2">
+                <button
+                  disabled
+                  className="px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap
+                    bg-gray-50 text-gray-400 cursor-not-allowed flex items-center gap-2"
+                  title="Coming soon"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Validate
+                </button>
+                <button
+                  disabled
+                  className="px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap
+                    bg-gray-50 text-gray-400 cursor-not-allowed flex items-center gap-2"
+                  title="Coming soon"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Test Run
+                </button>
+                <button
+                  onClick={handleUpload}
+                  disabled={uploadStatus?.severity === 'info' || !isLoggedIn}
+                  className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                    ${uploadStatus?.severity === 'info' || !isLoggedIn
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  {!isLoggedIn 
+                    ? 'Please login to upload'
+                    : uploadStatus?.severity === 'info' 
+                      ? 'Uploading...' 
+                      : 'Submit'}
+                </button>
+              </div>
             </div>
-            <button
-              onClick={handleUpload}
-              disabled={uploadStatus?.severity === 'info' || files.length === 0 || !isLoggedIn}
-              className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap
-                ${files.length === 0 || uploadStatus?.severity === 'info' || !isLoggedIn
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-            >
-              {!isLoggedIn 
-                ? 'Please login to upload'
-                : uploadStatus?.severity === 'info' 
-                  ? 'Uploading...' 
-                  : 'Upload to Hypha'}
-            </button>
-          </div>
+          )}
 
           {/* Content area */}
           <div className="flex-1 p-6 overflow-auto">
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
-                <div 
-                  {...getRootProps()} 
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer text-center max-w-xl w-full mx-auto"
-                >
-                  <input {...getInputProps()} />
-                  {isDragActive ? (
-                    <p className="text-gray-600">Drop the zip file here...</p>
-                  ) : (
-                    <div>
-                      <p className="text-gray-600 mb-2">Drag & drop a zip file here,</p>
-                      <p className="text-gray-500">or click to select one</p>
+                <div className="text-center max-w-2xl mx-auto">
+                  <div 
+                    {...getRootProps()} 
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
+                  >
+                    <input {...getInputProps()} />
+                    <div className="mb-6">
+                      <div className="w-16 h-16 mx-auto mb-4">
+                        <svg className="w-full h-full text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                      </div>
+                      {isDragActive ? (
+                        <p className="text-lg text-blue-600 font-medium">Drop the zip file here...</p>
+                      ) : (
+                        <>
+                          <p className="text-lg text-gray-700 font-medium mb-2">
+                            Drag & drop your model package here
+                          </p>
+                          <p className="text-gray-500">
+                            or click to browse your files
+                          </p>
+                        </>
+                      )}
                     </div>
-                  )}
+                  </div>
+                  <div className="space-y-4 text-left bg-gray-50 p-6 rounded-lg">
+                    <h3 className="text-xl font-semibold text-gray-700 tracking-tight">
+                      How to upload your model:
+                    </h3>
+                    <ol className="list-decimal list-inside space-y-3 text-gray-600 text-base">
+                      <li className="leading-relaxed">Prepare your model package following the BioImage.io specification</li>
+                      <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> file</li>
+                      <li className="leading-relaxed">Compress all files into a ZIP archive</li>
+                      <li className="leading-relaxed">Upload the ZIP file using this interface</li>
+                    </ol>
+                    <p className="text-sm text-gray-500 mt-6">
+                      Need help? Check out our <a href="#" className="text-blue-600 hover:underline font-medium">documentation</a> or 
+                      join our <a href="#" className="text-blue-600 hover:underline font-medium">community forum</a>.
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : selectedFile ? (
