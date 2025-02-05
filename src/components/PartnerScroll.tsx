@@ -5,11 +5,16 @@ interface Partner {
   icon: string;
   link?: string;
   id: string;
+  documentation?: string;
+  git_repo?: string;
 }
 
 interface ManifestResponse {
   manifest: {
+    documentation?: string;
+    git_repo?: string;
     config: {
+      docs?: string;
       partners: Array<{
         name: string;
         icon: string;
@@ -36,13 +41,14 @@ const PartnerScroll: React.FC = () => {
         }
         const data: ManifestResponse = await response.json();
         
-        // Transform the partners data
+        // Transform the partners data with documentation and links
         const partnersList = data.manifest.config.partners.map(partner => ({
           name: partner.name,
           icon: partner.icon,
           id: partner.id,
-          // You can construct a default link if needed
-          link: `https://bioimage.io/#/partners/${partner.id}`
+          // Prioritize docs from config, then documentation, then git_repo
+          link: data.manifest.documentation ||
+                data.manifest.git_repo
         }));
         
         setPartners(partnersList);
