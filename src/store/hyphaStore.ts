@@ -26,6 +26,9 @@ export interface HyphaState {
   setResourceType: (type: string | null) => void;
   hyphaClient: any; // TODO: Add proper type for hyphaClient
   fetchResources: () => Promise<void>;
+  resourceTypes: string[];
+  setResourceTypes: (types: string[]) => void;
+  page: number;
 }
 
 // Track initialization status outside the store
@@ -39,6 +42,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   isInitialized: false,
   resources: [],
   resourceType: 'model',
+  resourceTypes: [],
+  page: 0,
   setClient: (client) => set({ client }),
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
@@ -48,6 +53,12 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     set({ resourceType: type });
     // Automatically fetch resources when type changes
     get().fetchResources();
+  },
+  setResourceTypes: (types) => {
+    set((state) => ({
+      resourceTypes: types,
+      page: 0  // Reset page when filter changes
+    }));
   },
   initializeClient: async () => {
     const currentClient = get().client;

@@ -82,6 +82,8 @@ const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     // Update resource type in store when path changes
     const currentType = getCurrentType();
     setResourceType(currentType);
+    // Reset to first page when resource type changes
+    setCurrentPage(1);
   }, [getCurrentType, setResourceType]);
 
   useEffect(() => {
