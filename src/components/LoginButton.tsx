@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import type { LoginConfig } from 'hypha-rpc';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
-
-interface User {
-  email?: string;
-  [key: string]: any;
-}
+import { UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 
 interface LoginButtonProps {
   className?: string;
@@ -121,7 +116,8 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     if (savedToken && client) {
       handleLogin();
     }
-  }, [client]); // Add client as dependency
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client]); // We're intentionally only running this on client changes
 
   return (
     <div className={className}>

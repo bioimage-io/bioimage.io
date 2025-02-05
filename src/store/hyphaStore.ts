@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { hRPC } from 'hypha-rpc';
+// import { hRPC } from 'hypha';
 
 // Add this to handle the window type for hypha client
 declare global {
