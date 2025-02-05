@@ -1,7 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import SearchBar from './components/SearchBar';
 import PartnerScroll from './components/PartnerScroll';
 import { useHyphaStore } from './store/hyphaStore';
 import ResourceGrid from './components/ResourceGrid';
@@ -47,9 +46,9 @@ const App: React.FC = () => {
   }, [initializeClientCallback]);
 
   return (
-    <Router>
+    <HashRouter>
       <AppContent />
-    </Router>
+    </HashRouter>
   );
 };
 
