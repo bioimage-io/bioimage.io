@@ -101,7 +101,7 @@ const PartnerScroll: React.FC = () => {
       
       <div
         ref={scrollRef}
-        className="flex overflow-x-auto scrollbar-hide space-x-4 py-4"
+        className="flex overflow-x-auto space-x-4 py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
         onScroll={(e) => {
           const target = e.target as HTMLDivElement;
           setShowLeftArrow(target.scrollLeft > 0);

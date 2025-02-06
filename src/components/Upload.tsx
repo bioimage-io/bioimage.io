@@ -274,7 +274,7 @@ const Upload: React.FC = () => {
   return (
     <div className="flex flex-col h-screen">
       {/* Add title section */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white border-b border-gray-80">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 text-center">
           <h1 className="text-2xl font-semibold text-gray-900">
             Contributing to the BioImage Model Zoo
