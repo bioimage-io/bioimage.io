@@ -136,9 +136,17 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <PartnerScroll />
         </div>
       </div>
-      <SearchBar 
-        onSearchChange={handleSearchChange}
-      />
+      <div className="relative mb-8">
+        <div 
+          className="absolute right-10 -bottom-6 w-64 h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none" 
+          style={{ 
+            backgroundImage: 'url(/img/zoo-background.svg)'
+          }} 
+        />
+        <SearchBar 
+          onSearchChange={handleSearchChange}
+        />
+      </div>
       <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
         {resources.map((resource) => (
           <Grid 
