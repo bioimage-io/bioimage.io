@@ -87,7 +87,7 @@ const PartnerScroll: React.FC = () => {
 
   return (
     <div className="relative max-w-[1400px] mx-auto px-4 mt-8">
-      <h2 className="text font-bold text-center mb-6">Community Partners</h2>
+      <h2 className="text text-center mb-2">Community Partners</h2>
       {showLeftArrow && (
         <button
           onClick={() => scroll('left')}

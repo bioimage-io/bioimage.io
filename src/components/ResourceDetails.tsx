@@ -28,7 +28,7 @@ const ResourceDetails = () => {
     const fetchDocumentation = async () => {
       if (selectedResource?.manifest.documentation) {
         const id = selectedResource.id.split('/').pop();
-        const docUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${selectedResource.manifest.documentation}`;
+        const docUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${selectedResource.manifest.documentation}?use_proxy=true`;
         try {
           const response = await fetch(docUrl);
           const text = await response.text();
@@ -65,137 +65,63 @@ const ResourceDetails = () => {
 
   return (
     <Box sx={{ p: 3, maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Header Section with Flexbox for button alignment */}
-      <Box sx={{ 
-        mb: 4,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start'  // Aligns items to the top
-      }}>
-        {/* Title and Stats Column */}
-        <Box>
-          <Typography variant="h4" gutterBottom>
-            {manifest.name} {manifest.id_emoji}
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-            ID: {selectedResource.id}
-          </Typography>
-          
-          <Stack direction="row" spacing={3} sx={{ mt: 2 }}>
-            <Chip icon={<DownloadIcon />} label={`Downloads: ${selectedResource.download_count}`} />
-            <Chip icon={<VisibilityIcon />} label={`Views: ${selectedResource.view_count}`} />
-            {manifest.version && <Chip icon={<UpdateIcon />} label={`Version: ${manifest.version}`} />}
-          </Stack>
+      {/* Header Section */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" gutterBottom>
+        {manifest.id_emoji} {manifest.name} 
+        </Typography>
+        <Typography variant="subtitle1" color="text.secondary" gutterBottom>
+          ID: {selectedResource.id}
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 2 }}>{manifest.description}</Typography>
+        
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Button
+            onClick={handleDownload}
+            startIcon={<DownloadIcon />}
+            variant="contained"
+            size="medium"
+            sx={{
+              backgroundColor: '#2563eb',
+              '&:hover': {
+                backgroundColor: '#1d4ed8',
+              },
+            }}
+          >
+            Download Resource
+          </Button>
+          {manifest.version && (
+            <Chip 
+              icon={<UpdateIcon />} 
+              label={`Version: ${manifest.version}`}
+              sx={{ ml: 2 }} 
+            />
+          )}
         </Box>
-
-        {/* Download Button */}
-        <Button
-          onClick={handleDownload}
-          startIcon={<DownloadIcon />}
-          variant="contained"
-          size="large"
-          sx={{
-            minWidth: '200px',
-            py: 1.5,
-            backgroundColor: '#2563eb',
-            '&:hover': {
-              backgroundColor: '#1d4ed8',
-            },
-          }}
-        >
-          Download Resource
-        </Button>
       </Box>
 
       <Grid container spacing={3}>
-        {/* Left Column */}
+        {/* Left Column - Documentation */}
         <Grid item xs={12} md={8}>
-          {/* Description Card */}
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <DescriptionIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Description
-              </Typography>
-              <Typography variant="body1">{manifest.description}</Typography>
-            </CardContent>
-          </Card>
-
-          {/* Authors Card */}
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Authors
-              </Typography>
-              {manifest.authors.map((author, index) => (
-                <Box key={index} sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1">
-                    {author.name}
-                    {author.orcid && (
-                      <Link 
-                        href={`https://orcid.org/${author.orcid}`}
-                        target="_blank"
-                        sx={{ ml: 1 }}
-                      >
-                        (ORCID: {author.orcid})
-                      </Link>
-                    )}
-                  </Typography>
-                  {author.affiliation && (
-                    <Typography variant="body2" color="text.secondary">
-                      <SchoolIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
-                      {author.affiliation}
-                    </Typography>
-                  )}
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Citations Card */}
-          {manifest.cite && manifest.cite.length > 0 && (
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Citations</Typography>
-                {manifest.cite.map((citation, index) => (
-                  <Box key={index} sx={{ mb: 2 }}>
-                    <Typography variant="body1">
-                      {citation.text}
-                      {citation.doi && (
-                        <Link 
-                          href={`https://doi.org/${citation.doi}`}
-                          target="_blank"
-                          sx={{ ml: 1 }}
-                        >
-                          DOI: {citation.doi}
-                        </Link>
-                      )}
-                    </Typography>
-                  </Box>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
           {/* Documentation Card */}
           {documentation && (
             <Card sx={{ mb: 3 }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  <DescriptionIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                  Documentation
-                </Typography>
-                <Box sx={{ 
-                  '& .prose': {
-                    maxWidth: 'none',
+                <Box 
+                  
+                  sx={{ 
+                    padding: '45px',
+                    '& pre': {
+                      maxWidth: '100%',
+                      overflow: 'auto'
+                    },
                     '& img': {
                       maxWidth: '100%',
                       height: 'auto'
                     }
-                  }
-                }}>
-                  <ReactMarkdown>{documentation}</ReactMarkdown>
+                  }}
+                >
+                  <ReactMarkdown className="markdown-body">{documentation}</ReactMarkdown>
                 </Box>
               </CardContent>
             </Card>
@@ -204,6 +130,95 @@ const ResourceDetails = () => {
 
         {/* Right Column */}
         <Grid item xs={12} md={4}>
+
+          {/* Authors Card - Moved from left column */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Authors
+              </Typography>
+              {manifest.authors.map((author, index) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+                    {author.name}
+                  </Typography>
+                  {author.orcid && (
+                    <Link 
+                      href={`https://orcid.org/${author.orcid}`}
+                      target="_blank"
+                      sx={{ 
+                        display: 'inline-block',
+                        fontSize: '0.875rem',
+                        mb: 0.5 
+                      }}
+                    >
+                      ORCID: {author.orcid}
+                    </Link>
+                  )}
+                  {author.affiliation && (
+                    <Typography variant="body2" color="text.secondary">
+                      <SchoolIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
+                      {author.affiliation}
+                    </Typography>
+                  )}
+                  {index < manifest.authors.length - 1 && <Divider sx={{ my: 2 }} />}
+                </Box>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Statistics Card - New */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Statistics
+              </Typography>
+              <Stack spacing={1}>
+                <Chip 
+                  icon={<DownloadIcon />} 
+                  label={`Downloads: ${selectedResource.download_count}`}
+                  sx={{ justifyContent: 'flex-start' }}
+                />
+                <Chip 
+                  icon={<VisibilityIcon />} 
+                  label={`Views: ${selectedResource.view_count}`}
+                  sx={{ justifyContent: 'flex-start' }}
+                />
+              </Stack>
+            </CardContent>
+          </Card>
+
+
+          {/* Citations Card - Moved from left column */}
+          {manifest.cite && manifest.cite.length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Citations</Typography>
+                {manifest.cite.map((citation, index) => (
+                  <Box key={index} sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      {citation.text}
+                    </Typography>
+                    {citation.doi && (
+                      <Link 
+                        href={`https://doi.org/${citation.doi}`}
+                        target="_blank"
+                        sx={{ 
+                          display: 'inline-block',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        DOI: {citation.doi}
+                      </Link>
+                    )}
+                    {index < manifest.cite.length - 1 && <Divider sx={{ my: 2 }} />}
+                  </Box>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Tags Card */}
           <Card sx={{ mb: 3 }}>
             <CardContent>

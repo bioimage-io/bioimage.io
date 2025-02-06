@@ -130,7 +130,7 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
-    <div className="container mx-auto px-4">
+    <div className="container mx-auto px-4 sm:px-4 md:px-4 lg:px-4">
       <div className="community-partners">
         <div className="partner-logos">
           <PartnerScroll />
@@ -139,7 +139,7 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       <SearchBar 
         onSearchChange={handleSearchChange}
       />
-      <Grid container spacing={3} sx={{ padding: 2 }}>
+      <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
         {resources.map((resource) => (
           <Grid 
             item 
@@ -149,9 +149,9 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
             md={4} 
             lg={3} 
             sx={{
-              minWidth: 280,
-              maxWidth: 320,
-              margin: '0 auto'  // Centers the cards if they don't fill the row
+              minWidth: { xs: 'auto', sm: 280 },
+              maxWidth: { xs: '100%', sm: 320 },
+              margin: '0 auto'
             }}
           >
             <ResourceCard resource={resource} />

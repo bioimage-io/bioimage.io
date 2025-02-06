@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 
@@ -8,6 +8,8 @@ import Snackbar from './components/Snackbar';
 import About from './components/About';
 import Footer from './components/Footer';
 import Upload from './components/Upload';
+import './index.css'
+import './github-markdown.css'
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -27,6 +29,10 @@ const AppContent: React.FC = () => {
   const handleSearchConfirm = (value: string) => {
     // Implement search confirmation logic
   };
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location]);
 
   return (
     <div className="min-h-screen flex flex-col">

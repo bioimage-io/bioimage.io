@@ -79,16 +79,17 @@ const Navbar: React.FC = () => {
 
           {/* Right section with auth buttons */}
           <div className="flex items-center space-x-4">
-            {location.pathname !== '/upload' && (
-              <Link
-                to="/upload"
-                className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
-              >
-                <IoCloudUploadOutline className="mr-2" size={18} />
-                Upload
-              </Link>
-            )}
-            <div className="flex items-center">
+            {/* Move Upload and Login buttons to desktop-only view */}
+            <div className="hidden md:flex items-center space-x-4">
+              {location.pathname !== '/upload' && (
+                <Link
+                  to="/upload"
+                  className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
+                >
+                  <IoCloudUploadOutline className="mr-2" size={18} />
+                  Upload
+                </Link>
+              )}
               <LoginButton />
             </div>
             
@@ -109,10 +110,11 @@ const Navbar: React.FC = () => {
           <div className="px-2 pt-2 pb-3 space-y-1">
             <Link 
               to="/upload" 
-              className="flex items-center px-3 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700"
+              className={mobileNavLinkClasses("/upload")}
+              onClick={() => setIsMobileMenuOpen(false)}
             >
               <IoCloudUploadOutline className="mr-2" size={18} />
-              Upload Model
+              Upload
             </Link>
             <Link 
               to="/models" 
@@ -151,6 +153,24 @@ const Navbar: React.FC = () => {
               <AiOutlineInfoCircle className="mr-2" size={18} />
               About
             </Link>
+
+            {/* Add divider */}
+            <div className="border-t border-gray-200 my-2"></div>
+
+            {/* Add Upload and Login buttons to mobile menu */}
+            {location.pathname !== '/upload' && (
+              <Link 
+                to="/upload" 
+                className={mobileNavLinkClasses("/upload")}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <IoCloudUploadOutline className="mr-2" size={18} />
+                Upload
+              </Link>
+            )}
+            <div className="px-3 py-2">
+              <LoginButton />
+            </div>
           </div>
         </div>
       </div>
