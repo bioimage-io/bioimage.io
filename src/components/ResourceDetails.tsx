@@ -88,7 +88,7 @@ const ResourceDetails = () => {
               },
             }}
           >
-            Download Resource
+            Download
           </Button>
           {manifest.version && (
             <Chip 
