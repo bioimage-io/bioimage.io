@@ -10,6 +10,7 @@ import { Resource } from '../types';
 import { useDropzone } from 'react-dropzone';
 import { Dialog as HeadlessDialog, Transition } from '@headlessui/react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import ModelTester from './ModelTester';
 
 interface FileNode {
   name: string;
@@ -381,13 +382,6 @@ const Edit: React.FC = () => {
     }
   };
 
-  const handleCommit = async () => {
-    if (!artifactManager) return;
-
-    // Show publish dialog instead of committing directly
-    setShowPublishDialog(true);
-  };
-
   const handleBack = () => {
     navigate('/my-artifacts');
   };
@@ -629,9 +623,10 @@ const Edit: React.FC = () => {
 
   // Update the navigation button
   const renderSidebarNav = () => (
-    <div className="p-4 border-b bg-white space-y-2">
+    <>
       {/* Only show New Version button if not in staging mode */}
       {!isStaged && (
+        <div className="p-4 border-b bg-white space-y-2">
         <button
           onClick={() => setShowNewVersionDialog(true)}
           className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50"
@@ -641,8 +636,9 @@ const Edit: React.FC = () => {
           </svg>
           New Version
         </button>
+        </div>
       )}
-    </div>
+   </>
   );
 
   // Update the publish confirmation dialog
@@ -989,20 +985,15 @@ const Edit: React.FC = () => {
         </button>
       )}
       
-      {/* Commit button */}
-      <button
-        onClick={handleCommit}
-        disabled={!files.some(f => f.edited) || uploadStatus?.severity === 'info'}
-        className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-          ${!files.some(f => f.edited) || uploadStatus?.severity === 'info'
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-        {uploadStatus?.severity === 'info' ? 'Saving...' : 'Commit Changes'}
-      </button>
+      {/* Add ModelTester */}
+      {artifactId && (
+        <ModelTester
+          artifactId={artifactId}
+          version={isStaged ? 'stage' : artifactInfo?.version}
+          isDisabled={!isStaged}
+        />
+      )}
+      
 
       {/* Review & Publish button - only show when staged */}
       {isStaged && (
@@ -1175,7 +1166,6 @@ const Edit: React.FC = () => {
           version: "latest",
           _rkwargs: true
         });
-        debugger
         // Filter out directories, only keep files
         const filesToCopy = existingFiles.filter(file => file.type === 'file');
 
@@ -1348,45 +1338,69 @@ const Edit: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {/* Status bar with save/commit buttons */}
           {activeTab === 'files' && (
-            <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
-              <div className="flex flex-col flex-grow mr-4">
-                {copyProgress ? (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className="text-blue-600">
-                        Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
-                      </span>
-                    </div>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={(copyProgress.current / copyProgress.total) * 100} 
-                      sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    {uploadStatus && (
-                      <div className="flex items-center gap-2">
-                        <span className={`text-base ${
-                          uploadStatus.severity === 'error' ? 'text-red-600' :
-                          uploadStatus.severity === 'success' ? 'text-green-600' :
-                          'text-blue-600'
-                        }`}>
-                          {uploadStatus.message}
-                        </span>
-                      </div>
+            <div className="border-b border-gray-200 bg-white">
+              {/* Container with padding except bottom when progress bar is shown */}
+              <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
+                {/* Flex container that stacks below 1024px */}
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  {/* Status section */}
+                  <div className="flex-grow min-w-0">
+                    {copyProgress ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-blue-600">
+                            Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
+                          </span>
+                        </div>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={(copyProgress.current / copyProgress.total) * 100} 
+                          sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {uploadStatus && (
+                          <div className="flex items-center gap-2">
+                            <span className={`text-base ${
+                              uploadStatus.severity === 'error' ? 'text-red-600' :
+                              uploadStatus.severity === 'success' ? 'text-green-600' :
+                              'text-blue-600'
+                            }`}>
+                              {uploadStatus.message}
+                            </span>
+                          </div>
+                        )}
+                        {uploadStatus?.progress !== undefined && (
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={uploadStatus.progress} 
+                            sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                          />
+                        )}
+                      </>
                     )}
-                    {uploadStatus?.progress !== undefined && (
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={uploadStatus.progress} 
-                        sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                      />
-                    )}
-                  </>
-                )}
+                  </div>
+
+                  {/* Buttons section */}
+                  <div className="flex gap-2 flex-shrink-0">
+                    {renderActionButtons()}
+                  </div>
+                </div>
               </div>
-              {renderActionButtons()}
+
+              {/* Progress bar at the bottom edge */}
+              {uploadStatus?.progress !== undefined && (
+                <LinearProgress 
+                  variant="determinate" 
+                  value={uploadStatus.progress} 
+                  sx={{ 
+                    height: 4,
+                    borderRadius: 0,
+                    marginTop: 1,
+                  }}
+                />
+              )}
             </div>
           )}
 

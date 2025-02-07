@@ -81,7 +81,7 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
           </div>
           
           <div className="flex flex-wrap gap-2">
-            {tags.map((tag, index) => (
+            {tags.slice(0, 5).map((tag, index) => (
               <span
                 key={index}
                 className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600"

@@ -7,6 +7,9 @@ import axios from 'axios';
 import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import ModelTester from './ModelTester';
+import ModelValidator from './ModelValidator';
 
 interface FileNode {
   name: string;
@@ -28,6 +31,28 @@ interface UploadStatus {
   progress?: number;
 }
 
+interface ValidationResult {
+  success: boolean;
+  details: string;
+}
+
+interface TestResult {
+  name: string;
+  success: boolean;
+  details: Array<{
+    name: string;
+    status: string;
+    errors: Array<{
+      msg: string;
+      loc: string[];
+    }>;
+    warnings: Array<{
+      msg: string;
+      loc: string[];
+    }>;
+  }>;
+}
+
 type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html';
 type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
@@ -36,21 +61,41 @@ interface UploadProps {
   onBack?: () => void;
 }
 
+// Add new interface for upload artifact
+interface UploadArtifact {
+  id: string;
+  version: string;
+  // Add other properties as needed
+}
+
 const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
   const navigate = useNavigate();
   const [isUploading, setIsUploading] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [isValidated, setIsValidated] = useState(false);
+  const [isUploaded, setIsUploaded] = useState(false);
+  const [uploadedArtifact, setUploadedArtifact] = useState<UploadArtifact | null>(null);
 
   useEffect(() => {
     if (artifactId) {
       loadArtifactFiles();
     }
   }, [artifactId]);
+
+  useEffect(() => {
+    if (files.some(f => f.edited)) {
+      setIsValidated(false);
+      setIsUploaded(false);
+      setTestResult(null);
+      setUploadedArtifact(null);
+    }
+  }, [files]);
 
   const isTextFile = (filename: string): boolean => {
     const textExtensions: SupportedTextFiles[] = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
@@ -70,7 +115,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getImageDataUrl = async (content: string | ArrayBuffer, fileName: string): Promise<string> => {
+  const getImageDataUrl = async (content: string | ArrayBufferLike, fileName: string): Promise<string> => {
     if (typeof content === 'string') {
       const encoder = new TextEncoder();
       content = encoder.encode(content).buffer;
@@ -131,6 +176,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
 
       setFiles(fileNodes);
       setShowDragDrop(false);
+      
+      // Set upload status with number of files loaded
+      setUploadStatus({
+        message: `${fileNodes.length} files loaded`,
+        severity: 'info'
+      });
 
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
@@ -138,6 +189,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
       }
     } catch (error) {
       console.error('Error reading zip file:', error);
+      setUploadStatus({
+        message: 'Error reading zip file',
+        severity: 'error'
+      });
     }
   }, []);
 
@@ -170,6 +225,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
           : f
       ));
     }
+  };
+
+  const handleValidationComplete = (result: ValidationResult) => {
+    setIsValidated(result.success);
+    setUploadStatus({
+      message: result.success ? 'Validation successful!' : 'Validation failed',
+      severity: result.success ? 'success' : 'error'
+    });
   };
 
   const handleUpload = async () => {
@@ -209,40 +272,46 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
         throw new Error('Invalid rdf.yaml format');
       }
 
+      let artifactId: string;
+      // If we already have an artifact ID, use it, otherwise create new
+      if (uploadedArtifact) {
+        artifactId = uploadedArtifact.id;
+      } else {
+        const artifact =await artifactManager.create({
+          parent_id: "bioimage-io/bioimage.io",
+          alias: "{zenodo_conceptrecid}",
+          type: manifest.type,
+          manifest: manifest,
+          config: {
+            publish_to: "sandbox_zenodo"
+          },
+          version: "stage",
+          _rkwargs: true,
+          overwrite: true,
+        })
+        artifactId = artifact.id;
+        setUploadedArtifact(artifact);
+      }
+
       setUploadStatus({
-        message: 'Creating artifact...',
+        message: `Artifact ${uploadedArtifact ? 'updated' : 'created'} with ID: ${artifactId}`,
         severity: 'info'
       });
 
-      const artifact = await artifactManager.create({
-        parent_id: "bioimage-io/bioimage.io",
-        alias: "{zenodo_conceptrecid}",
-        type: manifest.type,
-        manifest: manifest,
-        config: {
-          publish_to: "sandbox_zenodo"
-        },
-        version: "stage",
-        _rkwargs: true,
-        overwrite: true,
-      });
-
-      setUploadStatus({
-        message: `Artifact created with ID: ${artifact.id}`,
-        severity: 'info'
-      });
-
-      // Upload files sequentially with progress
-      for (let index = 0; index < files.length; index++) {
-        const file = files[index];
+      // Filter files that have been edited
+      const filesToUpload = files.filter(file => file.edited || !uploadedArtifact);
+      
+      // Upload only edited files sequentially with progress
+      for (let index = 0; index < filesToUpload.length; index++) {
+        const file = filesToUpload[index];
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info',
-          progress: (index / files.length) * 100
+          progress: (index / filesToUpload.length) * 100
         });
 
         const putUrl = await artifactManager.put_file({
-          artifact_id: artifact.id,
+          artifact_id: artifactId,
           file_path: file.path,
           _rkwargs: true,
         });
@@ -260,22 +329,27 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
             setUploadStatus({
               message: `Uploading ${file.name}...`,
               severity: 'info',
-              progress: ((index + (progress / 100)) / files.length) * 100
+              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
             });
           }
         });
       }
 
+      // Reset edited flags after successful upload
+      setFiles(files.map(file => ({ ...file, edited: false })));
+
       setUploadStatus({
-        message: 'Upload complete! Redirecting...',
+        message: `${uploadedArtifact ? 'Update' : 'Upload'} complete!`,
         severity: 'success',
         progress: 100
       });
 
-      navigate('/my-artifacts');
+      setIsUploaded(true);
 
     } catch (error) {
       console.error('Upload failed:', error);
+      setIsUploaded(false);
+      setUploadedArtifact(null); // Reset uploaded artifact on error
       setUploadStatus({
         message: error instanceof Error 
           ? `Upload failed: ${error.message}` 
@@ -361,6 +435,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
     }
   };
 
+  const getFirstErrorLine = (details: string) => {
+    return details.split('\n')[0];
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Add back button when viewing existing artifact */}
@@ -397,26 +475,19 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
         {files.length > 0 && (
           <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
             <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+                  Contributing to the Zoo
+                </h2>
               <div className="flex items-center justify-between">
+               
                 <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-                <button
+                {/* <button
                   onClick={() => setShowDragDrop(true)}
                   className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
                 >
                   New Upload
-                </button>
+                </button> */}
               </div>
-              
-              {/* Add My Artifacts shortcut */}
-              <Link
-                to="/my-artifacts"
-                className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-100"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-                View My Artifacts
-              </Link>
             </div>
 
             {/* Scrollable file list */}
@@ -479,71 +550,75 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
         <div className="flex-1 flex flex-col">
           {/* Status bar with upload button and progress */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
-              <div className="flex flex-col flex-grow mr-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500 text-base font-medium">
-                    {`${files.length} files loaded`}
-                  </span>
-                  {uploadStatus && (
-                    <>
-                      <span className="text-gray-400">•</span>
-                      <span className={`${getStatusColor(uploadStatus.severity)} text-base`}>
-                        {uploadStatus.message}
-                      </span>
-                    </>
-                  )}
+            <div className="border-b border-gray-200 bg-white">
+              {/* Container with padding except bottom when progress bar is shown */}
+              <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
+                {/* Flex container that stacks below 1024px */}
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  {/* Status section */}
+                  <div className="flex-grow min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {uploadStatus && (
+                        <>
+                          <span className="text-gray-400">•</span>
+                          <span className={`${getStatusColor(uploadStatus.severity)} text-base truncate`}>
+                            {uploadStatus.message}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Buttons section */}
+                  <div className="flex gap-2 flex-shrink-0">
+                    <ModelValidator
+                      rdfContent={selectedFile?.content as string}
+                      isDisabled={!selectedFile?.path.endsWith('rdf.yaml') || !server}
+                      onValidationComplete={handleValidationComplete}
+                    />
+                    {!isUploaded ? (
+                      <button
+                        onClick={handleUpload}
+                        disabled={isUploading || !isLoggedIn || !isValidated}
+                        className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                          ${isUploading || !isLoggedIn || !isValidated
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      >
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                          </svg>
+                          {!isLoggedIn 
+                            ? 'Please login'
+                            : isUploading 
+                              ? 'Uploading...' 
+                              : 'Upload'}
+                        </>
+                      </button>
+                    ) : (
+                      <ModelTester
+                        artifactId={uploadedArtifact?.id}
+                        version="stage"
+                        isDisabled={!server}
+                      />
+                    )}
+                  </div>
                 </div>
-                {uploadStatus?.progress !== undefined && (
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={uploadStatus.progress} 
-                    sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                  />
-                )}
               </div>
-              <div className="flex gap-2">
-                <button
-                  disabled
-                  className="px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap
-                    bg-gray-50 text-gray-400 cursor-not-allowed flex items-center gap-2"
-                  title="Coming soon"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  Validate
-                </button>
-                <button
-                  disabled
-                  className="px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap
-                    bg-gray-50 text-gray-400 cursor-not-allowed flex items-center gap-2"
-                  title="Coming soon"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Test Run
-                </button>
-                <button
-                  onClick={handleUpload}
-                  disabled={isUploading || !isLoggedIn}
-                  className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                    ${isUploading || !isLoggedIn
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  {!isLoggedIn 
-                    ? 'Please login to upload'
-                    : isUploading 
-                      ? 'Uploading...' 
-                      : 'Upload'}
-                </button>
-              </div>
+
+              {/* Progress bar at the bottom edge */}
+              {uploadStatus?.progress !== undefined && (
+                <LinearProgress 
+                  variant="determinate" 
+                  value={uploadStatus.progress} 
+                  sx={{ 
+                    height: 4,
+                    borderRadius: 0,
+                    marginTop: 1,
+                  }}
+                />
+              )}
             </div>
           )}
 

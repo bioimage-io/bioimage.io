@@ -32,7 +32,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
     const id = resource.id.split('/').pop();
-    window.open(`http://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   // Get the resolved cover URL for the current index

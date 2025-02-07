@@ -165,9 +165,11 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
-      // Assuming the ID format is workspace/name
-      const [workspace, name] = id.split('/');
-      const url = `https://hypha.aicell.io/${workspace}/artifacts/${name}`;
+      // Handle both formats: workspace/name or just name
+      const [workspace, artifactName] = id.includes('/') 
+        ? id.split('/')
+        : ['bioimage-io', id];
+      const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}`;
       
       const response = await fetch(url);
       if (!response.ok) {

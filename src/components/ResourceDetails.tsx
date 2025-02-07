@@ -11,6 +11,7 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
+import ModelTester from './ModelTester';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -44,7 +45,7 @@ const ResourceDetails = () => {
   const handleDownload = () => {
     const id = selectedResource?.id.split('/').pop();
     if (id) {
-      window.open(`http://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+      window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
     }
   };
 
@@ -89,6 +90,11 @@ const ResourceDetails = () => {
           >
             Download
           </Button>
+          <ModelTester 
+                artifactId={selectedResource.id}
+                version={manifest.version}
+                isDisabled={!selectedResource.manifest.type?.includes('model')}
+              />
           {manifest.version && (
             <Chip 
               icon={<UpdateIcon />} 
