@@ -5,6 +5,7 @@ import { RiLoginBoxLine } from 'react-icons/ri';
 import { Link } from 'react-router-dom';
 import { useHyphaContext } from '../HyphaContext';
 import { useNavigate } from 'react-router-dom';
+import { Spinner } from './Spinner';
 
 interface LoginButtonProps {
   className?: string;
@@ -162,10 +163,20 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       ) : (
         <button 
           onClick={handleLogin} 
-          className="text-gray-700 hover:text-gray-900 px-4 py-2 rounded-md hover:bg-gray-50 flex items-center"
+          disabled={isLoggingIn}
+          className="text-gray-700 hover:text-gray-900 px-4 py-2 rounded-md hover:bg-gray-50 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <RiLoginBoxLine className="mr-2" size={18} />
-          Login
+          {isLoggingIn ? (
+            <>
+              <Spinner className="w-4 h-4 mr-2" />
+              Logging in...
+            </>
+          ) : (
+            <>
+              <RiLoginBoxLine className="mr-2" size={18} />
+              Login
+            </>
+          )}
         </button>
       )}
     </div>
