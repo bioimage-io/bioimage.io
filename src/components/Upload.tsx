@@ -439,6 +439,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
     return details.split('\n')[0];
   };
 
+  // Find the rdf file from the files array
+  const getRdfFile = () => {
+    return files.find(file => file.path.endsWith('rdf.yaml'));
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Add back button when viewing existing artifact */}
@@ -572,8 +577,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                   {/* Buttons section */}
                   <div className="flex gap-2 flex-shrink-0">
                     <ModelValidator
-                      rdfContent={selectedFile?.content as string}
-                      isDisabled={!selectedFile?.path.endsWith('rdf.yaml') || !server}
+                      // Use the current rdf file content, whether edited or not
+                      rdfContent={getRdfFile()?.content as string}
+                      isDisabled={!getRdfFile() || !server}
                       onValidationComplete={handleValidationComplete}
                     />
                     {!isUploaded ? (

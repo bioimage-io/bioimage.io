@@ -992,13 +992,14 @@ const Edit: React.FC = () => {
     setHasContentChanged(false);
   };
 
-  // Update the renderActionButtons function to include the updated content
+  // Update the renderActionButtons function
   const renderActionButtons = () => {
     // Get the latest content for rdf.yaml, including unsaved changes
     const getLatestRdfContent = () => {
-      if (!selectedFile) return '';
-      return unsavedChanges[selectedFile.path] ?? 
-        (typeof selectedFile.content === 'string' ? selectedFile.content : '');
+      const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
+      if (!rdfFile) return '';
+      return unsavedChanges[rdfFile.path] ?? 
+        (typeof rdfFile.content === 'string' ? rdfFile.content : '');
     };
 
     const isRdfFile = selectedFile?.path.endsWith('rdf.yaml');
@@ -1367,11 +1368,11 @@ const Edit: React.FC = () => {
         handler: (e: KeyboardEvent) => {
           e.preventDefault();
           if (selectedFile?.path.endsWith('rdf.yaml')) {
-            // Trigger validation
-            const content = unsavedChanges[selectedFile.path] ?? 
-              (typeof selectedFile.content === 'string' ? selectedFile.content : '');
+            // Get latest content including unsaved changes
+            const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
+            if (!rdfFile) return;
             
-            // Call validation function - this assumes ModelValidator exposes a validate function
+            // Trigger validation via button click
             const validator = document.querySelector('[data-testid="model-validator-button"]');
             if (validator instanceof HTMLButtonElement) {
               validator.click();
@@ -1395,7 +1396,7 @@ const Edit: React.FC = () => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFile, handleSave, unsavedChanges]); // Add other dependencies as needed
+  }, [selectedFile, handleSave, unsavedChanges, files]); // Add other dependencies as needed
 
   // Add this useEffect to set up the keyboard shortcuts
   useEffect(() => {
