@@ -12,6 +12,7 @@ import MyArtifacts from './components/MyArtifacts';
 import Edit from './components/Edit';
 import './index.css'
 import './github-markdown.css'
+import { HyphaProvider } from './HyphaContext';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -79,9 +80,11 @@ const AppContent: React.FC = () => {
 // Main App component that provides Router context
 const App: React.FC = () => {
   return (
-    <HashRouter>
-      <AppContent />
-    </HashRouter>
+    <HyphaProvider>
+      <HashRouter>
+        <AppContent />
+      </HashRouter>
+    </HyphaProvider>
   );
 };
 

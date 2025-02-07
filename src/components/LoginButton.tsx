@@ -3,6 +3,8 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { Link } from 'react-router-dom';
+import { useHyphaContext } from '../HyphaContext';
+import { useNavigate } from 'react-router-dom';
 
 interface LoginButtonProps {
   className?: string;
@@ -31,6 +33,8 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { client, user, connect, setUser, server } = useHyphaStore();
+  const { hyphaClient, setHyphaClient } = useHyphaContext();
+  const navigate = useNavigate();
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -46,11 +50,27 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   }, []);
 
   // Add logout handler
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('tokenExpiry');
-    setUser(null);
-    setIsDropdownOpen(false);
+  const handleLogout = async () => {
+    try {
+      // Disconnect from Hypha server if connected
+      if (hyphaClient) {
+        await hyphaClient.disconnect();
+        setHyphaClient(null);
+      }
+
+      // Clear any auth tokens or user data from localStorage
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      // Perform existing logout logic
+      setUser(null);
+      setIsDropdownOpen(false);
+      
+      // Optionally redirect to home page
+      navigate('/');
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
   };
 
   const loginCallback = (context: { login_url: string }) => {

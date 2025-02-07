@@ -28,7 +28,7 @@ interface ModelTesterProps {
 }
 
 const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabled, className = '' }) => {
-  const { server } = useHyphaStore();
+  const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -132,9 +132,9 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
       <div className="flex h-[40px]" ref={buttonRef}>
         <button
           onClick={runTest}
-          disabled={isDisabled || isLoading}
+          disabled={isDisabled || isLoading || !isLoggedIn}
           className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-            ${isDisabled
+            ${isDisabled || !isLoggedIn
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
             }`}
@@ -145,14 +145,14 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
               d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>Test Model</span>
+          <span>{!isLoggedIn ? 'Login to Test' : 'Test Model'}</span>
         </button>
 
         <Menu as="div" className="relative h-full">
           <Menu.Button
-            onClick={() => setIsOpen(!isOpen)}
+            onClick={() => testResult && setIsOpen(!isOpen)}
             className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l
-              ${isDisabled
+              ${isDisabled || !isLoggedIn
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : isLoading
                   ? 'bg-blue-600 text-white'
@@ -162,7 +162,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
                       : 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
               }`}
-            disabled={isDisabled}
+            disabled={isDisabled || !isLoggedIn}
           >
             {isLoading ? (
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
@@ -194,7 +194,15 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
               ref={dropdownRef}
               className="absolute mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
             >
-              <div className="p-6">
+              <div className="p-6 relative">
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
                 <ReactMarkdown className="prose prose-sm max-w-none">
                   {getMarkdownContent()}
                 </ReactMarkdown>

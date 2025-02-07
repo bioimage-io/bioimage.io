@@ -11,6 +11,7 @@ import { useDropzone } from 'react-dropzone';
 import { Dialog as HeadlessDialog, Transition } from '@headlessui/react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import ModelTester from './ModelTester';
+import ModelValidator from './ModelValidator';
 
 interface FileNode {
   name: string;
@@ -44,13 +45,21 @@ interface PublishData {
   comment: string;
 }
 
+// Add this type definition near other interfaces
+interface KeyboardShortcut {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  handler: () => void;
+}
+
 const Edit: React.FC = () => {
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
     severity: 'info' | 'success' | 'error';
@@ -85,6 +94,8 @@ const Edit: React.FC = () => {
     version: '',
     comment: ''
   });
+  const [isContentValid, setIsContentValid] = useState<boolean>(true);
+  const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -324,6 +335,10 @@ const Edit: React.FC = () => {
       ...prev,
       [file.path]: value
     }));
+
+    // Mark content as changed and invalidate previous validation
+    setHasContentChanged(true);
+    setIsContentValid(false);
   };
 
   const handleSave = async (file: FileNode) => {
@@ -966,52 +981,94 @@ const Edit: React.FC = () => {
     </div>
   );
 
-  // Update renderActionButtons to include the review button when in staging mode
-  const renderActionButtons = () => (
-    <div className="flex gap-2">
-      {selectedFile && isTextFile(selectedFile.name) && (
-        <button
-          onClick={() => handleSave(selectedFile)}
-          disabled={!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'}
-          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-            ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700'}`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-          </svg>
-          Save
-        </button>
-      )}
-      
-      {/* Add ModelTester */}
-      {artifactId && (
-        <ModelTester
-          artifactId={artifactId}
-          version={isStaged ? 'stage' : artifactInfo?.version}
-          isDisabled={!isStaged}
-        />
-      )}
-      
+  // Add this handler function near other handlers
+  const handleValidationComplete = (result: ValidationResult) => {
+    setUploadStatus({
+      message: result.success ? 'Validation successful!' : 'Validation failed',
+      severity: result.success ? 'success' : 'error'
+    });
+    
+    setIsContentValid(result.success);
+    setHasContentChanged(false);
+  };
 
-      {/* Review & Publish button - only show when staged */}
-      {isStaged && (
-        <button
-          onClick={() => handleTabChange('review')}
-          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-            ${activeTab === 'review'
-              ? 'bg-blue-700 text-white'
-              : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Review & Publish
-        </button>
-      )}
-    </div>
-  );
+  // Update the renderActionButtons function to include the updated content
+  const renderActionButtons = () => {
+    // Get the latest content for rdf.yaml, including unsaved changes
+    const getLatestRdfContent = () => {
+      if (!selectedFile) return '';
+      return unsavedChanges[selectedFile.path] ?? 
+        (typeof selectedFile.content === 'string' ? selectedFile.content : '');
+    };
+
+    const isRdfFile = selectedFile?.path.endsWith('rdf.yaml');
+    const shouldDisableActions = isRdfFile && (!isContentValid || hasContentChanged);
+
+    return (
+      <div className="flex gap-2">
+        {/* Update ModelValidator to use latest content */}
+        {isRdfFile && (
+          <div title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
+            <ModelValidator
+              rdfContent={getLatestRdfContent()}
+              isDisabled={!server}
+              onValidationComplete={handleValidationComplete}
+              data-testid="model-validator-button"
+            />
+          </div>
+        )}
+
+        {selectedFile && isTextFile(selectedFile.name) && (
+          <button
+            onClick={() => handleSave(selectedFile)}
+            disabled={!unsavedChanges[selectedFile.path] || 
+                     uploadStatus?.severity === 'info' || 
+                     (isRdfFile && !isContentValid)}
+            title={`Save (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S)`}
+            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+              ${!unsavedChanges[selectedFile.path] || 
+                uploadStatus?.severity === 'info' || 
+                (isRdfFile && !isContentValid)
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+            Save
+          </button>
+        )}
+
+        {/* Update ModelTester */}
+        {artifactId && (
+          <ModelTester
+            artifactId={artifactId}
+            version={isStaged ? 'stage' : artifactInfo?.version}
+            isDisabled={!isStaged || shouldDisableActions}
+          />
+        )}
+
+        {/* Update Review & Publish button */}
+        {isStaged && (
+          <button
+            onClick={() => handleTabChange('review')}
+            disabled={shouldDisableActions}
+            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+              ${shouldDisableActions
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : activeTab === 'review'
+                  ? 'bg-blue-700 text-white'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Review & Publish
+          </button>
+        )}
+      </div>
+    );
+  };
 
   // Add delete confirmation dialog
   const renderDeleteConfirmDialog = () => (
@@ -1288,6 +1345,63 @@ const Edit: React.FC = () => {
       </div>
     </MuiDialog>
   );
+
+  // Add this function inside the Edit component, before the return statement
+  const setupKeyboardShortcuts = useCallback(() => {
+    const shortcuts: KeyboardShortcut[] = [
+      {
+        key: 's',
+        ctrlKey: true,
+        metaKey: true, // for Mac
+        handler: (e: KeyboardEvent) => {
+          e.preventDefault();
+          if (selectedFile && isTextFile(selectedFile.name)) {
+            handleSave(selectedFile);
+          }
+        }
+      },
+      {
+        key: 'r',
+        ctrlKey: true,
+        metaKey: true, // for Mac
+        handler: (e: KeyboardEvent) => {
+          e.preventDefault();
+          if (selectedFile?.path.endsWith('rdf.yaml')) {
+            // Trigger validation
+            const content = unsavedChanges[selectedFile.path] ?? 
+              (typeof selectedFile.content === 'string' ? selectedFile.content : '');
+            
+            // Call validation function - this assumes ModelValidator exposes a validate function
+            const validator = document.querySelector('[data-testid="model-validator-button"]');
+            if (validator instanceof HTMLButtonElement) {
+              validator.click();
+            }
+          }
+        }
+      }
+    ];
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      shortcuts.forEach(shortcut => {
+        if (
+          e.key.toLowerCase() === shortcut.key &&
+          (!shortcut.ctrlKey || e.ctrlKey) &&
+          (!shortcut.metaKey || e.metaKey)
+        ) {
+          shortcut.handler(e);
+        }
+      });
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedFile, handleSave, unsavedChanges]); // Add other dependencies as needed
+
+  // Add this useEffect to set up the keyboard shortcuts
+  useEffect(() => {
+    const cleanup = setupKeyboardShortcuts();
+    return cleanup;
+  }, [setupKeyboardShortcuts]);
 
   return (
     <div className="flex flex-col h-screen">
