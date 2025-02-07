@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Resource } from '../types';
 import { Card, CardMedia, CardContent, IconButton, Button } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import { resolveHyphaUrl } from '../utils/urlHelpers';
 
 interface ResourceCardProps {
   resource: Resource;
@@ -34,6 +35,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
     window.open(`http://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
   };
 
+  // Get the resolved cover URL for the current index
+  const getCurrentCoverUrl = () => {
+    if (covers.length === 0) return '';
+    return resolveHyphaUrl(covers[currentImageIndex], resource.id);
+  };
+
   return (
     <Card 
       sx={{
@@ -60,7 +67,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         {covers.length > 0 ? (
           <CardMedia
             component="img"
-            image={covers[currentImageIndex]}
+            image={getCurrentCoverUrl()}
             alt={resource.manifest.name}
             sx={{
               position: 'absolute',
