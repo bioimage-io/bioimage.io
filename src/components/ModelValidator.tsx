@@ -78,13 +78,11 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
             className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l border-white/20
               ${isDisabled || !isLoggedIn
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : isLoading
-                  ? 'bg-blue-600 text-white'
-                  : validationResult
-                    ? validationResult.success
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                : validationResult
+                  ? validationResult.success
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
               }`}
             disabled={isDisabled || !isLoggedIn}
           >

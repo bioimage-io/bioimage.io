@@ -1007,18 +1007,6 @@ const Edit: React.FC = () => {
 
     return (
       <div className="flex gap-2">
-        {/* Update ModelValidator to use latest content */}
-        {isRdfFile && (
-          <div title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
-            <ModelValidator
-              rdfContent={getLatestRdfContent()}
-              isDisabled={!server}
-              onValidationComplete={handleValidationComplete}
-              data-testid="model-validator-button"
-            />
-          </div>
-        )}
-
         {selectedFile && isTextFile(selectedFile.name) && (
           <button
             onClick={() => handleSave(selectedFile)}
@@ -1031,7 +1019,7 @@ const Edit: React.FC = () => {
                 uploadStatus?.severity === 'info' || 
                 (isRdfFile && !isContentValid)
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700'}`}
+                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -1039,6 +1027,20 @@ const Edit: React.FC = () => {
             Save
           </button>
         )}
+
+        {/* Update ModelValidator to use latest content */}
+        {isRdfFile && (
+          <div title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
+            <ModelValidator
+              rdfContent={getLatestRdfContent()}
+              isDisabled={!server}
+              onValidationComplete={handleValidationComplete}
+              data-testid="model-validator-button"
+            />
+          </div>
+        )}
+
+        
 
         {/* Update ModelTester */}
         {artifactId && (
