@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import { Resource } from '../types/resource';
-import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
@@ -12,11 +12,15 @@ import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
 import ModelTester from './ModelTester';
+import { resolveHyphaUrl } from '../utils/urlHelpers';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 
 const ResourceDetails = () => {
   const { id } = useParams();
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
     if (id) {
@@ -27,9 +31,9 @@ const ResourceDetails = () => {
   useEffect(() => {
     const fetchDocumentation = async () => {
       if (selectedResource?.manifest.documentation) {
-        const id = selectedResource.id.split('/').pop();
-        const docUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${selectedResource.manifest.documentation}?use_proxy=true`;
         try {
+          const docUrl = resolveHyphaUrl(selectedResource.manifest.documentation, selectedResource.id);
+          
           const response = await fetch(docUrl);
           const text = await response.text();
           setDocumentation(text);
@@ -46,6 +50,22 @@ const ResourceDetails = () => {
     const id = selectedResource?.id.split('/').pop();
     if (id) {
       window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    }
+  };
+
+  const nextImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedResource?.manifest.covers) {
+      setCurrentImageIndex((prev) => (prev + 1) % selectedResource.manifest.covers.length);
+    }
+  };
+
+  const previousImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedResource?.manifest.covers) {
+      setCurrentImageIndex((prev) => 
+        (prev - 1 + selectedResource.manifest.covers.length) % selectedResource.manifest.covers.length
+      );
     }
   };
 
@@ -105,15 +125,88 @@ const ResourceDetails = () => {
         </Box>
       </Box>
 
+      {/* Cover Image Section */}
+      {selectedResource.manifest.covers && selectedResource.manifest.covers.length > 0 && (
+        <Box 
+          sx={{ 
+            position: 'relative',
+            width: '100%',
+            height: '400px',
+            mb: 3,
+            borderRadius: 1,
+            overflow: 'hidden',
+            backgroundColor: '#f5f5f5'
+          }}
+        >
+          <img
+            src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
+            alt={`Cover ${currentImageIndex + 1}`}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain'
+            }}
+          />
+          {selectedResource.manifest.covers.length > 1 && (
+            <>
+              <IconButton
+                onClick={previousImage}
+                sx={{
+                  position: 'absolute',
+                  left: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                  }
+                }}
+              >
+                <NavigateBeforeIcon />
+              </IconButton>
+              <IconButton
+                onClick={nextImage}
+                sx={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                  }
+                }}
+              >
+                <NavigateNextIcon />
+              </IconButton>
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: 8,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                  color: 'white',
+                  padding: '4px 8px',
+                  borderRadius: 1,
+                  fontSize: '0.875rem'
+                }}
+              >
+                {currentImageIndex + 1} / {selectedResource.manifest.covers.length}
+              </Box>
+            </>
+          )}
+        </Box>
+      )}
+
       <Grid container spacing={3}>
         {/* Left Column - Documentation */}
         <Grid item xs={12} md={8}>
           {/* Documentation Card */}
           {documentation && (
-            <Card sx={{ mb: 3 }}>
+            <Card sx={{ mb: 3, height: '100%' }}>
               <CardContent>
                 <Box 
-                  
                   sx={{ 
                     padding: '45px',
                     '& pre': {
@@ -143,7 +236,7 @@ const ResourceDetails = () => {
                 <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Authors
               </Typography>
-              {manifest.authors.map((author, index) => (
+              {manifest.authors?.map((author, index) => (
                 <Box key={index} sx={{ mb: 2 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
                     {author.name}
@@ -167,7 +260,7 @@ const ResourceDetails = () => {
                       {author.affiliation}
                     </Typography>
                   )}
-                  {index < manifest.authors.length - 1 && <Divider sx={{ my: 2 }} />}
+                  {index < (manifest.authors?.length ?? 0) - 1 && <Divider sx={{ my: 2 }} />}
                 </Box>
               ))}
             </CardContent>
@@ -194,14 +287,15 @@ const ResourceDetails = () => {
             </CardContent>
           </Card>
 
-
-          {/* Citations Card - Moved from left column */}
+          {/* Citations Card */}
           {manifest.cite && manifest.cite.length > 0 && (
             <Card sx={{ mb: 3 }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Citations</Typography>
+                <Typography variant="h6" gutterBottom>
+                  Citations
+                </Typography>
                 {manifest.cite.map((citation, index) => (
-                  <Box key={index} sx={{ mb: 2 }}>
+                  <Box key={index}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
                       {citation.text}
                     </Typography>
@@ -232,7 +326,7 @@ const ResourceDetails = () => {
                 Tags
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {manifest.tags.map((tag, index) => (
+                {manifest.tags?.map((tag, index) => (
                   <Chip key={index} label={tag} size="small" />
                 ))}
               </Box>
