@@ -91,9 +91,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   useEffect(() => {
     if (files.some(f => f.edited)) {
       setIsValidated(false);
-      setIsUploaded(false);
       setTestResult(null);
-      setUploadedArtifact(null);
     }
   }, [files]);
 
@@ -231,8 +229,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
     setIsValidated(result.success);
     setUploadStatus({
       message: result.success ? 'Validation successful!' : 'Validation failed',
-      severity: result.success ? 'success' : 'error'
+      severity: result.success ? 'success' : 'error',
+      ...(uploadStatus?.progress !== undefined && { progress: uploadStatus.progress })
     });
+    if (result.success && !uploadedArtifact && artifactId) {
+      setUploadedArtifact({
+        id: artifactId,
+        version: 'stage'
+      });
+    }
   };
 
   const handleUpload = async () => {
@@ -354,6 +359,79 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
         message: error instanceof Error 
           ? `Upload failed: ${error.message}` 
           : 'Upload failed: Unknown error occurred',
+        severity: 'error'
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (isUploading) return;
+    
+    if (!artifactManager || !uploadedArtifact) {
+      setUploadStatus({
+        message: 'No artifact to save to',
+        severity: 'error'
+      });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      
+      // Filter files that have been edited
+      const filesToUpload = files.filter(file => file.edited);
+      
+      // Upload only edited files sequentially with progress
+      for (let index = 0; index < filesToUpload.length; index++) {
+        const file = filesToUpload[index];
+        setUploadStatus({
+          message: `Saving ${file.name}...`,
+          severity: 'info',
+          progress: (index / filesToUpload.length) * 100
+        });
+
+        const putUrl = await artifactManager.put_file({
+          artifact_id: uploadedArtifact.id,
+          file_path: file.path,
+          _rkwargs: true,
+        });
+        
+        const blob = new Blob([file.content], { type: "application/octet-stream" });
+        await axios.put(putUrl, blob, {
+          headers: {
+            "Content-Type": ""
+          },
+          onUploadProgress: (progressEvent) => {
+            const progress = progressEvent.total
+              ? (progressEvent.loaded / progressEvent.total) * 100
+              : 0;
+            
+            setUploadStatus({
+              message: `Saving ${file.name}...`,
+              severity: 'info',
+              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
+            });
+          }
+        });
+      }
+
+      // Reset edited flags after successful save
+      setFiles(files.map(file => ({ ...file, edited: false })));
+
+      setUploadStatus({
+        message: 'Changes saved successfully!',
+        severity: 'success',
+        progress: 100
+      });
+
+    } catch (error) {
+      console.error('Save failed:', error);
+      setUploadStatus({
+        message: error instanceof Error 
+          ? `Save failed: ${error.message}` 
+          : 'Save failed: Unknown error occurred',
         severity: 'error'
       });
     } finally {
@@ -577,12 +655,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                   {/* Buttons section */}
                   <div className="flex gap-2 flex-shrink-0">
                     <ModelValidator
-                      // Use the current rdf file content, whether edited or not
                       rdfContent={getRdfFile()?.content as string}
                       isDisabled={!getRdfFile() || !server}
                       onValidationComplete={handleValidationComplete}
                     />
-                    {!isUploaded ? (
+                    {!uploadedArtifact ? (
                       <button
                         onClick={handleUpload}
                         disabled={isUploading || !isLoggedIn || !isValidated}
@@ -603,11 +680,43 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                         </>
                       </button>
                     ) : (
-                      <ModelTester
-                        artifactId={uploadedArtifact?.id}
-                        version="stage"
-                        isDisabled={!server}
-                      />
+                      <div className="flex gap-2">
+                        {files.some(f => f.edited) ? (
+                          <button
+                            onClick={handleSave}
+                            disabled={isUploading || !isLoggedIn || !isValidated}
+                            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                              ${isUploading || !isLoggedIn || !isValidated
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-green-600 text-white hover:bg-green-700'}`}
+                          >
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                              </svg>
+                              {isUploading ? 'Saving...' : 'Save Changes'}
+                            </>
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="px-6 py-2 rounded-md font-medium bg-gray-100 text-gray-400 cursor-not-allowed flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                            </svg>
+                            Changes Saved
+                          </button>
+                        )}
+                        {/* Only show ModelTester when not uploading and no files are edited */}
+                        {!isUploading && !files.some(f => f.edited) && (
+                          <ModelTester
+                            artifactId={uploadedArtifact.id}
+                            version="stage"
+                            isDisabled={!server}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
