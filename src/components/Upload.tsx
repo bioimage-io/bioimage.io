@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import JSZip from 'jszip';
 import Editor from '@monaco-editor/react';
@@ -6,6 +6,7 @@ import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
 import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
+import { Link } from 'react-router-dom';
 
 interface FileNode {
   name: string;
@@ -30,13 +31,24 @@ interface UploadStatus {
 type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html';
 type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
-const Upload: React.FC = () => {
+interface UploadProps {
+  artifactId?: string;
+  onBack?: () => void;
+}
+
+const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
+
+  useEffect(() => {
+    if (artifactId) {
+      loadArtifactFiles();
+    }
+  }, [artifactId]);
 
   const isTextFile = (filename: string): boolean => {
     const textExtensions: SupportedTextFiles[] = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
@@ -197,8 +209,6 @@ const Upload: React.FC = () => {
         severity: 'info'
       });
 
-      
-
       const artifact = await artifactManager.create({
         parent_id: "bioimage-io/bioimage.io",
         alias: "{zenodo_conceptrecid}",
@@ -210,7 +220,11 @@ const Upload: React.FC = () => {
         _rkwargs: true,
         overwrite: true,
       });
-      console.log(`Artifact created: ${artifact.id}`);
+
+      setUploadStatus({
+        message: `Artifact created with ID: ${artifact.id}`,
+        severity: 'info'
+      });
 
       // Upload files sequentially with progress
       for (let index = 0; index < files.length; index++) {
@@ -226,9 +240,12 @@ const Upload: React.FC = () => {
           file_path: file.path,
           _rkwargs: true,
         });
-
-        const blob = new Blob([file.content], { type: 'text/plain' });
+        console.log(`Uploading ${file.name} to ${putUrl}`);
+        const blob = new Blob([file.content], { type: "application/octet-stream" });
         await axios.put(putUrl, blob, {
+          headers: {
+            "Content-Type": "" // Ensure the Content-Type header is empty if not expected
+          },
           onUploadProgress: (progressEvent) => {
             const progress = progressEvent.total
               ? (progressEvent.loaded / progressEvent.total) * 100
@@ -244,9 +261,19 @@ const Upload: React.FC = () => {
       }
 
       setUploadStatus({
-        message: 'Upload complete!',
-        severity: 'success'
+        message: 'Upload complete! Your submission will be reviewed by our administrators.',
+        severity: 'success',
+        progress: 100
       });
+
+      // Add a delay before showing the final message
+      setTimeout(() => {
+        setUploadStatus({
+          message: 'Your model package has been uploaded and is pending review. Our administrators will process your submission soon.',
+          severity: 'success'
+        });
+      }, 3000);
+
     } catch (error) {
       console.error('Upload failed:', error);
       setUploadStatus({
@@ -271,32 +298,123 @@ const Upload: React.FC = () => {
     }
   };
 
+  const loadArtifactFiles = async () => {
+    if (!artifactManager || !artifactId) return;
+    
+    try {
+      const fileList = await artifactManager.list_files({
+        artifact_id: artifactId,
+        _rkwargs: true
+      });
+
+      // Convert the file list to FileNode format
+      const nodes: FileNode[] = await Promise.all(fileList.map(async (file: any) => {
+        if (file.type === 'file') {
+          const content = await loadFileContent(file.name);
+          return {
+            name: file.name,
+            path: file.name,
+            content: content,
+            isDirectory: false
+          };
+        }
+        return {
+          name: file.name,
+          path: file.name,
+          content: '',
+          isDirectory: true,
+          children: []
+        };
+      }));
+
+      setFiles(nodes);
+      setShowDragDrop(false);
+
+      // Select rdf.yaml by default if it exists
+      const rdfFile = nodes.find(file => file.path.endsWith('rdf.yaml'));
+      if (rdfFile) {
+        handleFileSelect(rdfFile);
+      }
+    } catch (error) {
+      console.error('Error loading artifact files:', error);
+    }
+  };
+
+  const loadFileContent = async (filePath: string) => {
+    if (!artifactManager || !artifactId) return '';
+
+    try {
+      const url = await artifactManager.get_file({
+        artifact_id: artifactId,
+        file_path: filePath,
+        _rkwargs: true
+      });
+
+      const response = await fetch(url);
+      const content = await response.text();
+      return content;
+    } catch (error) {
+      console.error('Error loading file content:', error);
+      return '';
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
-      {/* Add title section */}
-      <div className="bg-white border-b border-gray-80">
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Contributing to the BioImage Model Zoo
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Upload and share your AI models with the bioimage analysis community
-          </p>
+      {/* Add back button when viewing existing artifact */}
+      {onBack && (
+        <div className="bg-white border-b border-gray-200 px-4 py-2">
+          <button
+            onClick={onBack}
+            className="flex items-center text-gray-600 hover:text-gray-900"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to My Artifacts
+          </button>
         </div>
-      </div>
+      )}
+
+      {/* Show title section only when no files are loaded */}
+      {showDragDrop && (
+        <div className="bg-white border-b border-gray-80">
+          <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 text-center">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Contributing to the BioImage Model Zoo
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Upload and share your AI models with the bioimage analysis community
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-auto">
         {/* Only show sidebar when files are loaded */}
         {files.length > 0 && (
           <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-              <button
-                onClick={() => setShowDragDrop(true)}
-                className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+            <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600 font-medium">Package Contents</span>
+                <button
+                  onClick={() => setShowDragDrop(true)}
+                  className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+                >
+                  Upload New
+                </button>
+              </div>
+              
+              {/* Add My Artifacts shortcut */}
+              <Link
+                to="/my-artifacts"
+                className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-100"
               >
-                Upload New
-              </button>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                View My Artifacts
+              </Link>
             </div>
 
             {/* Scrollable file list */}
@@ -432,6 +550,16 @@ const Upload: React.FC = () => {
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center max-w-2xl mx-auto">
+                  <Link
+                    to="/my-artifacts"
+                    className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 bg-gray-50 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    View My Artifacts
+                  </Link>
+
                   <div 
                     {...getRootProps()} 
                     className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"

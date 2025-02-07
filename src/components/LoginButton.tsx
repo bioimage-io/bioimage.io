@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import { RiLoginBoxLine } from 'react-icons/ri';
+import { Link } from 'react-router-dom';
 
 interface LoginButtonProps {
   className?: string;
@@ -122,6 +123,13 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
                 {user.email}
               </div>
+              <Link
+                to="/my-artifacts"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                onClick={() => setIsDropdownOpen(false)}
+              >
+                My Artifacts
+              </Link>
               <a
                 href="/profile"
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

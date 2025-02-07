@@ -2,16 +2,18 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginButton from './LoginButton';
 import { BiCube } from 'react-icons/bi';
-import { BsDatabase } from 'react-icons/bs';
+import { BsDatabase, BsCollection } from 'react-icons/bs';
 import { HiOutlineBeaker } from 'react-icons/hi';
 import { IoDocumentTextOutline, IoCloudUploadOutline } from 'react-icons/io5';
 import { AiOutlineInfoCircle } from 'react-icons/ai';
 import { RiLoginBoxLine } from 'react-icons/ri';
+import { useHyphaStore } from '../store/hyphaStore';
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useHyphaStore();
 
   const isActivePath = (path: string): boolean => {
     return location.pathname.startsWith(path);
@@ -81,6 +83,7 @@ const Navbar: React.FC = () => {
           <div className="flex items-center space-x-4">
             {/* Move Upload and Login buttons to desktop-only view */}
             <div className="hidden md:flex items-center space-x-4">
+              
               {location.pathname !== '/upload' && (
                 <Link
                   to="/upload"
@@ -88,6 +91,15 @@ const Navbar: React.FC = () => {
                 >
                   <IoCloudUploadOutline className="mr-2" size={18} />
                   Upload
+                </Link>
+              )}
+              {user?.email && location.pathname !== '/my-artifacts' && (
+                <Link
+                  to="/my-artifacts"
+                  className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
+                >
+                  <BsCollection className="mr-2" size={18} />
+                  Artifacts
                 </Link>
               )}
               <LoginButton />
@@ -108,6 +120,16 @@ const Navbar: React.FC = () => {
         {/* Mobile menu */}
         <div className={`md:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
           <div className="px-2 pt-2 pb-3 space-y-1">
+            {user?.email && (
+              <Link 
+                to="/my-artifacts" 
+                className={mobileNavLinkClasses("/my-artifacts")}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <BsCollection className="mr-2" size={18} />
+                Artifacts
+              </Link>
+            )}
             <Link 
               to="/upload" 
               className={mobileNavLinkClasses("/upload")}

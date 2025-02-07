@@ -6,7 +6,6 @@ import { Resource } from '../types/resource';
 import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
-import DescriptionIcon from '@mui/icons-material/Description';
 import LinkIcon from '@mui/icons-material/Link';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import DownloadIcon from '@mui/icons-material/Download';
