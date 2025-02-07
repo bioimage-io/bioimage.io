@@ -63,6 +63,7 @@ const Edit: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isStaged, setIsStaged] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -137,24 +138,28 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
 
-      // List all files
-      const fileList = await artifactManager.list_files({
+      // Get artifact info
+      const artifact = await artifactManager.read({
         artifact_id: artifactId,
-        version: 'stage',
         _rkwargs: true
       });
+      
+      // Set isStaged based on artifact staging status
+      const staged = artifact.staging !== null;
+      setIsStaged(staged);
 
-      // Get artifact info
-      const info = await artifactManager.read({
+      // List all files using the correct version
+      const fileList = await artifactManager.list_files({
         artifact_id: artifactId,
+        version: staged ? 'stage' : null,
         _rkwargs: true
       });
 
       setArtifactInfo({
-        name: info.manifest.name,
+        name: artifact.manifest.name,
         id: artifactId,
-        description: info.manifest.description,
-        version: info.version
+        description: artifact.manifest.description,
+        version: artifact.version
       });
 
       if (!fileList || fileList.length === 0) {
@@ -202,7 +207,7 @@ const Edit: React.FC = () => {
       const url = await artifactManager.get_file({
         artifact_id: artifactId,
         file_path: file.path,
-        version: 'stage',
+        version: isStaged ? 'stage' : null,
         _rkwargs: true
       });
       
@@ -357,13 +362,16 @@ const Edit: React.FC = () => {
         message: 'Committing changes...',
         severity: 'info'
       });
-      debugger;
+
       const artifact = await artifactManager.commit({
         artifact_id: artifactId,
-        version: 'new',
+        version: isStaged ? 'stage' : 'new',
         comment: `Updated files by ${user.email} on ${new Date().toLocaleString()}`,
         _rkwargs: true
       });
+
+      // After successful commit, update isStaged state
+      setIsStaged(true);
 
       console.log(artifact);
 
@@ -401,10 +409,13 @@ const Edit: React.FC = () => {
       
       await artifactManager?.commit({
         artifact_id: artifactId,
-        version: 'new',
+        version: isStaged ? 'stage' : 'new',
         comment: 'Published to Model Zoo',
         _rkwargs: true
       });
+
+      // After successful publish, update isStaged state
+      setIsStaged(true);
 
       setUploadStatus({
         message: 'Artifact published successfully',
@@ -594,19 +605,22 @@ const Edit: React.FC = () => {
 
   // Update the navigation button
   const renderSidebarNav = () => (
-    <div className="p-4 border-b  bg-white space-y-2">
-      <button
-        onClick={() => handleTabChange('review')}
-        className={`w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors
-          ${activeTab === 'review' 
-            ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-            : 'bg-white text-gray-700 border hover:bg-gray-50'}`}
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        Review
-      </button>
+    <div className="p-4 border-b bg-white space-y-2">
+      {/* Only show review button if resource is staged */}
+      {isStaged && (
+        <button
+          onClick={() => handleTabChange('review')}
+          className={`w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors
+            ${activeTab === 'review' 
+              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+              : 'bg-white text-gray-700 border hover:bg-gray-50'}`}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Review
+        </button>
+      )}
     </div>
   );
 
@@ -689,6 +703,13 @@ const Edit: React.FC = () => {
       }
     }
   }, [artifactId, files, searchParams]); // Remove selectedFile from dependencies
+
+  // Add this effect to handle tab state when staged status changes
+  useEffect(() => {
+    if (!isStaged && activeTab === 'review') {
+      handleTabChange('files');
+    }
+  }, [isStaged]);
 
   // Add file upload handler
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
