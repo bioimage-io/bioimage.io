@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, Fragment } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
 import yaml from 'js-yaml';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import Comments from './Comments';
@@ -34,6 +34,13 @@ interface ArtifactInfo {
   id: string;
   description?: string;
   version?: string;
+  versions?: string[];
+}
+
+// Add this interface near the top with other interfaces
+interface PublishData {
+  version?: string;
+  comment: string;
 }
 
 const Edit: React.FC = () => {
@@ -64,6 +71,19 @@ const Edit: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStaged, setIsStaged] = useState<boolean>(false);
+  const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
+  const [newVersionData, setNewVersionData] = useState({
+    copyFiles: true
+  });
+  const [copyProgress, setCopyProgress] = useState<{
+    current: number;
+    total: number;
+    file: string;
+  } | null>(null);
+  const [publishData, setPublishData] = useState<PublishData>({
+    version: '',
+    comment: ''
+  });
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -155,11 +175,18 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
 
+      // Get the latest version from versions array, or use 'stage' if in staging
+      const currentVersion = staged ? 'stage' : 
+        (artifact.versions && artifact.versions.length > 0 ? 
+          artifact.versions[artifact.versions.length - 1] : 
+          undefined);
+
       setArtifactInfo({
         name: artifact.manifest.name,
         id: artifactId,
         description: artifact.manifest.description,
-        version: artifact.version
+        version: currentVersion,
+        versions: artifact.versions || []
       });
 
       if (!fileList || fileList.length === 0) {
@@ -357,43 +384,8 @@ const Edit: React.FC = () => {
   const handleCommit = async () => {
     if (!artifactManager) return;
 
-    try {
-      setUploadStatus({
-        message: 'Committing changes...',
-        severity: 'info'
-      });
-
-      const artifact = await artifactManager.commit({
-        artifact_id: artifactId,
-        version: isStaged ? 'stage' : 'new',
-        comment: `Updated files by ${user.email} on ${new Date().toLocaleString()}`,
-        _rkwargs: true
-      });
-
-      // After successful commit, update isStaged state
-      setIsStaged(true);
-
-      console.log(artifact);
-
-      setUploadStatus({
-        message: 'Changes committed successfully',
-        severity: 'success'
-      });
-
-      // Instead of reloading files, just clear the edited flags
-      setFiles(prevFiles => 
-        prevFiles.map(f => ({
-          ...f,
-          edited: false
-        }))
-      );
-    } catch (error) {
-      console.error('Error committing changes:', error);
-      setUploadStatus({
-        message: 'Error committing changes',
-        severity: 'error'
-      });
-    }
+    // Show publish dialog instead of committing directly
+    setShowPublishDialog(true);
   };
 
   const handleBack = () => {
@@ -407,25 +399,31 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
       
-      await artifactManager?.commit({
+      const artifact = await artifactManager?.commit({
         artifact_id: artifactId,
-        version: isStaged ? 'stage' : 'new',
-        comment: 'Published to Model Zoo',
+        version: publishData.version?.trim() || null,
+        comment: publishData.comment || 'Published to Model Zoo',
         _rkwargs: true
       });
 
-      // After successful publish, update isStaged state
-      setIsStaged(true);
-
       setUploadStatus({
-        message: 'Artifact published successfully',
+        message: 'Changes committed successfully',
         severity: 'success'
       });
       
       setShowPublishDialog(false);
       
-      // Reload artifact info to reflect changes
-      loadArtifactFiles();
+      // Clear edited flags after successful commit
+      setFiles(prevFiles => 
+        prevFiles.map(f => ({
+          ...f,
+          edited: false
+        }))
+      );
+
+      // Navigate back to My Artifacts after successful publish
+      navigate('/my-artifacts');
+
     } catch (error) {
       console.error('Error publishing artifact:', error);
       setUploadStatus({
@@ -583,10 +581,36 @@ const Edit: React.FC = () => {
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
-                  Delete
+                  Cancel Staging
                 </button>
               </div>
             </div>
+            
+            {/* Version History */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Version History</h4>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {artifactInfo.versions.map((version) => (
+                      <div key={version} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-gray-200">
+                        <span className="text-sm font-medium text-gray-900">{version}</span>
+                        {version === artifactInfo.version && (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                            current
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500 italic">
+                    No versions have been published yet. Publishing this artifact will create the first version.
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="max-w-sm mx-auto">
               {resourcePreview && <ResourceCard resource={resourcePreview} />}
             </div>
@@ -606,19 +630,16 @@ const Edit: React.FC = () => {
   // Update the navigation button
   const renderSidebarNav = () => (
     <div className="p-4 border-b bg-white space-y-2">
-      {/* Only show review button if resource is staged */}
-      {isStaged && (
+      {/* Only show New Version button if not in staging mode */}
+      {!isStaged && (
         <button
-          onClick={() => handleTabChange('review')}
-          className={`w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors
-            ${activeTab === 'review' 
-              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-              : 'bg-white text-gray-700 border hover:bg-gray-50'}`}
+          onClick={() => setShowNewVersionDialog(true)}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          Review
+          New Version
         </button>
       )}
     </div>
@@ -626,7 +647,7 @@ const Edit: React.FC = () => {
 
   // Update the publish confirmation dialog
   const renderPublishDialog = () => (
-    <Dialog 
+    <MuiDialog 
       open={showPublishDialog} 
       onClose={() => setShowPublishDialog(false)}
       maxWidth="sm"
@@ -636,17 +657,59 @@ const Edit: React.FC = () => {
         <h3 className="text-lg font-medium text-gray-900 mb-4">
           Confirm Publication
         </h3>
-        <div className="text-sm text-gray-500 space-y-4">
-          <p>
-            You are about to publish this artifact to:
-          </p>
-          <ul className="list-disc pl-5 space-y-2">
-            <li>The BioImage Model Zoo website</li>
-            <li>Zenodo (with DOI assignment)</li>
-          </ul>
-          <p className="text-red-600 font-medium">
-            ⚠️ Warning: This action cannot be undone. Once published, the artifact cannot be withdrawn from either platform.
-          </p>
+        <div className="space-y-6">
+          <div className="text-sm text-gray-500 space-y-4">
+            <p>
+              You are about to publish this artifact to:
+            </p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>The BioImage Model Zoo website</li>
+              <li>Zenodo (with DOI assignment)</li>
+            </ul>
+            <p className="text-red-600 font-medium">
+              ⚠️ Warning: This action cannot be undone. Once published, the artifact cannot be withdrawn from either platform.
+            </p>
+          </div>
+
+          {/* Version and Comment fields */}
+          <div className="space-y-4">
+            <div>
+              <TextField
+                label="Version (optional)"
+                value={publishData.version}
+                onChange={(e) => setPublishData(prev => ({ ...prev, version: e.target.value }))}
+                fullWidth
+                size="small"
+                helperText="Leave empty to auto-increment the latest version"
+              />
+              <div className="mt-2">
+                <span className="text-xs text-gray-500">Existing versions: </span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
+                    artifactInfo.versions.map((v) => (
+                      <span key={v} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                        {v}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-gray-500 italic">No versions published yet</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <TextField
+              label="Comment"
+              value={publishData.comment}
+              onChange={(e) => setPublishData(prev => ({ ...prev, comment: e.target.value }))}
+              required
+              fullWidth
+              multiline
+              rows={3}
+              size="small"
+              helperText="Describe the changes in this publication"
+              error={!publishData.comment.trim()}
+            />
+          </div>
         </div>
         <div className="mt-6 flex gap-3 justify-end">
           <button
@@ -657,13 +720,17 @@ const Edit: React.FC = () => {
           </button>
           <button
             onClick={handlePublish}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            disabled={!publishData.comment.trim()}
+            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+              ${!publishData.comment.trim() 
+                ? 'bg-gray-300 cursor-not-allowed' 
+                : 'bg-blue-600 hover:bg-blue-700'}`}
           >
             Confirm & Publish
           </button>
         </div>
       </div>
-    </Dialog>
+    </MuiDialog>
   );
 
   // Update URL when tab changes
@@ -826,21 +893,23 @@ const Edit: React.FC = () => {
       <div className="mt-4">
         <div className="flex items-center justify-between px-4 mb-2">
           <h3 className="text-sm font-medium text-gray-700">Files</h3>
-          <label className="p-1 rounded-md hover:bg-gray-100 cursor-pointer text-gray-600 transition-colors">
-            <input
-              type="file"
-              multiple
-              onChange={(e) => {
-                if (e.target.files) {
-                  onDrop(Array.from(e.target.files));
-                }
-              }}
-              className="hidden"
-            />
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </label>
+          {isStaged && (
+            <label className="p-1 rounded-md hover:bg-gray-100 cursor-pointer text-gray-600 transition-colors">
+              <input
+                type="file"
+                multiple
+                onChange={(e) => {
+                  if (e.target.files) {
+                    onDrop(Array.from(e.target.files));
+                  }
+                }}
+                className="hidden"
+              />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </label>
+          )}
         </div>
       </div>
       <div className="py-2">
@@ -901,7 +970,7 @@ const Edit: React.FC = () => {
     </div>
   );
 
-  // Add file input button next to Save button
+  // Update renderActionButtons to include the review button when in staging mode
   const renderActionButtons = () => (
     <div className="flex gap-2">
       {selectedFile && isTextFile(selectedFile.name) && (
@@ -920,7 +989,7 @@ const Edit: React.FC = () => {
         </button>
       )}
       
-      {/* Existing Commit button */}
+      {/* Commit button */}
       <button
         onClick={handleCommit}
         disabled={!files.some(f => f.edited) || uploadStatus?.severity === 'info'}
@@ -934,6 +1003,22 @@ const Edit: React.FC = () => {
         </svg>
         {uploadStatus?.severity === 'info' ? 'Saving...' : 'Commit Changes'}
       </button>
+
+      {/* Review & Publish button - only show when staged */}
+      {isStaged && (
+        <button
+          onClick={() => handleTabChange('review')}
+          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+            ${activeTab === 'review'
+              ? 'bg-blue-700 text-white'
+              : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Review & Publish
+        </button>
+      )}
     </div>
   );
 
@@ -971,12 +1056,16 @@ const Edit: React.FC = () => {
   );
 
   const handleDeleteArtifact = async () => {
-    if (!artifactManager || !artifactId) return;
+    if (!artifactManager || !artifactId || !artifactInfo) return;
 
     try {
       setIsDeleting(true);
+      
+      // Delete the artifact with the correct version parameter
       await artifactManager.delete({
         artifact_id: artifactId,
+        // Only use "stage" if there are published versions, otherwise null
+        version: artifactInfo.versions && artifactInfo.versions.length > 0 ? "stage" : null,
         delete_files: true,
         recursive: true,
         _rkwargs: true
@@ -1026,15 +1115,15 @@ const Edit: React.FC = () => {
               <HeadlessDialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
                 <div className="sm:flex sm:items-start">
                   <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                    <ExclamationTriangleIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
+                    <ExclamationTriangleIcon className="h-6 w-6 text-red-600" />
                   </div>
                   <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                     <HeadlessDialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                      Delete Artifact
+                      Cancel Staging
                     </HeadlessDialog.Title>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
-                        Are you sure you want to delete this artifact? This action cannot be undone.
+                        Are you sure you want to cancel staging and remove all staged changes? This will remove all unpublished changes, but won't affect the published version. This action cannot be undone.
                       </p>
                     </div>
                   </div>
@@ -1046,14 +1135,14 @@ const Edit: React.FC = () => {
                     onClick={handleDeleteArtifact}
                     disabled={isDeleting}
                   >
-                    {isDeleting ? 'Deleting...' : 'Delete'}
+                    {isDeleting ? 'Canceling...' : 'Cancel Staging'}
                   </button>
                   <button
                     type="button"
                     className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
                     onClick={() => setIsDeleteDialogOpen(false)}
                   >
-                    Cancel
+                    Keep Changes
                   </button>
                 </div>
               </HeadlessDialog.Panel>
@@ -1062,6 +1151,152 @@ const Edit: React.FC = () => {
         </div>
       </HeadlessDialog>
     </Transition.Root>
+  );
+
+  // Add function to handle new version creation
+  const handleCreateNewVersion = async () => {
+    try {
+      setUploadStatus({
+        message: 'Creating new version...',
+        severity: 'info'
+      });
+      // Create new version via edit
+      const artifact = await artifactManager.edit({
+        artifact_id: artifactId,
+        version: "stage",
+        _rkwargs: true
+      });
+      console.log(artifact);
+
+      if (newVersionData.copyFiles) {
+        // Get list of existing files
+        const existingFiles = await artifactManager.list_files({
+          artifact_id: artifactId,
+          version: "latest",
+          _rkwargs: true
+        });
+        debugger
+        // Filter out directories, only keep files
+        const filesToCopy = existingFiles.filter(file => file.type === 'file');
+
+        // Set up progress tracking
+        setCopyProgress({
+          current: 0,
+          total: filesToCopy.length,
+          file: ''
+        });
+
+        // Copy files one by one
+        for (let i = 0; i < filesToCopy.length; i++) {
+          const file = filesToCopy[i];
+          setCopyProgress({
+            current: i + 1,
+            total: filesToCopy.length,
+            file: file.name
+          });
+
+          try {
+            // Get download URL for the file
+            const downloadUrl = await artifactManager.get_file({
+              artifact_id: artifactId,
+              file_path: file.name,
+              _rkwargs: true
+            });
+
+            // Get upload URL for the new version
+            const uploadUrl = await artifactManager.put_file({
+              artifact_id: artifactId,
+              file_path: file.name,
+              _rkwargs: true
+            });
+
+            // Download and upload the file
+            const response = await fetch(downloadUrl);
+            if (!response.ok) {
+              throw new Error(`Failed to download file: ${file.name}`);
+            }
+            const blob = await response.blob();
+            
+            const uploadResponse = await fetch(uploadUrl, {
+              method: 'PUT',
+              body: blob
+            });
+            
+            if (!uploadResponse.ok) {
+              throw new Error(`Failed to upload file: ${file.name}`);
+            }
+          } catch (error) {
+            console.error(`Error copying file ${file.name}:`, error);
+            setUploadStatus({
+              message: `Error copying file ${file.name}`,
+              severity: 'error'
+            });
+            // Continue with next file instead of stopping completely
+            continue;
+          }
+        }
+        
+        setCopyProgress(null);
+      }
+
+      // Only close dialog and reload after all operations are complete
+      setShowNewVersionDialog(false);
+      
+      // Reload artifact files
+      await loadArtifactFiles();
+      
+      setUploadStatus({
+        message: 'New version created successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error creating new version:', error);
+      setUploadStatus({
+        message: 'Error creating new version',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Add new version dialog component
+  const renderNewVersionDialog = () => (
+    <MuiDialog 
+      open={showNewVersionDialog} 
+      onClose={() => setShowNewVersionDialog(false)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Create New Version
+        </h3>
+        <div className="space-y-4">
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={newVersionData.copyFiles}
+                onChange={(e) => setNewVersionData(prev => ({ ...prev, copyFiles: e.target.checked }))}
+              />
+            }
+            label="Copy existing files to new version"
+          />
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => setShowNewVersionDialog(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreateNewVersion}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
   );
 
   return (
@@ -1090,7 +1325,7 @@ const Edit: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium text-gray-900">{artifactInfo.name}</h3>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                    v{artifactInfo.version || '1.0'}
+                    {artifactInfo.version === 'stage' ? 'stage' : `v${artifactInfo.version || '1.0'}`}
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 font-mono mt-2">
@@ -1115,23 +1350,40 @@ const Edit: React.FC = () => {
           {activeTab === 'files' && (
             <div className="border-b border-gray-200 bg-white p-4 flex justify-between items-center">
               <div className="flex flex-col flex-grow mr-4">
-                <div className="flex items-center gap-2">
-                  {uploadStatus && (
-                    <span className={`text-base ${
-                      uploadStatus.severity === 'error' ? 'text-red-600' :
-                      uploadStatus.severity === 'success' ? 'text-green-600' :
-                      'text-blue-600'
-                    }`}>
-                      {uploadStatus.message}
-                    </span>
-                  )}
-                </div>
-                {uploadStatus?.progress !== undefined && (
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={uploadStatus.progress} 
-                    sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                  />
+                {copyProgress ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-blue-600">
+                        Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
+                      </span>
+                    </div>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={(copyProgress.current / copyProgress.total) * 100} 
+                      sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {uploadStatus && (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base ${
+                          uploadStatus.severity === 'error' ? 'text-red-600' :
+                          uploadStatus.severity === 'success' ? 'text-green-600' :
+                          'text-blue-600'
+                        }`}>
+                          {uploadStatus.message}
+                        </span>
+                      </div>
+                    )}
+                    {uploadStatus?.progress !== undefined && (
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={uploadStatus.progress} 
+                        sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                      />
+                    )}
+                  </>
                 )}
               </div>
               {renderActionButtons()}
@@ -1151,6 +1403,8 @@ const Edit: React.FC = () => {
       {renderDeleteConfirmDialog()}
 
       {renderDeleteDialog()}
+
+      {renderNewVersionDialog()}
     </div>
   );
 };

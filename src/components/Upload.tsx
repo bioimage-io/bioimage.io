@@ -6,7 +6,7 @@ import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
 import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 interface FileNode {
   name: string;
@@ -43,6 +43,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
+  const navigate = useNavigate();
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (artifactId) {
@@ -171,6 +173,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   };
 
   const handleUpload = async () => {
+    if (isUploading) return;
+    
     if (!artifactManager) {
       setUploadStatus({
         message: 'Artifact manager not connected',
@@ -180,6 +184,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
     }
 
     try {
+      setIsUploading(true);
       setUploadStatus({
         message: 'Reading manifest file...',
         severity: 'info'
@@ -212,6 +217,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
       const artifact = await artifactManager.create({
         parent_id: "bioimage-io/bioimage.io",
         alias: "{zenodo_conceptrecid}",
+        type: manifest.type,
         manifest: manifest,
         config: {
           publish_to: "sandbox_zenodo"
@@ -261,18 +267,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
       }
 
       setUploadStatus({
-        message: 'Upload complete! Your submission will be reviewed by our administrators.',
+        message: 'Upload complete! Redirecting...',
         severity: 'success',
         progress: 100
       });
 
-      // Add a delay before showing the final message
-      setTimeout(() => {
-        setUploadStatus({
-          message: 'Your model package has been uploaded and is pending review. Our administrators will process your submission soon.',
-          severity: 'success'
-        });
-      }, 3000);
+      navigate('/my-artifacts');
 
     } catch (error) {
       console.error('Upload failed:', error);
@@ -282,6 +282,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
           : 'Upload failed: Unknown error occurred',
         severity: 'error'
       });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -401,7 +403,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                   onClick={() => setShowDragDrop(true)}
                   className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
                 >
-                  Upload New
+                  New Upload
                 </button>
               </div>
               
@@ -526,9 +528,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                 </button>
                 <button
                   onClick={handleUpload}
-                  disabled={uploadStatus?.severity === 'info' || !isLoggedIn}
+                  disabled={isUploading || !isLoggedIn}
                   className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                    ${uploadStatus?.severity === 'info' || !isLoggedIn
+                    ${isUploading || !isLoggedIn
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                 >
@@ -537,9 +539,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                   </svg>
                   {!isLoggedIn 
                     ? 'Please login to upload'
-                    : uploadStatus?.severity === 'info' 
+                    : isUploading 
                       ? 'Uploading...' 
-                      : 'Submit'}
+                      : 'Upload'}
                 </button>
               </div>
             </div>

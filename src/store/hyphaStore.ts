@@ -175,6 +175,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       }
       
       const data = await response.json();
+      console.log(data);
       set({ selectedResource: data, isLoading: false });
     } catch (error) {
       console.error('Error fetching resource:', error);

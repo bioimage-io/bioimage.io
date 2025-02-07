@@ -76,8 +76,11 @@ const MyArtifacts: React.FC = () => {
 
     try {
       setLoading(true);
+
+
       await artifactManager.delete({
         artifact_id: artifactToDelete.id,
+        version: artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null,
         delete_files: true,
         recursive: true,
         _rkwargs: true
@@ -164,7 +167,6 @@ const MyArtifacts: React.FC = () => {
               >
                 <ArrowPathIcon 
                   className={`-ml-0.5 mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} 
-                  aria-hidden="true" 
                 />
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
@@ -175,8 +177,9 @@ const MyArtifacts: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto p-6">
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">Loading artifacts...</div>
+          <div className="flex flex-col items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <div className="text-xl font-semibold text-gray-700">Loading artifacts...</div>
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-full">
@@ -186,7 +189,7 @@ const MyArtifacts: React.FC = () => {
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <p className="mb-4">You haven't uploaded any models yet</p>
             <button
-              onClick={() => {/* Navigate to upload */}}
+              onClick={() => navigate('/upload')}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Upload Your First Model
@@ -200,8 +203,7 @@ const MyArtifacts: React.FC = () => {
                   title={artifact.manifest?.name || artifact.alias}
                   description={artifact.manifest?.description || 'No description'}
                   tags={[
-                    artifact.type,
-                    artifact.staging ? 'Staged' : `v${artifact.versions?.length || 0}`,
+                    `v${artifact.versions?.length || 0}`,
                     ...(artifact.manifest?.tags || [])
                   ]}
                   image={artifact.manifest?.cover || undefined}
@@ -211,11 +213,9 @@ const MyArtifacts: React.FC = () => {
                     setArtifactToDelete(artifact);
                     setIsDeleteDialogOpen(true);
                   }}
-                  onPublish={() => {
-                    // TODO: Implement publish functionality
-                    console.log('Publish artifact:', artifact.id);
-                  }}
                   isStaged={!!artifact.staging}
+                  status={artifact.staging ? 'staged' : 'published'}
+                  artifactType={artifact.type}
                 />
               </div>
             ))}
@@ -251,15 +251,15 @@ const MyArtifacts: React.FC = () => {
                 <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
                   <div className="sm:flex sm:items-start">
                     <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                      <ExclamationTriangleIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
+                      <ExclamationTriangleIcon className="h-6 w-6 text-red-600"  />
                     </div>
                     <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                       <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                        Delete Artifact
+                        Remove Staged Artifact
                       </Dialog.Title>
                       <div className="mt-2">
                         <p className="text-sm text-gray-500">
-                          Are you sure you want to delete this artifact? This action cannot be undone.
+                          Are you sure you want to remove this staged artifact? This will only remove the staged version - any published versions will remain unchanged. This action cannot be undone.
                         </p>
                       </div>
                     </div>
@@ -271,7 +271,7 @@ const MyArtifacts: React.FC = () => {
                       onClick={handleDeleteArtifact}
                       disabled={loading}
                     >
-                      {loading ? 'Deleting...' : 'Delete'}
+                      {loading ? 'Removing...' : 'Remove Staged'}
                     </button>
                     <button
                       type="button"

@@ -15,9 +15,11 @@ interface AdminResourceCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   isStaged?: boolean;
+  status: 'staged' | 'published';
   authors?: Author[];
   createdAt?: number;
   lastModified?: number;
+  artifactType?: string;
 }
 
 const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
@@ -29,9 +31,11 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   onEdit,
   onDelete,
   isStaged,
+  status,
   authors = [],
   createdAt,
-  lastModified
+  lastModified,
+  artifactType
 }) => {
   const handleClick = (e: React.MouseEvent, callback?: () => void) => {
     e.stopPropagation();
@@ -39,8 +43,22 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[280px] flex flex-col">
-      <div className="p-4 flex flex-col flex-1">
+    <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[260px] flex flex-col ${
+      isStaged ? 'bg-yellow-50' : ''
+    }`}>
+      <div className="absolute top-2 right-2 z-10">
+        {status === 'staged' ? (
+          <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">
+            Staged
+          </span>
+        ) : status === 'published' && (
+          <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-800 ring-1 ring-inset ring-green-600/20">
+            Published
+          </span>
+        )}
+      </div>
+      
+      <div className="p-4">
         <div className="flex-none">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{description}</p>
@@ -75,22 +93,29 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
         </div>
 
         <div className="flex justify-between items-center mt-4 border-t pt-4 flex-none">
-          <div className="flex space-x-2">
+          <div className="flex items-center space-x-2">
             <button
               onClick={(e) => handleClick(e, onEdit)}
-              className="p-2 text-gray-600 hover:text-blue-600 rounded-full hover:bg-blue-50"
+              className="flex items-center p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50"
               title="Edit"
             >
               <PencilIcon className="w-5 h-5" />
+              <span className="ml-1">Edit</span>
             </button>
             {isStaged && onDelete && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
-                className="p-2 text-gray-600 hover:text-red-600 rounded-full hover:bg-red-50"
+                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                 title="Delete"
               >
                 <TrashIcon className="w-5 h-5" />
+                <span className="ml-1">Delete</span>
               </button>
+            )}
+            {artifactType && (
+              <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
+                {artifactType}
+              </span>
             )}
           </div>
           
