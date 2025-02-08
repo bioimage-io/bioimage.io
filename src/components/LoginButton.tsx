@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { Link } from 'react-router-dom';
 import { useHyphaContext } from '../HyphaContext';

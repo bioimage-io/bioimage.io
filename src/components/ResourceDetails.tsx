@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
-import { Resource } from '../types/resource';
 import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
@@ -15,13 +14,18 @@ import ModelTester from './ModelTester';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
+import { ArtifactInfo } from '../types/artifact';
 
 const ResourceDetails = () => {
   const { id } = useParams();
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [latestVersion, setLatestVersion] = useState<string>('latest');
+  const [latestVersion, setLatestVersion] = useState<{
+    version: string;
+    comment: string;
+    created_at: number;
+  } | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -62,18 +66,29 @@ const ResourceDetails = () => {
 
   const nextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (selectedResource?.manifest.covers) {
-      setCurrentImageIndex((prev) => (prev + 1) % selectedResource.manifest.covers.length);
+    if (selectedResource?.manifest.covers?.length) {
+      setCurrentImageIndex((prev) => (prev + 1) % selectedResource.manifest.covers!.length);
     }
   };
 
   const previousImage = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (selectedResource?.manifest.covers) {
+    if (selectedResource?.manifest.covers?.length) {
       setCurrentImageIndex((prev) => 
-        (prev - 1 + selectedResource.manifest.covers.length) % selectedResource.manifest.covers.length
+        (prev - 1 + selectedResource.manifest.covers!.length) % selectedResource.manifest.covers!.length
       );
     }
+  };
+
+  // Add this function to format timestamps
+  const formatTimestamp = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   if (isLoading) {
@@ -88,7 +103,7 @@ const ResourceDetails = () => {
     return <div>Resource not found</div>;
   }
 
-  const { manifest } = selectedResource as Resource;
+  const { manifest } = selectedResource as ArtifactInfo;
 
   return (
     <Box sx={{ p: 3, maxWidth: '1200px', margin: '0 auto' }}>
@@ -119,13 +134,13 @@ const ResourceDetails = () => {
           </Button>
           <ModelTester 
             artifactId={selectedResource.id}
-            version={latestVersion}
+            version={latestVersion?.version || 'latest'}
             isDisabled={!selectedResource.manifest.type?.includes('model')}
           />
           {latestVersion && (
             <Chip 
               icon={<UpdateIcon />} 
-              label={`Version: ${latestVersion}`}
+              label={`Version: ${latestVersion.version}`}
               sx={{ ml: 2 }} 
             />
           )}
@@ -235,6 +250,41 @@ const ResourceDetails = () => {
 
         {/* Right Column */}
         <Grid item xs={12} md={4}>
+          {/* Add Versions Card here */}
+          {selectedResource.versions && selectedResource.versions.length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Versions
+                </Typography>
+                <Stack spacing={2}>
+                  {[...selectedResource.versions].reverse().map((version, index) => (
+                    <Box key={version.version}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+                          v{version.version}
+                        </Typography>
+                        {version.version === latestVersion?.version && (
+                          <Chip label="Latest" color="primary" size="small" />
+                        )}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatTimestamp(version.created_at)}
+                      </Typography>
+                      {version.comment && (
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {version.comment}
+                        </Typography>
+                      )}
+                      {index < selectedResource.versions.length - 1 && (
+                        <Divider sx={{ my: 1.5 }} />
+                      )}
+                    </Box>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Authors Card - Moved from left column */}
           <Card sx={{ mb: 3 }}>
@@ -295,35 +345,26 @@ const ResourceDetails = () => {
           </Card>
 
           {/* Citations Card */}
-          {manifest.cite && manifest.cite.length > 0 && (
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Citations
-                </Typography>
-                {manifest.cite.map((citation, index) => (
-                  <Box key={index}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      {citation.text}
-                    </Typography>
-                    {citation.doi && (
-                      <Link 
-                        href={`https://doi.org/${citation.doi}`}
-                        target="_blank"
-                        sx={{ 
-                          display: 'inline-block',
-                          fontSize: '0.875rem'
-                        }}
-                      >
-                        DOI: {citation.doi}
-                      </Link>
-                    )}
-                    {index < manifest.cite.length - 1 && <Divider sx={{ my: 2 }} />}
-                  </Box>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+          {manifest.cite?.map((citation, index) => (
+            <Box key={index}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                {citation.text}
+              </Typography>
+              {citation.doi && (
+                <Link 
+                  href={`https://doi.org/${citation.doi}`}
+                  target="_blank"
+                  sx={{ 
+                    display: 'inline-block',
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  DOI: {citation.doi}
+                </Link>
+              )}
+              {index < (manifest.cite?.length ?? 0) - 1 && <Divider sx={{ my: 2 }} />}
+            </Box>
+          ))}
 
           {/* Tags Card */}
           <Card sx={{ mb: 3 }}>

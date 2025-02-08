@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Resource } from '../types';
+
 import { Card, CardMedia, CardContent, IconButton, Button } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { ArtifactInfo } from '../types/artifact';
 
 interface ResourceCardProps {
-  resource: Resource;
+  resource: ArtifactInfo;
 }
 
 export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
@@ -113,24 +114,23 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         )}
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }}>
-        <div className="flex items-start gap-3 mb-3">
-          <div className="flex-shrink-0 w-8">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex-shrink-0 w-6">
             {resource.manifest.icon ? (
               <img
                 src={resource.manifest.icon}
                 alt={resource.manifest.name}
-                className="w-8 h-8 object-contain"
+                className="w-6 h-6 object-contain"
               />
             ) : resource.manifest.id_emoji ? (
-              <span className="text-2xl">{resource.manifest.id_emoji}</span>
+              <span className="text-xl">{resource.manifest.id_emoji}</span>
             ) : (
-              <div className="w-8 h-8 bg-gray-200 rounded-full" />
+              <div className="w-6 h-6 bg-gray-200 rounded-full" />
             )}
           </div>
-          <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2.5rem)]">
+          <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
             {resource.manifest.name}
           </h3>
-          
         </div>
         
         <p className="text-sm text-gray-600 mb-4 line-clamp-2 flex-grow">

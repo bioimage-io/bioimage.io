@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 // import { hRPC } from 'hypha';
-import { Resource } from '../types/resource';
+import { ArtifactInfo } from '../types/artifact';;
 
 
 // Add a type for connection config
@@ -23,8 +23,8 @@ export interface HyphaState {
   setUser: (user: any) => void;
   isInitialized: boolean;
   setIsInitialized: (isInitialized: boolean) => void;
-  resources: Resource[];
-  setResources: (resources: Resource[]) => void;
+  resources: ArtifactInfo[];
+  setResources: (resources: ArtifactInfo[]) => void;
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
   fetchResources: (page: number, searchQuery?: string) => Promise<void>;
@@ -42,8 +42,8 @@ export interface HyphaState {
   login: (username: string, password: string) => Promise<void>;
   isLoggedIn: boolean;
   setLoggedIn: (status: boolean) => void;
-  selectedResource: Resource | null;
-  setSelectedResource: (resource: Resource | null) => void;
+  selectedResource: ArtifactInfo | null;
+  setSelectedResource: (resource: ArtifactInfo | null) => void;
   fetchResource: (id: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
@@ -165,7 +165,6 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
-      // Handle both formats: workspace/name or just name
       const [workspace, artifactName] = id.includes('/') 
         ? id.split('/')
         : ['bioimage-io', id];
@@ -177,7 +176,6 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       }
       
       const data = await response.json();
-      console.log(data);
       set({ selectedResource: data, isLoading: false });
     } catch (error) {
       console.error('Error fetching resource:', error);

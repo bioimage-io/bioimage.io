@@ -81,6 +81,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   const [isValidated, setIsValidated] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
   const [uploadedArtifact, setUploadedArtifact] = useState<UploadArtifact | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (artifactId) {
@@ -269,9 +270,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
           ? rdfFile.content
           : new TextDecoder().decode(rdfFile.content);
         manifest = yaml.load(content) as Manifest;
-        if (manifest?.version) {
-          manifest.version = `${manifest.version}`;
-        }
       } catch (error) {
         console.error('Error parsing rdf.yaml:', error);
         throw new Error('Invalid rdf.yaml format');
@@ -525,20 +523,37 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   return (
     <div className="flex flex-col h-screen">
       {/* Add back button when viewing existing artifact */}
-      {onBack && (
-        <div className="bg-white border-b border-gray-200 px-4 py-2">
-          <button
-            onClick={onBack}
-            className="flex items-center text-gray-600 hover:text-gray-900"
+      {files.length > 0 && (<div className="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center">
+      {/* Add toggle sidebar button - only show when files are loaded */}
+  
+      <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
+            aria-label="Toggle sidebar"
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isSidebarOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
             </svg>
-            Back to My Artifacts
           </button>
-        </div>
-      )}
+        
+      <button
+          onClick={() => navigate('/my-artifacts')}
+          className="flex items-center text-gray-600 hover:text-gray-900"
+        >
+          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Back to My Artifacts
+        </button>
+  
 
+        
+      </div>
+    )}
       {/* Show title section only when no files are loaded */}
       {showDragDrop && (
         <div className="bg-white border-b border-gray-80">
@@ -556,7 +571,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
       <div className="flex flex-1 overflow-auto">
         {/* Only show sidebar when files are loaded */}
         {files.length > 0 && (
-          <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+          <div className={`${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static z-20 transition-transform duration-300 ease-in-out`}>
             <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
             <h2 className="text-lg font-semibold text-gray-900">
                   Contributing to the Zoo
@@ -852,6 +869,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* Add overlay for mobile when sidebar is open */}
+      {files.length > 0 && isSidebarOpen && (
+        <div 
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
     </div>
   );
 };

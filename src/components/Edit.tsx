@@ -1,17 +1,15 @@
-import React, { useState, useEffect, useCallback, Fragment } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
-import yaml from 'js-yaml';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import Comments from './Comments';
 import ResourceCard from './ResourceCard';
-import { Resource } from '../types';
+import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
-import { Dialog as HeadlessDialog, Transition } from '@headlessui/react';
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
+import ArtifactAdmin from './ArtifactAdmin';
 
 interface FileNode {
   name: string;
@@ -28,15 +26,6 @@ interface ContentTab {
   id: 'files' | 'review';
   label: string;
   icon: React.ReactNode;
-}
-
-// Add new interface for artifact info
-interface ArtifactInfo {
-  name: string;
-  id: string;
-  description?: string;
-  version?: string;
-  versions?: string[];
 }
 
 // Add this interface near the top with other interfaces
@@ -96,6 +85,7 @@ const Edit: React.FC = () => {
   });
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -179,26 +169,13 @@ const Edit: React.FC = () => {
       // Set isStaged based on artifact staging status
       const staged = artifact.staging !== null;
       setIsStaged(staged);
+      setArtifactInfo(artifact);
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
         artifact_id: artifactId,
         version: staged ? 'stage' : null,
         _rkwargs: true
-      });
-
-      // Get the latest version from versions array, or use 'stage' if in staging
-      const currentVersion = staged ? 'stage' : 
-        (artifact.versions && artifact.versions.length > 0 ? 
-          artifact.versions[artifact.versions.length - 1] : 
-          undefined);
-
-      setArtifactInfo({
-        name: artifact.manifest.name,
-        id: artifactId,
-        description: artifact.manifest.description,
-        version: currentVersion,
-        versions: artifact.versions || []
       });
 
       if (!fileList || fileList.length === 0) {
@@ -224,7 +201,16 @@ const Edit: React.FC = () => {
         severity: 'success'
       });
 
-      // Don't automatically select rdf.yaml here - let the effect handle it
+      // Preserve the current tab state
+      const currentTab = searchParams.get('tab');
+      if (currentTab) {
+        // If we're in review tab or have a specific file selected, maintain that state
+        if (currentTab === 'review' || currentTab.startsWith('@')) {
+          handleTabChange(currentTab === 'review' ? 'review' : 'files', 
+            currentTab.startsWith('@') ? currentTab.substring(1) : undefined);
+        }
+      }
+
     } catch (error) {
       console.error('Error loading artifact files:', error);
       setUploadStatus({
@@ -397,10 +383,6 @@ const Edit: React.FC = () => {
     }
   };
 
-  const handleBack = () => {
-    navigate('/my-artifacts');
-  };
-
   const handlePublish = async () => {
     try {
       setUploadStatus({
@@ -442,29 +424,9 @@ const Edit: React.FC = () => {
     }
   };
 
-  const getResourcePreview = (): Resource | null => {
+  const getResourcePreview = (): ArtifactInfo | null => {
     if (!artifactInfo) return null;
-    
-    return {
-      id: artifactInfo.id,
-      manifest: {
-        name: artifactInfo.name,
-        description: artifactInfo.description || '',
-        covers: artifactInfo.config?.covers || [],
-        icon: artifactInfo.config?.icon,
-        id_emoji: artifactInfo.config?.id_emoji,
-        tags: artifactInfo.config?.tags || [],
-        badges: artifactInfo.config?.badges || [],
-        authors: artifactInfo.config?.authors || [],
-        license: artifactInfo.config?.license || '',
-        documentation: artifactInfo.config?.documentation || '',
-        version: artifactInfo.version || '1.0',
-      },
-      config: artifactInfo.config || {},
-      type: 'model',
-      created_at: artifactInfo.created_at || Date.now(),
-      last_modified: artifactInfo.last_modified || Date.now(),
-    };
+    return artifactInfo;
   };
 
   const renderFileContent = () => {
@@ -571,8 +533,15 @@ const Edit: React.FC = () => {
           {/* Preview Section with integrated admin actions */}
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="flex justify-between items-start mb-6">
-              <h3 className="text-lg font-medium text-gray-900">Preview</h3>
-              {/* Admin actions moved here */}
+              <div className="flex items-center gap-2">
+                {/* Add preview icon */}
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900">Preview</h3>
+              </div>
+              {/* Admin actions */}
               <div className="flex gap-2">
                 <button 
                   className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -583,15 +552,7 @@ const Edit: React.FC = () => {
                   </svg>
                   Publish
                 </button>
-                <button 
-                  className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Cancel Staging
-                </button>
+               
               </div>
             </div>
             
@@ -625,9 +586,19 @@ const Edit: React.FC = () => {
             </div>
           </div>
 
+          {/* Add ArtifactAdmin here, before Comments */}
+          {artifactId && artifactInfo && (
+            <div className="mb-6">
+              <ArtifactAdmin 
+                artifactId={artifactId}
+                artifactInfo={artifactInfo}
+                onUpdate={loadArtifactFiles}
+              />
+            </div>
+          )}
+
           {/* Comments */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Comments</h3>
             <Comments artifactId={artifactId!} />
           </div>
         </div>
@@ -747,11 +718,16 @@ const Edit: React.FC = () => {
   // Update URL when tab changes
   const handleTabChange = (tab: 'files' | 'review', filePath?: string) => {
     setActiveTab(tab);
+    const newParams = new URLSearchParams(searchParams);
+    
     if (tab === 'files' && filePath) {
-      setSearchParams({ tab: `@${filePath}` });
+      newParams.set('tab', `@${filePath}`);
     } else {
-      setSearchParams({ tab });
+      newParams.set('tab', tab);
     }
+    
+    // Use replace instead of push to avoid adding to browser history
+    setSearchParams(newParams, { replace: true });
   };
 
   // Update the effect to handle @ prefix in URL
@@ -1136,73 +1112,7 @@ const Edit: React.FC = () => {
     }
   };
 
-  // Add this function to render the delete dialog
-  const renderDeleteDialog = () => (
-    <Transition.Root show={isDeleteDialogOpen} as={Fragment}>
-      <HeadlessDialog as="div" className="relative z-10" onClose={setIsDeleteDialogOpen}>
-        <Transition.Child
-          as={Fragment}
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
-        </Transition.Child>
-
-        <div className="fixed inset-0 z-10 overflow-y-auto">
-          <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
-            <Transition.Child
-              as={Fragment}
-              enter="ease-out duration-300"
-              enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-              enterTo="opacity-100 translate-y-0 sm:scale-100"
-              leave="ease-in duration-200"
-              leaveFrom="opacity-100 translate-y-0 sm:scale-100"
-              leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-            >
-              <HeadlessDialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
-                <div className="sm:flex sm:items-start">
-                  <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                    <ExclamationTriangleIcon className="h-6 w-6 text-red-600" />
-                  </div>
-                  <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                    <HeadlessDialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                      Cancel Staging
-                    </HeadlessDialog.Title>
-                    <div className="mt-2">
-                      <p className="text-sm text-gray-500">
-                        Are you sure you want to cancel staging and remove all staged changes? This will remove all unpublished changes, but won't affect the published version. This action cannot be undone.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                  <button
-                    type="button"
-                    className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
-                    onClick={handleDeleteArtifact}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? 'Canceling...' : 'Cancel Staging'}
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
-                    onClick={() => setIsDeleteDialogOpen(false)}
-                  >
-                    Keep Changes
-                  </button>
-                </div>
-              </HeadlessDialog.Panel>
-            </Transition.Child>
-          </div>
-        </div>
-      </HeadlessDialog>
-    </Transition.Root>
-  );
+  
 
   // Add function to handle new version creation
   const handleCreateNewVersion = async () => {
@@ -1409,21 +1319,44 @@ const Edit: React.FC = () => {
   return (
     <div className="flex flex-col h-screen">
       {/* Update back button */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2">
-        <button
-          onClick={handleBack}
-          className="flex items-center text-gray-600 hover:text-gray-900"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to My Artifacts
-        </button>
+      <div className="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          {/* Toggle sidebar button - moved to the left */}
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
+            aria-label="Toggle sidebar"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isSidebarOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
+
+          {/* Back button */}
+          <button
+            onClick={() => navigate('/my-artifacts')}
+            className="flex items-center text-gray-600 hover:text-gray-900"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to My Artifacts
+          </button>
+        </div>
+
+        {/* Empty div to maintain flex justify-between */}
+        <div></div>
       </div>
 
       <div className="flex flex-1 min-h-0">
         {/* File sidebar */}
-        <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+        <div className={`${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static z-20 transition-transform duration-300 ease-in-out`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1533,9 +1466,15 @@ const Edit: React.FC = () => {
 
       {renderDeleteConfirmDialog()}
 
-      {renderDeleteDialog()}
-
       {renderNewVersionDialog()}
+
+      {/* Add overlay for mobile when sidebar is open */}
+      {files.length > 0 && isSidebarOpen && (
+        <div 
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
     </div>
   );
 };
