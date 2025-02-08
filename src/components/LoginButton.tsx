@@ -7,6 +7,11 @@ import { useHyphaContext } from '../HyphaContext';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 
+interface User {
+  email: string;
+  roles?: string[];
+}
+
 interface LoginButtonProps {
   className?: string;
 }
@@ -151,6 +156,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               >
                 My Artifacts
               </Link>
+              {user.roles?.includes('admin') && (
+                <Link
+                  to="/admin"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Admin Panel
+                </Link>
+              )}
               <button
                 onClick={handleLogout}
                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

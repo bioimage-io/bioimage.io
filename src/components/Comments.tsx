@@ -2,10 +2,55 @@ import React, { useState, useEffect } from 'react';
 import { Comment, CommentsData } from '../types/comments';
 import { useHyphaStore } from '../store/hyphaStore';
 import { v4 as uuidv4 } from 'uuid';
+import ReviewWriter from './ReviewWriter';
+import ReactMarkdown from 'react-markdown';
 
 interface CommentsProps {
   artifactId: string;
 }
+
+const markdownStyles = `
+  .prose {
+    font-size: 0.875rem;
+  }
+  .prose p {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+  .prose pre {
+    background-color: #f3f4f6;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+  }
+  .prose code {
+    background-color: #f3f4f6;
+    padding: 0.2em 0.4em;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+  }
+  .prose img {
+    max-width: 100%;
+    height: auto;
+  }
+  .prose a {
+    color: #2563eb;
+    text-decoration: underline;
+  }
+  .prose ul {
+    list-style-type: disc;
+    padding-left: 1.5em;
+  }
+  .prose ol {
+    list-style-type: decimal;
+    padding-left: 1.5em;
+  }
+  .prose blockquote {
+    border-left: 4px solid #e5e7eb;
+    padding-left: 1em;
+    color: #6b7280;
+  }
+`;
 
 const UserIcon: React.FC<{ userName: string }> = ({ userName }) => {
   const initials = userName
@@ -147,7 +192,9 @@ const CommentItem: React.FC<{
               </div>
             </div>
           ) : (
-            <p className="mt-0.5 text-sm text-gray-700">{comment.content}</p>
+            <div className="mt-0.5 text-sm text-gray-700">
+              <ReactMarkdown className="markdown-body prose prose-sm max-w-none">{comment.content}</ReactMarkdown>
+            </div>
           )}
 
           {/* Replies */}
@@ -232,6 +279,7 @@ const Comments: React.FC<CommentsProps> = ({ artifactId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { artifactManager, user } = useHyphaStore();
   const [isLoading, setIsLoading] = useState(true);
+  const [showReviewWriter, setShowReviewWriter] = useState(false);
 
   useEffect(() => {
     loadComments();
@@ -348,6 +396,16 @@ const Comments: React.FC<CommentsProps> = ({ artifactId }) => {
     }
   };
 
+  // Add handler for review submission
+  const handleReviewSubmit = (reviewComment: string) => {
+    // Append the review comment to existing content with a newline
+    setNewComment(prev => {
+      const prefix = prev.trim() ? prev.trim() + '\n\n' : '';
+      return prefix + reviewComment;
+    });
+    setShowReviewWriter(false);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -358,6 +416,7 @@ const Comments: React.FC<CommentsProps> = ({ artifactId }) => {
 
   return (
     <div className="flex flex-col h-full">
+      <style>{markdownStyles}</style>
       <div className="flex items-center gap-2 mb-4">
         {/* Add comment icon */}
         <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -407,7 +466,18 @@ const Comments: React.FC<CommentsProps> = ({ artifactId }) => {
                       placeholder="Write a comment..."
                       className="w-full min-h-[80px] p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <div className="flex justify-end">
+                    <div className="flex justify-between">
+                      {/* Review Helper Button */}
+                      <button
+                        onClick={() => setShowReviewWriter(true)}
+                        className="px-4 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        Review Helper
+                      </button>
+
                       <button
                         onClick={() => addComment(newComment)}
                         disabled={!newComment.trim()}
@@ -426,6 +496,13 @@ const Comments: React.FC<CommentsProps> = ({ artifactId }) => {
           )}
         </div>
       </div>
+
+      {/* Add ReviewWriter dialog */}
+      <ReviewWriter
+        isOpen={showReviewWriter}
+        onClose={() => setShowReviewWriter(false)}
+        onSubmit={handleReviewSubmit}
+      />
     </div>
   );
 };

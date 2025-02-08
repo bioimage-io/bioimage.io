@@ -3,13 +3,11 @@ import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import Comments from './Comments';
-import ResourceCard from './ResourceCard';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
 import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
-import ArtifactAdmin from './ArtifactAdmin';
+import ReviewPublishArtifact from './ReviewPublishArtifact';
 
 interface FileNode {
   name: string;
@@ -48,7 +46,7 @@ const Edit: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user} = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
     severity: 'info' | 'success' | 'error';
@@ -184,7 +182,6 @@ const Edit: React.FC = () => {
           _rkwargs: true
         });
 
-        const user = await server.user;
         if (user) {
           // Check if user is in collection permissions or has admin role
           const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
@@ -556,82 +553,16 @@ const Edit: React.FC = () => {
   // Update renderContent to use activeTab
   const renderContent = () => {
     if (activeTab === 'review') {
-      const resourcePreview = getResourcePreview();
-      
       return (
-        <div className="h-full px-6 py-4">
-          {/* Preview Section with integrated admin actions */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <h3 className="text-lg font-medium text-gray-900">Preview</h3>
-              </div>
-              {/* Only show publish button for collection admins or artifact owners */}
-              {(isCollectionAdmin || isStaged) && (
-                <div className="flex gap-2">
-                  <button 
-                    className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    onClick={() => setShowPublishDialog(true)}
-                  >
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Publish
-                  </button>
-                </div>
-              )}
-            </div>
-            
-            {/* Version History */}
-            <div className="mb-6">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">Version History</h4>
-              <div className="bg-gray-50 p-4 rounded-lg">
-                {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {artifactInfo.versions.map((version) => (
-                      <div key={version} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-gray-200">
-                        <span className="text-sm font-medium text-gray-900">{version}</span>
-                        {version === artifactInfo.version && (
-                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                            current
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-500 italic">
-                    No versions have been published yet. Publishing this artifact will create the first version.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="max-w-sm mx-auto">
-              {resourcePreview && <ResourceCard resource={resourcePreview} />}
-            </div>
-          </div>
-
-          {/* Only show ArtifactAdmin for collection admins */}
-          {isCollectionAdmin && artifactId && artifactInfo && (
-            <div className="mb-6">
-              <ArtifactAdmin 
-                artifactId={artifactId}
-                artifactInfo={artifactInfo}
-                onUpdate={loadArtifactFiles}
-              />
-            </div>
-          )}
-
-          {/* Comments */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <Comments artifactId={artifactId!} />
-          </div>
-        </div>
+        <ReviewPublishArtifact
+          artifactInfo={artifactInfo}
+          artifactId={artifactId!}
+          isStaged={isStaged}
+          isCollectionAdmin={isCollectionAdmin}
+          onPublish={handlePublish}
+          isContentValid={isContentValid}
+          hasContentChanged={hasContentChanged}
+        />
       );
     }
     return renderFileContent();
@@ -670,6 +601,17 @@ const Edit: React.FC = () => {
           Confirm Publication
         </h3>
         <div className="space-y-6">
+          {/* Add reviewer responsibility section */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+            <h4 className="font-medium mb-2">Reviewer's Responsibility</h4>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Verify that the model meets BioImage.io technical specifications</li>
+              <li>Check that documentation is clear and complete</li>
+              <li>Ensure all required files are present and valid</li>
+              <li>Test model functionality with provided sample data</li>
+            </ul>
+          </div>
+
           <div className="text-sm text-gray-500 space-y-4">
             <p>
               You are about to publish this artifact to:
@@ -699,8 +641,8 @@ const Edit: React.FC = () => {
                 <div className="flex flex-wrap gap-1 mt-1">
                   {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
                     artifactInfo.versions.map((v) => (
-                      <span key={v} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
-                        {v}
+                      <span key={v.version} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                        {v.version}
                       </span>
                     ))
                   ) : (
@@ -1034,7 +976,6 @@ const Edit: React.FC = () => {
           </button>
         )}
 
-        {/* Update ModelValidator to use latest content */}
         {isRdfFile && (
           <div title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
             <ModelValidator
@@ -1046,35 +987,30 @@ const Edit: React.FC = () => {
           </div>
         )}
 
-        
-
-        {/* Update ModelTester */}
         {artifactId && (
           <ModelTester
             artifactId={artifactId}
-            version={isStaged ? 'stage' : artifactInfo?.version}
+            version={isStaged ? 'stage' : artifactInfo?.current_version}
             isDisabled={!isStaged || shouldDisableActions}
           />
         )}
 
-        {/* Update Review & Publish button */}
-        {isStaged && (
-          <button
-            onClick={() => handleTabChange('review')}
-            disabled={shouldDisableActions}
-            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-              ${shouldDisableActions
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : activeTab === 'review'
-                  ? 'bg-blue-700 text-white'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Review & Publish
-          </button>
-        )}
+        {/* Review & Publish button - now visible to everyone */}
+        <button
+          onClick={() => handleTabChange('review')}
+          disabled={shouldDisableActions}
+          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+            ${shouldDisableActions
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : activeTab === 'review'
+                ? 'bg-blue-700 text-white'
+                : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Review & Publish
+        </button>
       </div>
     );
   };
@@ -1347,9 +1283,9 @@ const Edit: React.FC = () => {
   }, [setupKeyboardShortcuts]);
 
   return (
-    <div className="flex flex-col h-screen">
-      {/* Update back button */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center">
+    <div className="flex flex-col min-h-screen">
+      {/* Header - remove border-b since content will scroll under it */}
+      <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 z-30">
         <div className="flex items-center gap-2">
           {/* Toggle sidebar button - moved to the left */}
           <button
@@ -1382,11 +1318,11 @@ const Edit: React.FC = () => {
         <div></div>
       </div>
 
-      <div className="flex flex-1 min-h-0">
-        {/* File sidebar */}
+      <div className="flex flex-1">
+        {/* Sidebar - update to be sticky and remove h-full */}
         <div className={`${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static z-20 transition-transform duration-300 ease-in-out`}>
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col sticky top-[49px] max-h-[calc(100vh-49px)] lg:static z-20 transition-transform duration-300 ease-in-out`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1414,11 +1350,11 @@ const Edit: React.FC = () => {
 
         </div>
 
-        {/* Main content area */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Status bar with save/commit buttons */}
+        {/* Main content area - remove flex-1 and min-h-0 */}
+        <div className="flex-1">
+          {/* Status bar - make it sticky */}
           {activeTab === 'files' && (
-            <div className="border-b border-gray-200 bg-white">
+            <div className="border-b border-gray-200 bg-white sticky top-[49px] z-20">
               {/* Container with padding except bottom when progress bar is shown */}
               <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 {/* Flex container that stacks below 1024px */}
@@ -1484,8 +1420,8 @@ const Edit: React.FC = () => {
             </div>
           )}
 
-          {/* Content area */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Content area - remove overflow-y-auto */}
+          <div>
             {renderContent()}
           </div>
         </div>

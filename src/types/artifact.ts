@@ -15,6 +15,12 @@ export interface Citation {
   doi?: string;
 }
 
+interface Version {
+  version: string;
+  comment: string;
+  created_at: number;
+}
+
 export interface ArtifactInfo {
   id: string;
   type?: string;
@@ -48,11 +54,8 @@ export interface ArtifactInfo {
   created_at: number;
   created_by?: string;
   last_modified: number;
-  versions?: Array<{
-    version: string;
-    comment: string;
-    created_at: number;
-  }>;
+  versions: Version[];
+  current_version: string;
   config?: {
     permissions?: Record<string, string>;
     download_weights?: Record<string, number>;

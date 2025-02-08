@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import ResourceCard from './ResourceCard';
 import Upload from './Upload';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
@@ -10,6 +9,7 @@ import AdminResourceCard from './AdminResourceCard';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { InformationCircleIcon } from '@heroicons/react/24/outline';
 
 interface Artifact {
   id: string;
@@ -26,7 +26,7 @@ interface Artifact {
 }
 
 const MyArtifacts: React.FC = () => {
-  const { artifactManager, user, isLoggedIn } = useHyphaStore();
+  const { artifactManager, user, isLoggedIn, server } = useHyphaStore();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,11 +34,13 @@ const MyArtifacts: React.FC = () => {
   const [showStagedOnly, setShowStagedOnly] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
+  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (isLoggedIn && user) {
       loadArtifacts();
+      checkAdminStatus();
     }
   }, [artifactManager, user, isLoggedIn, showStagedOnly]);
 
@@ -68,6 +70,25 @@ const MyArtifacts: React.FC = () => {
       setError('Failed to load artifacts');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkAdminStatus = async () => {
+    if (!artifactManager || !user) return;
+
+    try {
+      const collection = await artifactManager.read({
+        artifact_id: 'bioimage-io/bioimage.io',
+        _rkwargs: true
+      });
+      if (user) {
+        const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
+                       user.roles?.includes('admin');
+        setIsCollectionAdmin(isAdmin);
+      }
+    } catch (error) {
+      console.error('Error checking collection admin status:', error);
+      setIsCollectionAdmin(false);
     }
   };
 
@@ -133,6 +154,30 @@ const MyArtifacts: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Admin Info Box */}
+      {isCollectionAdmin && (
+        <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4 mx-4 mt-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <InformationCircleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
+            </div>
+            <div className="ml-3 flex-1 md:flex md:justify-between items-center">
+              <p className="text-sm text-blue-700">
+                Hey there! As a distinguished team member of the BioImage Model Zoo, you have the privilege to review and manage artifacts uploaded by the community.
+              </p>
+              <p className="mt-3 text-sm md:mt-0 md:ml-6">
+                <button
+                  onClick={() => navigate('/review')}
+                  className="whitespace-nowrap font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md"
+                >
+                  Go to Review Page
+                </button>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
