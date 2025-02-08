@@ -46,7 +46,12 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
     <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[260px] flex flex-col ${
       isStaged ? 'bg-yellow-50' : ''
     }`}>
-      <div className="absolute top-2 right-2 z-10">
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+        {artifactType && (
+          <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-800 ring-1 ring-inset ring-purple-600/20">
+            {artifactType}
+          </span>
+        )}
         {status === 'staged' ? (
           <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">
             Staged
@@ -58,7 +63,7 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
         )}
       </div>
       
-      <div className="p-4">
+      <div className="p-4 mt-5">
         <div className="flex-none">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{description}</p>
@@ -111,11 +116,6 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
                 <TrashIcon className="w-5 h-5" />
                 <span className="ml-1">Delete</span>
               </button>
-            )}
-            {artifactType && (
-              <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
-                {artifactType}
-              </span>
             )}
           </div>
           
