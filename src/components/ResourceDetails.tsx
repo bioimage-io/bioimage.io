@@ -21,6 +21,7 @@ const ResourceDetails = () => {
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [latestVersion, setLatestVersion] = useState<string>('latest');
 
   useEffect(() => {
     if (id) {
@@ -45,6 +46,12 @@ const ResourceDetails = () => {
 
     fetchDocumentation();
   }, [selectedResource?.id, selectedResource?.manifest.documentation]);
+
+  useEffect(() => {
+    if (selectedResource?.versions?.length) {
+      setLatestVersion(selectedResource.versions[selectedResource.versions.length - 1]);
+    }
+  }, [selectedResource?.versions]);
 
   const handleDownload = () => {
     const id = selectedResource?.id.split('/').pop();
@@ -111,14 +118,14 @@ const ResourceDetails = () => {
             Download
           </Button>
           <ModelTester 
-                artifactId={selectedResource.id}
-                version={manifest.version}
-                isDisabled={!selectedResource.manifest.type?.includes('model')}
-              />
-          {manifest.version && (
+            artifactId={selectedResource.id}
+            version={latestVersion}
+            isDisabled={!selectedResource.manifest.type?.includes('model')}
+          />
+          {latestVersion && (
             <Chip 
               icon={<UpdateIcon />} 
-              label={`Version: ${manifest.version}`}
+              label={`Version: ${latestVersion}`}
               sx={{ ml: 2 }} 
             />
           )}
