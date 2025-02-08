@@ -13,6 +13,7 @@ import Edit from './components/Edit';
 import './index.css'
 import './github-markdown.css'
 import { HyphaProvider } from './HyphaContext';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -70,6 +71,7 @@ const AppContent: React.FC = () => {
           <Route path="/upload" element={<Upload />} />
           <Route path="/my-artifacts" element={<MyArtifacts />} />
           <Route path="/edit/:artifactId" element={<Edit />} />
+          <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
       </main>
       <Footer />

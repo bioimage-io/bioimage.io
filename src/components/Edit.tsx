@@ -86,6 +86,8 @@ const Edit: React.FC = () => {
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
+  const [lastVersion, setLastVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -98,6 +100,15 @@ const Edit: React.FC = () => {
       loadArtifactFiles();
     }
   }, [artifactId, artifactManager, isLoggedIn]);
+
+  useEffect(() => {
+    if (artifactInfo?.versions && artifactInfo.versions.length > 0) {
+      const lastVersionObj = artifactInfo.versions[artifactInfo.versions.length - 1];
+      setLastVersion(lastVersionObj.version);
+    } else {
+      setLastVersion(null);
+    }
+  }, [artifactInfo]);
 
   const isTextFile = (filename: string): boolean => {
     const textExtensions = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
@@ -152,7 +163,7 @@ const Edit: React.FC = () => {
   };
 
   const loadArtifactFiles = async () => {
-    if (!artifactManager || !artifactId) return;
+    if (!artifactManager || !artifactId || !server) return;
     
     try {
       setUploadStatus({
@@ -165,6 +176,25 @@ const Edit: React.FC = () => {
         artifact_id: artifactId,
         _rkwargs: true
       });
+      
+      // Check collection admin status
+      try {
+        const collection = await artifactManager.read({
+          artifact_id: 'bioimage-io/bioimage.io',
+          _rkwargs: true
+        });
+
+        const user = await server.user;
+        if (user) {
+          // Check if user is in collection permissions or has admin role
+          const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
+                         user.roles?.includes('admin');
+          setIsCollectionAdmin(isAdmin);
+        }
+      } catch (error) {
+        console.error('Error checking collection admin status:', error);
+        setIsCollectionAdmin(false);
+      }
       
       // Set isStaged based on artifact staging status
       const staged = artifact.staging !== null;
@@ -534,26 +564,26 @@ const Edit: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center gap-2">
-                {/* Add preview icon */}
                 <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
                 <h3 className="text-lg font-medium text-gray-900">Preview</h3>
               </div>
-              {/* Admin actions */}
-              <div className="flex gap-2">
-                <button 
-                  className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  onClick={() => setShowPublishDialog(true)}
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Publish
-                </button>
-               
-              </div>
+              {/* Only show publish button for collection admins or artifact owners */}
+              {(isCollectionAdmin || isStaged) && (
+                <div className="flex gap-2">
+                  <button 
+                    className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    onClick={() => setShowPublishDialog(true)}
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Publish
+                  </button>
+                </div>
+              )}
             </div>
             
             {/* Version History */}
@@ -586,8 +616,8 @@ const Edit: React.FC = () => {
             </div>
           </div>
 
-          {/* Add ArtifactAdmin here, before Comments */}
-          {artifactId && artifactInfo && (
+          {/* Only show ArtifactAdmin for collection admins */}
+          {isCollectionAdmin && artifactId && artifactInfo && (
             <div className="mb-6">
               <ArtifactAdmin 
                 artifactId={artifactId}
@@ -1363,9 +1393,9 @@ const Edit: React.FC = () => {
             {artifactInfo ? (
               <>
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900">{artifactInfo.name}</h3>
+                  <h3 className="font-medium text-gray-900">{artifactInfo.manifest.name}</h3>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                    {artifactInfo.version === 'stage' ? 'stage' : `v${artifactInfo.version || '1.0'}`}
+                    {artifactInfo.staging !== null ? 'stage' : (lastVersion ? `v${lastVersion}` : '')}
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 font-mono mt-2">
