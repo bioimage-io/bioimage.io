@@ -106,7 +106,7 @@ async def interact_with_model_zoo():
     # List available models
     models = await artifact_manager.list({
         "parent_id": "bioimage-io/bioimage.io",
-        "type": "model"
+        "limit": 10
     })
 
     # Get details of a specific model
@@ -158,7 +158,7 @@ async function interactWithModelZoo() {
     // List available models
     const models = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
-        type: "model"
+        limit: 10
     });
 
     // Get details of a specific model
