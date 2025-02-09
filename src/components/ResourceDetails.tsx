@@ -347,26 +347,37 @@ const ResourceDetails = () => {
           </Card>
 
           {/* Citations Card */}
-          {manifest.cite?.map((citation, index) => (
-            <Box key={index}>
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                {citation.text}
-              </Typography>
-              {citation.doi && (
-                <Link 
-                  href={`https://doi.org/${citation.doi}`}
-                  target="_blank"
-                  sx={{ 
-                    display: 'inline-block',
-                    fontSize: '0.875rem'
-                  }}
-                >
-                  DOI: {citation.doi}
-                </Link>
-              )}
-              {index < (manifest.cite?.length ?? 0) - 1 && <Divider sx={{ my: 2 }} />}
-            </Box>
-          ))}
+          {manifest.cite && manifest.cite.length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Citations
+                </Typography>
+                <Stack spacing={2}>
+                  {manifest.cite.map((citation, index) => (
+                    <Box key={index}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        {citation.text}
+                      </Typography>
+                      {citation.doi && (
+                        <Link 
+                          href={`https://doi.org/${citation.doi}`}
+                          target="_blank"
+                          sx={{ 
+                            display: 'inline-block',
+                            fontSize: '0.875rem'
+                          }}
+                        >
+                          DOI: {citation.doi}
+                        </Link>
+                      )}
+                      {index < manifest.cite.length - 1 && <Divider sx={{ my: 2 }} />}
+                    </Box>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Tags Card */}
           <Card sx={{ mb: 3 }}>
