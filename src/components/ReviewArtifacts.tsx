@@ -452,16 +452,6 @@ const ReviewArtifacts: React.FC = () => {
                         )}
                       </div>
                       <div className="flex gap-2 items-center">
-                        <select
-                          value={artifact.manifest?.status || ''}
-                          onChange={(e) => handleStatusChange(artifact, e.target.value)}
-                          className="block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                        >
-                          <option value="">Change Status</option>
-                          <option value="in-review">Mark as In Review</option>
-                          <option value="revision">Request Revision</option>
-                          <option value="accepted">Accept</option>
-                        </select>
                         <button
                           onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
                           className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -483,6 +473,43 @@ const ReviewArtifacts: React.FC = () => {
                             leaveTo="transform opacity-0 scale-95"
                           >
                             <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => handleStatusChange(artifact, 'in-review')}
+                                    className={`${
+                                      active ? 'bg-gray-100' : ''
+                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                  >
+                                    Mark as In Review
+                                  </button>
+                                )}
+                              </Menu.Item>
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => handleStatusChange(artifact, 'revision')}
+                                    className={`${
+                                      active ? 'bg-gray-100' : ''
+                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                  >
+                                    Request Revision
+                                  </button>
+                                )}
+                              </Menu.Item>
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => handleStatusChange(artifact, 'accepted')}
+                                    className={`${
+                                      active ? 'bg-gray-100' : ''
+                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                  >
+                                    Accept
+                                  </button>
+                                )}
+                              </Menu.Item>
+                              <div className="border-t border-gray-100" />
                               <Menu.Item>
                                 {({ active }) => (
                                   <button
