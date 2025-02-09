@@ -320,7 +320,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           aliasPattern = '{fruit_adjective}-{fruit}';
           break;
         default:
-          aliasPattern = '{animal_adjective}-{animal}';
+          aliasPattern = '{object_adjective}-{object}';
       }
 
       // Create new artifact with type-specific alias pattern
