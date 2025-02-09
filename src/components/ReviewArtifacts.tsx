@@ -215,7 +215,7 @@ const ReviewArtifacts: React.FC = () => {
                   />
                 </Switch>
                 <span className="ml-2 text-sm text-gray-600">
-                  {showSubmittedOnly ? 'Submitted Only' : 'All Artifacts'}
+                  {showSubmittedOnly ? 'Pending Review' : 'All Artifacts'}
                 </span>
               </div>
               <button
