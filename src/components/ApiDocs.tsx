@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
+import Editor from '@monaco-editor/react';
 
 const ApiDocs: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'python' | 'javascript'>('python');
@@ -351,15 +350,19 @@ async function interactWithModelZoo() {
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Installation</h2>
         <div className="bg-gray-50 rounded-lg p-4">
-          {activeTab === 'python' ? (
-            <SyntaxHighlighter language="bash" style={vs}>
-              pip install hypha-rpc
-            </SyntaxHighlighter>
-          ) : (
-            <SyntaxHighlighter language="bash" style={vs}>
-              npm install hypha-rpc
-            </SyntaxHighlighter>
-          )}
+          <Editor
+            height="50px"
+            language="shell"
+            value={activeTab === 'python' ? 'pip install hypha-rpc' : 'npm install hypha-rpc'}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              lineNumbers: 'off',
+              renderLineHighlight: 'none',
+              folding: false
+            }}
+          />
         </div>
       </div>
 
@@ -367,13 +370,20 @@ async function interactWithModelZoo() {
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Example Usage</h2>
         <div className="bg-gray-50 rounded-lg p-4">
-          <SyntaxHighlighter 
-            language={activeTab} 
-            style={vs}
-            showLineNumbers={true}
-          >
-            {activeTab === 'python' ? pythonCode : javascriptCode}
-          </SyntaxHighlighter>
+          <Editor
+            height="600px"
+            language={activeTab === 'python' ? 'python' : 'javascript'}
+            value={activeTab === 'python' ? pythonCode : javascriptCode}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              lineNumbers: 'on',
+              renderWhitespace: 'selection',
+              folding: true
+            }}
+          />
         </div>
       </div>
 
