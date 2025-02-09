@@ -122,8 +122,7 @@ const MyArtifacts: React.FC = () => {
   if (selectedArtifact) {
     return (
       <Upload 
-        artifactId={selectedArtifact.id} 
-        onBack={() => setSelectedArtifact(null)}
+        artifactId={selectedArtifact.id}
       />
     );
   }

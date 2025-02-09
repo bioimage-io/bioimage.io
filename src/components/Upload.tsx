@@ -56,7 +56,6 @@ type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
 interface UploadProps {
   artifactId?: string;
-  onBack?: () => void;
 }
 
 // Add new interface for upload artifact
@@ -66,7 +65,7 @@ interface UploadArtifact {
   // Add other properties as needed
 }
 
-const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
+const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn, server } = useHyphaStore();
@@ -506,7 +505,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   return (
     <div className="flex flex-col h-screen">
       {/* Add back button when viewing existing artifact */}
-      {files.length > 0 && (<div className="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center">
+      {files.length > 0 && (<>
         {/* Add toggle sidebar button - only show when files are loaded */}
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -521,7 +520,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
             )}
           </svg>
         </button>
-      </div>
+        </>
     )}
       {/* Show title section only when no files are loaded */}
       {showDragDrop && (
@@ -550,12 +549,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
               <div className="flex items-center justify-between">
                
                 <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-                {/* <button
+                <button
                   onClick={() => setShowDragDrop(true)}
                   className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
                 >
                   New Upload
-                </button> */}
+                </button>
               </div>
             </div>
 
