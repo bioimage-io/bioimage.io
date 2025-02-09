@@ -423,7 +423,7 @@ const ReviewArtifacts: React.FC = () => {
             <ul role="list" className="divide-y divide-gray-200">
               {artifacts.map((artifact) => (
                 <li key={artifact.id}>
-                  <div className="px-4 py-4 sm:px-6">
+                  <div className="px-4 py-4 sm:px-6 min-h-[300px]">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-2">
