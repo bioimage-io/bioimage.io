@@ -68,11 +68,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         version: "stage",
         manifest: {
           ...artifactInfo.manifest,
-          status: 'submitted'
+          status: 'request-review'
         },
         _rkwargs: true
       });
-      setStatus('submitted');
+      setStatus('request-review');
     } catch (error) {
       console.error('Error submitting for review:', error);
     }
@@ -230,7 +230,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
             
             {!isCollectionAdmin && artifactId && isStaged && (
               <>
-                {status !== 'submitted' ? (
+                {status !== 'request-review' ? (
                   <button
                     onClick={handleSubmit}
                     disabled={shouldDisableActions}

@@ -11,7 +11,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) =>
 
   const getStatusConfig = (status: string) => {
     const configs = {
-      'submitted': { color: 'yellow', text: 'Submitted for Review' },
+      'request-review': { color: 'yellow', text: 'Request for Review' },
       'in-review': { color: 'blue', text: 'In Review' },
       'revision': { color: 'red', text: 'Needs Revision' },
       'accepted': { color: 'green', text: 'Accepted' },

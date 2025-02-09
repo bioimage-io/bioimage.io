@@ -91,6 +91,7 @@ const ApiDocs: React.FC = () => {
   );
 
   const pythonCode = `import os
+import httpx
 import asyncio
 from hypha_rpc import connect_to_server
 
@@ -111,11 +112,17 @@ async def interact_with_model_zoo():
     })
 
     # Get details of a specific model
-    model = await artifact_manager.read("nickname:your-model-id")
+    model = await artifact_manager.read("bioimage-io/affable-shark")
+
+    # List files of a specific model
+    files = await artifact_manager.list_files({
+        "artifact_id": "bioimage-io/affable-shark"
+    })
+    print("Files in the model:", files)
 
     # Download model files
     file_url = await artifact_manager.get_file({
-        "artifact_id": f"bioimage-io/{model.id}",
+        "artifact_id": "bioimage-io/affable-shark",
         "file_path": "weights.pt"
     })
 
@@ -133,20 +140,35 @@ async def interact_with_model_zoo():
 
     # Upload model files
     put_url = await artifact_manager.put_file({
-        "artifact_id": f"bioimage-io/{new_model.id}",
+        "artifact_id": new_model.id,
         "file_path": "weights.pt"
     })
+
+
     # Use put_url to upload your file
+    async def upload_file(put_url, file_path):
+        async with httpx.AsyncClient() as client:
+            with open(file_path, 'rb') as file:
+                response = await client.put(put_url, content=file)
+                response.raise_for_status()
+                print(f"File uploaded successfully: {response.status_code}")
+
+    # Use put_url to upload your file
+    await upload_file(put_url, "path/to/your/weights.pt")
     
-    # Commit the changes
-    await artifact_manager.commit({
-        "artifact_id": f"bioimage-io/{new_model.id}",
+    # Request for review
+    new_model["manifest"]["status"] = "request-review"
+    await artifact_manager.edit({
+        "artifact_id": new_model.id,
+        "version": "stage",
+        "manifest": new_model["manifest"]
     })
+
+    # Now you can see your model also in "My Artifacts" menu in the model zoo
 
 if __name__ == "__main__":
     asyncio.run(interact_with_model_zoo())
     `;
-
   const javascriptCode = `import { hyphaWebsocketClient } from 'hypha-rpc';
 
 async function interactWithModelZoo() {
@@ -157,35 +179,69 @@ async function interactWithModelZoo() {
     });
 
     // Get the artifact manager service
-    const artifactManager = await server.getService("public/artifact-manager");
-
-    // List available models
-    const models = await artifactManager.list({
-        parent_id: "bioimage-io/bioimage.io",
-        limit: 10
-    });
-
-    // Get details of a specific model
-    const model = await artifactManager.read("bioimage-io/" + "nickname:your-model-id");
+    const artifactManager = await server.getService("public/artifact-manager", {"case_conversion": "camel"});
 
     // Download model files
-    const fileUrl = await artifactManager.get_file({
-        artifact_id: "bioimage-io/" + model.id,
+    const fileUrl = await artifactManager.getFile({
+        artifact_id: "bioimage-io/affable-shark",
         file_path: "weights.pt"
     });
     console.log(fileUrl);
 
+    // Upload a new model
+    const newModel = await artifactManager.create({
+        parent_id: "bioimage-io/bioimage.io",
+        alias: "{zenodo_conceptrecid}",
+        type: "model",
+        manifest: yourManifestDict,
+        config: {
+            publish_to: "sandbox_zenodo"
+        },
+        version: "stage"
+    });
+
     // Upload model files
-    const putUrl = await artifactManager.put_file({
+    const putUrl = await artifactManager.putFile({
         artifact_id: newModel.id,
         file_path: "weights.pt"
     });
 
-    // Commit the changes
-    await artifactManager.commit({
-        artifact_id: "bioimage-io/" + newModel.id,
-    })
+    // Use putUrl to upload your file
+    async function uploadFile(putUrl, filePath) {
+        const response = await fetch(putUrl, {
+            method: 'PUT',
+            body: await fetch(filePath).then(res => res.blob()),
+            headers: {
+                'Content-Type': '' // this is important for s3
+            }
+        });
+        if (!response.ok) {
+            throw new Error(\`Failed to upload file: \${response.status}\`);
+        }
+        console.log(\`File uploaded successfully: \${response.status}\`);
+    }
+
+    // Use putUrl to upload your file
+    await uploadFile(putUrl, "path/to/your/weights.pt");
+
+    // Request for review
+    newModel.manifest.status = "request-review";
+    await artifactManager.edit({
+        artifact_id: newModel.id,
+        version: "stage",
+        manifest: newModel.manifest
+    });
+
+    // Now you can see your model also in "My Artifacts" menu in the model zoo
 }`;
+
+(async () => {
+    try {
+        await interactWithModelZoo();
+    } catch (error) {
+        console.error('Error interacting with model zoo:', error);
+    }
+})();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

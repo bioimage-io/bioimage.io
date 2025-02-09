@@ -51,14 +51,14 @@ const ReviewArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
-  const [showSubmittedOnly, setShowSubmittedOnly] = useState(true);
+  const [showPendingOnly, setShowPendingOnly] = useState(true);
   const [copiedIds, setCopiedIds] = useState<{[key: string]: boolean}>({});
 
   useEffect(() => {
     if (isLoggedIn && user) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, showSubmittedOnly, reviewArtifactsPage]);
+  }, [artifactManager, user, isLoggedIn, showPendingOnly, reviewArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
@@ -68,8 +68,8 @@ const ReviewArtifacts: React.FC = () => {
       const filters = {
         version: "stage",
       };
-      if (showSubmittedOnly) {
-        filters.manifest = { status: 'submitted' };
+      if (showPendingOnly) {
+        filters.manifest = { status: 'request-review' };
       }
 
       const response = await artifactManager.list({
@@ -189,8 +189,8 @@ const ReviewArtifacts: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Calculate number of submitted artifacts
-  const submittedCount = artifacts.filter(a => a.manifest?.status === 'submitted').length;
+  // Calculate number of pending review artifacts
+  const pendingCount = artifacts.filter(a => a.manifest?.status === 'request-review').length;
 
   const handleCopyId = (artifactId: string) => {
     const id = artifactId.split('/').pop() || '';
@@ -230,24 +230,24 @@ const ReviewArtifacts: React.FC = () => {
             <div className="flex items-center space-x-4">
               <div className="flex items-center">
                 <Switch
-                  checked={showSubmittedOnly}
+                  checked={showPendingOnly}
                   onChange={(checked) => {
-                    setShowSubmittedOnly(checked);
+                    setShowPendingOnly(checked);
                     setReviewArtifactsPage(1);
                   }}
                   className={`${
-                    showSubmittedOnly ? 'bg-blue-600' : 'bg-gray-200'
+                    showPendingOnly ? 'bg-blue-600' : 'bg-gray-200'
                   } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
                 >
-                  <span className="sr-only">Show submitted artifacts only</span>
+                  <span className="sr-only">Show pending review artifacts only</span>
                   <span
                     className={`${
-                      showSubmittedOnly ? 'translate-x-6' : 'translate-x-1'
+                      showPendingOnly ? 'translate-x-6' : 'translate-x-1'
                     } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
                   />
                 </Switch>
                 <span className="ml-2 text-sm text-gray-600">
-                  {showSubmittedOnly ? 'Pending Review' : 'All Artifacts'}
+                  {showPendingOnly ? 'Pending Review' : 'All Artifacts'}
                 </span>
               </div>
               <button
@@ -274,7 +274,7 @@ const ReviewArtifacts: React.FC = () => {
                   Privileged Reviewer Access
                 </h3>
                 <div className="mt-2 text-sm text-blue-700">
-                {submittedCount > 0 && <p className="mt-1">You have {submittedCount} item{submittedCount !== 1 ? 's' : ''} waiting for review.</p>}
+                {pendingCount > 0 && <p className="mt-1">You have {pendingCount} item{pendingCount !== 1 ? 's' : ''} waiting for review.</p>}
                   <p className="mt-1">As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines.</p>
                 </div>
 
