@@ -3,13 +3,14 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
-import { Dialog, Transition } from '@headlessui/react';
+import { Dialog, Transition, Switch } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { EllipsisVerticalIcon } from '@heroicons/react/24/outline';
 import { Menu } from '@headlessui/react';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import StatusBadge from './StatusBadge';
 
 interface Artifact {
   id: string;
@@ -38,23 +39,30 @@ const ReviewArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
+  const [showSubmittedOnly, setShowSubmittedOnly] = useState(true);
 
   useEffect(() => {
     if (isLoggedIn && user) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn]);
+  }, [artifactManager, user, isLoggedIn, showSubmittedOnly]);
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
 
     try {
       setLoading(true);
+      const filters = {
+        version: "stage",
+      };
+      if (showSubmittedOnly) {
+        filters.manifest = { status: 'submitted' };
+      }
+
+      
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
-        filters: {
-          version: "stage"
-        },
+        filters: filters,
         limit: 100,
         _rkwargs: true
       });
@@ -137,6 +145,33 @@ const ReviewArtifacts: React.FC = () => {
     }
   };
 
+  const handleStatusChange = async (artifact: Artifact, newStatus: string) => {
+    try {
+      if (!artifact.manifest) return;
+      
+      let updatedManifest = { ...artifact.manifest };
+      
+
+      updatedManifest.status = newStatus;
+
+
+      await artifactManager.edit({
+        artifact_id: artifact.id,
+        manifest: updatedManifest,
+        version: "stage",
+        _rkwargs: true
+      });
+      
+      // Refresh the list
+      loadArtifacts();
+    } catch (error) {
+      console.error('Error updating status:', error);
+    }
+  };
+
+  // Calculate number of submitted artifacts
+  const submittedCount = artifacts.filter(a => a.manifest?.status === 'submitted').length;
+
   if (!isLoggedIn) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -169,154 +204,175 @@ const ReviewArtifacts: React.FC = () => {
             <h1 className="text-2xl font-semibold text-gray-900">
               Review Staged Artifacts
             </h1>
-            <button
-              onClick={loadArtifacts}
-              disabled={loading}
-              className={`inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <ArrowPathIcon 
-                className={`-ml-0.5 mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} 
-              />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <Switch
+                  checked={showSubmittedOnly}
+                  onChange={setShowSubmittedOnly}
+                  className={`${
+                    showSubmittedOnly ? 'bg-blue-600' : 'bg-gray-200'
+                  } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
+                >
+                  <span className="sr-only">Show submitted artifacts only</span>
+                  <span
+                    className={`${
+                      showSubmittedOnly ? 'translate-x-6' : 'translate-x-1'
+                    } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                  />
+                </Switch>
+                <span className="ml-2 text-sm text-gray-600">
+                  {showSubmittedOnly ? 'Submitted Only' : 'All Artifacts'}
+                </span>
+              </div>
+              <button
+                onClick={loadArtifacts}
+                disabled={loading}
+                className={`inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <ArrowPathIcon 
+                  className={`-ml-0.5 mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} 
+                />
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
           </div>
 
-          {/* Info Box */}
+          {/* Info Box with Collapsible Guidelines */}
           <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex">
               <div className="flex-shrink-0">
                 <InformationCircleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
               </div>
-              <div className="ml-3">
+              <div className="ml-3 w-full">
                 <h3 className="text-sm font-medium text-blue-800">
                   Privileged Reviewer Access
                 </h3>
                 <div className="mt-2 text-sm text-blue-700">
-                  <p>You have {artifacts.length} item{artifacts.length !== 1 ? 's' : ''} waiting for review.</p>
+                  <p>You have {submittedCount} item{submittedCount !== 1 ? 's' : ''} waiting for review.</p>
                   <p className="mt-1">As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines.</p>
+                </div>
+
+                {/* Collapsible Guidelines Section */}
+                <div className="mt-4 border-t border-blue-200 pt-4">
+                  <button
+                    className="w-full flex justify-between items-center text-left text-sm font-medium text-blue-800"
+                    onClick={() => setIsGuidelinesOpen(!isGuidelinesOpen)}
+                  >
+                    <span>Review Guidelines</span>
+                    {isGuidelinesOpen ? (
+                      <ChevronUpIcon className="h-5 w-5 text-blue-500" />
+                    ) : (
+                      <ChevronDownIcon className="h-5 w-5 text-blue-500" />
+                    )}
+                  </button>
+                  
+                  <Transition
+                    show={isGuidelinesOpen}
+                    enter="transition-all ease-in-out duration-300"
+                    enterFrom="max-h-0 opacity-0"
+                    enterTo="max-h-[800px] opacity-100"
+                    leave="transition-all ease-in-out duration-200"
+                    leaveFrom="max-h-[800px] opacity-100"
+                    leaveTo="max-h-0 opacity-0"
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-4 text-sm text-blue-700">
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="font-medium text-blue-800">1. Basic Information Completeness</h4>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            <li>Name is descriptive and follows convention (e.g., "3D UNet Arabidopsis Apical Stem Cells")</li>
+                            <li>Authors and maintainers are properly listed with contact information</li>
+                            <li>License is specified (e.g., MIT, Apache)</li>
+                            <li>Proper citation information is included with DOI/URL</li>
+                            <li>Tags are relevant and help in model discovery (e.g., "3d", "unet", "semantic-segmentation")</li>
+                          </ul>
+                        </div>
+                        
+                        <div>
+                          <h4 className="font-medium text-blue-800">2. Documentation Quality</h4>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            <li>Description clearly explains:
+                              <ul className="ml-6 list-circle">
+                                <li>Model's purpose and use case</li>
+                                <li>Input data requirements (e.g., "confocal images of Arabidopsis thaliana")</li>
+                                <li>Expected results and output format</li>
+                              </ul>
+                            </li>
+                            <li>Documentation includes:
+                              <ul className="ml-6 list-circle">
+                                <li>Step-by-step usage instructions</li>
+                                <li>Input data specifications (e.g., voxel size, dimensions)</li>
+                                <li>Example workflow or notebook</li>
+                              </ul>
+                            </li>
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-blue-800">3. Technical Requirements</h4>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            <li>Input/Output specifications are complete:
+                              <ul className="ml-6 list-circle">
+                                <li>Correct axes information (e.g., "bczyx")</li>
+                                <li>Data types and ranges</li>
+                                <li>Shape requirements</li>
+                              </ul>
+                            </li>
+                            <li>Sample data is provided:
+                              <ul className="ml-6 list-circle">
+                                <li>Test inputs and outputs</li>
+                                <li>Sample images for verification</li>
+                                <li>Cover images showing input/output examples</li>
+                              </ul>
+                            </li>
+                            <li>Model weights and architecture are properly specified</li>
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-blue-800">4. Visual Presentation</h4>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            <li>Cover images:
+                              <ul className="ml-6 list-circle">
+                                <li>Show clear input/output examples</li>
+                                <li>Are of good quality and representative</li>
+                                <li>Include scale bars where applicable</li>
+                              </ul>
+                            </li>
+                            <li>Icons and badges are appropriate and informative</li>
+                            <li>Visual documentation helps understand the model's function</li>
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-blue-800">5. Ethical & Scientific Standards</h4>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            <li>Training data is properly cited and credited</li>
+                            <li>Model limitations and assumptions are clearly stated</li>
+                            <li>Performance metrics and validation methods are documented</li>
+                            <li>Potential biases or limitations are disclosed</li>
+                            <li>Compliance with data privacy and sharing guidelines</li>
+                          </ul>
+                        </div>
+
+                        <div className="bg-blue-100 p-3 rounded-md mt-4">
+                          <h4 className="font-medium text-blue-800">Review Checklist</h4>
+                          <p className="text-blue-700 text-sm mt-1">Before approving, ensure:</p>
+                          <ul className="mt-2 space-y-1 text-blue-700 text-sm">
+                            <li>✓ All required fields in RDF are completed</li>
+                            <li>✓ Documentation is clear for non-expert users</li>
+                            <li>✓ Sample data works as expected</li>
+                            <li>✓ Visual materials are informative</li>
+                            <li>✓ Scientific citations are proper</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Collapsible Guidelines */}
-          <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg">
-            <button
-              className="w-full px-4 py-3 flex justify-between items-center text-left"
-              onClick={() => setIsGuidelinesOpen(!isGuidelinesOpen)}
-            >
-              <span className="text-base font-medium text-gray-900">Review Guidelines</span>
-              {isGuidelinesOpen ? (
-                <ChevronUpIcon className="h-5 w-5 text-gray-500" />
-              ) : (
-                <ChevronDownIcon className="h-5 w-5 text-gray-500" />
-              )}
-            </button>
-            
-            <Transition
-              show={isGuidelinesOpen}
-              enter="transition-all ease-in-out duration-300"
-              enterFrom="max-h-0 opacity-0"
-              enterTo="max-h-[800px] opacity-100"
-              leave="transition-all ease-in-out duration-200"
-              leaveFrom="max-h-[800px] opacity-100"
-              leaveTo="max-h-0 opacity-0"
-              className="overflow-hidden"
-            >
-              <div className="px-4 pb-4 text-sm text-gray-600">
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-gray-900">1. Basic Information Completeness</h4>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Name is descriptive and follows convention (e.g., "3D UNet Arabidopsis Apical Stem Cells")</li>
-                      <li>Authors and maintainers are properly listed with contact information</li>
-                      <li>License is specified (e.g., MIT, Apache)</li>
-                      <li>Proper citation information is included with DOI/URL</li>
-                      <li>Tags are relevant and help in model discovery (e.g., "3d", "unet", "semantic-segmentation")</li>
-                    </ul>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-gray-900">2. Documentation Quality</h4>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Description clearly explains:
-                        <ul className="ml-6 list-circle">
-                          <li>Model's purpose and use case</li>
-                          <li>Input data requirements (e.g., "confocal images of Arabidopsis thaliana")</li>
-                          <li>Expected results and output format</li>
-                        </ul>
-                      </li>
-                      <li>Documentation includes:
-                        <ul className="ml-6 list-circle">
-                          <li>Step-by-step usage instructions</li>
-                          <li>Input data specifications (e.g., voxel size, dimensions)</li>
-                          <li>Example workflow or notebook</li>
-                        </ul>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h4 className="font-medium text-gray-900">3. Technical Requirements</h4>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Input/Output specifications are complete:
-                        <ul className="ml-6 list-circle">
-                          <li>Correct axes information (e.g., "bczyx")</li>
-                          <li>Data types and ranges</li>
-                          <li>Shape requirements</li>
-                        </ul>
-                      </li>
-                      <li>Sample data is provided:
-                        <ul className="ml-6 list-circle">
-                          <li>Test inputs and outputs</li>
-                          <li>Sample images for verification</li>
-                          <li>Cover images showing input/output examples</li>
-                        </ul>
-                      </li>
-                      <li>Model weights and architecture are properly specified</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h4 className="font-medium text-gray-900">4. Visual Presentation</h4>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Cover images:
-                        <ul className="ml-6 list-circle">
-                          <li>Show clear input/output examples</li>
-                          <li>Are of good quality and representative</li>
-                          <li>Include scale bars where applicable</li>
-                        </ul>
-                      </li>
-                      <li>Icons and badges are appropriate and informative</li>
-                      <li>Visual documentation helps understand the model's function</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h4 className="font-medium text-gray-900">5. Ethical & Scientific Standards</h4>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Training data is properly cited and credited</li>
-                      <li>Model limitations and assumptions are clearly stated</li>
-                      <li>Performance metrics and validation methods are documented</li>
-                      <li>Potential biases or limitations are disclosed</li>
-                      <li>Compliance with data privacy and sharing guidelines</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-yellow-50 p-3 rounded-md mt-4">
-                    <h4 className="font-medium text-yellow-800">Review Checklist</h4>
-                    <p className="text-yellow-700 text-sm mt-1">Before approving, ensure:</p>
-                    <ul className="mt-2 space-y-1 text-yellow-700 text-sm">
-                      <li>✓ All required fields in RDF are completed</li>
-                      <li>✓ Documentation is clear for non-expert users</li>
-                      <li>✓ Sample data works as expected</li>
-                      <li>✓ Visual materials are informative</li>
-                      <li>✓ Scientific citations are proper</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </Transition>
           </div>
         </div>
       </div>
@@ -344,9 +400,15 @@ const ReviewArtifacts: React.FC = () => {
                   <div className="px-4 py-4 sm:px-6">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-medium text-gray-900 truncate">
-                          {artifact.manifest?.name || artifact.alias}
-                        </h3>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-medium text-gray-900 truncate">
+                            {artifact.manifest?.name || artifact.alias}
+                          </h3>
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={artifact.manifest?.status || 'draft'} size="small" />
+                          </div>
+                        </div>
+
                         <p className="mt-1 text-sm text-gray-500">
                           Submitted by: {artifact.created_by}
                         </p>
@@ -377,6 +439,19 @@ const ReviewArtifacts: React.FC = () => {
                             ))}
                           </div>
                         )}
+
+                        <div className="flex items-center justify-end mt-4">
+                          <select
+                            value={artifact.manifest?.status || ''}
+                            onChange={(e) => handleStatusChange(artifact, e.target.value)}
+                            className="block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                          >
+                            <option value="">Change Status</option>
+                            <option value="in-review">Mark as In Review</option>
+                            <option value="revision">Request Revision</option>
+                            <option value="accepted">Accept</option>
+                          </select>
+                        </div>
                       </div>
                       <div className="flex gap-2 items-center">
                         <button

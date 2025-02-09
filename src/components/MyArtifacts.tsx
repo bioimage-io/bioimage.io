@@ -251,6 +251,7 @@ const MyArtifacts: React.FC = () => {
               <div key={artifact.id}>
                 <AdminResourceCard
                   title={artifact.manifest?.name || artifact.alias}
+                  status={artifact.manifest?.status || '-'}
                   description={artifact.manifest?.description || 'No description'}
                   tags={[
                     `v${artifact.versions?.length || 0}`,
@@ -264,7 +265,6 @@ const MyArtifacts: React.FC = () => {
                     setIsDeleteDialogOpen(true);
                   }}
                   isStaged={!!artifact.staging}
-                  status={artifact.staging ? 'staged' : 'published'}
                   artifactType={artifact.type}
                 />
               </div>

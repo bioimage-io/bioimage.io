@@ -8,6 +8,8 @@ import { useDropzone } from 'react-dropzone';
 import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
+import StatusBadge from './StatusBadge';
+import yaml from 'js-yaml';
 
 interface FileNode {
   name: string;
@@ -86,6 +88,7 @@ const Edit: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
+  const [artifactType, setArtifactType] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -174,6 +177,9 @@ const Edit: React.FC = () => {
         artifact_id: artifactId,
         _rkwargs: true
       });
+      
+      // Set artifact type from manifest
+      setArtifactType(artifact.manifest?.type || null);
       
       // Check collection admin status
       try {
@@ -349,6 +355,15 @@ const Edit: React.FC = () => {
       [file.path]: value
     }));
 
+    // Mark file as edited in files array
+    setFiles(prevFiles => 
+      prevFiles.map(f => 
+        f.path === file.path 
+          ? { ...f, edited: true }
+          : f
+      )
+    );
+
     // Mark content as changed and invalidate previous validation
     setHasContentChanged(true);
     setIsContentValid(false);
@@ -383,10 +398,49 @@ const Edit: React.FC = () => {
         throw new Error('Failed to upload file');
       }
 
-      // Update the local state
+      // If this is rdf.yaml, update the artifact's manifest
+      if (file.path.endsWith('rdf.yaml')) {
+        try {
+          const rdfContent = unsavedChanges[file.path];
+          const rdfData = yaml.load(rdfContent);
+          
+          if (rdfData && typeof rdfData === 'object') {
+            // Update artifact with new manifest data
+            await artifactManager.edit({
+              artifact_id: artifactId,
+              manifest: rdfData,
+              version: 'stage',
+              _rkwargs: true
+            });
+
+            // Update local state
+            if ('type' in rdfData) {
+              setArtifactType(rdfData.type as string);
+            }
+            
+            // Update artifactInfo with new manifest
+            setArtifactInfo(prev => prev ? {
+              ...prev,
+              manifest: {
+                ...prev.manifest,
+                ...rdfData
+              }
+            } : null);
+          }
+        } catch (error) {
+          console.error('Error updating manifest:', error);
+          setUploadStatus({
+            message: 'Error updating manifest from rdf.yaml',
+            severity: 'error'
+          });
+          return; // Return early on manifest update error
+        }
+      }
+
+      // Update the local state - but don't set edited: true since we just saved
       setFiles(files.map(f => 
         f.path === file.path 
-          ? { ...f, content: unsavedChanges[file.path], edited: true }
+          ? { ...f, content: unsavedChanges[file.path], edited: false }
           : f
       ));
 
@@ -449,11 +503,6 @@ const Edit: React.FC = () => {
         severity: 'error'
       });
     }
-  };
-
-  const getResourcePreview = (): ArtifactInfo | null => {
-    if (!artifactInfo) return null;
-    return artifactInfo;
   };
 
   const renderFileContent = () => {
@@ -903,7 +952,7 @@ const Edit: React.FC = () => {
                 <span className="truncate text-sm font-medium tracking-wide">
                   {file.name}
                 </span>
-                {file.edited && (
+                {(file.edited || unsavedChanges[file.path]) && (
                   <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
                     edited
                   </span>
@@ -938,6 +987,26 @@ const Edit: React.FC = () => {
     
     setIsContentValid(result.success);
     setHasContentChanged(false);
+
+    // If validation successful, check for type changes in rdf.yaml
+    if (result.success) {
+      const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
+      if (rdfFile) {
+        try {
+          // Get latest content including unsaved changes
+          const content = unsavedChanges[rdfFile.path] ?? 
+            (typeof rdfFile.content === 'string' ? rdfFile.content : '');
+          
+          // Parse YAML to get type
+          const rdfData = yaml.load(content);
+          if (rdfData && typeof rdfData === 'object' && 'type' in rdfData) {
+            setArtifactType(rdfData.type as string);
+          }
+        } catch (error) {
+          console.error('Error parsing rdf.yaml:', error);
+        }
+      }
+    }
   };
 
   // Update the renderActionButtons function
@@ -958,14 +1027,10 @@ const Edit: React.FC = () => {
         {selectedFile && isTextFile(selectedFile.name) && (
           <button
             onClick={() => handleSave(selectedFile)}
-            disabled={!unsavedChanges[selectedFile.path] || 
-                     uploadStatus?.severity === 'info' || 
-                     (isRdfFile && !isContentValid)}
+            disabled={!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'}
             title={`Save (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S)`}
             className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-              ${!unsavedChanges[selectedFile.path] || 
-                uploadStatus?.severity === 'info' || 
-                (isRdfFile && !isContentValid)
+              ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
           >
@@ -987,30 +1052,32 @@ const Edit: React.FC = () => {
           </div>
         )}
 
-        {artifactId && (
+        {isStaged && artifactType === 'model' && (
           <ModelTester
             artifactId={artifactId}
-            version={isStaged ? 'stage' : artifactInfo?.current_version}
-            isDisabled={!isStaged || shouldDisableActions}
+            version="stage"
+            isDisabled={!server}
           />
         )}
 
-        {/* Review & Publish button - now visible to everyone */}
-        <button
-          onClick={() => handleTabChange('review')}
-          disabled={shouldDisableActions}
-          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-            ${shouldDisableActions
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : activeTab === 'review'
-                ? 'bg-blue-700 text-white'
-                : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Review & Publish
-        </button>
+        {/* Review & Publish button - only show when staged */}
+        {isStaged && (
+          <button
+            onClick={() => handleTabChange('review')}
+            disabled={shouldDisableActions}
+            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+              ${shouldDisableActions
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : activeTab === 'review'
+                  ? 'bg-blue-700 text-white'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Review & Publish
+          </button>
+        )}
       </div>
     );
   };
@@ -1337,6 +1404,12 @@ const Edit: React.FC = () => {
                 <div className="text-xs text-gray-500 font-mono mt-2">
                   ID: {artifactInfo.id}
                 </div>
+                {/* Add status badge if artifact is staged */}
+                {artifactInfo.staging !== null && artifactInfo.manifest?.status && (
+                  <div className="mt-2">
+                    <StatusBadge status={artifactInfo.manifest.status} size="small" />
+                  </div>
+                )}
               </>
             ) : (
               <div className="text-sm text-gray-500">Loading artifact info...</div>

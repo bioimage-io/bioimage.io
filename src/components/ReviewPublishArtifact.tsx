@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog as MuiDialog, TextField } from '@mui/material';
 import Comments from './Comments';
 import ResourceCard from './ResourceCard';
 import ModelTester from './ModelTester';
 import { ArtifactInfo } from '../types/artifact';
 import ArtifactAdmin from './ArtifactAdmin';
+import { useHyphaStore } from '../store/hyphaStore';
+import { Disclosure, Transition } from '@headlessui/react';
+import StatusBadge from './StatusBadge';
+import { useNavigate } from 'react-router-dom';
 
 interface Version {
   version: string;
@@ -35,12 +39,63 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     version: '',
     comment: ''
   });
+  const [status, setStatus] = useState<string>('draft');
 
   const shouldDisableActions = !isContentValid || hasContentChanged;
+
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (artifactInfo?.manifest?.status) {
+      setStatus(artifactInfo.manifest.status);
+    } else {
+      setStatus('draft');
+    }
+  }, [artifactInfo?.manifest?.status]);
 
   const handlePublish = () => {
     onPublish(publishData);
     setShowPublishDialog(false);
+  };
+
+  const { artifactManager } = useHyphaStore();
+
+  const handleSubmit = async () => {
+    if (!artifactInfo?.manifest) return;
+    try {
+      await artifactManager.edit({
+        artifact_id: artifactId,
+        version: "stage",
+        manifest: {
+          ...artifactInfo.manifest,
+          status: 'submitted'
+        },
+        _rkwargs: true
+      });
+      setStatus('submitted');
+    } catch (error) {
+      console.error('Error submitting for review:', error);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!artifactInfo?.manifest) return;
+    try {
+      const { status: _, ...manifestWithoutStatus } = artifactInfo.manifest;
+      await artifactManager.edit({
+        artifact_id: artifactId,
+        version: "stage",
+        manifest: manifestWithoutStatus,
+        _rkwargs: true
+      });
+      setStatus('draft');
+    } catch (error) {
+      console.error('Error withdrawing from review:', error);
+    }
+  };
+
+  const handleGoBackToEdit = () => {
+    navigate(`?tab=%40rdf.yaml`);
   };
 
   const renderPublishDialog = () => (
@@ -143,7 +198,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
   return (
     <div className="h-full px-6 py-4 space-y-6">
-      {/* Preview Section without admin actions */}
+      {/* Preview Section */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -154,45 +209,101 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
             <h3 className="text-lg font-medium text-gray-900">Preview</h3>
           </div>
           
-          {/* Move ModelTester here */}
-          {artifactId && (
-            <div>
-              <ModelTester
-                artifactId={artifactId}
-                version={isStaged ? 'stage' : artifactInfo?.current_version}
-                isDisabled={shouldDisableActions}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Version History */}
-        <div className="mb-6">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">Version History</h4>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {artifactInfo.versions.map((v: Version) => (
-                  <div key={v.version} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-gray-200">
-                    <span className="text-sm font-medium text-gray-900">{v.version}</span>
-                    {v.version === artifactInfo.current_version && (
-                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                        current
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-gray-500 italic">
-                No versions have been published yet. Publishing this artifact will create the first version.
-              </div>
+          <div className="flex items-center gap-4">
+            {artifactInfo?.manifest?.type === 'model' && (
+              <>
+                  <button
+                  onClick={handleGoBackToEdit}
+                  className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back to Edit
+                </button>
+                <ModelTester
+                  artifactId={artifactId}
+                  version={isStaged ? 'stage' : artifactInfo?.current_version}
+                  isDisabled={shouldDisableActions}
+                />
+            
+              </>
+            )}
+            
+            {!isCollectionAdmin && artifactId && isStaged && (
+              <>
+                {status !== 'submitted' ? (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={shouldDisableActions}
+                    className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm
+                      ${shouldDisableActions 
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'}`}
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    Submit for Review
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleWithdraw}
+                    className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Withdraw from Review
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
 
+        {/* Status Badge - Centered and more prominent */}
+        {isStaged && status && (
+          <div className="flex justify-center mb-8">
+            <div className="inline-block transform hover:scale-105 transition-transform">
+              <StatusBadge status={status} size="large" />
+            </div>
+          </div>
+        )}
+
         <div className="max-w-sm mx-auto">
           {artifactInfo && <ResourceCard resource={artifactInfo} />}
+        </div>
+      </div>
+
+      {/* Version History Card */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <h3 className="text-lg font-medium text-gray-900">Version History</h3>
+        </div>
+        
+        <div className="bg-gray-50 p-4 rounded-lg">
+          {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {artifactInfo.versions.map((v: Version) => (
+                <div key={v.version} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-gray-200">
+                  <span className="text-sm font-medium text-gray-900">{v.version}</span>
+                  {v.version === artifactInfo.current_version && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                      current
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 italic">
+              No versions have been published yet. Publishing this artifact will create the first version.
+            </div>
+          )}
         </div>
       </div>
 
@@ -255,6 +366,91 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Advanced Zone for non-admins */}
+      {!isCollectionAdmin && (
+        <Disclosure>
+          {({ open }) => (
+            <div className="bg-gray-50 rounded-lg shadow">
+              <Disclosure.Button className="w-full px-6 py-4 text-left focus:outline-none">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                    </svg>
+                    <span className="text-lg font-medium text-gray-900">Advanced Zone</span>
+                  </div>
+                  <svg
+                    className={`w-5 h-5 text-gray-500 transform ${open ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </Disclosure.Button>
+
+              <Transition
+                show={open}
+                enter="transition duration-100 ease-out"
+                enterFrom="transform scale-95 opacity-0"
+                enterTo="transform scale-100 opacity-100"
+                leave="transition duration-75 ease-out"
+                leaveFrom="transform scale-100 opacity-100"
+                leaveTo="transform scale-95 opacity-0"
+              >
+                <Disclosure.Panel className="px-6 py-4">
+                  <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800">
+                          Warning: Direct Publication Not Recommended
+                        </h3>
+                        <div className="mt-2 text-sm text-red-700">
+                          <p>
+                            We strongly recommend going through the standard review process to ensure:
+                          </p>
+                          <ul className="list-disc ml-5 mt-1 space-y-1">
+                            <li>Quality assurance of your model</li>
+                            <li>Compliance with BioImage.io standards</li>
+                            <li>Proper documentation and metadata</li>
+                            <li>Community feedback and improvements</li>
+                          </ul>
+                          <p className="mt-2 font-medium">
+                            Only proceed with direct publication if absolutely necessary and you're confident in your model's quality.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setShowPublishDialog(true)}
+                      disabled={shouldDisableActions}
+                      className={`flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm
+                        ${shouldDisableActions 
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                          : 'bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500'}`}
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      Publish Without Review
+                    </button>
+                  </div>
+                </Disclosure.Panel>
+              </Transition>
+            </div>
+          )}
+        </Disclosure>
       )}
 
       {/* Publish Dialog */}

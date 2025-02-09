@@ -60,6 +60,7 @@ const ArtifactAdmin: React.FC<ArtifactAdminProps> = ({ artifactId, artifactInfo,
       // Call artifactManager.edit with the updated data
       await artifactManager.edit({
         artifact_id: artifactId,
+        version: "stage",
         manifest: updatedArtifact.manifest,
         config: updatedArtifact.config,
         type: updatedArtifact.type,

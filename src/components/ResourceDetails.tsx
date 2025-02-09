@@ -132,11 +132,13 @@ const ResourceDetails = () => {
           >
             Download
           </Button>
-          <ModelTester 
-            artifactId={selectedResource.id}
-            version={latestVersion?.version || 'latest'}
-            isDisabled={!selectedResource.manifest.type?.includes('model')}
-          />
+          {selectedResource.manifest.type === 'model' && (
+            <ModelTester 
+              artifactId={selectedResource.id}
+              version={latestVersion?.version || 'latest'}
+              isDisabled={false}
+            />
+          )}
           {latestVersion && (
             <Chip 
               icon={<UpdateIcon />} 

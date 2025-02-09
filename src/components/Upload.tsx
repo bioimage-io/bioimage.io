@@ -7,8 +7,6 @@ import axios from 'axios';
 import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
 
 interface FileNode {
@@ -217,7 +215,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
   };
 
   const handleEditorChange = (value: string | undefined, file: FileNode) => {
-    if (value) {
+    if (value === undefined || !file) return;
+    
+    // Only mark as edited if content actually changed
+    const currentContent = typeof file.content === 'string' ? file.content : '';
+    if (value !== currentContent) {
       setFiles(files.map(f => 
         f.path === file.path 
           ? { ...f, content: value, edited: true }
@@ -275,54 +277,45 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
         throw new Error('Invalid rdf.yaml format');
       }
 
-      let artifactId: string;
-      // If we already have an artifact ID, use it, otherwise create new
-      if (uploadedArtifact) {
-        artifactId = uploadedArtifact.id;
-      } else {
-        const artifact =await artifactManager.create({
-          parent_id: "bioimage-io/bioimage.io",
-          alias: "{zenodo_conceptrecid}",
-          type: manifest.type,
-          manifest: manifest,
-          config: {
-            publish_to: "sandbox_zenodo"
-          },
-          version: "stage",
-          _rkwargs: true,
-          overwrite: true,
-        })
-        artifactId = artifact.id;
-        setUploadedArtifact(artifact);
-      }
-
-      setUploadStatus({
-        message: `Artifact ${uploadedArtifact ? 'updated' : 'created'} with ID: ${artifactId}`,
-        severity: 'info'
+      // Create new artifact
+      const artifact = await artifactManager.create({
+        parent_id: "bioimage-io/bioimage.io",
+        alias: "{zenodo_conceptrecid}",
+        type: manifest.type,
+        manifest: manifest,
+        config: {
+          publish_to: "sandbox_zenodo"
+        },
+        version: "stage",
+        _rkwargs: true,
+        overwrite: true,
       });
 
-      // Filter files that have been edited
-      const filesToUpload = files.filter(file => file.edited || !uploadedArtifact);
-      
-      // Upload only edited files sequentially with progress
-      for (let index = 0; index < filesToUpload.length; index++) {
-        const file = filesToUpload[index];
+      setUploadStatus({
+        message: `Uploading files...`,
+        severity: 'info',
+        progress: 0
+      });
+
+      // Upload all files sequentially with progress
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info',
-          progress: (index / filesToUpload.length) * 100
+          progress: (index / files.length) * 100
         });
 
         const putUrl = await artifactManager.put_file({
-          artifact_id: artifactId,
+          artifact_id: artifact.id,
           file_path: file.path,
           _rkwargs: true,
         });
-        console.log(`Uploading ${file.name} to ${putUrl}`);
+
         const blob = new Blob([file.content], { type: "application/octet-stream" });
         await axios.put(putUrl, blob, {
           headers: {
-            "Content-Type": "" // Ensure the Content-Type header is empty if not expected
+            "Content-Type": ""
           },
           onUploadProgress: (progressEvent) => {
             const progress = progressEvent.total
@@ -332,27 +325,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
             setUploadStatus({
               message: `Uploading ${file.name}...`,
               severity: 'info',
-              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
+              progress: ((index + (progress / 100)) / files.length) * 100
             });
           }
         });
       }
 
-      // Reset edited flags after successful upload
-      setFiles(files.map(file => ({ ...file, edited: false })));
-
-      setUploadStatus({
-        message: `${uploadedArtifact ? 'Update' : 'Upload'} complete!`,
-        severity: 'success',
-        progress: 100
-      });
-
-      setIsUploaded(true);
+      // After successful upload, redirect to edit page
+      navigate(`/edit/${encodeURIComponent(artifact.id)}`);
 
     } catch (error) {
       console.error('Upload failed:', error);
-      setIsUploaded(false);
-      setUploadedArtifact(null); // Reset uploaded artifact on error
       setUploadStatus({
         message: error instanceof Error 
           ? `Upload failed: ${error.message}` 
@@ -676,7 +659,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                       isDisabled={!getRdfFile() || !server}
                       onValidationComplete={handleValidationComplete}
                     />
-                    {!uploadedArtifact ? (
+                    {!uploadedArtifact && (
                       <button
                         onClick={handleUpload}
                         disabled={isUploading || !isLoggedIn || !isValidated}
@@ -696,44 +679,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId, onBack }) => {
                               : 'Upload'}
                         </>
                       </button>
-                    ) : (
-                      <div className="flex gap-2">
-                        {files.some(f => f.edited) ? (
-                          <button
-                            onClick={handleSave}
-                            disabled={isUploading || !isLoggedIn || !isValidated}
-                            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                              ${isUploading || !isLoggedIn || !isValidated
-                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                : 'bg-green-600 text-white hover:bg-green-700'}`}
-                          >
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                              </svg>
-                              {isUploading ? 'Saving...' : 'Save Changes'}
-                            </>
-                          </button>
-                        ) : (
-                          <button
-                            disabled
-                            className="px-6 py-2 rounded-md font-medium bg-gray-100 text-gray-400 cursor-not-allowed flex items-center gap-2"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                            </svg>
-                            Changes Saved
-                          </button>
-                        )}
-                        {/* Only show ModelTester when not uploading and no files are edited */}
-                        {!isUploading && !files.some(f => f.edited) && (
-                          <ModelTester
-                            artifactId={uploadedArtifact.id}
-                            version="stage"
-                            isDisabled={!server}
-                          />
-                        )}
-                      </div>
                     )}
                   </div>
                 </div>

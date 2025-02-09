@@ -1,0 +1,42 @@
+import React from 'react';
+
+interface StatusBadgeProps {
+  status: string;
+  size?: 'small' | 'medium' | 'large';
+}
+
+const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) => {
+  const getStatusConfig = (status: string) => {
+    const configs = {
+      'submitted': { color: 'yellow', text: 'Submitted for Review' },
+      'in-review': { color: 'blue', text: 'In Review' },
+      'revision': { color: 'red', text: 'Needs Revision' },
+      'accepted': { color: 'green', text: 'Accepted' },
+      'draft': { color: 'gray', text: 'Draft' }
+    };
+    
+    return configs[status.toLowerCase()] || configs.draft;
+  };
+
+  const config = getStatusConfig(status);
+  const sizeClasses = {
+    small: 'px-1.5 py-0.5 text-xs',
+    medium: 'px-2.5 py-1 text-sm',
+    large: 'px-3 py-1.5 text-base'
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full font-medium
+      ${sizeClasses[size]}
+      ${config.color === 'yellow' && 'bg-yellow-100 text-yellow-800'}
+      ${config.color === 'blue' && 'bg-blue-100 text-blue-800'}
+      ${config.color === 'red' && 'bg-red-100 text-red-800'}
+      ${config.color === 'green' && 'bg-green-100 text-green-800'}
+      ${config.color === 'gray' && 'bg-gray-100 text-gray-800'}
+    `}>
+      {config.text}
+    </span>
+  );
+};
+
+export default StatusBadge; 

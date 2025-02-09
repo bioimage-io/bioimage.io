@@ -1,6 +1,7 @@
 import React from 'react';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
+import StatusBadge from './StatusBadge';
 
 interface Author {
   name: string;
@@ -46,21 +47,21 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
     <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[260px] flex flex-col ${
       isStaged ? 'bg-yellow-50' : ''
     }`}>
+      
       <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+        
         {artifactType && (
           <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-800 ring-1 ring-inset ring-purple-600/20">
             {artifactType}
           </span>
         )}
-        {status === 'staged' ? (
+        {isStaged && (
           <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">
             Staged
           </span>
-        ) : status === 'published' && (
-          <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-800 ring-1 ring-inset ring-green-600/20">
-            Published
-          </span>
         )}
+        {status && <StatusBadge status={status} size="small" />}
+        
       </div>
       
       <div className="p-4 mt-5">
@@ -98,6 +99,7 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
         </div>
 
         <div className="flex justify-between items-center mt-4 border-t pt-4 flex-none">
+        
           <div className="flex items-center space-x-2">
             <button
               onClick={(e) => handleClick(e, onEdit)}
