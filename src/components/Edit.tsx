@@ -1115,38 +1115,6 @@ const Edit: React.FC = () => {
     )
   );
 
-  const handleDeleteArtifact = async () => {
-    if (!artifactManager || !artifactId || !artifactInfo) return;
-
-    try {
-      setIsDeleting(true);
-      
-      // Delete the artifact with the correct version parameter
-      await artifactManager.delete({
-        artifact_id: artifactId,
-        // Only use "stage" if there are published versions, otherwise null
-        version: artifactInfo.versions && artifactInfo.versions.length > 0 ? "stage" : null,
-        delete_files: true,
-        recursive: true,
-        _rkwargs: true
-      });
-      
-      // Navigate back to My Artifacts after successful deletion
-      navigate('/my-artifacts');
-    } catch (err) {
-      console.error('Error deleting artifact:', err);
-      setUploadStatus({
-        message: 'Failed to delete artifact',
-        severity: 'error'
-      });
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteDialogOpen(false);
-    }
-  };
-
-  
-
   // Add function to handle new version creation
   const handleCreateNewVersion = async () => {
     try {

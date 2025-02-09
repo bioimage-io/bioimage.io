@@ -128,7 +128,7 @@ const ReviewArtifacts: React.FC = () => {
       setLoading(true);
       await artifactManager.delete({
         artifact_id: artifactToDelete.id,
-        version: "stage",
+        version:  artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null,
         delete_files: true,
         recursive: true,
         _rkwargs: true
@@ -185,12 +185,6 @@ const ReviewArtifacts: React.FC = () => {
           <p className="text-gray-500 mb-4">
             Please login with admin credentials to review artifacts
           </p>
-          <Link
-            to="/"
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            Return to Home
-          </Link>
         </div>
       </div>
     );
