@@ -55,7 +55,7 @@ const ReviewArtifacts: React.FC = () => {
     if (isLoggedIn && user) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, showSubmittedOnly]);
+  }, [artifactManager, user, isLoggedIn, showSubmittedOnly, reviewArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
@@ -219,7 +219,10 @@ const ReviewArtifacts: React.FC = () => {
               <div className="flex items-center">
                 <Switch
                   checked={showSubmittedOnly}
-                  onChange={setShowSubmittedOnly}
+                  onChange={(checked) => {
+                    setShowSubmittedOnly(checked);
+                    setReviewArtifactsPage(1);
+                  }}
                   className={`${
                     showSubmittedOnly ? 'bg-blue-600' : 'bg-gray-200'
                   } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
@@ -259,7 +262,7 @@ const ReviewArtifacts: React.FC = () => {
                   Privileged Reviewer Access
                 </h3>
                 <div className="mt-2 text-sm text-blue-700">
-                  <p>You have {submittedCount} item{submittedCount !== 1 ? 's' : ''} waiting for review.</p>
+                {submittedCount > 0 && <p className="mt-1">You have {submittedCount} item{submittedCount !== 1 ? 's' : ''} waiting for review.</p>}
                   <p className="mt-1">As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines.</p>
                 </div>
 

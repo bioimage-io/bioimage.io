@@ -53,7 +53,7 @@ const MyArtifacts: React.FC = () => {
       loadArtifacts();
       checkAdminStatus();
     }
-  }, [artifactManager, user, isLoggedIn, showStagedOnly]);
+  }, [artifactManager, user, isLoggedIn, showStagedOnly, myArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager || !user) return;
