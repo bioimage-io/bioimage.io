@@ -149,6 +149,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
                 {user.email}
               </div>
+              {user.roles?.includes('admin') && (
+                <Link
+                  to="/admin"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Admin Dashboard
+                </Link>
+              )}
               <Link
                 to="/my-artifacts"
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -156,15 +165,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               >
                 My Artifacts
               </Link>
-              {user.roles?.includes('admin') && (
-                <Link
-                  to="/admin"
-                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  onClick={() => setIsDropdownOpen(false)}
-                >
-                  Admin Panel
-                </Link>
-              )}
+              
               <button
                 onClick={handleLogout}
                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
