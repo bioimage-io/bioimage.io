@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
-import Editor from '@monaco-editor/react';
 
 const ApiDocs: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'python' | 'javascript'>('python');
@@ -350,19 +351,33 @@ async function interactWithModelZoo() {
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Installation</h2>
         <div className="bg-gray-50 rounded-lg p-4">
-          <Editor
-            height="50px"
-            language="shell"
-            value={activeTab === 'python' ? 'pip install hypha-rpc' : 'npm install hypha-rpc'}
-            options={{
-              readOnly: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              lineNumbers: 'off',
-              renderLineHighlight: 'none',
-              folding: false
-            }}
-          />
+          {activeTab === 'python' ? (
+            <SyntaxHighlighter 
+              language="bash" 
+              style={vs}
+              customStyle={{
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                fontWeight: 600,
+                fontSize: '14px',
+                background: '#f9fafb'
+              }}
+            >
+              pip install hypha-rpc
+            </SyntaxHighlighter>
+          ) : (
+            <SyntaxHighlighter 
+              language="bash" 
+              style={vs}
+              customStyle={{
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                fontWeight: 600,
+                fontSize: '14px',
+                background: '#f9fafb'
+              }}
+            >
+              npm install hypha-rpc
+            </SyntaxHighlighter>
+          )}
         </div>
       </div>
 
@@ -370,20 +385,19 @@ async function interactWithModelZoo() {
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Example Usage</h2>
         <div className="bg-gray-50 rounded-lg p-4">
-          <Editor
-            height="600px"
-            language={activeTab === 'python' ? 'python' : 'javascript'}
-            value={activeTab === 'python' ? pythonCode : javascriptCode}
-            options={{
-              readOnly: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              lineNumbers: 'on',
-              renderWhitespace: 'selection',
-              folding: true
+          <SyntaxHighlighter 
+            language={activeTab} 
+            style={vs}
+            showLineNumbers={true}
+            customStyle={{
+              fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+              fontWeight: 600,
+              fontSize: '14px',
+              background: '#f9fafb'
             }}
-          />
+          >
+            {activeTab === 'python' ? pythonCode : javascriptCode}
+          </SyntaxHighlighter>
         </div>
       </div>
 
