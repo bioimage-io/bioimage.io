@@ -11,6 +11,7 @@ import { Menu } from '@headlessui/react';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import StatusBadge from './StatusBadge';
+import { Pagination } from './ResourceGrid';
 
 interface Artifact {
   id: string;
@@ -27,7 +28,16 @@ interface Artifact {
 }
 
 const ReviewArtifacts: React.FC = () => {
-  const { artifactManager, user, isLoggedIn } = useHyphaStore();
+  const { 
+    artifactManager, 
+    user, 
+    isLoggedIn,
+    reviewArtifactsPage,
+    reviewArtifactsTotalItems,
+    setReviewArtifactsPage,
+    setReviewArtifactsTotalItems,
+    itemsPerPage 
+  } = useHyphaStore();
   const navigate = useNavigate();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,15 +69,17 @@ const ReviewArtifacts: React.FC = () => {
         filters.manifest = { status: 'submitted' };
       }
 
-      
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
-        limit: 100,
+        limit: itemsPerPage,
+        offset: (reviewArtifactsPage - 1) * itemsPerPage,
+        pagination: true,
         _rkwargs: true
       });
 
-      setArtifacts(response);
+      setArtifacts(response.items);
+      setReviewArtifactsTotalItems(response.total);
       setError(null);
     } catch (err) {
       console.error('Error loading artifacts:', err);
@@ -167,6 +179,11 @@ const ReviewArtifacts: React.FC = () => {
     } catch (error) {
       console.error('Error updating status:', error);
     }
+  };
+
+  const handlePageChange = (page: number) => {
+    setReviewArtifactsPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Calculate number of submitted artifacts
@@ -398,11 +415,11 @@ const ReviewArtifacts: React.FC = () => {
                           <h3 className="text-lg font-medium text-gray-900 truncate">
                             {artifact.manifest?.name || artifact.alias}
                           </h3>
-                          <div className="flex items-center gap-2">
+                         
+                        </div>
+                        <div className="flex items-center gap-2">
                             <StatusBadge status={artifact.manifest?.status} size="small" />
                           </div>
-                        </div>
-
                         <p className="mt-1 text-sm text-gray-500">
                           Submitted by: {artifact.created_by}
                         </p>
@@ -433,21 +450,18 @@ const ReviewArtifacts: React.FC = () => {
                             ))}
                           </div>
                         )}
-
-                        <div className="flex items-center justify-end mt-4">
-                          <select
-                            value={artifact.manifest?.status || ''}
-                            onChange={(e) => handleStatusChange(artifact, e.target.value)}
-                            className="block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                          >
-                            <option value="">Change Status</option>
-                            <option value="in-review">Mark as In Review</option>
-                            <option value="revision">Request Revision</option>
-                            <option value="accepted">Accept</option>
-                          </select>
-                        </div>
                       </div>
                       <div className="flex gap-2 items-center">
+                        <select
+                          value={artifact.manifest?.status || ''}
+                          onChange={(e) => handleStatusChange(artifact, e.target.value)}
+                          className="block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                        >
+                          <option value="">Change Status</option>
+                          <option value="in-review">Mark as In Review</option>
+                          <option value="revision">Request Revision</option>
+                          <option value="accepted">Accept</option>
+                        </select>
                         <button
                           onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
                           className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -672,6 +686,16 @@ const ReviewArtifacts: React.FC = () => {
           </div>
         </Dialog>
       </Transition.Root>
+
+      {artifacts.length > 0 && (
+        <div className="mt-6">
+          <Pagination
+            currentPage={reviewArtifactsPage}
+            totalPages={Math.ceil(reviewArtifactsTotalItems / itemsPerPage)}
+            onPageChange={handlePageChange}
+          />
+        </div>
+      )}
     </div>
   );
 };

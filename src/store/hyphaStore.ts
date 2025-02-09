@@ -47,6 +47,14 @@ export interface HyphaState {
   fetchResource: (id: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
+  myArtifactsPage: number;
+  myArtifactsTotalItems: number;
+  reviewArtifactsPage: number;
+  reviewArtifactsTotalItems: number;
+  setMyArtifactsPage: (page: number) => void;
+  setMyArtifactsTotalItems: (total: number) => void;
+  setReviewArtifactsPage: (page: number) => void;
+  setReviewArtifactsTotalItems: (total: number) => void;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -68,6 +76,10 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   selectedResource: null,
   isLoading: false,
   error: null,
+  myArtifactsPage: 1,
+  myArtifactsTotalItems: 0,
+  reviewArtifactsPage: 1,
+  reviewArtifactsTotalItems: 0,
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -232,5 +244,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     } finally {
       set({ isLoggingIn: false });
     }
-  }
+  },
+  setMyArtifactsPage: (page) => set({ myArtifactsPage: page }),
+  setMyArtifactsTotalItems: (total) => set({ myArtifactsTotalItems: total }),
+  setReviewArtifactsPage: (page) => set({ reviewArtifactsPage: page }),
+  setReviewArtifactsTotalItems: (total) => set({ reviewArtifactsTotalItems: total }),
 })); 

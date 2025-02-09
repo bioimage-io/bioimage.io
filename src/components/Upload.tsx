@@ -305,6 +305,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           progress: (index / files.length) * 100
         });
 
+        // TODO: If the file is a model weights file, we need to change the download weight
         const putUrl = await artifactManager.put_file({
           artifact_id: artifact.id,
           file_path: file.path,

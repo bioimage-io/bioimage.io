@@ -798,6 +798,7 @@ const Edit: React.FC = () => {
         });
 
         // Get presigned URL for upload
+        // TODO: If the file is a model weights file, we need to change the download weight
         const presignedUrl = await artifactManager.put_file({
           artifact_id: artifactId,
           file_path: file.name,
@@ -1165,6 +1166,7 @@ const Edit: React.FC = () => {
             });
 
             // Get upload URL for the new version
+            // TODO: If the file is a model weights file, we need to change the download weight
             const uploadUrl = await artifactManager.put_file({
               artifact_id: artifactId,
               file_path: file.name,

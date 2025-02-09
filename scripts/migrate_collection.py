@@ -84,6 +84,7 @@ async def download_file(url, dest_path, max_retries=5, retry_delay=5):
 async def upload_file(artifact_manager, artifact_id, base_url, file_path, max_retries=5, retry_delay=5, download_weight=0):
     """Modified upload_file function to include retry logic."""
     file_path = file_path.lstrip("./")
+    print(f"=========> Uploading {file_path} to {artifact_id}")
 
     if not file_path.startswith("http"):
         file_url = f"{base_url}/{file_path}"
@@ -150,7 +151,7 @@ async def upload_file(artifact_manager, artifact_id, base_url, file_path, max_re
     logger.error(f"Failed to upload {artifact_id}: {file_path} after {max_retries} retries.")
 
 
-async def upload_files(artifact_manager, artifact_id, base_url, documentation, covers, attachments, weights, inputs, outputs):
+async def upload_files(artifact_manager, artifact_id, base_url, documentation, covers, attachments, weights, inputs, outputs, test_inputs, test_outputs, sample_inputs, sample_outputs):
 
     # Upload README
     if documentation:
@@ -172,6 +173,13 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
         for file in weights.values():
             if not file:
                 continue
+            if "architecture" in file:
+                if isinstance(file["architecture"], str):
+                    # architecture is a string, e.g. pytorch
+                    await upload_file(artifact_manager, artifact_id, base_url, file["architecture"].split(":")[0])
+                else:
+                    if file["architecture"]["source"]:
+                        await upload_file(artifact_manager, artifact_id, base_url, file["architecture"]["source"].split(":")[0])
             await upload_file(artifact_manager, artifact_id, base_url, file['source'], download_weight=1)
             if file.get("dependencies"):
                 if isinstance(file["dependencies"], str):
@@ -195,6 +203,21 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
             if "sample_tensor" in file and file["sample_tensor"]:
                 await upload_file(artifact_manager, artifact_id, base_url, file["sample_tensor"]["source"])
     
+    if sample_inputs:
+        for file in sample_inputs:
+            await upload_file(artifact_manager, artifact_id, base_url, file)
+    
+    if sample_outputs:
+        for file in sample_outputs:
+            await upload_file(artifact_manager, artifact_id, base_url, file)
+
+    if test_inputs:
+        for file in test_inputs:
+            await upload_file(artifact_manager, artifact_id, base_url, file)
+    
+    if test_outputs:
+        for file in test_outputs:
+            await upload_file(artifact_manager, artifact_id, base_url, file)
     logger.info(f"Uploaded all files for {artifact_id}")
 
 async def migrate_collection(skip_migrated):
@@ -282,7 +305,8 @@ async def migrate_collection(skip_migrated):
             if isinstance(attachments, list):
                 attachments = {"files": attachments}
             # Upload files (covers, attachments)
-            
+            # Upload the rdf.yaml file
+            await upload_file(artifact_manager, artifact.id, base_url, item["rdf_source"])
             try:
                 await upload_files(
                     artifact_manager=artifact_manager,
@@ -294,6 +318,10 @@ async def migrate_collection(skip_migrated):
                     weights=full_manifest.get("weights", {}),
                     inputs=full_manifest.get("inputs", {}),
                     outputs=full_manifest.get("outputs", {}),
+                    test_inputs=full_manifest.get("test_inputs", {}),
+                    test_outputs=full_manifest.get("test_outputs", {}),
+                    sample_inputs=full_manifest.get("sample_inputs", {}),
+                    sample_outputs=full_manifest.get("sample_outputs", {}),
                 )
             except Exception as e:
                 logger.error(f"Failed to upload files for {dataset_id}: {e}")

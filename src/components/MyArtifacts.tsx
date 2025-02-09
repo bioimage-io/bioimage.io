@@ -10,6 +10,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
+import { Pagination } from './ResourceGrid';
 
 interface Artifact {
   id: string;
@@ -26,7 +27,17 @@ interface Artifact {
 }
 
 const MyArtifacts: React.FC = () => {
-  const { artifactManager, user, isLoggedIn, server } = useHyphaStore();
+  const { 
+    artifactManager, 
+    user, 
+    isLoggedIn, 
+    server,
+    myArtifactsPage,
+    myArtifactsTotalItems,
+    setMyArtifactsPage,
+    setMyArtifactsTotalItems,
+    itemsPerPage 
+  } = useHyphaStore();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,13 +68,14 @@ const MyArtifacts: React.FC = () => {
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
-        limit: 100,
+        limit: itemsPerPage,
+        offset: (myArtifactsPage - 1) * itemsPerPage,
+        pagination: true,
         _rkwargs: true
       });
 
-      console.log(response);
-
-      setArtifacts(response);
+      setArtifacts(response.items);
+      setMyArtifactsTotalItems(response.total);
       setError(null);
     } catch (err) {
       console.error('Error loading artifacts:', err);
@@ -151,6 +163,11 @@ const MyArtifacts: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePageChange = (page: number) => {
+    setMyArtifactsPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   if (selectedArtifact) {
@@ -299,6 +316,14 @@ const MyArtifacts: React.FC = () => {
               </div>
             ))}
           </div>
+        )}
+        
+        {artifacts.length > 0 && (
+          <Pagination
+            currentPage={myArtifactsPage}
+            totalPages={Math.ceil(myArtifactsTotalItems / itemsPerPage)}
+            onPageChange={handlePageChange}
+          />
         )}
       </div>
 

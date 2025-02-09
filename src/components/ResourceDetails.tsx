@@ -15,6 +15,12 @@ import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import { ArtifactInfo } from '../types/artifact';
+import CodeIcon from '@mui/icons-material/Code';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import CloseIcon from '@mui/icons-material/Close';
+import Editor from '@monaco-editor/react';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -26,6 +32,8 @@ const ResourceDetails = () => {
     comment: string;
     created_at: number;
   } | null>(null);
+  const [rdfContent, setRdfContent] = useState<string | null>(null);
+  const [isRdfDialogOpen, setIsRdfDialogOpen] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -80,6 +88,20 @@ const ResourceDetails = () => {
     }
   };
 
+  const handleViewSource = async () => {
+    if (selectedResource?.id) {
+      try {
+        const rdfUrl = resolveHyphaUrl('rdf.yaml', selectedResource.id);
+        const response = await fetch(rdfUrl);
+        const text = await response.text();
+        setRdfContent(text);
+        setIsRdfDialogOpen(true);
+      } catch (error) {
+        console.error('Failed to fetch RDF source:', error);
+      }
+    }
+  };
+
   // Add this function to format timestamps
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString('en-US', {
@@ -113,7 +135,7 @@ const ResourceDetails = () => {
         {manifest.id_emoji} {manifest.name} 
         </Typography>
         <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-          ID: {selectedResource.id}
+          ID: {selectedResource.id.split('/').pop()}
         </Typography>
         <Typography variant="body1" sx={{ mb: 2 }}>{manifest.description}</Typography>
         
@@ -131,6 +153,14 @@ const ResourceDetails = () => {
             }}
           >
             Download
+          </Button>
+          <Button
+            onClick={handleViewSource}
+            startIcon={<CodeIcon />}
+            variant="outlined"
+            size="medium"
+          >
+            View Source
           </Button>
           {selectedResource.manifest.type === 'model' && (
             <ModelTester 
@@ -407,11 +437,7 @@ const ResourceDetails = () => {
                     GitHub Repository
                   </Link>
                 )}
-                {manifest.documentation && (
-                  <Link href={manifest.documentation} target="_blank">
-                    Documentation
-                  </Link>
-                )}
+                {JSON.stringify(manifest.links)}
               </Stack>
             </CardContent>
           </Card>
@@ -425,6 +451,43 @@ const ResourceDetails = () => {
           </Card>
         </Grid>
       </Grid>
+
+      <Dialog
+        open={isRdfDialogOpen}
+        onClose={() => setIsRdfDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">RDF Source</Typography>
+          <IconButton
+            onClick={() => setIsRdfDialogOpen(false)}
+            aria-label="close"
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ height: '60vh' }}>
+            <Editor
+              height="100%"
+              defaultLanguage="yaml"
+              value={rdfContent || ''}
+              options={{
+                readOnly: true,
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                fontSize: 14,
+              }}
+            />
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 };

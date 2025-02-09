@@ -3,7 +3,7 @@ import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ArtifactInfo } from '../types/artifact';
-import { FiSettings, FiSave, FiChevronDown, FiChevronRight, FiBox, FiFileText } from 'react-icons/fi';
+import { FiSettings, FiSave, FiChevronDown, FiBox, FiFileText } from 'react-icons/fi';
 
 const EditorSection = React.memo(({ 
   title, 
