@@ -203,18 +203,17 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
             </svg>
-            <h3 className="text-lg font-medium text-gray-900">Preview</h3>
+            <h3 className="text-lg font-medium text-gray-900">Review & Actions</h3>
           </div>
           
           <div className="flex items-center gap-4">
             {artifactInfo?.manifest?.type === 'model' && (
               <>
-                  <button
+                <button
                   onClick={handleGoBackToEdit}
-                  className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="inline-flex items-center px-4 py-2 h-10 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -226,7 +225,6 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                   version={isStaged ? 'stage' : artifactInfo?.current_version}
                   isDisabled={shouldDisableActions}
                 />
-            
               </>
             )}
             
@@ -236,7 +234,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                   <button
                     onClick={handleSubmit}
                     disabled={shouldDisableActions}
-                    className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm
+                    className={`inline-flex items-center px-4 py-2 h-10 rounded-md text-sm font-medium shadow-sm
                       ${shouldDisableActions 
                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                         : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'}`}
@@ -249,7 +247,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                 ) : (
                   <button
                     onClick={handleWithdraw}
-                    className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    className="inline-flex items-center px-4 py-2 h-10 rounded-md text-sm font-medium shadow-sm bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                   >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
