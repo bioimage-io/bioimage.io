@@ -21,6 +21,7 @@ interface AdminResourceCardProps {
   createdAt?: number;
   lastModified?: number;
   artifactType?: string;
+  isCollectionAdmin?: boolean;
 }
 
 const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
@@ -36,7 +37,8 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   authors = [],
   createdAt,
   lastModified,
-  artifactType
+  artifactType,
+  isCollectionAdmin = false
 }) => {
   const handleClick = (e: React.MouseEvent, callback?: () => void) => {
     e.stopPropagation();
@@ -109,7 +111,7 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
               <PencilIcon className="w-5 h-5" />
               <span className="ml-1">Edit</span>
             </button>
-            {isStaged && onDelete && (
+            {isStaged && onDelete && isCollectionAdmin && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
                 className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"

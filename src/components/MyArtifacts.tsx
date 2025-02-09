@@ -259,6 +259,7 @@ const MyArtifacts: React.FC = () => {
                   }}
                   isStaged={!!artifact.staging}
                   artifactType={artifact.type}
+                  isCollectionAdmin={isCollectionAdmin}
                 />
               </div>
             ))}
