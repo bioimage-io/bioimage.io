@@ -127,13 +127,18 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setSearchQuery(query);
   };
 
+  const handlePartnerClick = useCallback((partnerId: string) => {
+    setSearchQuery(partnerId);
+    setCurrentPage(1);
+  }, []);
+
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
     <div className="container mx-auto px-4 sm:px-4 md:px-4 lg:px-4">
-      <div className="community-partners">
+      <div className="community-partners mb-4">
         <div className="partner-logos">
-          <PartnerScroll />
+          <PartnerScroll onPartnerClick={handlePartnerClick} />
         </div>
       </div>
       <div className="relative mb-8">
