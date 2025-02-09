@@ -16,12 +16,13 @@ interface AdminResourceCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   isStaged?: boolean;
-  status: 'staged' | 'published';
+  status: 'staged' | 'published' | 'deletion-requested';
   authors?: Author[];
   createdAt?: number;
   lastModified?: number;
   artifactType?: string;
   isCollectionAdmin?: boolean;
+  onRequestDeletion?: () => void;
 }
 
 const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
@@ -38,7 +39,8 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   createdAt,
   lastModified,
   artifactType,
-  isCollectionAdmin = false
+  isCollectionAdmin = false,
+  onRequestDeletion
 }) => {
   const handleClick = (e: React.MouseEvent, callback?: () => void) => {
     e.stopPropagation();
@@ -111,15 +113,28 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
               <PencilIcon className="w-5 h-5" />
               <span className="ml-1">Edit</span>
             </button>
-            {isStaged && onDelete && isCollectionAdmin && (
-              <button
-                onClick={(e) => handleClick(e, onDelete)}
-                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
-                title="Delete"
-              >
-                <TrashIcon className="w-5 h-5" />
-                <span className="ml-1">Delete</span>
-              </button>
+            {isStaged && (
+              <>
+                {isCollectionAdmin && onDelete ? (
+                  <button
+                    onClick={(e) => handleClick(e, onDelete)}
+                    className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
+                    title="Delete"
+                  >
+                    <TrashIcon className="w-5 h-5" />
+                    <span className="ml-1">Delete</span>
+                  </button>
+                ) : onRequestDeletion && status !== 'deletion-requested' && (
+                  <button
+                    onClick={(e) => handleClick(e, onRequestDeletion)}
+                    className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
+                    title="Request Deletion"
+                  >
+                    <TrashIcon className="w-5 h-5" />
+                    <span className="ml-1">Delete</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
           

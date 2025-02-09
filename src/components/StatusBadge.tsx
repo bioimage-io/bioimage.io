@@ -12,10 +12,11 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) =>
       'in-review': { color: 'blue', text: 'In Review' },
       'revision': { color: 'red', text: 'Needs Revision' },
       'accepted': { color: 'green', text: 'Accepted' },
-      'draft': { color: 'gray', text: 'Draft' }
-    };
+      'draft': { color: 'gray', text: 'Draft' },
+      'deletion-requested': { color: 'red', text: 'Deletion Requested' }
+    } as const;
     
-    return configs[status.toLowerCase()] || configs.draft;
+    return configs[status.toLowerCase() as keyof typeof configs] || configs.draft;
   };
 
   const config = getStatusConfig(status);

@@ -119,6 +119,40 @@ const MyArtifacts: React.FC = () => {
     }
   };
 
+  const handleRequestDeletion = async (artifact: Artifact) => {
+    if (!artifactManager) return;
+
+    const userConfirmed = window.confirm(
+      "Are you sure you want to request deletion of this artifact? The item won't be deleted immediately. Instead, a request will be sent to the admin for approval."
+    );
+
+    if (!userConfirmed) return;
+
+    try {
+      setLoading(true);
+      
+      // Update the artifact's status using edit
+      await artifactManager.edit({
+        artifact_id: artifact.id,
+        version: "stage",
+        manifest: {
+          ...artifact.manifest,
+          status: 'deletion-requested'
+        },
+        _rkwargs: true
+      });
+
+      // Refresh the artifacts list
+      await loadArtifacts();
+      
+    } catch (err) {
+      console.error('Error requesting deletion:', err);
+      setError('Failed to request deletion');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (selectedArtifact) {
     return (
       <Upload 
@@ -244,7 +278,7 @@ const MyArtifacts: React.FC = () => {
               <div key={artifact.id}>
                 <AdminResourceCard
                   title={artifact.manifest?.name || artifact.alias}
-                  status={artifact.manifest?.status || '-'}
+                  status={artifact.manifest?.status || 'draft'}
                   description={artifact.manifest?.description || 'No description'}
                   tags={[
                     `v${artifact.versions?.length || 0}`,
@@ -257,6 +291,7 @@ const MyArtifacts: React.FC = () => {
                     setArtifactToDelete(artifact);
                     setIsDeleteDialogOpen(true);
                   }}
+                  onRequestDeletion={() => handleRequestDeletion(artifact)}
                   isStaged={!!artifact.staging}
                   artifactType={artifact.type}
                   isCollectionAdmin={isCollectionAdmin}
