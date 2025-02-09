@@ -65,6 +65,35 @@ interface UploadArtifact {
   // Add other properties as needed
 }
 
+// Add type definition for manifest
+interface RdfManifest {
+  type: 'model' | 'application' | 'dataset';
+  [key: string]: any;
+}
+
+// Add helper function to find emoji for a given name and type
+const findEmoji = (config: any, type: string, name: string): string => {
+  const category = type === 'model' ? 'animal' :
+                  type === 'application' ? 'object' :
+                  type === 'dataset' ? 'fruit' : null;
+  
+  if (!category || !config?.id_parts?.[category]) return '🦒'; // Use giraffe emoji if not found
+  
+  const names = config.id_parts[category];
+  const emojis = config.id_parts[`${category}_emoji`];
+  const index = names.indexOf(name);
+  return index >= 0 ? emojis[index] : '🦒'; // Use giraffe emoji if not found
+};
+
+// Add helper to extract noun from generated ID
+const extractNounFromId = (id: string): string => {
+  // Find the last adjective in the list of hyphen-separated parts
+  const parts = id.split('-');
+  const adjectives = parts.slice(0, -1).join('-'); // All but last part is adjective
+  const noun = parts[parts.length - 1]; // Last part is noun
+  return noun;
+};
+
 const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -79,6 +108,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [isUploaded, setIsUploaded] = useState(false);
   const [uploadedArtifact, setUploadedArtifact] = useState<UploadArtifact | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [generatedId, setGeneratedId] = useState<string | null>(null);
+  const [generatedEmoji, setGeneratedEmoji] = useState<string | null>(null);
 
   useEffect(() => {
     if (artifactId) {
@@ -265,21 +296,37 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         throw new Error('No rdf.yaml file found in the upload');
       }
 
-      let manifest: Manifest;
+      let manifest: RdfManifest;
       try {
         const content = typeof rdfFile.content === 'string' 
           ? rdfFile.content
           : new TextDecoder().decode(rdfFile.content);
-        manifest = yaml.load(content) as Manifest;
+        manifest = yaml.load(content) as RdfManifest;
       } catch (error) {
         console.error('Error parsing rdf.yaml:', error);
         throw new Error('Invalid rdf.yaml format');
       }
 
-      // Create new artifact
+      // Set alias pattern based on manifest type
+      let aliasPattern: string;
+      switch (manifest.type) {
+        case 'model':
+          aliasPattern = '{animal_adjective}-{animal}';
+          break;
+        case 'application':
+          aliasPattern = '{object_adjective}-{object}';
+          break;
+        case 'dataset':
+          aliasPattern = '{fruit_adjective}-{fruit}';
+          break;
+        default:
+          aliasPattern = '{animal_adjective}-{animal}';
+      }
+
+      // Create new artifact with type-specific alias pattern
       const artifact = await artifactManager.create({
         parent_id: "bioimage-io/bioimage.io",
-        alias: "{zenodo_conceptrecid}",
+        alias: aliasPattern,
         type: manifest.type,
         manifest: manifest,
         config: {
@@ -289,6 +336,51 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true,
         overwrite: true,
       });
+
+      // Extract the ID part from the full artifact ID
+      const fullId = artifact.id;
+      const shortId = fullId.split('/').pop() || '';
+      setGeneratedId(shortId);
+
+      // Find the emoji for the generated id
+      const noun = extractNounFromId(shortId);
+      const collection = await artifactManager.read({
+        artifact_id: 'bioimage-io/bioimage.io',
+        _rkwargs: true
+      });
+      const emoji = findEmoji(collection.config, manifest.type, noun);
+      setGeneratedEmoji(emoji);
+      debugger;
+
+      if (emoji) {
+        // Update the manifest with the id and emoji
+        const updatedManifest = {
+          ...manifest,
+          id: shortId,
+          id_emoji: emoji
+        };
+
+        // Update the rdf.yaml content in the files array
+        const updatedFiles = files.map(file => {
+          if (file.path.endsWith('rdf.yaml')) {
+            return {
+              ...file,
+              content: yaml.dump(updatedManifest),
+              edited: true
+            };
+          }
+          return file;
+        });
+        setFiles(updatedFiles);
+
+        // Edit the artifact to include the updated manifest
+        await artifactManager.edit({
+          artifact_id: fullId,
+          manifest: updatedManifest,
+          version: "stage",
+          _rkwargs: true
+        });
+      }
 
       setUploadStatus({
         message: `Uploading files...`,
@@ -544,19 +636,42 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static z-20 transition-transform duration-300 ease-in-out`}>
             <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
-            <h2 className="text-lg font-semibold text-gray-900">
-                  Contributing to the Zoo
-                </h2>
-              <div className="flex items-center justify-between">
-               
-                <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-                <button
-                  onClick={() => setShowDragDrop(true)}
-                  className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
-                >
-                  New Upload
-                </button>
-              </div>
+              {generatedId ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-medium text-gray-900 flex items-center">
+                      {generatedEmoji && (
+                        <span className="mr-2" role="img" aria-label="model emoji">
+                          {generatedEmoji}
+                        </span>
+                      )}
+                      {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
+                        yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
+                    </h2>
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                      stage
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 font-mono">
+                    ID: {generatedId}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Contributing to the Zoo
+                  </h2>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 font-medium">Package Contents</span>
+                    <button
+                      onClick={() => setShowDragDrop(true)}
+                      className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+                    >
+                      New Upload
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Scrollable file list */}
@@ -807,6 +922,33 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10"
           onClick={() => setIsSidebarOpen(false)}
         />
+      )}
+
+      {/* Add this after the status bar and before the content area */}
+      {files.length > 0 && (
+        <div className="border-t border-gray-200 bg-white p-4 space-y-2">
+          {generatedId && (
+            <>
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-gray-900">
+                  {generatedEmoji && (
+                    <span className="mr-2" role="img" aria-label="model emoji">
+                      {generatedEmoji}
+                    </span>
+                  )}
+                  {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
+                    yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
+                </h3>
+                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                  stage
+                </span>
+              </div>
+              <div className="text-xs text-gray-500 font-mono">
+                ID: {generatedId}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

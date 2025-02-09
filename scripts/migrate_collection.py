@@ -42,6 +42,7 @@ COLLECTION_JSON_URL = "https://uk1s3.embassy.ebi.ac.uk/public-datasets/bioimage.
 DEFAULT_TIMEOUT = 20
 CONCURENT_TASKS = 10
 
+# Animal id parts conversion: https://gist.github.com/oeway/66af633e7cb7e024e6a4bc1ecd2ad82a
 
 async def fetch_collection_json():
     async with httpx.AsyncClient(headers={"Connection": "close"}) as client:
@@ -221,7 +222,7 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
     logger.info(f"Uploaded all files for {artifact_id}")
 
 async def migrate_collection(skip_migrated):
-    server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("BIOIMAGEIO_API_TOKEN")})
+    server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
     # Fetch collection YAML
@@ -230,7 +231,17 @@ async def migrate_collection(skip_migrated):
         logger.info("Failed to fetch collection.yaml.")
         return
 
-    
+    # Read id_parts from JSON file
+    script_dir = Path(__file__).parent
+    id_parts_path = script_dir / "id_parts.json"
+    try:
+        with open(id_parts_path) as f:
+            id_parts = json.load(f)
+        logger.info(f"Loaded id_parts configuration from {id_parts_path}")
+    except Exception as e:
+        logger.error(f"Failed to load id_parts.json: {e}")
+        id_parts = {}
+
     assert os.environ.get("S3_ENDPOINT_URL"), "S3_ENDPOINT_URL is not set"
     assert os.environ.get("S3_ACCESS_KEY_ID"), "S3_ACCESS_KEY_ID is not set"
     assert os.environ.get("S3_SECRET_ACCESS_KEY"), "S3_SECRET_ACCESS_KEY is not set"
@@ -241,7 +252,11 @@ async def migrate_collection(skip_migrated):
         alias="bioimage.io",
         type="collection",
         manifest={k: collection_json[k] for k in collection_json if k not in ["collection"]},
-        config={"permissions": {"*": "r", "@": "r+"}, "publish_to": "sandbox_zenodo"},
+        config={
+            "permissions": {"*": "r", "@": "r+"}, 
+            "publish_to": "sandbox_zenodo",
+            "id_parts": id_parts  # Add the id_parts configuration here
+        },
         secrets={
             "SANDBOX_ZENODO_ACCESS_TOKEN": os.environ.get("SANDBOX_ZENODO_ACCESS_TOKEN"),
             "ZENODO_ACCESS_TOKEN": os.environ.get("ZENODO_ACCESS_TOKEN"),

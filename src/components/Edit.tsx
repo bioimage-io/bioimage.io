@@ -1319,6 +1319,17 @@ const Edit: React.FC = () => {
     return cleanup;
   }, [setupKeyboardShortcuts]);
 
+  // Add this function near the top of the component
+  const handleCopyId = () => {
+    const id = artifactInfo?.id.split('/').pop() || '';
+    navigator.clipboard.writeText(id);
+    // Optionally add some visual feedback
+    setUploadStatus({
+      message: 'ID copied to clipboard',
+      severity: 'success'
+    });
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header - remove border-b since content will scroll under it */}
@@ -1366,13 +1377,32 @@ const Edit: React.FC = () => {
             {artifactInfo ? (
               <>
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900">{artifactInfo.manifest.name}</h3>
+                  <h3 className="font-medium text-gray-900 flex items-center">
+                    {artifactInfo.manifest.id_emoji && (
+                      <span className="mr-2" role="img" aria-label="model emoji">
+                        {artifactInfo.manifest.id_emoji}
+                      </span>
+                    )}
+                    {artifactInfo.manifest.name}
+                  </h3>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                     {artifactInfo.staging !== null ? 'stage' : (lastVersion ? `v${lastVersion}` : '')}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 font-mono mt-2">
-                  ID: {artifactInfo.id.split('/').pop()}
+                <div className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-2">
+                  <span>ID: </span>
+                  <code className="bg-gray-100 px-2 py-0.5 rounded select-all">
+                    {artifactInfo.id.split('/').pop()}
+                  </code>
+                  <button
+                    onClick={handleCopyId}
+                    className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                    title="Copy ID"
+                  >
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                  </button>
                 </div>
                 {/* Add status badge if artifact is staged */}
                 {artifactInfo.staging !== null && artifactInfo.manifest?.status && (
