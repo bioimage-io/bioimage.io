@@ -562,7 +562,7 @@ const Edit: React.FC = () => {
   const renderFileContent = () => {
     if (!selectedFile) {
       return (
-        <div className="h-full flex items-center justify-center text-gray-500">
+        <div className="h-[calc(100vh-113px)] flex items-center justify-center text-gray-500">
           Select a file to view or edit
         </div>
       );
@@ -570,15 +570,16 @@ const Edit: React.FC = () => {
 
     if (!selectedFile.content) {
       return (
-        <div className="h-full flex items-center justify-center">
-          <div className="text-gray-500">Loading file content...</div>
+        <div className="h-[calc(100vh-113px)] flex flex-col items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <div className="text-xl font-semibold text-gray-700">Loading file content...</div>
         </div>
       );
     }
 
     if (isImageFile(selectedFile.name)) {
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col items-center justify-center p-8">
           {imageUrl ? (
             <img 
               src={imageUrl}
@@ -586,7 +587,7 @@ const Edit: React.FC = () => {
               className="max-w-full h-auto"
             />
           ) : (
-            <div className="flex items-center justify-center h-40 bg-gray-50 rounded-lg">
+            <div className="flex items-center justify-center h-40 bg-gray-50 rounded-lg w-full">
               <div className="text-gray-400">Loading image...</div>
             </div>
           )}
@@ -596,9 +597,9 @@ const Edit: React.FC = () => {
 
     if (isTextFile(selectedFile.name)) {
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 p-4">
           <Editor
-            height="70vh"
+            height="calc(100vh - 145px)"
             language={getEditorLanguage(selectedFile.name)}
             value={unsavedChanges[selectedFile.path] ?? 
               (typeof selectedFile.content === 'string' ? selectedFile.content : '')}
@@ -617,8 +618,8 @@ const Edit: React.FC = () => {
     }
 
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
-        <div className="bg-gray-50 p-6 rounded-lg">
+      <div className="h-[calc(100vh-113px)] flex items-center justify-center">
+        <div className="bg-gray-50 p-6 rounded-lg max-w-md w-full mx-4">
           <h3 className="font-medium text-lg mb-4">File Information</h3>
           <div className="space-y-2">
             <p><span className="font-medium">Name:</span> {selectedFile.name}</p>
@@ -976,59 +977,66 @@ const Edit: React.FC = () => {
         </div>
       </div>
       <div className="py-2">
-        {files.map((file) => (
-          <div
-            key={file.path}
-            className="group relative"
-          >
-            <div
-              onClick={() => handleFileSelect(file)}
-              className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3
-                ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
-            >
-              {/* File Icon */}
-              <span className="flex-shrink-0">
-                {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
-                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
-                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                )}
-              </span>
-
-              <div className="flex items-center gap-2 flex-1">
-                <span className="truncate text-sm font-medium tracking-wide">
-                  {file.name}
-                </span>
-                {(file.edited || unsavedChanges[file.path]) && (
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
-                    edited
-                  </span>
-                )}
-              </div>
-
-              {/* Delete button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowDeleteConfirm(file.path);
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
-              >
-                <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
+        {files.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <div className="text-xl font-semibold text-gray-700">Loading files...</div>
           </div>
-        ))}
+        ) : (
+          files.map((file) => (
+            <div
+              key={file.path}
+              className="group relative"
+            >
+              <div
+                onClick={() => handleFileSelect(file)}
+                className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3
+                  ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+              >
+                {/* File Icon */}
+                <span className="flex-shrink-0">
+                  {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
+                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
+                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </span>
+
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="truncate text-sm font-medium tracking-wide">
+                    {file.name}
+                  </span>
+                  {(file.edited || unsavedChanges[file.path]) && (
+                    <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
+                      edited
+                    </span>
+                  )}
+                </div>
+
+                {/* Delete button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDeleteConfirm(file.path);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
+                >
+                  <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -1516,8 +1524,8 @@ const Edit: React.FC = () => {
 
         </div>
 
-        {/* Main content area - remove flex-1 and min-h-0 */}
-        <div>
+        {/* Main content area - add w-full */}
+        <div className="w-full">
           {/* Status bar - make it sticky */}
           {activeTab === 'files' && (
             <div className="border-b border-gray-200 bg-white sticky top-[49px] z-20">
@@ -1586,8 +1594,8 @@ const Edit: React.FC = () => {
             </div>
           )}
 
-          {/* Content area - remove overflow-y-auto */}
-          <div>
+          {/* Content area - add w-full */}
+          <div className="w-full">
             {renderContent()}
           </div>
         </div>

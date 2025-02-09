@@ -63,7 +63,7 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   };
 
   return (
-    <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[260px] flex flex-col ${
+    <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 h-[300px] flex flex-col ${
       isStaged ? 'bg-yellow-50' : ''
     }`}>
       
