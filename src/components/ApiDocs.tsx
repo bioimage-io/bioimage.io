@@ -142,6 +142,7 @@ async def interact_with_model_zoo():
     await artifact_manager.commit({
         "artifact_id": f"bioimage-io/{new_model.id}",
     })
+
 if __name__ == "__main__":
     asyncio.run(interact_with_model_zoo())
     `;
