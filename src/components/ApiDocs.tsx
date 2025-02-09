@@ -91,6 +91,7 @@ const ApiDocs: React.FC = () => {
   );
 
   const pythonCode = `import os
+import asyncio
 from hypha_rpc import connect_to_server
 
 async def interact_with_model_zoo():
@@ -141,6 +142,8 @@ async def interact_with_model_zoo():
     await artifact_manager.commit({
         "artifact_id": f"bioimage-io/{new_model.id}",
     })
+if __name__ == "__main__":
+    asyncio.run(interact_with_model_zoo())
     `;
 
   const javascriptCode = `import { hyphaWebsocketClient } from 'hypha-rpc';
