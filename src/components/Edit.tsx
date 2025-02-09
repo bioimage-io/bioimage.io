@@ -89,6 +89,7 @@ const Edit: React.FC = () => {
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -346,6 +347,45 @@ const Edit: React.FC = () => {
     }
   };
 
+  const validateRdfContent = (content: string, artifactId: string, artifactEmoji: string): {
+    isValid: boolean;
+    errors: string[];
+  } => {
+    try {
+      const manifest = yaml.load(content) as any;
+      const errors: string[] = [];
+
+      // Check if id matches
+      const shortId = artifactId.split('/').pop() || '';
+      if (manifest.id !== shortId) {
+        errors.push(`The 'id' field must be "${shortId}"`);
+      }
+
+      // Check if id_emoji matches
+      if (manifest.id_emoji !== artifactEmoji) {
+        errors.push(`The 'id_emoji' field must be "${artifactEmoji}"`);
+      }
+
+      // Check if legacy nickname fields match if they exist
+      if (manifest.config?.bioimageio?.nickname && manifest.config.bioimageio.nickname !== shortId) {
+        errors.push(`Legacy nickname field 'config.bioimageio.nickname' must be "${shortId}"`);
+      }
+      if (manifest.config?.bioimageio?.nickname_icon && manifest.config.bioimageio.nickname_icon !== artifactEmoji) {
+        errors.push(`Legacy nickname field 'config.bioimageio.nickname_icon' must be "${artifactEmoji}"`);
+      }
+
+      return {
+        isValid: errors.length === 0,
+        errors
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        errors: ['Invalid YAML format']
+      };
+    }
+  };
+
   const handleEditorChange = (value: string | undefined, file: FileNode) => {
     if (!value || !file) return;
     
@@ -371,6 +411,20 @@ const Edit: React.FC = () => {
 
   const handleSave = async (file: FileNode) => {
     if (!artifactManager || !unsavedChanges[file.path]) return;
+
+    // For rdf.yaml, validate content before saving
+    if (file.path.endsWith('rdf.yaml')) {
+      const validation = validateRdfContent(
+        unsavedChanges[file.path],
+        artifactInfo?.id || '',
+        artifactInfo?.manifest?.id_emoji || ''
+      );
+
+      if (!validation.isValid) {
+        setValidationErrors(validation.errors);
+        return;
+      }
+    }
 
     try {
       setUploadStatus({
@@ -1330,6 +1384,41 @@ const Edit: React.FC = () => {
     });
   };
 
+  // Add ValidationErrorDialog
+  const ValidationErrorDialog: React.FC<{
+    open: boolean;
+    errors: string[];
+    onClose: () => void;
+  }> = ({ open, errors, onClose }) => (
+    <MuiDialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Invalid RDF.yaml Content
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <ul className="list-disc pl-4 space-y-2 text-red-700">
+              {errors.map((error, index) => (
+                <li key={index}>{error}</li>
+              ))}
+            </ul>
+          </div>
+          <p className="text-sm text-gray-500">
+            Please fix these issues before saving. The ID and emoji fields must match the artifact's assigned values.
+          </p>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header - remove border-b since content will scroll under it */}
@@ -1377,12 +1466,7 @@ const Edit: React.FC = () => {
             {artifactInfo ? (
               <>
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900 flex items-center">
-                    {artifactInfo.manifest.id_emoji && (
-                      <span className="mr-2" role="img" aria-label="model emoji">
-                        {artifactInfo.manifest.id_emoji}
-                      </span>
-                    )}
+                  <h3 className="font-medium text-gray-900">
                     {artifactInfo.manifest.name}
                   </h3>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
@@ -1390,6 +1474,15 @@ const Edit: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-2">
+                  {artifactInfo.manifest.id_emoji && (
+                    <span 
+                      role="img" 
+                      aria-label="model emoji"
+                      className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm"
+                    >
+                      {artifactInfo.manifest.id_emoji}
+                    </span>
+                  )}
                   <span>ID: </span>
                   <code className="bg-gray-100 px-2 py-0.5 rounded select-all">
                     {artifactInfo.id.split('/').pop()}
@@ -1424,7 +1517,7 @@ const Edit: React.FC = () => {
         </div>
 
         {/* Main content area - remove flex-1 and min-h-0 */}
-        <div className="flex-1">
+        <div>
           {/* Status bar - make it sticky */}
           {activeTab === 'files' && (
             <div className="border-b border-gray-200 bg-white sticky top-[49px] z-20">
@@ -1506,6 +1599,13 @@ const Edit: React.FC = () => {
       {renderDeleteConfirmDialog()}
 
       {renderNewVersionDialog()}
+
+      {/* Add ValidationErrorDialog */}
+      <ValidationErrorDialog
+        open={validationErrors.length > 0}
+        errors={validationErrors}
+        onClose={() => setValidationErrors([])}
+      />
 
       {/* Add overlay for mobile when sidebar is open */}
       {files.length > 0 && isSidebarOpen && (

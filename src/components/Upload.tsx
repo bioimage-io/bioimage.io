@@ -302,6 +302,25 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           ? rdfFile.content
           : new TextDecoder().decode(rdfFile.content);
         manifest = yaml.load(content) as RdfManifest;
+
+        // Check for legacy nickname fields and remove them
+        if (manifest.config?.bioimageio?.nickname) {
+          console.log('Found legacy nickname fields, will be replaced with new ID format');
+          // Remove legacy fields
+          if (manifest.config.bioimageio) {
+            delete manifest.config.bioimageio.nickname;
+            delete manifest.config.bioimageio.nickname_icon;
+            
+            // Remove the bioimageio object if it's empty
+            if (Object.keys(manifest.config.bioimageio).length === 0) {
+              delete manifest.config.bioimageio;
+            }
+            // Remove the config object if it's empty
+            if (Object.keys(manifest.config).length === 0) {
+              delete manifest.config;
+            }
+          }
+        }
       } catch (error) {
         console.error('Error parsing rdf.yaml:', error);
         throw new Error('Invalid rdf.yaml format');
@@ -350,54 +369,90 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       });
       const emoji = findEmoji(collection.config, manifest.type, noun);
       setGeneratedEmoji(emoji);
-      debugger;
 
-      if (emoji) {
-        // Update the manifest with the id and emoji
-        const updatedManifest = {
-          ...manifest,
-          id: shortId,
-          id_emoji: emoji
-        };
+      // Update the manifest with the id and emoji, preserving other fields
+      const updatedManifest = {
+        ...manifest,
+        id: shortId,
+        id_emoji: emoji,
+        // If there's an existing config, preserve other config fields
+        config: manifest.config ? {
+          ...manifest.config,
+          // Remove bioimageio section if it exists
+          ...(manifest.config.bioimageio && {
+            ...manifest.config,
+            bioimageio: undefined
+          })
+        } : undefined
+      };
 
-        // Update the rdf.yaml content in the files array
-        const updatedFiles = files.map(file => {
-          if (file.path.endsWith('rdf.yaml')) {
-            return {
-              ...file,
-              content: yaml.dump(updatedManifest),
-              edited: true
-            };
-          }
-          return file;
-        });
-        setFiles(updatedFiles);
-
-        // Edit the artifact to include the updated manifest
-        await artifactManager.edit({
-          artifact_id: fullId,
-          manifest: updatedManifest,
-          version: "stage",
-          _rkwargs: true
-        });
+      // Clean up undefined values
+      if (updatedManifest.config === undefined) {
+        delete updatedManifest.config;
       }
 
+      // Update the rdf.yaml content in the files array and mark it as edited
+      const updatedFiles = files.map(file => {
+        if (file.path.endsWith('rdf.yaml')) {
+          const updatedContent = yaml.dump(updatedManifest, {
+            // Ensure consistent formatting
+            indent: 2,
+            lineWidth: -1, // Don't wrap long lines
+            noRefs: true, // Don't use aliases
+          });
+          return {
+            ...file,
+            content: updatedContent,
+            edited: true
+          };
+        }
+        return file;
+      });
+      setFiles(updatedFiles);
+
+      // Find the updated rdf file
+      const updatedRdfFile = updatedFiles.find(file => file.path.endsWith('rdf.yaml'));
+      if (!updatedRdfFile) {
+        throw new Error('Failed to update rdf.yaml');
+      }
+
+      // Upload the updated rdf.yaml first
       setUploadStatus({
-        message: `Uploading files...`,
+        message: 'Uploading updated manifest...',
         severity: 'info',
         progress: 0
       });
 
-      // Upload all files sequentially with progress
-      for (let index = 0; index < files.length; index++) {
-        const file = files[index];
+      const rdfPutUrl = await artifactManager.put_file({
+        artifact_id: artifact.id,
+        file_path: updatedRdfFile.path,
+        _rkwargs: true,
+      });
+
+      await axios.put(rdfPutUrl, updatedRdfFile.content, {
+        headers: {
+          "Content-Type": ""
+        }
+      });
+
+      // Update the artifact with the updated manifest
+      await artifactManager.edit({
+        artifact_id: fullId,
+        manifest: updatedManifest,
+        version: "stage",
+        _rkwargs: true
+      });
+
+      // Upload remaining files
+      const remainingFiles = updatedFiles.filter(file => !file.path.endsWith('rdf.yaml'));
+      for (let index = 0; index < remainingFiles.length; index++) {
+        const file = remainingFiles[index];
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info',
-          progress: (index / files.length) * 100
+          progress: ((index + 1) / (remainingFiles.length + 1)) * 100
         });
 
-        // TODO: If the file is a model weights file, we need to change the download weight
         const putUrl = await artifactManager.put_file({
           artifact_id: artifact.id,
           file_path: file.path,
@@ -417,7 +472,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             setUploadStatus({
               message: `Uploading ${file.name}...`,
               severity: 'info',
-              progress: ((index + (progress / 100)) / files.length) * 100
+              progress: ((index + (progress / 100)) / remainingFiles.length) * 100
             });
           }
         });
@@ -639,12 +694,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               {generatedId ? (
                 <>
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-medium text-gray-900 flex items-center">
-                      {generatedEmoji && (
-                        <span className="mr-2" role="img" aria-label="model emoji">
-                          {generatedEmoji}
-                        </span>
-                      )}
+                    <h2 className="text-lg font-medium text-gray-900">
                       {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
                         yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
                     </h2>
@@ -652,8 +702,20 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       stage
                     </span>
                   </div>
-                  <div className="text-xs text-gray-500 font-mono">
-                    ID: {generatedId}
+                  <div className="text-xs text-gray-500 font-mono flex items-center gap-1">
+                    {generatedEmoji && (
+                      <span 
+                        role="img" 
+                        aria-label="model emoji"
+                        className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm"
+                      >
+                        {generatedEmoji}
+                      </span>
+                    )}
+                    ID: 
+                    <span className="bg-gray-100 px-2 py-0.5 rounded">
+                      {generatedId}
+                    </span>
                   </div>
                 </>
               ) : (
@@ -931,11 +993,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             <>
               <div className="flex items-center justify-between">
                 <h3 className="font-medium text-gray-900">
-                  {generatedEmoji && (
-                    <span className="mr-2" role="img" aria-label="model emoji">
-                      {generatedEmoji}
-                    </span>
-                  )}
                   {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
                     yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
                 </h3>
@@ -943,8 +1000,20 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                   stage
                 </span>
               </div>
-              <div className="text-xs text-gray-500 font-mono">
-                ID: {generatedId}
+              <div className="text-xs text-gray-500 font-mono flex items-center gap-1">
+                {generatedEmoji && (
+                  <span 
+                    role="img" 
+                    aria-label="model emoji"
+                    className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm"
+                  >
+                    {generatedEmoji}
+                  </span>
+                )}
+                ID: 
+                <span className="bg-gray-100 px-2 py-0.5 rounded">
+                  {generatedId}
+                </span>
               </div>
             </>
           )}

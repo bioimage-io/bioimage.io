@@ -12,6 +12,8 @@ import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import StatusBadge from './StatusBadge';
 import { Pagination } from './ResourceGrid';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { IconButton, Tooltip } from '@mui/material';
 
 interface Artifact {
   id: string;
@@ -50,6 +52,7 @@ const ReviewArtifacts: React.FC = () => {
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
   const [showSubmittedOnly, setShowSubmittedOnly] = useState(true);
+  const [copiedIds, setCopiedIds] = useState<{[key: string]: boolean}>({});
 
   useEffect(() => {
     if (isLoggedIn && user) {
@@ -188,6 +191,15 @@ const ReviewArtifacts: React.FC = () => {
 
   // Calculate number of submitted artifacts
   const submittedCount = artifacts.filter(a => a.manifest?.status === 'submitted').length;
+
+  const handleCopyId = (artifactId: string) => {
+    const id = artifactId.split('/').pop() || '';
+    navigator.clipboard.writeText(id);
+    setCopiedIds(prev => ({ ...prev, [artifactId]: true }));
+    setTimeout(() => {
+      setCopiedIds(prev => ({ ...prev, [artifactId]: false }));
+    }, 2000);
+  };
 
   if (!isLoggedIn) {
     return (
@@ -415,10 +427,39 @@ const ReviewArtifacts: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-medium text-gray-900 truncate">
-                            {artifact.manifest?.name || artifact.alias}
-                          </h3>
-                         
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              {artifact.manifest?.id_emoji && (
+                                <span className="text-xl">{artifact.manifest.id_emoji}</span>
+                              )}
+                              <h3 className="text-lg font-medium text-gray-900 truncate">
+                                {artifact.manifest?.name || artifact.alias}
+                              </h3>
+                            </div>
+
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+                                <span className="font-medium">ID:</span>
+                                <code className="font-mono">{artifact.id.split('/').pop()}</code>
+                                <Tooltip title="Copy ID" placement="top">
+                                  <IconButton
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCopyId(artifact.id);
+                                    }}
+                                    size="small"
+                                    className="ml-1 text-gray-400 hover:text-gray-600"
+                                    sx={{ padding: '2px' }}
+                                  >
+                                    <ContentCopyIcon sx={{ fontSize: 14 }} />
+                                  </IconButton>
+                                </Tooltip>
+                                {copiedIds[artifact.id] && (
+                                  <span className="text-green-600 ml-1">Copied!</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <StatusBadge status={artifact.manifest?.status} size="small" />

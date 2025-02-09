@@ -294,6 +294,7 @@ const MyArtifacts: React.FC = () => {
             {artifacts.map((artifact) => (
               <div key={artifact.id}>
                 <AdminResourceCard
+                  id={artifact.id}
                   title={artifact.manifest?.name || artifact.alias}
                   status={artifact.manifest?.status}
                   description={artifact.manifest?.description || 'No description'}

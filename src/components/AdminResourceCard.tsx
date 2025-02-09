@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 import StatusBadge from './StatusBadge';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { Tooltip, IconButton } from '@mui/material';
 
 interface Author {
   name: string;
@@ -23,6 +25,8 @@ interface AdminResourceCardProps {
   artifactType?: string;
   isCollectionAdmin?: boolean;
   onRequestDeletion?: () => void;
+  id: string;
+  emoji?: string;
 }
 
 const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
@@ -40,11 +44,22 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   lastModified,
   artifactType,
   isCollectionAdmin = false,
-  onRequestDeletion
+  onRequestDeletion,
+  id,
+  emoji,
 }) => {
+  const [showCopied, setShowCopied] = useState(false);
+
   const handleClick = (e: React.MouseEvent, callback?: () => void) => {
     e.stopPropagation();
     if (callback) callback();
+  };
+
+  const handleCopyId = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id.split('/').pop() || '');
+    setShowCopied(true);
+    setTimeout(() => setShowCopied(false), 2000);
   };
 
   return (
@@ -74,7 +89,31 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
       
       <div className="p-4 mt-5">
         <div className="flex-none">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+          <div className="flex items-center gap-2 mb-2">
+            {emoji && <span className="text-xl">{emoji}</span>}
+            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          </div>
+
+          <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
+            <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+              <span className="font-medium">ID:</span>
+              <code className="font-mono">{id.split('/').pop()}</code>
+              <Tooltip title="Copy ID" placement="top">
+                <IconButton
+                  onClick={handleCopyId}
+                  size="small"
+                  className="ml-1 text-gray-400 hover:text-gray-600"
+                  sx={{ padding: '2px' }}
+                >
+                  <ContentCopyIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+              {showCopied && (
+                <span className="text-green-600 ml-1">Copied!</span>
+              )}
+            </div>
+          </div>
+
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{description}</p>
         </div>
         

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Card, CardMedia, CardContent, IconButton, Button } from '@mui/material';
+import { Card, CardMedia, CardContent, IconButton, Button, Tooltip } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo } from '../types/artifact';
 
@@ -14,6 +15,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const covers = resource.manifest.covers || [];
   const navigate = useNavigate();
+  const [showCopied, setShowCopied] = useState(false);
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent Link navigation
@@ -34,6 +36,14 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
     e.stopPropagation(); // Prevent card click/navigation
     const id = resource.id.split('/').pop();
     window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+  };
+
+  const handleCopyId = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card navigation
+    const id = resource.id.split('/').pop() || '';
+    navigator.clipboard.writeText(id);
+    setShowCopied(true);
+    setTimeout(() => setShowCopied(false), 2000);
   };
 
   // Get the resolved cover URL for the current index
@@ -114,30 +124,52 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         )}
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }}>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex-shrink-0 w-6">
-            {resource.manifest.icon ? (
-              <img
-                src={resource.manifest.icon}
-                alt={resource.manifest.name}
-                className="w-6 h-6 object-contain"
-              />
-            ) : resource.manifest.id_emoji ? (
-              <span className="text-xl">{resource.manifest.id_emoji}</span>
-            ) : (
-              <div className="w-6 h-6 bg-gray-200 rounded-full" />
-            )}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="flex-shrink-0 w-6">
+              {resource.manifest.icon ? (
+                <img
+                  src={resource.manifest.icon}
+                  alt={resource.manifest.name}
+                  className="w-6 h-6 object-contain"
+                />
+              ) : resource.manifest.id_emoji ? (
+                <span className="text-xl">{resource.manifest.id_emoji}</span>
+              ) : (
+                <div className="w-6 h-6 bg-gray-200 rounded-full" />
+              )}
+            </div>
+            <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
+              {resource.manifest.name}
+            </h3>
           </div>
-          <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
-            {resource.manifest.name}
-          </h3>
+
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+              <span className="font-medium">ID:</span>
+              <code className="font-mono">{resource.id.split('/').pop()}</code>
+              <Tooltip title="Copy ID" placement="top">
+                <IconButton
+                  onClick={handleCopyId}
+                  size="small"
+                  className="ml-1 text-gray-400 hover:text-gray-600"
+                  sx={{ padding: '2px' }}
+                >
+                  <ContentCopyIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+              {showCopied && (
+                <span className="text-green-600 ml-1">Copied!</span>
+              )}
+            </div>
+          </div>
         </div>
         
-        <p className="text-sm text-gray-600 mb-4 line-clamp-2 flex-grow">
+        <p className="text-sm text-gray-600 my-4 line-clamp-2">
           {resource.manifest.description}
         </p>
+
         <div className="space-y-2">
-          {/* Tags */}
           <div className="flex flex-wrap gap-1.5">
             {resource.manifest.tags?.slice(0, 3).map((tag: string) => (
               <span
@@ -148,7 +180,6 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
               </span>
             ))}
           </div>
-          {/* Badges */}
           <div className="flex flex-wrap gap-1.5">
             {resource.manifest.badges?.map((badge) => (
               <a
@@ -156,6 +187,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
                 href={badge.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded-full border border-blue-100 flex items-center gap-1 hover:bg-blue-100 transition-colors"
               >
                 {badge.icon && <img src={badge.icon} alt="" className="h-4" />}

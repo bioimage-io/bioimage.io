@@ -21,6 +21,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -34,6 +35,7 @@ const ResourceDetails = () => {
   } | null>(null);
   const [rdfContent, setRdfContent] = useState<string | null>(null);
   const [isRdfDialogOpen, setIsRdfDialogOpen] = useState(false);
+  const [showCopied, setShowCopied] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -116,7 +118,8 @@ const ResourceDetails = () => {
   const handleCopyId = () => {
     const id = selectedResource?.id.split('/').pop() || '';
     navigator.clipboard.writeText(id);
-    // Could add a toast notification here if you have one
+    setShowCopied(true);
+    setTimeout(() => setShowCopied(false), 2000);
   };
 
   if (isLoading) {
@@ -145,19 +148,24 @@ const ResourceDetails = () => {
           <code className="bg-gray-100 px-2 py-0.5 rounded select-all">
             {selectedResource.id.split('/').pop()}
           </code>
-          <IconButton
-            onClick={handleCopyId}
-            size="small"
-            title="Copy ID"
-            sx={{ 
-              padding: '4px',
-              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
-            }}
-          >
-            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </IconButton>
+          <div className="flex items-center gap-2">
+            <IconButton
+              onClick={handleCopyId}
+              size="small"
+              title="Copy ID"
+              sx={{ 
+                padding: '4px',
+                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+              }}
+            >
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+            {showCopied && (
+              <span className="text-green-600 text-sm animate-fade-in">
+                Copied!
+              </span>
+            )}
+          </div>
         </Typography>
         <Typography variant="body1" sx={{ mb: 2 }}>{manifest.description}</Typography>
         
