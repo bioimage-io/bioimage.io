@@ -221,7 +221,7 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
     logger.info(f"Uploaded all files for {artifact_id}")
 
 async def migrate_collection(skip_migrated):
-    server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
+    server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("BIOIMAGEIO_API_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
     # Fetch collection YAML

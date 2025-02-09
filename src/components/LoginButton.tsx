@@ -166,6 +166,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                 My Artifacts
               </Link>
               
+              {/* Add API Documentation link */}
+              <Link
+                to="/api"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                onClick={() => setIsDropdownOpen(false)}
+              >
+                API Documentation
+              </Link>
+              
               <button
                 onClick={handleLogout}
                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
