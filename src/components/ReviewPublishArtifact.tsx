@@ -39,7 +39,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     version: '',
     comment: ''
   });
-  const [status, setStatus] = useState<string>('draft');
+  const [status, setStatus] = useState<string>(null);
 
   const shouldDisableActions = !isContentValid || hasContentChanged;
 
@@ -49,7 +49,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     if (artifactInfo?.manifest?.status) {
       setStatus(artifactInfo.manifest.status);
     } else {
-      setStatus('draft');
+      setStatus(null);
     }
   }, [artifactInfo?.manifest?.status]);
 

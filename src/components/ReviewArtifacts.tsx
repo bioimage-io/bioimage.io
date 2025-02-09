@@ -399,7 +399,7 @@ const ReviewArtifacts: React.FC = () => {
                             {artifact.manifest?.name || artifact.alias}
                           </h3>
                           <div className="flex items-center gap-2">
-                            <StatusBadge status={artifact.manifest?.status || 'draft'} size="small" />
+                            <StatusBadge status={artifact.manifest?.status} size="small" />
                           </div>
                         </div>
 

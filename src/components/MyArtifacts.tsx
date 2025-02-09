@@ -278,7 +278,7 @@ const MyArtifacts: React.FC = () => {
               <div key={artifact.id}>
                 <AdminResourceCard
                   title={artifact.manifest?.name || artifact.alias}
-                  status={artifact.manifest?.status || 'draft'}
+                  status={artifact.manifest?.status}
                   description={artifact.manifest?.description || 'No description'}
                   tags={[
                     `v${artifact.versions?.length || 0}`,

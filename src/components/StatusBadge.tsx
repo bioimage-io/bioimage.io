@@ -6,6 +6,9 @@ interface StatusBadgeProps {
 }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) => {
+  // Return null if status is empty
+  if (!status) return null;
+
   const getStatusConfig = (status: string) => {
     const configs = {
       'submitted': { color: 'yellow', text: 'Submitted for Review' },
