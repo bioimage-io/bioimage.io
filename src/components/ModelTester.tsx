@@ -73,7 +73,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
       const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
       const modelId = artifactId.split('/').pop();
       const zipUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${modelId}/create-zip-file${version ? `?version=${version}` : ''}`;
-      const result = await runner.test_model(modelId, zipUrl);
+      const result = await runner.test(modelId, zipUrl, {skip_cache: true, _kwargs: true});
       setTestResult(result);
       setIsOpen(true);
     } catch (err) {
@@ -85,7 +85,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
           name: 'Error',
           status: 'failed',
           errors: [{
-            msg: err instanceof Error ? err.message : 'Failed to run model test',
+            msg: `Failed to run model test: ${err}`,
             loc: ['test']
           }],
           warnings: []

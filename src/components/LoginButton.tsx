@@ -115,6 +115,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       await connect({
         server_url: serverUrl,
         token: token,
+        method_timeout: 100, // 100 seconds
       });
     } catch (error) {
       console.error("Error during login:", error);
