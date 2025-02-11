@@ -38,7 +38,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
 
-  // Add effect to adjust dropdown position
+  // Update the effect for dropdown positioning
   useEffect(() => {
     if (isOpen && dropdownRef.current && buttonRef.current) {
       const dropdown = dropdownRef.current;
@@ -46,21 +46,19 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       const dropdownRect = dropdown.getBoundingClientRect();
       const buttonRect = button.getBoundingClientRect();
       
-      // Check if dropdown would go outside the right edge of viewport
-      const viewportWidth = window.innerWidth;
-      const spaceOnRight = viewportWidth - buttonRect.right;
+      // Check if dropdown would go outside the left edge of viewport
       const spaceOnLeft = buttonRect.left;
       
       // Reset any previous positioning
       dropdown.style.right = '';
       dropdown.style.left = '';
       
-      if (spaceOnRight < dropdownRect.width && spaceOnLeft > dropdownRect.width) {
-        // Position to the left if there's more space
-        dropdown.style.right = '0px';
-      } else {
-        // Default position to the left edge of the button
+      if (spaceOnLeft < dropdownRect.width) {
+        // Position to the right if there's not enough space on the left
         dropdown.style.left = '0px';
+      } else {
+        // Default position to the right edge of the button, appearing on the left side
+        dropdown.style.right = '0px';
       }
     }
   }, [isOpen, testResult]);
