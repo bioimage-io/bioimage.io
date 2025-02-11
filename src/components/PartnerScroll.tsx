@@ -49,6 +49,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
     position: { top: 0, left: 0 }
   });
   const tooltipTimeoutRef = useRef<NodeJS.Timeout>();
+  const showTooltipTimeoutRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
     const fetchPartners = async () => {
@@ -94,25 +95,53 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   };
 
   const handleMouseEnter = (e: React.MouseEvent, partner: Partner) => {
+    // Clear any existing timeouts
     if (tooltipTimeoutRef.current) {
       clearTimeout(tooltipTimeoutRef.current);
     }
+    if (showTooltipTimeoutRef.current) {
+      clearTimeout(showTooltipTimeoutRef.current);
+    }
+
+    // Capture the position immediately
     const rect = e.currentTarget.getBoundingClientRect();
-    setTooltipState({
-      show: true,
-      partner,
-      position: {
-        top: rect.top + window.scrollY - 10,
-        left: rect.left + (rect.width / 2)
-      }
-    });
+    const position = {
+      top: rect.top + window.scrollY - 10,
+      left: rect.left + (rect.width / 2)
+    };
+
+    // Set a timeout to show the tooltip after 2 seconds
+    showTooltipTimeoutRef.current = setTimeout(() => {
+      setTooltipState({
+        show: true,
+        partner,
+        position
+      });
+    }, 800); // 1 second delay
   };
 
   const handleMouseLeave = () => {
+    // Clear the show timeout when mouse leaves
+    if (showTooltipTimeoutRef.current) {
+      clearTimeout(showTooltipTimeoutRef.current);
+    }
+    
     tooltipTimeoutRef.current = setTimeout(() => {
       setTooltipState(prev => ({ ...prev, show: false }));
-    }, 100); // Small delay before hiding
+    }, 100);
   };
+
+  // Clean up timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipTimeoutRef.current) {
+        clearTimeout(tooltipTimeoutRef.current);
+      }
+      if (showTooltipTimeoutRef.current) {
+        clearTimeout(showTooltipTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (loading) {
     return (
