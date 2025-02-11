@@ -22,6 +22,7 @@ import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import remarkGfm from 'remark-gfm';
 
 const ResourceDetails = () => {
   const { id } = useParams();
@@ -302,7 +303,12 @@ const ResourceDetails = () => {
                     }
                   }}
                 >
-                  <ReactMarkdown className="markdown-body">{documentation}</ReactMarkdown>
+                  <ReactMarkdown 
+                    className="markdown-body"
+                    remarkPlugins={[remarkGfm]}
+                  >
+                    {documentation}
+                  </ReactMarkdown>
                 </Box>
               </CardContent>
             </Card>

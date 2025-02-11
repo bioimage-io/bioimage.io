@@ -15,3 +15,17 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Add these styles if you want to customize the table appearance */
+.prose table {
+  @apply w-full;
+}
+
+.prose table th,
+.prose table td {
+  @apply p-2 border border-gray-200;
+}
+
+.prose table th {
+  @apply bg-gray-50;
+}

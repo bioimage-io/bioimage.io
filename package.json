@@ -30,6 +30,7 @@
     "react-router-dom": "^6.29.0",
     "react-scripts": "5.0.1",
     "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^4.0.1",
     "styled-components": "^6.1.15",
     "tailwindcss": "^3.4.1",
     "uuid": "^11.0.5",

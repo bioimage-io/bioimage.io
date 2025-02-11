@@ -3,6 +3,8 @@ import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import { Menu } from '@headlessui/react';
 import yaml from 'js-yaml';
+import remarkGfm from 'remark-gfm';
+
 interface ValidationResult {
   success: boolean;
   details: string;
@@ -130,7 +132,10 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
-                <ReactMarkdown className="prose prose-sm max-w-none">
+                <ReactMarkdown 
+                  className="prose prose-sm max-w-none"
+                  remarkPlugins={[remarkGfm]}
+                >
                   {`# ${validationResult.success ? '✅ Validation Passed' : '❌ Validation Failed'}\n\n## Details\n\n${validationResult.details}`}
                 </ReactMarkdown>
               </div>

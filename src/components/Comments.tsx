@@ -4,6 +4,7 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { v4 as uuidv4 } from 'uuid';
 import ReviewWriter from './ReviewWriter';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface CommentsProps {
   artifactId: string;
@@ -193,7 +194,12 @@ const CommentItem: React.FC<{
             </div>
           ) : (
             <div className="mt-0.5 text-sm text-gray-700">
-              <ReactMarkdown className="markdown-body prose prose-sm max-w-none">{comment.content}</ReactMarkdown>
+              <ReactMarkdown 
+                className="markdown-body prose prose-sm max-w-none"
+                remarkPlugins={[remarkGfm]}
+              >
+                {comment.content}
+              </ReactMarkdown>
             </div>
           )}
 
