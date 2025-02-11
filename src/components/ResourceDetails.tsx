@@ -466,7 +466,6 @@ const ResourceDetails = () => {
                     GitHub Repository
                   </Link>
                 )}
-                {JSON.stringify(manifest.links)}
               </Stack>
             </CardContent>
           </Card>
