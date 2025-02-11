@@ -32,6 +32,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<string>('');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -67,16 +68,18 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
     if (!artifactId || !server) return;
 
     setIsLoading(true);
-    setIsOpen(false);
+    setLoadingStep('Initializing test runner...');
+    setIsOpen(true);
     
     try {
+      setLoadingStep('Connecting to model runner service...');
       const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
       const modelId = artifactId.split('/').pop();
       
+      setLoadingStep('Downloading and preparing model for testing...');
       console.log(`Testing model ${modelId} at ${modelUrl}`);
       const result = await runner.test(modelId, modelUrl);
       setTestResult(result);
-      setIsOpen(true);
     } catch (err) {
       console.error('Test run failed:', err);
       setTestResult({
@@ -92,13 +95,26 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
           warnings: []
         }]
       });
-      setIsOpen(true);
     } finally {
+      setLoadingStep('');
       setIsLoading(false);
     }
   };
 
   const getMarkdownContent = () => {
+    if (isLoading) {
+      return `# Running Model Tests...
+
+⏳ ${loadingStep}
+
+Please note that model testing may take 30s to a few minutes as we need to:
+1. Download the model files
+2. Initialize the testing environment
+3. Run the model with test data
+
+Please keep this window open while the test is running.`;
+    }
+
     if (!testResult) return '';
 
     let content = `# ${testResult.success ? '✅ Test Passed' : '❌ Test Failed'}\n\n`;
@@ -151,7 +167,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
 
         <Menu as="div" className="relative h-full">
           <Menu.Button
-            onClick={() => testResult && setIsOpen(!isOpen)}
+            onClick={() => setIsOpen(!isOpen)}
             className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l
               ${isDisabled || !isLoggedIn
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -190,7 +206,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
             )}
           </Menu.Button>
 
-          {testResult && isOpen && (
+          {(testResult || isLoading) && isOpen && (
             <div 
               ref={dropdownRef}
               className="absolute mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
@@ -204,6 +220,14 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
+                {isLoading && (
+                  <div className="flex items-center justify-center mb-4">
+                    <svg className="animate-spin w-6 h-6 mr-2 text-blue-600" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  </div>
+                )}
                 <ReactMarkdown className="prose prose-sm max-w-none">
                   {getMarkdownContent()}
                 </ReactMarkdown>
