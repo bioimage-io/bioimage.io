@@ -79,6 +79,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       setLoadingStep('Downloading and preparing model for testing...');
       console.log(`Testing model ${modelId} at ${modelUrl}`);
       const result = await runner.test(modelId, modelUrl);
+      console.log("Test result:", result);
       setTestResult(result);
     } catch (err) {
       console.error('Test run failed:', err);
@@ -107,7 +108,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
 
 ⏳ ${loadingStep}
 
-Please note that model testing may take 30s to a few minutes as we need to:
+Please note that model testing may take 30s or more as we need to:
 1. Download the model files
 2. Initialize the testing environment
 3. Run the model with test data

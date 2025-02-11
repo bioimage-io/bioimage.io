@@ -36,6 +36,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
       const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
       const rdfDict = yaml.load(rdfContent);
       const result = await runner.validate(rdfDict);
+      console.log("Validation result:", result);
       
       setValidationResult(result);
       setIsMenuOpen(true);
