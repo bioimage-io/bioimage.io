@@ -5,6 +5,7 @@ import SearchBar from './SearchBar';
 import ResourceCard from './ResourceCard';
 import PartnerScroll from './PartnerScroll';
 import { Grid } from '@mui/material';
+import TagSelection from './TagSelection';
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -68,6 +69,7 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   } = useHyphaStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
@@ -93,14 +95,16 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     const loadResources = async () => {
       try {
         setLoading(true);
-        await fetchResources(currentPage, serverSearchQuery);
+        await fetchResources(currentPage, serverSearchQuery, {
+          tags: selectedTags
+        });
       } finally {
         setLoading(false);
       }
     };
 
     loadResources();
-  }, [location.pathname, currentPage, resourceType, serverSearchQuery, fetchResources]);
+  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, fetchResources]);
 
   useEffect(() => {
     getCurrentType();
@@ -132,6 +136,14 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setCurrentPage(1);
   }, []);
 
+  const handleTagSelect = (tag: string) => {
+    setSelectedTags(prev => {
+      return [tag];
+    });
+    setSearchQuery(tag);
+    setCurrentPage(1);
+  };
+
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
@@ -148,9 +160,23 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
             backgroundImage: 'url(/img/zoo-background.svg)'
           }} 
         />
-        <SearchBar 
-          onSearchChange={handleSearchChange}
-        />
+        <div className="max-w-3xl mx-auto w-full">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <SearchBar 
+                value={searchQuery}
+                onSearchChange={handleSearchChange}
+                onSearchConfirm={() => {}}
+              />
+            </div>
+            <div className="flex-none">
+              <TagSelection 
+                onTagSelect={handleTagSelect}
+                selectedTags={selectedTags}
+              />
+            </div>
+          </div>
+        </div>
       </div>
       <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
         {resources.map((resource) => (

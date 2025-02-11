@@ -16,6 +16,12 @@ interface LoginConfig {
   login_callback?: (context: any) => void;
 }
 
+interface FilterOptions {
+  type?: string;
+  tags?: string[];
+  manifest?: Record<string, string>;
+}
+
 export interface HyphaState {
   client: typeof hyphaWebsocketClient | null;
   server: any;
@@ -28,7 +34,7 @@ export interface HyphaState {
   setResources: (resources: ArtifactInfo[]) => void;
   resourceType: string | null;
   setResourceType: (type: string | null) => void;
-  fetchResources: (page: number, searchQuery?: string) => Promise<void>;
+  fetchResources: (page: number, searchQuery?: string, filterOptions?: FilterOptions) => Promise<void>;
   resourceTypes: string[];
   setResourceTypes: (types: string[]) => void;
   page: number;
@@ -139,7 +145,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       throw error;
     }
   },
-  fetchResources: async (page: number, searchQuery?: string) => {
+  fetchResources: async (page: number, searchQuery?: string, filterOptions?: FilterOptions) => {
     try {
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
@@ -147,16 +153,39 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       // Construct the base URL
       let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}`;
       
+      // Prepare filters object
+      const filters: any = {};
+      
       // Add type filter if resourceType is specified
       if (get().resourceType) {
-        const filters = JSON.stringify({ type: get().resourceType });
-        url += `&filters=${encodeURIComponent(filters)}`;
+        filters.type = get().resourceType;
+      }
+
+      // Add any additional manifest filters
+      if (filterOptions?.manifest) {
+        filters.manifest = {
+          ...filters.manifest,
+          ...filterOptions.manifest
+        };
+      }
+
+      // Add filters to URL if any exist
+      if (Object.keys(filters).length > 0) {
+        url += `&filters=${encodeURIComponent(JSON.stringify(filters))}`;
       }
       
-      // Add search keywords if there's a search query
+      // Combine search query with tags
+      let keywords = [];
       if (searchQuery) {
-        const keywords = searchQuery.split(',').map(k => k.trim()).join(',');
-        url += `&keywords=${encodeURIComponent(keywords)}`;
+        keywords.push(...searchQuery.split(' ').map(k => k.trim()));
+      }
+      if (filterOptions?.tags) {
+        keywords.push(...filterOptions.tags);
+      }
+      
+      // Add combined keywords to URL if any exist
+      if (keywords.length > 0) {
+        url += `&keywords=${encodeURIComponent(keywords.join(','))}`;
       }
       
       const response = await fetch(url);
