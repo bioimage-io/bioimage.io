@@ -130,7 +130,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
                   </svg>
                 </button>
                 <ReactMarkdown className="prose prose-sm max-w-none">
-                  {`# Validation Results\n\n${validationResult.details}`}
+                  {`# ${validationResult.success ? '✅ Validation Passed' : '❌ Validation Failed'}\n\n## Details\n\n${validationResult.details}`}
                 </ReactMarkdown>
               </div>
             </Menu.Items>

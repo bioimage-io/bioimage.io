@@ -101,15 +101,15 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
   const getMarkdownContent = () => {
     if (!testResult) return '';
 
-    let content = `# Test Results: ${testResult.name}\n\n`;
-    content += `**Status**: ${testResult.success ? '✅ Passed' : '❌ Failed'}\n\n`;
+    let content = `# ${testResult.success ? '✅ Test Passed' : '❌ Test Failed'}\n\n`;
+    content += `## Details\n\n`;
 
     testResult.details.forEach(detail => {
-      content += `## ${detail.name}\n`;
+      content += `### ${detail.name}\n`;
       content += `**Status**: ${detail.status}\n\n`;
 
       if (detail.errors.length > 0) {
-        content += '### Errors\n';
+        content += '#### Errors\n';
         detail.errors.forEach(error => {
           content += `- **${error.loc.join(' > ')}**: ${error.msg}\n`;
         });
@@ -117,7 +117,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       }
 
       if (detail.warnings.length > 0) {
-        content += '### Warnings\n';
+        content += '#### Warnings\n';
         detail.warnings.forEach(warning => {
           content += `- **${warning.loc.join(' > ')}**: ${warning.msg}\n`;
         });
