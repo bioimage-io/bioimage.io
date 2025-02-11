@@ -22,12 +22,12 @@ interface TestResult {
 
 interface ModelTesterProps {
   artifactId?: string;
-  version?: string;
+  modelUrl?: string;
   isDisabled?: boolean;
   className?: string;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabled, className = '' }) => {
+const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisabled, className = '' }) => {
   const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -72,8 +72,9 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, version, isDisabl
     try {
       const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
       const modelId = artifactId.split('/').pop();
-      const zipUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${modelId}/create-zip-file${version ? `?version=${version}` : ''}`;
-      const result = await runner.test(modelId, zipUrl, {skip_cache: true, _kwargs: true});
+      
+      console.log(`Testing model ${modelId} at ${modelUrl}`);
+      const result = await runner.test(modelId, modelUrl);
       setTestResult(result);
       setIsOpen(true);
     } catch (err) {

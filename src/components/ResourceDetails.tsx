@@ -192,10 +192,9 @@ const ResourceDetails = () => {
           >
             View Source
           </Button>
-          {selectedResource.manifest.type === 'model' && (
+          {selectedResource?.manifest?.type === 'model' && (
             <ModelTester 
               artifactId={selectedResource.id}
-              version={latestVersion?.version || 'latest'}
               isDisabled={false}
             />
           )}

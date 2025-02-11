@@ -1118,7 +1118,7 @@ const Edit: React.FC = () => {
         {isStaged && artifactType === 'model' && (
           <ModelTester
             artifactId={artifactId}
-            version="stage"
+            modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=stage`}
             isDisabled={!server}
           />
         )}

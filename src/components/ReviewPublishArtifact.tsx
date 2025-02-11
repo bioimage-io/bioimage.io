@@ -39,7 +39,8 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     version: '',
     comment: ''
   });
-  const [status, setStatus] = useState<string>(null);
+  const [status, setStatus] = useState<string>('');
+  const [modelVersion, setModelVersion] = useState<string>('');
 
   const shouldDisableActions = !isContentValid || hasContentChanged;
 
@@ -52,6 +53,10 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
       setStatus(null);
     }
   }, [artifactInfo?.manifest?.status]);
+
+  useEffect(() => {
+    setModelVersion(isStaged ? 'stage' : artifactInfo?.current_version || '');
+  }, [isStaged, artifactInfo?.current_version]);
 
   const handlePublish = () => {
     onPublish(publishData);
@@ -81,11 +86,15 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   const handleWithdraw = async () => {
     if (!artifactInfo?.manifest) return;
     try {
-      const { status: _, ...manifestWithoutStatus } = artifactInfo.manifest;
+      const manifestCopy = { ...artifactInfo.manifest };
+      if ('status' in manifestCopy) {
+        delete manifestCopy.status;
+      }
+      
       await artifactManager.edit({
         artifact_id: artifactId,
         version: "stage",
-        manifest: manifestWithoutStatus,
+        manifest: manifestCopy,
         _rkwargs: true
       });
       setStatus('draft');
@@ -209,7 +218,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           </div>
           
           <div className="flex items-center gap-4">
-            {artifactInfo?.manifest?.type === 'model' && (
+            
               <>
                 <button
                   onClick={handleGoBackToEdit}
@@ -220,13 +229,15 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                   </svg>
                   Back to Edit
                 </button>
-                <ModelTester
-                  artifactId={artifactId}
-                  version={isStaged ? 'stage' : artifactInfo?.current_version}
-                  isDisabled={shouldDisableActions}
-                />
+                {artifactInfo?.manifest && artifactInfo.manifest.type === 'model' && (
+                  <ModelTester
+                    artifactId={artifactId}
+                    modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId}/create-zip-file${modelVersion ? `?version=${modelVersion}` : ''}`}
+                    isDisabled={shouldDisableActions}
+                  />
+                )}
               </>
-            )}
+        
             
             {!isCollectionAdmin && artifactId && isStaged && (
               <>
