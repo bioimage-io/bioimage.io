@@ -8,7 +8,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
-
+import { useHyphaStore } from '../store/hyphaStore';
 interface ResourceCardProps {
   resource: ArtifactInfo;
 }
@@ -19,7 +19,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-
+  const { setSelectedResource } = useHyphaStore();
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent Link navigation
     setCurrentImageIndex((prev) => (prev + 1) % covers.length);
@@ -55,6 +55,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const handlePreviewOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setSelectedResource(resource);
     setPreviewOpen(true);
   };
 

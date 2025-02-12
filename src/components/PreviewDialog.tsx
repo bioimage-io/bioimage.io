@@ -24,7 +24,7 @@ export const PreviewDialog = ({ open, resource, onClose }: PreviewDialogProps) =
       }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        {resource.manifest.name} Preview
+        <h2>{resource.manifest.name}</h2>
         <IconButton onClick={onClose} size="small">
           <CloseIcon />
         </IconButton>
