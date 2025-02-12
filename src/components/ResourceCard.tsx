@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardMedia, CardContent, IconButton, Button, Tooltip } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo } from '../types/artifact';
+import { PreviewDialog } from './PreviewDialog';
 
 interface ResourceCardProps {
   resource: ArtifactInfo;
@@ -16,6 +18,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const covers = resource.manifest.covers || [];
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent Link navigation
@@ -27,9 +30,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
     setCurrentImageIndex((prev) => (prev - 1 + covers.length) % covers.length);
   };
 
-  const handleClick = () => {
-    const id = resource.id.split('/').pop();
-    navigate(`/resources/${id}`);
+  const handleClick = (e: React.MouseEvent) => {
+    // Only navigate if the click target is the card itself, not children
+    if (e.target === e.currentTarget) {
+      const id = resource.id.split('/').pop();
+      navigate(`/resources/${id}`);
+    }
   };
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -44,6 +50,16 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
     navigator.clipboard.writeText(id);
     setShowCopied(true);
     setTimeout(() => setShowCopied(false), 2000);
+  };
+
+  const handlePreviewOpen = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setPreviewOpen(true);
+  };
+
+  const handlePreviewClose = () => {
+    setPreviewOpen(false);
   };
 
   // Get the resolved cover URL for the current index
@@ -66,6 +82,9 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
           boxShadow: '0 4px 8px rgba(0, 0, 0, 0.12)',
           transform: 'translateY(-2px)',
           transition: 'all 0.2s ease-in-out',
+          '& .preview-button': {
+            opacity: 1,
+          },
           '& .download-button': {
             opacity: 1,
             transform: 'translateY(0)',
@@ -74,6 +93,31 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
       }}
       onClick={handleClick}
     >
+      <IconButton
+        className="preview-button"
+        onClick={handlePreviewOpen}
+        sx={{
+          position: 'absolute',
+          top: 8,
+          left: 8,
+          zIndex: 1,
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          opacity: 0,
+          transition: 'opacity 0.2s ease-in-out',
+          '&:hover': {
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          }
+        }}
+      >
+        <VisibilityIcon fontSize="small" />
+      </IconButton>
+
+      <PreviewDialog 
+        open={previewOpen}
+        resource={resource}
+        onClose={handlePreviewClose}
+      />
+
       <div style={{ position: 'relative', paddingTop: '56.25%' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
           <CardMedia
