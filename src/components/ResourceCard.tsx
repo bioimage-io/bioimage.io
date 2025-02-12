@@ -32,10 +32,10 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
 
   const handleClick = (e: React.MouseEvent) => {
     // Only navigate if the click target is the card itself, not children
-    if (e.target === e.currentTarget) {
+    // if (e.target === e.currentTarget) {
       const id = resource.id.split('/').pop();
       navigate(`/resources/${id}`);
-    }
+    // }
   };
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -92,7 +92,6 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
           },
         }
       }}
-      onClick={handleClick}
     >
       <IconButton
         className="preview-button"
@@ -122,6 +121,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
       <div style={{ position: 'relative', paddingTop: '56.25%' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
           <CardMedia
+            onClick={handleClick}
             component="img"
             image={getCurrentCoverUrl()}
             alt={resource.manifest.name}
@@ -168,7 +168,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
           </div>
         )}
       </div>
-      <CardContent sx={{ flexGrow: 1, p: 2 }}>
+      <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex-shrink-0 w-6">
