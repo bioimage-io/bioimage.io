@@ -92,38 +92,47 @@ const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect }) => {
         onClose={handleClose}
         sx={{ 
           '& .MuiPaper-root': {
-            width: 600,
+            width: 400,
             maxHeight: 600,
-            p: 2
           }
         }}
       >
-        <div className="space-y-4">
-          <div className="flex justify-between items-center px-2">
-            <h3 className="text-lg font-semibold">Filter by Tags</h3>
-            <Button 
-              size="small" 
-              onClick={handleClose}
-              sx={{ minWidth: 'auto' }}
-            >
-              Close
-            </Button>
+        <div style={{ position: 'relative' }}>
+          <div style={{ 
+            position: 'sticky', 
+            top: 0, 
+            backgroundColor: 'white',
+            zIndex: 1,
+            padding: '16px'
+          }}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold">Filter by Tags</h3>
+              <Button 
+                size="small" 
+                onClick={handleClose}
+                sx={{ minWidth: 'auto' }}
+              >
+                Close
+              </Button>
+            </div>
+            <Divider sx={{ mt: 2 }} />
           </div>
-          <Divider />
-          <Grid container spacing={2}>
+
+          <div style={{ padding: '16px' }}>
             {Object.entries(tagCategories).map(([category, tags]) => (
-              <Grid item xs={6} key={category}>
+              <div key={category} style={{ marginBottom: '24px' }}>
                 <ListSubheader 
                   sx={{
                     bgcolor: 'transparent',
                     fontWeight: 600,
                     lineHeight: '2rem',
-                    color: 'text.primary'
+                    color: 'text.primary',
+                    padding: 0
                   }}
                 >
                   {category.replace(/-/g, ' ')}
                 </ListSubheader>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mt-2">
                   {tags.map((tag) => (
                     <Chip
                       key={tag}
@@ -141,9 +150,9 @@ const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect }) => {
                     />
                   ))}
                 </div>
-              </Grid>
+              </div>
             ))}
-          </Grid>
+          </div>
         </div>
       </Menu>
     </div>

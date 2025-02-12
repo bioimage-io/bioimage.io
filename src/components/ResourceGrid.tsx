@@ -55,6 +55,16 @@ export const Pagination = ({ currentPage, totalPages, onPageChange }: Pagination
   );
 };
 
+// Add this overlay spinner component
+const LoadingOverlay = () => (
+  <div className="fixed inset-0 bg-white/50 flex items-center justify-center z-50">
+    <div className="bg-white/90 rounded-lg p-6 shadow-lg flex flex-col items-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+      <div className="text-xl font-semibold text-gray-700">Loading resources...</div>
+    </div>
+  </div>
+);
+
 export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -148,6 +158,9 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="container mx-auto px-4 sm:px-4 md:px-4 lg:px-4">
+      {/* Show loading overlay when loading */}
+      {loading && <LoadingOverlay />}
+      
       <div className="community-partners mb-4">
         <div className="partner-logos">
           <PartnerScroll onPartnerClick={handlePartnerClick} />
@@ -178,6 +191,7 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
           </div>
         </div>
       </div>
+
       <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
         {resources.map((resource) => (
           <Grid 

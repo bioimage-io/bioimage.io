@@ -180,9 +180,20 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     const zipFile = acceptedFiles[0];
     const zip = new JSZip();
     
+    // Set loading state while processing the zip
+    setUploadStatus({
+      message: 'Processing zip file...',
+      severity: 'info'
+    });
+    
     try {
+      // Show loading spinner while processing
       const loadedZip = await zip.loadAsync(zipFile);
       const fileNodes: FileNode[] = [];
+
+      // Add loading progress
+      let processedFiles = 0;
+      const totalFiles = Object.keys(loadedZip.files).length;
 
       for (const [path, file] of Object.entries(loadedZip.files)) {
         if (!file.dir) {
@@ -197,6 +208,13 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             path: path,
             content: content,
             isDirectory: false
+          });
+
+          processedFiles++;
+          setUploadStatus({
+            message: `Processing files... (${processedFiles}/${totalFiles})`,
+            severity: 'info',
+            progress: (processedFiles / totalFiles) * 100
           });
         }
       }
@@ -867,32 +885,45 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center max-w-2xl mx-auto">
-                  
-                  <div 
-                    {...getRootProps()} 
-                    className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
-                  >
-                    <input {...getInputProps()} />
-                    <div className="mb-6">
-                      <div className="w-16 h-16 mx-auto mb-4">
-                        <svg className="w-full h-full text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
+                  {uploadStatus?.message && uploadStatus.severity === 'info' && uploadStatus.progress !== undefined ? (
+                    // Show loading spinner while processing
+                    <div className="flex flex-col items-center justify-center mb-8">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                      <div className="text-xl font-semibold text-gray-700 mb-2">{uploadStatus.message}</div>
+                      <div className="w-64 bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${uploadStatus.progress}%` }}
+                        />
                       </div>
-                      {isDragActive ? (
-                        <p className="text-lg text-blue-600 font-medium">Drop the zip file here...</p>
-                      ) : (
-                        <>
-                          <p className="text-lg text-gray-700 font-medium mb-2">
-                            Drag & drop your model package here
-                          </p>
-                          <p className="text-gray-500">
-                            or click to browse your files
-                          </p>
-                        </>
-                      )}
                     </div>
-                  </div>
+                  ) : (
+                    <div 
+                      {...getRootProps()} 
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
+                    >
+                      <input {...getInputProps()} />
+                      <div className="mb-6">
+                        <div className="w-16 h-16 mx-auto mb-4">
+                          <svg className="w-full h-full text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                        </div>
+                        {isDragActive ? (
+                          <p className="text-lg text-blue-600 font-medium">Drop the zip file here...</p>
+                        ) : (
+                          <>
+                            <p className="text-lg text-gray-700 font-medium mb-2">
+                              Drag & drop your model package here
+                            </p>
+                            <p className="text-gray-500">
+                              or click to browse your files
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <Link
                     to="/my-artifacts"
