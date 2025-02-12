@@ -10,7 +10,7 @@ interface TestResult {
   type?: string;
   details: Array<{
     name: string;
-    status: string;
+    status: 'passed' | 'failed';
     errors: Array<{
       msg: string;
       loc: string[];
@@ -125,7 +125,7 @@ Please keep this window open while the test is running.`;
 
     testResult.details.forEach(detail => {
       content += `### ${detail.name}\n`;
-      content += `**Status**: ${detail.status}\n\n`;
+      content += `**Status**: ${detail.status === 'passed' ? '✅ Passed' : '❌ Failed' }\n\n`;
 
       if (detail.errors.length > 0) {
         content += '#### Errors\n';
