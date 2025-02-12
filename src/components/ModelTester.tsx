@@ -6,7 +6,8 @@ import remarkGfm from 'remark-gfm';
 
 interface TestResult {
   name: string;
-  success: boolean;
+  status: 'passed' | 'failed';
+  type?: string;
   details: Array<{
     name: string;
     status: string;
@@ -84,7 +85,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       console.error('Test run failed:', err);
       setTestResult({
         name: 'Test Failed',
-        success: false,
+        status: "failed",
         details: [{
           name: 'Error',
           status: 'failed',
@@ -119,7 +120,7 @@ Please keep this window open while the test is running.`;
 
     if (!testResult) return '';
 
-    let content = `# ${testResult.success ? '✅ Test Passed' : '❌ Test Failed'}\n\n`;
+    let content = `# ${testResult.status === 'passed' ? '✅ Test Passed' : '❌ Test Failed'}\n\n`;
     content += `## Details\n\n`;
 
     testResult.details.forEach(detail => {
@@ -176,7 +177,7 @@ Please keep this window open while the test is running.`;
                 : isLoading
                   ? 'bg-blue-600 text-white'
                   : testResult
-                    ? testResult.success
+                    ? testResult.status === 'passed'
                       ? 'bg-green-600 text-white hover:bg-green-700'
                       : 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
@@ -191,7 +192,7 @@ Please keep this window open while the test is running.`;
             ) : testResult ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d={testResult.success
+                  d={testResult.status === 'passed'
                     ? "M5 13l4 4L19 7"
                     : "M6 18L18 6M6 6l12 12"} />
               </svg>
