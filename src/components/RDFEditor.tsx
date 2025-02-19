@@ -2,6 +2,26 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Switch, TextField, FormControl, FormHelperText, Autocomplete } from '@mui/material';
 import yaml from 'js-yaml';
+import TagSelection from './TagSelection';
+import { tagCategories } from './TagSelection';
+
+// Add debounce function at the top of the file, before interfaces
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+
+  return function executedFunction(...args: Parameters<T>) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 interface Author {
   name: string;
@@ -55,6 +75,32 @@ interface RDFEditorProps {
   showModeSwitch?: boolean;
 }
 
+// Add the getCompletion function
+async function getCompletion(text: string): Promise<string[]> {
+  const url = `https://www.ebi.ac.uk/ols/api/suggest?q=${text}`;
+  let response = await fetch(url);
+  if (response.ok) {
+    const ret = await response.json();
+    let results: string[] = [];
+    if (ret.response.numFound > 0) {
+      results = ret.response.docs.map((d: any) => d.autosuggest);
+    }
+    const selectUrl = `https://www.ebi.ac.uk/ols/api/select?q=${text}`;
+    response = await fetch(selectUrl);
+    if (response.ok) {
+      const ret = await response.json();
+      if (ret.response.numFound > 0) {
+        results = results.concat(ret.response.docs.map((d: any) => d.label));
+      }
+    }
+    results = results.filter((item, pos) => results.indexOf(item) === pos);
+    return results;
+  } else {
+    console.error(`Failed to fetch completion from EBI OLS: ${url}`, response);
+    return [];
+  }
+}
+
 const RDFEditor: React.FC<RDFEditorProps> = ({ 
   content, 
   onChange,
@@ -67,10 +113,15 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const [editorContent, setEditorContent] = useState(content);
   const [licenses, setLicenses] = useState<SPDXLicense[]>([]);
   const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
+  const [remoteSuggestions, setRemoteSuggestions] = useState<string[]>([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
+
+  // Combine local and remote suggestions
+  const tagSuggestions = [...Object.values(tagCategories).flat(), ...remoteSuggestions];
 
   const validateTag = (tag: string) => {
-    // Allow lowercase letters, numbers, and special characters: +*#;./%@
-    return /^[a-z0-9+*#;./%@]+$/.test(tag);
+    // Allow lowercase letters, numbers, dashes, and special characters: +*#;./%@
+    return /^[a-z0-9+*#;./%@-]+$/.test(tag);
   };
 
   const fetchLicenses = useCallback(async () => {
@@ -92,6 +143,28 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       setIsLoadingLicenses(false);
     }
   }, [licenses]);
+
+  // Update the debounced fetch function to use setRemoteSuggestions
+  const debouncedFetchTags = useCallback(
+    debounce(async (inputValue: string) => {
+      if (!inputValue) {
+        setRemoteSuggestions([]);
+        return;
+      }
+      setIsLoadingTags(true);
+      try {
+        const suggestions = await getCompletion(inputValue);
+        // Filter suggestions to only include valid tags
+        const validSuggestions = suggestions.filter(tag => validateTag(tag));
+        setRemoteSuggestions(validSuggestions);
+      } catch (error) {
+        console.error('Error fetching tag suggestions:', error);
+      } finally {
+        setIsLoadingTags(false);
+      }
+    }, 300),
+    []
+  );
 
   // Parse YAML content when component mounts or content changes
   useEffect(() => {
@@ -210,7 +283,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
 
   // Add more fields to the form based on the reference implementation
   const renderForm = () => (
-    <div className="space-y-4 p-4 text-sm">
+    <div className="space-y-4 px-8 py-4 text-sm">
       {/* Basic Information */}
       <div className="space-y-3">
         <h3 className="text-base font-medium text-gray-900">Basic Information</h3>
@@ -320,44 +393,67 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         />
 
         {/* Add Tags field */}
-        <Autocomplete
-          fullWidth
-          multiple
-          size="small"
-          options={[]} // Empty array since we allow free input
-          value={formData.tags || []}
-          onChange={(_, newValue) => {
-            // Filter out invalid tags
-            const validTags = newValue.filter(tag => validateTag(tag));
-            handleFormChange('tags', validTags);
-          }}
-          freeSolo
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Tags"
-              helperText="Tags should contain only lowercase letters, numbers, or the following characters: +*#;./%@ (no spaces). Press Enter, Tab, or Space after each tag."
-              disabled={readOnly}
-              error={!!errors.tags}
+        <div>
+          <div className="flex gap-2 items-start">
+            <Autocomplete
+              fullWidth
+              multiple
+              size="small"
+              options={tagSuggestions}
+              value={formData.tags || []}
+              onChange={(_, newValue) => {
+                const validTags = newValue.filter(tag => validateTag(tag));
+                handleFormChange('tags', validTags);
+              }}
+              onInputChange={(_, value, reason) => {
+                if (reason === 'input') {
+                  if (!validateTag(value)) {
+                    setErrors(prev => ({
+                      ...prev,
+                      tags: 'Invalid characters in tag'
+                    }));
+                  } else {
+                    setErrors(prev => {
+                      const { tags, ...rest } = prev;
+                      return rest;
+                    });
+                    debouncedFetchTags(value);
+                  }
+                }
+              }}
+              loading={isLoadingTags}
+              freeSolo
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Tags"
+                  helperText="Tags should contain only lowercase letters, numbers, dashes (-), or the following characters: +*#;./%@ (no spaces). As you type, suggestions from the EBI Ontology Lookup Service will appear. Press Enter, Tab, or Space after each tag."
+                  disabled={readOnly}
+                  error={!!errors.tags}
+                />
+              )}
+              ChipProps={{
+                size: 'small',
+                sx: { fontSize: '0.875rem' }
+              }}
+              renderOption={(props, option) => (
+                <li {...props}>
+                  <span className="text-base text-gray-700">{option}</span>
+                </li>
+              )}
             />
-          )}
-          ChipProps={{
-            size: 'small'
-          }}
-          onInputChange={(event, value, reason) => {
-            if (reason === 'input' && !validateTag(value)) {
-              setErrors(prev => ({
-                ...prev,
-                tags: 'Invalid characters in tag'
-              }));
-            } else {
-              setErrors(prev => {
-                const { tags, ...rest } = prev;
-                return rest;
-              });
-            }
-          }}
-        />
+            <div>
+              <TagSelection 
+                onTagSelect={(tag) => {
+                  const currentTags = formData.tags || [];
+                  if (!currentTags.includes(tag)) {
+                    handleFormChange('tags', [...currentTags, tag]);
+                  }
+                }} 
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add Uploader section after Basic Information */}

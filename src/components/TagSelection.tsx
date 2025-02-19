@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import Button from '@mui/material/Button';
 import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
 import TuneIcon from '@mui/icons-material/Tune';
 import { Grid, Chip, Divider } from '@mui/material';
@@ -10,7 +9,7 @@ interface TagSelectionProps {
   onTagSelect: (tag: string) => void;
 }
 
-const tagCategories = {
+export const tagCategories = {
   modality: [
     "electron-microscopy",
     "cryo-electron-microscopy",
@@ -21,7 +20,6 @@ const tagCategories = {
     "force-microscopy",
     "high-content-imaging",
     "whole-slide-imaging",
-    "other"
   ],
   dims: ["2d", "3d", "2d-t", "3d-t"],
   content: [
