@@ -20,6 +20,10 @@ interface Version {
   comment: string;
   created_at: number;
 }
+interface Uploader {
+  email: string;
+  name: string | null;
+}
 
 export interface ArtifactInfo {
   id: string;
@@ -46,6 +50,7 @@ export interface ArtifactInfo {
     }[];
     git_repo?: string;
     license?: string;
+    uploader: Uploader;
   };
   staging?: any[];
   download_count: number;

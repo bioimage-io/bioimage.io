@@ -8,6 +8,7 @@ import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
+import RDFEditor from './RDFEditor';
 
 interface FileNode {
   name: string;
@@ -97,7 +98,7 @@ const extractNounFromId = (id: string): string => {
 const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
@@ -308,9 +309,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const handleUpload = async () => {
     if (isUploading) return;
     
-    if (!artifactManager) {
+    if (!artifactManager || !user?.email) {
       setUploadStatus({
-        message: 'Artifact manager not connected',
+        message: 'Please login first',
         severity: 'error'
       });
       return;
@@ -335,24 +336,23 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           : new TextDecoder().decode(rdfFile.content);
         manifest = yaml.load(content) as RdfManifest;
 
-        // Check for legacy nickname fields and remove them
-        if (manifest.config?.bioimageio?.nickname) {
-          console.log('Found legacy nickname fields, will be replaced with new ID format');
-          // Remove legacy fields
-          if (manifest.config.bioimageio) {
-            delete manifest.config.bioimageio.nickname;
-            delete manifest.config.bioimageio.nickname_icon;
-            
-            // Remove the bioimageio object if it's empty
-            if (Object.keys(manifest.config.bioimageio).length === 0) {
-              delete manifest.config.bioimageio;
-            }
-            // Remove the config object if it's empty
-            if (Object.keys(manifest.config).length === 0) {
-              delete manifest.config;
-            }
-          }
-        }
+        // Set uploader email automatically
+        manifest.uploader = {
+          ...manifest.uploader,
+          email: user.email
+        };
+
+        // Update the rdf.yaml content with the new manifest
+        const updatedContent = yaml.dump(manifest);
+        
+        // Update the file in the files array
+        const updatedFiles = files.map(file => 
+          file.path.endsWith('rdf.yaml')
+            ? { ...file, content: updatedContent }
+            : file
+        );
+        setFiles(updatedFiles);
+
       } catch (error) {
         console.error('Error parsing rdf.yaml:', error);
         throw new Error('Invalid rdf.yaml format');
@@ -683,7 +683,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-[calc(100vh-48px)]"> {/* 48px is navbar height */}
       {/* Add back button when viewing existing artifact */}
       {files.length > 0 && (<>
         {/* Add toggle sidebar button - only show when files are loaded */}
@@ -716,8 +716,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-auto">
-        {/* Only show sidebar when files are loaded */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
         {files.length > 0 && (
           <div className={`${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -825,10 +825,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         )}
 
         {/* Main content area */}
-        <div className="flex-1 flex flex-col">
-          {/* Status bar with upload button and progress */}
+        <div className="w-full flex flex-col overflow-hidden">
+          {/* Status bar */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white">
+            <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
               {/* Container with padding */}
               <div className="p-4">
                 {/* Flex container that stacks below 1024px */}
@@ -896,7 +896,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           )}
 
           {/* Content area */}
-          <div className="flex-1 p-6 overflow-auto">
+          <div className="flex-1 overflow-auto">
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center max-w-2xl mx-auto">
@@ -968,7 +968,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 </div>
               </div>
             ) : selectedFile ? (
-              <div className="h-full">
+              <div className="h-[calc(100vh-145px)]">
                 {isImageFile(selectedFile.name) ? (
                   <div className="flex flex-col gap-4">
                     {imageUrl ? (
@@ -983,17 +983,23 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       </div>
                     )}
                   </div>
+                ) : selectedFile.name.endsWith('rdf.yaml') ? (
+                  <RDFEditor
+                    content={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
+                    onChange={(value) => handleEditorChange(value, selectedFile)}
+                    readOnly={false}
+                    showModeSwitch={true}
+                  />
                 ) : isTextFile(selectedFile.name) ? (
                   <div className="flex flex-col gap-4">
                     <Editor
-                      height="70vh"
+                      height="calc(100vh - 177px)" // 145px + 32px (p-4 top and bottom)
                       language={getEditorLanguage(selectedFile.name)}
                       value={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
                       onChange={(value) => handleEditorChange(value, selectedFile)}
                       options={{
                         minimap: { enabled: false },
                         scrollBeyondLastLine: true,
-                        readOnly: !isTextFile(selectedFile.name),
                         wordWrap: 'on',
                         lineNumbers: 'on',
                         renderWhitespace: 'selection',

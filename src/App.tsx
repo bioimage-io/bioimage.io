@@ -17,11 +17,17 @@ import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 
+// Add a utility function to check if footer should be hidden
+const shouldHideFooter = (pathname: string): boolean => {
+  return pathname.startsWith('/edit/') || pathname === '/upload';
+};
+
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const hasResourceId = searchParams.has('id');
+  const hideFooter = shouldHideFooter(location.pathname);
 
   // Add state for Snackbar
   const [snackbarOpen, setSnackbarOpen] = React.useState(false);
@@ -78,7 +84,7 @@ const AppContent: React.FC = () => {
           <Route path="/api" element={<ApiDocs />} />
         </Routes>
       </main>
-      <Footer />
+      {!hideFooter && <Footer />}
     </div>
   );
 };

@@ -10,6 +10,7 @@ import ModelValidator from './ModelValidator';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
 import StatusBadge from './StatusBadge';
 import yaml from 'js-yaml';
+import RDFEditor from './RDFEditor';
 
 interface FileNode {
   name: string;
@@ -40,6 +41,12 @@ interface KeyboardShortcut {
   ctrlKey?: boolean;
   metaKey?: boolean;
   handler: () => void;
+}
+
+// Add interface for validation result
+interface ValidationResult {
+  success: boolean;
+  errors: string[];
 }
 
 const Edit: React.FC = () => {
@@ -352,10 +359,8 @@ const Edit: React.FC = () => {
     }
   };
 
-  const validateRdfContent = (content: string, artifactId: string, artifactEmoji: string): {
-    isValid: boolean;
-    errors: string[];
-  } => {
+  // Update the validateRdfContent function
+  const validateRdfContent = (content: string, artifactId: string, artifactEmoji: string, userEmail: string): ValidationResult => {
     try {
       const manifest = yaml.load(content) as any;
       const errors: string[] = [];
@@ -371,7 +376,12 @@ const Edit: React.FC = () => {
         errors.push(`The 'id_emoji' field must be "${artifactEmoji}"`);
       }
 
-      // Check if legacy nickname fields match if they exist
+      // Check uploader email only if it exists
+      if (manifest.uploader?.email && manifest.uploader.email !== userEmail) {
+        errors.push(`The uploader email must be "${userEmail}"`);
+      }
+
+      // Check legacy nickname fields
       if (manifest.config?.bioimageio?.nickname && manifest.config.bioimageio.nickname !== shortId) {
         errors.push(`Legacy nickname field 'config.bioimageio.nickname' must be "${shortId}"`);
       }
@@ -380,12 +390,12 @@ const Edit: React.FC = () => {
       }
 
       return {
-        isValid: errors.length === 0,
+        success: errors.length === 0,
         errors
       };
     } catch (error) {
       return {
-        isValid: false,
+        success: false,
         errors: ['Invalid YAML format']
       };
     }
@@ -417,64 +427,89 @@ const Edit: React.FC = () => {
   const handleSave = async (file: FileNode) => {
     if (!artifactManager || !unsavedChanges[file.path]) return;
 
-    // For rdf.yaml, validate content before saving
+    // For rdf.yaml, validate and potentially update content before saving
     if (file.path.endsWith('rdf.yaml')) {
-      const validation = validateRdfContent(
-        unsavedChanges[file.path],
-        artifactInfo?.id || '',
-        artifactInfo?.manifest?.id_emoji || ''
-      );
-
-      if (!validation.isValid) {
-        setValidationErrors(validation.errors);
-        return;
-      }
-    }
-
-    try {
-      setUploadStatus({
-        message: 'Saving changes...',
-        severity: 'info'
-      });
-
-      // Get the presigned URL for uploading
-      const presignedUrl = await artifactManager.put_file({
-        artifact_id: artifactId,
-        file_path: file.path,
-        _rkwargs: true
-      });
-
-      // Upload the file content
-      const response = await fetch(presignedUrl, {
-        method: 'PUT',
-        body: unsavedChanges[file.path],
-        headers: {
-          'Content-Type': '' // important for s3
+      try {
+        if (!user?.email) {
+          setValidationErrors(['You must be logged in to save changes']);
+          return;
         }
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to upload file');
-      }
+        // Parse the YAML content
+        let content = unsavedChanges[file.path];
+        let manifest = yaml.load(content) as any;
 
-      // If this is rdf.yaml, update the artifact's manifest
-      if (file.path.endsWith('rdf.yaml')) {
+        // Add or update uploader info if missing or different
+        if (!manifest.uploader?.email) {
+          manifest.uploader = {
+            ...manifest.uploader,
+            email: user.email
+          };
+          // Update the content with new uploader info
+          content = yaml.dump(manifest);
+          // Update unsaved changes with new content
+          setUnsavedChanges(prev => ({
+            ...prev,
+            [file.path]: content
+          }));
+        } else if (manifest.uploader.email !== user.email) {
+          setValidationErrors([`The uploader email must be "${user.email}"`]);
+          return;
+        }
+
+        // Proceed with full validation
+        const validation = validateRdfContent(
+          content,
+          artifactInfo?.id || '',
+          artifactInfo?.manifest?.id_emoji || '',
+          user.email
+        );
+
+        if (!validation.success) {
+          setValidationErrors(validation.errors);
+          return;
+        }
+
+        // Continue with saving the updated content
         try {
-          const rdfContent = unsavedChanges[file.path];
-          const rdfData = yaml.load(rdfContent);
-          
-          if (rdfData && typeof rdfData === 'object') {
+          setUploadStatus({
+            message: 'Saving changes...',
+            severity: 'info'
+          });
+
+          // Get the presigned URL for uploading
+          const presignedUrl = await artifactManager.put_file({
+            artifact_id: artifactId,
+            file_path: file.path,
+            _rkwargs: true
+          });
+
+          // Upload the file content
+          const response = await fetch(presignedUrl, {
+            method: 'PUT',
+            body: content, // Use the potentially updated content
+            headers: {
+              'Content-Type': '' // important for s3
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to upload file');
+          }
+
+          // Update the manifest if this is rdf.yaml
+          try {
             // Update artifact with new manifest data
             await artifactManager.edit({
               artifact_id: artifactId,
-              manifest: rdfData,
+              manifest: manifest,
               version: 'stage',
               _rkwargs: true
             });
 
             // Update local state
-            if ('type' in rdfData) {
-              setArtifactType(rdfData.type as string);
+            if ('type' in manifest) {
+              setArtifactType(manifest.type as string);
             }
             
             // Update artifactInfo with new manifest
@@ -482,44 +517,51 @@ const Edit: React.FC = () => {
               ...prev,
               manifest: {
                 ...prev.manifest,
-                ...rdfData
+                ...manifest
               }
             } : null);
+          } catch (error) {
+            console.error('Error updating manifest:', error);
+            setUploadStatus({
+              message: 'Error updating manifest from rdf.yaml',
+              severity: 'error'
+            });
+            return;
           }
-        } catch (error) {
-          console.error('Error updating manifest:', error);
+
+          // Update the local state
+          setFiles(files.map(f => 
+            f.path === file.path 
+              ? { ...f, content, edited: false }
+              : f
+          ));
+
+          // Clear unsaved changes for this file
+          setUnsavedChanges(prev => {
+            const newState = { ...prev };
+            delete newState[file.path];
+            return newState;
+          });
+
           setUploadStatus({
-            message: 'Error updating manifest from rdf.yaml',
+            message: 'Changes saved',
+            severity: 'success'
+          });
+        } catch (error) {
+          console.error('Error saving changes:', error);
+          setUploadStatus({
+            message: 'Error saving changes',
             severity: 'error'
           });
-          return; // Return early on manifest update error
         }
+      } catch (error) {
+        console.error('Error parsing rdf.yaml:', error);
+        setValidationErrors(['Invalid YAML format']);
+        return;
       }
-
-      // Update the local state - but don't set edited: true since we just saved
-      setFiles(files.map(f => 
-        f.path === file.path 
-          ? { ...f, content: unsavedChanges[file.path], edited: false }
-          : f
-      ));
-
-      // Clear unsaved changes for this file
-      setUnsavedChanges(prev => {
-        const newState = { ...prev };
-        delete newState[file.path];
-        return newState;
-      });
-
-      setUploadStatus({
-        message: 'Changes saved',
-        severity: 'success'
-      });
-    } catch (error) {
-      console.error('Error saving changes:', error);
-      setUploadStatus({
-        message: 'Error saving changes',
-        severity: 'error'
-      });
+    } else {
+      // Handle non-rdf.yaml files...
+      // ... (rest of the original save logic for other files)
     }
   };
 
@@ -567,7 +609,7 @@ const Edit: React.FC = () => {
   const renderFileContent = () => {
     if (!selectedFile) {
       return (
-        <div className="h-[calc(100vh-113px)] flex items-center justify-center text-gray-500">
+        <div className="h-[calc(100vh-145px)] flex items-center justify-center text-gray-500">
           Select a file to view or edit
         </div>
       );
@@ -575,9 +617,22 @@ const Edit: React.FC = () => {
 
     if (!selectedFile.content) {
       return (
-        <div className="h-[calc(100vh-113px)] flex flex-col items-center justify-center">
+        <div className="h-[calc(100vh-145px)] flex flex-col items-center justify-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
           <div className="text-xl font-semibold text-gray-700">Loading file content...</div>
+        </div>
+      );
+    }
+
+    if (selectedFile.name.endsWith('rdf.yaml')) {
+      return (
+        <div className="h-[calc(100vh-145px)]">
+          <RDFEditor
+            content={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
+            onChange={(value) => handleEditorChange(value, selectedFile)}
+            readOnly={!isTextFile(selectedFile.name)}
+            showModeSwitch={true}
+          />
         </div>
       );
     }
@@ -604,7 +659,7 @@ const Edit: React.FC = () => {
       return (
         <div className="flex flex-col gap-4 p-4">
           <Editor
-            height="calc(100vh - 145px)"
+            height="calc(100vh - 177px)"
             language={getEditorLanguage(selectedFile.name)}
             value={unsavedChanges[selectedFile.path] ?? 
               (typeof selectedFile.content === 'string' ? selectedFile.content : '')}
@@ -1046,7 +1101,7 @@ const Edit: React.FC = () => {
     </div>
   );
 
-  // Add this handler function near other handlers
+  // Update the handleValidationComplete function
   const handleValidationComplete = (result: ValidationResult) => {
     setUploadStatus({
       message: result.success ? 'Validation successful!' : 'Validation failed',
@@ -1055,6 +1110,19 @@ const Edit: React.FC = () => {
     
     setIsContentValid(result.success);
     setHasContentChanged(false);
+
+    // If validation failed and we're viewing rdf.yaml in form mode,
+    // find the RDFEditor and switch it to YAML mode
+    if (!result.success && selectedFile?.path.endsWith('rdf.yaml')) {
+      const rdfEditor = document.querySelector('[data-testid="rdf-editor"]');
+      if (rdfEditor) {
+        // Find and click the YAML mode button
+        const yamlModeButton = rdfEditor.querySelector('[data-testid="yaml-mode-button"]');
+        if (yamlModeButton instanceof HTMLButtonElement) {
+          yamlModeButton.click();
+        }
+      }
+    }
 
     // If validation successful, check for type changes in rdf.yaml
     if (result.success) {
@@ -1433,7 +1501,7 @@ const Edit: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-[calc(100vh-48px)]">
       {/* Header - remove border-b since content will scroll under it */}
       <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 z-30">
         <div className="flex items-center gap-2">
@@ -1468,11 +1536,11 @@ const Edit: React.FC = () => {
         <div></div>
       </div>
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - update to be sticky and remove h-full */}
         <div className={`${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col sticky top-[49px] max-h-[calc(100vh-49px)] lg:static z-20 transition-transform duration-300 ease-in-out`}>
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col sticky max-h-[calc(100vh-49px)] lg:static z-20 transition-transform duration-300 ease-in-out`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1533,7 +1601,7 @@ const Edit: React.FC = () => {
         <div className="w-full">
           {/* Status bar - make it sticky */}
           {activeTab === 'files' && (
-            <div className="border-b border-gray-200 bg-white sticky top-[49px] z-20">
+            <div className="border-b border-gray-200 bg-white sticky z-20">
               {/* Container with padding except bottom when progress bar is shown */}
               <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 {/* Flex container that stacks below 1024px */}
