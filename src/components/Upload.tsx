@@ -761,12 +761,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                   </h2>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-                    <button
-                      onClick={() => setShowDragDrop(true)}
-                      className="text-sm text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
-                    >
-                      New Upload
-                    </button>
                   </div>
                 </>
               )}
