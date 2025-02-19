@@ -239,7 +239,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               </>
         
             
-            {!isCollectionAdmin && artifactId && isStaged && (
+            {artifactId && isStaged && (
               <>
                 {status !== 'request-review' ? (
                   <button
