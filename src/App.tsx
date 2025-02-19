@@ -16,6 +16,8 @@ import { HyphaProvider } from './HyphaContext';
 import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
+import AnnotatePage from './pages/AnnotatePage';
+import CreateAnnotationPage from './pages/CreateAnnotationPage';
 
 // Create a wrapper component that uses Router hooks
 const AppContent: React.FC = () => {
@@ -76,6 +78,9 @@ const AppContent: React.FC = () => {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/review" element={<ReviewArtifacts />} />
           <Route path="/api" element={<ApiDocs />} />
+          <Route path="/annotate" element={<AnnotatePage />} />
+          <Route path="/annotations" element={<AnnotatePage />} />
+          <Route path="/annotate/new" element={<CreateAnnotationPage />} />
         </Routes>
       </main>
       <Footer />

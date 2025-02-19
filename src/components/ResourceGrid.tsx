@@ -8,7 +8,8 @@ import { Grid } from '@mui/material';
 import TagSelection from './TagSelection';
 
 interface ResourceGridProps {
-  type?: 'model' | 'application' | 'notebook' | 'dataset';
+  type?: 'model' | 'application' | 'notebook' | 'dataset' | 'annotation';
+  hidePartners?: boolean;
 }
 
 interface PaginationProps {
@@ -65,7 +66,7 @@ const LoadingOverlay = () => (
   </div>
 );
 
-export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
+export const ResourceGrid: React.FC<ResourceGridProps> = ({ type, hidePartners }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const location = useLocation();
@@ -83,12 +84,12 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
-    // Convert plural path to singular type
     const typeMap: { [key: string]: string } = {
       'models': 'model',
       'datasets': 'dataset',
       'applications': 'application',
-      'notebooks': 'notebook'
+      'notebooks': 'notebook',
+      'annotations': 'annotation'
     };
     return typeMap[path] || null;
   }, [location.pathname]);
@@ -161,11 +162,14 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       {/* Show loading overlay when loading */}
       {loading && <LoadingOverlay />}
       
-      <div className="community-partners mb-4">
-        <div className="partner-logos">
-          <PartnerScroll onPartnerClick={handlePartnerClick} />
+      {/* Only show partners if not hidden */}
+      {!hidePartners && (
+        <div className="community-partners mb-4">
+          <div className="partner-logos">
+            <PartnerScroll onPartnerClick={handlePartnerClick} />
+          </div>
         </div>
-      </div>
+      )}
       <div className="relative mb-8">
         <div 
           className="absolute right-10 -bottom-6 w-64 h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none" 

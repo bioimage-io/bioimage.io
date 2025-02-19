@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginButton from './LoginButton';
-import { BiCube } from 'react-icons/bi';
+import { BiCube, BiEdit } from 'react-icons/bi';
 import { BsDatabase, BsCollection } from 'react-icons/bs';
 import { HiOutlineBeaker } from 'react-icons/hi';
 import { IoDocumentTextOutline, IoCloudUploadOutline } from 'react-icons/io5';
@@ -64,6 +64,10 @@ const Navbar: React.FC = () => {
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
             </Link>
+            <Link to="/annotations" className={navLinkClasses("/annotations")}>
+              <BiEdit className="mr-2" size={18} />
+              Annotations
+            </Link>
             <a 
               href="https://bioimage.io/docs" 
               className={navLinkClasses("/docs")}
@@ -73,17 +77,12 @@ const Navbar: React.FC = () => {
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
             </a>
-            <Link to="/about" className={navLinkClasses("/about")}>
-              <AiOutlineInfoCircle className="mr-2" size={18} />
-              About
-            </Link>
           </div>
 
           {/* Right section with auth buttons */}
           <div className="flex items-center space-x-4">
             {/* Move Upload and Login buttons to desktop-only view */}
             <div className="hidden md:flex items-center space-x-4">
-              
               {location.pathname !== '/upload' && (
                 <Link
                   to="/upload"
@@ -120,6 +119,53 @@ const Navbar: React.FC = () => {
         {/* Mobile menu */}
         <div className={`md:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
           <div className="px-2 pt-2 pb-3 space-y-1">
+            <Link 
+              to="/models" 
+              className={mobileNavLinkClasses("/models")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <BiCube className="mr-2" size={20} />
+              Models
+            </Link>
+            <Link 
+              to="/datasets" 
+              className={mobileNavLinkClasses("/datasets")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <BsDatabase className="mr-2" size={18} />
+              Datasets
+            </Link>
+            <Link 
+              to="/applications" 
+              className={mobileNavLinkClasses("/applications")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <HiOutlineBeaker className="mr-2" size={20} />
+              Applications
+            </Link>
+            <Link 
+              to="/annotations" 
+              className={mobileNavLinkClasses("/annotations")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <BiEdit className="mr-2" size={18} />
+              Annotations
+            </Link>
+            <a 
+              href="https://bioimage.io/docs"
+              className={mobileNavLinkClasses("/docs")}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <IoDocumentTextOutline className="mr-2" size={18} />
+              Docs
+            </a>
+
+            {/* Add divider */}
+            <div className="border-t border-gray-200 my-2"></div>
+
+            {/* User menu items */}
             {user?.email && (
               <Link 
                 to="/my-artifacts" 
@@ -130,56 +176,6 @@ const Navbar: React.FC = () => {
                 Artifacts
               </Link>
             )}
-            <Link 
-              to="/upload" 
-              className={mobileNavLinkClasses("/upload")}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              <IoCloudUploadOutline className="mr-2" size={18} />
-              Upload
-            </Link>
-            <Link 
-              to="/models" 
-              className={mobileNavLinkClasses("/models")}
-            >
-              <BiCube className="mr-2" size={20} />
-              Models
-            </Link>
-            <Link 
-              to="/datasets" 
-              className={mobileNavLinkClasses("/datasets")}
-            >
-              <BsDatabase className="mr-2" size={18} />
-              Datasets
-            </Link>
-            <Link 
-              to="/applications" 
-              className={mobileNavLinkClasses("/applications")}
-            >
-              <HiOutlineBeaker className="mr-2" size={20} />
-              Applications
-            </Link>
-            <a 
-              href="https://bioimage.io/docs"
-              className={mobileNavLinkClasses("/docs")}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <IoDocumentTextOutline className="mr-2" size={18} />
-              Docs
-            </a>
-            <Link 
-              to="/about" 
-              className={mobileNavLinkClasses("/about")}
-            >
-              <AiOutlineInfoCircle className="mr-2" size={18} />
-              About
-            </Link>
-
-            {/* Add divider */}
-            <div className="border-t border-gray-200 my-2"></div>
-
-            {/* Add Upload and Login buttons to mobile menu */}
             {location.pathname !== '/upload' && (
               <Link 
                 to="/upload" 
@@ -190,6 +186,14 @@ const Navbar: React.FC = () => {
                 Upload
               </Link>
             )}
+            <Link 
+              to="/about" 
+              className={mobileNavLinkClasses("/about")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <AiOutlineInfoCircle className="mr-2" size={18} />
+              About
+            </Link>
             <div className="px-3 py-2">
               <LoginButton />
             </div>
