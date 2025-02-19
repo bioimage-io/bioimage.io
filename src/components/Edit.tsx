@@ -1615,7 +1615,7 @@ const Edit: React.FC = () => {
           {/* Status bar - update responsive styles */}
           {activeTab === 'files' && (
             <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
-              <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
+              <div className={`p-2 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   {/* Status section - add max width for large screens */}
                   <div className="flex-grow min-w-0 lg:max-w-[50%]">

@@ -830,7 +830,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           {files.length > 0 && (
             <div className="border-b border-gray-200 bg-white sticky top-0">
               {/* Container with padding */}
-              <div className="p-4">
+              <div className="p-2">
                 {/* Flex container that stacks below 1024px */}
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                   {/* Status section */}
