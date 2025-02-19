@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { Switch, TextField, FormControl, FormHelperText, Autocomplete } from '@mui/material';
+import { Switch, TextField, FormControl, FormHelperText, Autocomplete, Chip } from '@mui/material';
 import yaml from 'js-yaml';
 import TagSelection from './TagSelection';
 import { tagCategories } from './TagSelection';
@@ -51,17 +51,15 @@ interface RDFContent {
   type?: 'model' | 'application' | 'dataset';
   name?: string;
   description?: string;
-  authors?: Author[];
-  maintainers?: Maintainer[];
   version?: string;
   license?: string;
   git_repo?: string;
   tags?: string[];
+  authors?: Author[];
+  maintainers?: Maintainer[];
   cite?: Citation[];
-  source?: string;
   links?: string[];
-  id?: string;
-  id_emoji?: string;
+  source?: string;
   uploader?: {
     email: string;
     name?: string | null;
@@ -203,15 +201,15 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   ) => {
     const newFormData = { ...formData };
 
-    if (index !== undefined && subfield && Array.isArray(newFormData[field])) {
-      const arrayField = [...(newFormData[field] as any[])];
+    if (index !== undefined && subfield && (field === 'authors' || field === 'maintainers' || field === 'cite')) {
+      const arrayField = [...(newFormData[field] as any[] || [])];
       arrayField[index] = {
         ...arrayField[index],
         [subfield]: value
       };
-      newFormData[field] = arrayField as any;
+      newFormData[field] = arrayField as RDFContent[typeof field];
     } else {
-      newFormData[field] = value;
+      newFormData[field] = value as RDFContent[typeof field];
     }
 
     setFormData(newFormData);
@@ -230,430 +228,557 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
 
   const addArrayItem = (field: keyof RDFContent) => {
     const newFormData = { ...formData };
-    const arrayField = [...(newFormData[field] as any[] || [])];
     
-    // Add empty item based on field type
-    switch (field) {
-      case 'authors':
-        arrayField.push({ name: '', affiliation: '', orcid: '' });
-        break;
-      case 'maintainers':
-        arrayField.push({ name: '', github_user: '', email: '' });
-        break;
-      case 'cite':
-        arrayField.push({ text: '', doi: '', url: '' });
-        break;
-      default:
-        arrayField.push('');
-    }
-    
-    newFormData[field] = arrayField;
-    setFormData(newFormData);
-    try {
-      const newContent = yaml.dump(newFormData, {
-        indent: 2,
-        lineWidth: -1,
-        noRefs: true,
-      });
-      setEditorContent(newContent);
-      onChange(newContent);
-    } catch (error) {
-      console.error('Error generating YAML:', error);
+    // Type guard to ensure we're working with array fields
+    if (field === 'authors' || field === 'maintainers' || field === 'cite' || field === 'tags' || field === 'links') {
+      const arrayField = [...(newFormData[field] as any[] || [])];
+      
+      // Add empty item based on field type
+      switch (field) {
+        case 'authors':
+          arrayField.push({ name: '', affiliation: '', orcid: '' });
+          break;
+        case 'maintainers':
+          arrayField.push({ name: '', github_user: '', email: '' });
+          break;
+        case 'cite':
+          arrayField.push({ text: '', doi: '', url: '' });
+          break;
+        default:
+          arrayField.push('');
+      }
+      
+      // Type assertion to help TypeScript understand the field type
+      newFormData[field] = arrayField as RDFContent[typeof field];
+      setFormData(newFormData);
+      try {
+        const newContent = yaml.dump(newFormData, {
+          indent: 2,
+          lineWidth: -1,
+          noRefs: true,
+        });
+        setEditorContent(newContent);
+        onChange(newContent);
+      } catch (error) {
+        console.error('Error generating YAML:', error);
+      }
     }
   };
 
   const removeArrayItem = (field: keyof RDFContent, index: number) => {
     const newFormData = { ...formData };
-    const arrayField = [...(newFormData[field] as any[] || [])];
-    arrayField.splice(index, 1);
-    newFormData[field] = arrayField;
-    setFormData(newFormData);
-    try {
-      const newContent = yaml.dump(newFormData, {
-        indent: 2,
-        lineWidth: -1,
-        noRefs: true,
-      });
-      setEditorContent(newContent);
-      onChange(newContent);
-    } catch (error) {
-      console.error('Error generating YAML:', error);
+    
+    // Type guard to ensure we're working with array fields
+    if (field === 'authors' || field === 'maintainers' || field === 'cite' || field === 'tags' || field === 'links') {
+      const arrayField = [...(newFormData[field] as any[] || [])];
+      arrayField.splice(index, 1);
+      
+      // Type assertion to help TypeScript understand the field type
+      newFormData[field] = arrayField as RDFContent[typeof field];
+      setFormData(newFormData);
+      try {
+        const newContent = yaml.dump(newFormData, {
+          indent: 2,
+          lineWidth: -1,
+          noRefs: true,
+        });
+        setEditorContent(newContent);
+        onChange(newContent);
+      } catch (error) {
+        console.error('Error generating YAML:', error);
+      }
     }
   };
 
   // Add more fields to the form based on the reference implementation
   const renderForm = () => (
-    <div className="space-y-4 px-8 py-4 text-sm">
-      {/* Basic Information */}
-      <div className="space-y-3">
-        <h3 className="text-base font-medium text-gray-900">Basic Information</h3>
-        
-        <FormControl fullWidth size="small">
-          <TextField
-            label="Type"
-            select
-            value={formData.type || ''}
-            onChange={(e) => handleFormChange('type', e.target.value)}
-            SelectProps={{
-              native: true,
-            }}
-            disabled={readOnly}
-            size="small"
-          >
-            <option value="">Select type</option>
-            <option value="model">Model</option>
-            <option value="application">Application</option>
-            <option value="dataset">Dataset</option>
-          </TextField>
-        </FormControl>
-
-        <TextField
-          fullWidth
-          size="small"
-          label="Name"
-          value={formData.name || ''}
-          onChange={(e) => handleFormChange('name', e.target.value)}
-          required
-          error={!!errors.name}
-          helperText={errors.name || "The name of your deposit (note: / is not allowed in the name)"}
-          disabled={readOnly}
-        />
-
-        <TextField
-          fullWidth
-          size="small"
-          label="Description"
-          value={formData.description || ''}
-          onChange={(e) => handleFormChange('description', e.target.value)}
-          multiline
-          rows={3}
-          required
-          disabled={readOnly}
-        />
-
-        <TextField
-          fullWidth
-          size="small"
-          label="Version"
-          value={formData.version || ''}
-          onChange={(e) => handleFormChange('version', e.target.value)}
-          helperText="Version in MAJOR.MINOR.PATCH format (e.g. 0.1.0)"
-          disabled={readOnly}
-        />
-
-        <Autocomplete
-          fullWidth
-          size="small"
-          options={licenses}
-          loading={isLoadingLicenses}
-          value={licenses.find(l => l.licenseId === formData.license) || null}
-          onChange={(_, newValue) => handleFormChange('license', newValue?.licenseId || '')}
-          onOpen={fetchLicenses}
-          getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="License"
-              disabled={readOnly}
-              helperText={
-                <span>
-                  Choose the license that fits you most, we recommend to use{' '}
-                  <a 
-                    href="https://creativecommons.org/licenses/by/4.0/" 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-blue-600 hover:underline"
-                  >
-                    CC-BY-4.0
-                  </a>
-                  . For other license options, see{' '}
-                  <a 
-                    href="https://spdx.org/licenses" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    SPDX License List
-                  </a>
-                </span>
-              }
-            />
-          )}
-          isOptionEqualToValue={(option, value) => option.licenseId === value.licenseId}
-        />
-
-        <TextField
-          fullWidth
-          size="small"
-          label="Git Repository"
-          value={formData.git_repo || ''}
-          onChange={(e) => handleFormChange('git_repo', e.target.value)}
-          helperText="Git repository URL"
-          disabled={readOnly}
-        />
-
-        {/* Add Tags field */}
-        <div>
-          <div className="flex gap-2 items-start">
-            <Autocomplete
-              fullWidth
-              multiple
-              size="small"
-              options={tagSuggestions}
-              value={formData.tags || []}
-              onChange={(_, newValue) => {
-                const validTags = newValue.filter(tag => validateTag(tag));
-                handleFormChange('tags', validTags);
-              }}
-              onInputChange={(_, value, reason) => {
-                if (reason === 'input') {
-                  if (!validateTag(value)) {
-                    setErrors(prev => ({
-                      ...prev,
-                      tags: 'Invalid characters in tag'
-                    }));
-                  } else {
-                    setErrors(prev => {
-                      const { tags, ...rest } = prev;
-                      return rest;
-                    });
-                    debouncedFetchTags(value);
-                  }
-                }
-              }}
-              loading={isLoadingTags}
-              freeSolo
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Tags"
-                  helperText="Tags should contain only lowercase letters, numbers, dashes (-), or the following characters: +*#;./%@ (no spaces). As you type, suggestions from the EBI Ontology Lookup Service will appear. Press Enter, Tab, or Space after each tag."
-                  disabled={readOnly}
-                  error={!!errors.tags}
-                />
-              )}
-              ChipProps={{
-                size: 'small',
-                sx: { fontSize: '0.875rem' }
-              }}
-              renderOption={(props, option) => (
-                <li {...props}>
-                  <span className="text-base text-gray-700">{option}</span>
-                </li>
-              )}
-            />
-            <div>
-              <TagSelection 
-                onTagSelect={(tag) => {
-                  const currentTags = formData.tags || [];
-                  if (!currentTags.includes(tag)) {
-                    handleFormChange('tags', [...currentTags, tag]);
-                  }
-                }} 
-              />
-            </div>
-          </div>
+    <div className="space-y-8 px-8 py-6 text-sm">
+      {/* Section styling */}
+      <div className="space-y-6">
+        {/* Section Header */}
+        <div className="border-b border-gray-200 pb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Basic Information</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Basic details about your resource
+          </p>
         </div>
-      </div>
 
-      {/* Add Uploader section after Basic Information */}
-      <div className="space-y-3">
-        <h3 className="text-base font-medium text-gray-900">Uploader Information</h3>
-        
-        <div className="flex gap-2">
-          <TextField
-            fullWidth
-            size="small"
-            label="Email"
-            value={formData.uploader?.email || ''}
-            required
-            helperText="Email of the uploader (automatically set)"
-          />
-          
+        {/* Form Fields with consistent spacing */}
+        <div className="grid gap-6">
+          <FormControl fullWidth size="small">
+            <TextField
+              label="Type"
+              select
+              value={formData.type || ''}
+              onChange={(e) => handleFormChange('type', e.target.value)}
+              SelectProps={{
+                native: true,
+              }}
+              disabled={readOnly}
+              size="small"
+              helperText="Select the type of resource: model, application, or dataset"
+              className="bg-white rounded-md"
+              InputProps={{
+                className: "rounded-md",
+              }}
+            >
+              <option value="">Select type</option>
+              <option value="model">Model</option>
+              <option value="application">Application</option>
+              <option value="dataset">Dataset</option>
+            </TextField>
+          </FormControl>
+
           <TextField
             fullWidth
             size="small"
             label="Name"
-            value={formData.uploader?.name || ''}
-            onChange={(e) => handleFormChange('uploader', {
-              ...formData.uploader,
-              name: e.target.value || null
-            })}
+            value={formData.name || ''}
+            onChange={(e) => handleFormChange('name', e.target.value)}
+            required
+            error={!!errors.name}
+            helperText="The name of your deposit (note: / is not allowed in the name)"
             disabled={readOnly}
-            helperText="Optional name of the uploader"
+            className="bg-white rounded-md"
+            InputProps={{
+              className: "rounded-md",
+            }}
           />
+
+          <TextField
+            fullWidth
+            size="small"
+            label="Description"
+            value={formData.description || ''}
+            onChange={(e) => handleFormChange('description', e.target.value)}
+            multiline
+            rows={3}
+            required
+            disabled={readOnly}
+            helperText="A detailed description of your resource"
+            className="bg-white rounded-md"
+            InputProps={{
+              className: "rounded-md",
+            }}
+          />
+
+          <TextField
+            fullWidth
+            size="small"
+            label="Version"
+            value={formData.version || ''}
+            onChange={(e) => handleFormChange('version', e.target.value)}
+            helperText="Version in MAJOR.MINOR.PATCH format (e.g. 0.1.0)"
+            disabled={readOnly}
+            className="bg-white rounded-md"
+            InputProps={{
+              className: "rounded-md",
+            }}
+          />
+
+          <Autocomplete
+            fullWidth
+            size="small"
+            options={licenses}
+            loading={isLoadingLicenses}
+            value={licenses.find(l => l.licenseId === formData.license) || null}
+            onChange={(_, newValue) => handleFormChange('license', newValue?.licenseId || '')}
+            onOpen={fetchLicenses}
+            getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
+            isOptionEqualToValue={(option, value) => option.licenseId === value.licenseId}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="License"
+                disabled={readOnly}
+                helperText={
+                  <span>
+                    Choose the license that fits you most, we recommend to use{' '}
+                    <a 
+                      href="https://creativecommons.org/licenses/by/4.0/" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-blue-600 hover:underline"
+                    >
+                      CC-BY-4.0
+                    </a>
+                    {' '}(free to share and adapt under the condition of attribution). 
+                    For other license options, see{' '}
+                    <a 
+                      href="https://spdx.org/licenses" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      SPDX License List
+                    </a>
+                  </span>
+                }
+                className="bg-white rounded-md"
+                InputProps={{
+                  ...params.InputProps,
+                  className: "rounded-md",
+                }}
+              />
+            )}
+          />
+
+          <TextField
+            fullWidth
+            size="small"
+            label="Git Repository"
+            value={formData.git_repo || ''}
+            onChange={(e) => handleFormChange('git_repo', e.target.value)}
+            helperText="Git repository URL"
+            disabled={readOnly}
+            className="bg-white rounded-md"
+            InputProps={{
+              className: "rounded-md",
+            }}
+          />
+
+          {/* Add Tags field */}
+          <div>
+            <div className="flex gap-2 items-start">
+              <Autocomplete
+                multiple
+                freeSolo
+                size="small"
+                options={tagSuggestions}
+                value={formData.tags || []}
+                onChange={(_, newValue) => {
+                  // Filter and validate tags
+                  const validTags = newValue
+                    .map(tag => typeof tag === 'string' ? tag : '')
+                    .filter(tag => validateTag(tag));
+                  handleFormChange('tags', validTags);
+                }}
+                onInputChange={(_, value) => {
+                  if (value) {
+                    debouncedFetchTags(value);
+                  }
+                }}
+                loading={isLoadingTags}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Tags"
+                    placeholder="Add tags..."
+                    helperText="Tags should contain only lowercase letters, numbers, dashes (-), or the following characters: +*#;./%@ (no spaces). As you type, suggestions from the EBI Ontology Lookup Service will appear. Press Enter, Tab, or Space after each tag."
+                    error={!!errors.tags}
+                    className="bg-white rounded-md"
+                    InputProps={{
+                      ...params.InputProps,
+                      className: "rounded-md",
+                    }}
+                  />
+                )}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={index}
+                      label={option}
+                      size="small"
+                      disabled={readOnly}
+                    />
+                  ))
+                }
+              />
+              <div>
+                <TagSelection 
+                  onTagSelect={(tag) => {
+                    const currentTags = formData.tags || [];
+                    if (!currentTags.includes(tag)) {
+                      handleFormChange('tags', [...currentTags, tag]);
+                    }
+                  }} 
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Authors */}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-base font-medium text-gray-900">Authors</h3>
+      {/* Uploader Section */}
+      <div className="space-y-6">
+        <div className="border-b border-gray-200 pb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Uploader Information</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Details about who is uploading this resource
+          </p>
+        </div>
+
+        <div className="grid gap-6">
+          <div className="flex gap-2">
+            <TextField
+              fullWidth
+              size="small"
+              label="Email"
+              value={formData.uploader?.email || ''}
+              required
+              helperText="Email of the uploader (automatically set)"
+              className="bg-white rounded-md"
+              InputProps={{
+                className: "rounded-md",
+              }}
+            />
+            
+            <TextField
+              fullWidth
+              size="small"
+              label="Name"
+              value={formData.uploader?.name || ''}
+              onChange={(e) => handleFormChange('uploader', {
+                ...formData.uploader,
+                name: e.target.value || null
+              })}
+              disabled={readOnly}
+              helperText="Optional name of the uploader"
+              className="bg-white rounded-md"
+              InputProps={{
+                className: "rounded-md",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Authors Section */}
+      <div className="space-y-6">
+        <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Authors</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              The authors who contributed to this resource item
+            </p>
+          </div>
           {!readOnly && (
             <button
               onClick={() => addArrayItem('authors')}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
-              + Add Author
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Author
             </button>
           )}
         </div>
-        
-        {formData.authors?.map((author, index) => (
-          <div key={index} className="flex gap-2 items-start bg-gray-50 p-3 rounded">
-            <div className="flex-1 space-y-2">
-              <TextField
-                fullWidth
-                size="small"
-                label="Name"
-                value={author.name || ''}
-                onChange={(e) => handleFormChange('authors', e.target.value, index, 'name')}
-                required
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Affiliation"
-                value={author.affiliation || ''}
-                onChange={(e) => handleFormChange('authors', e.target.value, index, 'affiliation')}
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="ORCID"
-                value={author.orcid || ''}
-                onChange={(e) => handleFormChange('authors', e.target.value, index, 'orcid')}
-                disabled={readOnly}
-              />
+
+        <div className="grid gap-4">
+          {formData.authors?.map((author, index) => (
+            <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex justify-between items-start">
+                <div className="flex-1 space-y-4">
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Name"
+                    value={author.name || ''}
+                    onChange={(e) => handleFormChange('authors', e.target.value, index, 'name')}
+                    required
+                    disabled={readOnly}
+                    className="bg-white rounded-md"
+                    InputProps={{
+                      className: "rounded-md",
+                    }}
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Affiliation"
+                    value={author.affiliation || ''}
+                    onChange={(e) => handleFormChange('authors', e.target.value, index, 'affiliation')}
+                    disabled={readOnly}
+                    className="bg-white rounded-md"
+                    InputProps={{
+                      className: "rounded-md",
+                    }}
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="ORCID"
+                    value={author.orcid || ''}
+                    onChange={(e) => handleFormChange('authors', e.target.value, index, 'orcid')}
+                    disabled={readOnly}
+                    className="bg-white rounded-md"
+                    InputProps={{
+                      className: "rounded-md",
+                    }}
+                  />
+                </div>
+                {!readOnly && (
+                  <button
+                    onClick={() => removeArrayItem('authors', index)}
+                    className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
-            {!readOnly && (
-              <button
-                onClick={() => removeArrayItem('authors', index)}
-                className="text-red-600 hover:text-red-700 p-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
-      {/* Maintainers */}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-base font-medium text-gray-900">Maintainers</h3>
+      {/* Maintainers Section - Similar styling to Authors */}
+      <div className="space-y-6">
+        <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Maintainers</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              The maintainers who maintain this resource item. The first maintainer will be contacted for approval.
+            </p>
+          </div>
           {!readOnly && (
             <button
               onClick={() => addArrayItem('maintainers')}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
-              + Add Maintainer
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Maintainer
             </button>
           )}
         </div>
-        
         {formData.maintainers?.map((maintainer, index) => (
-          <div key={index} className="flex gap-2 items-start bg-gray-50 p-3 rounded">
-            <div className="flex-1 space-y-2">
-              <TextField
-                fullWidth
-                size="small"
-                label="Name"
-                value={maintainer.name || ''}
-                onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'name')}
-                required
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Github Username"
-                value={maintainer.github_user || ''}
-                onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'github_user')}
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Email"
-                value={maintainer.email || ''}
-                onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'email')}
-                type="email"
-                disabled={readOnly}
-              />
+          <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex justify-between items-start">
+              <div className="flex-1 space-y-4">
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Name"
+                  value={maintainer.name || ''}
+                  onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'name')}
+                  required
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Github Username"
+                  value={maintainer.github_user || ''}
+                  onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'github_user')}
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Email"
+                  value={maintainer.email || ''}
+                  onChange={(e) => handleFormChange('maintainers', e.target.value, index, 'email')}
+                  type="email"
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+              </div>
+              {!readOnly && (
+                <button
+                  onClick={() => removeArrayItem('maintainers', index)}
+                  className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
-            {!readOnly && (
-              <button
-                onClick={() => removeArrayItem('maintainers', index)}
-                className="text-red-600 hover:text-red-700 p-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            )}
           </div>
         ))}
       </div>
 
-      {/* Citations */}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-base font-medium text-gray-900">Citations</h3>
+      {/* Citations Section - Similar styling to Authors */}
+      <div className="space-y-6">
+        <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Citations</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              How this resource item should be cited
+            </p>
+          </div>
           {!readOnly && (
             <button
               onClick={() => addArrayItem('cite')}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
-              + Add Citation
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Citation
             </button>
           )}
         </div>
-        
         {formData.cite?.map((citation, index) => (
-          <div key={index} className="flex gap-2 items-start bg-gray-50 p-3 rounded">
-            <div className="flex-1 space-y-2">
-              <TextField
-                fullWidth
-                size="small"
-                label="Citation Text"
-                value={citation.text || ''}
-                onChange={(e) => handleFormChange('cite', e.target.value, index, 'text')}
-                multiline
-                rows={2}
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="DOI"
-                value={citation.doi || ''}
-                onChange={(e) => handleFormChange('cite', e.target.value, index, 'doi')}
-                disabled={readOnly}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="URL"
-                value={citation.url || ''}
-                onChange={(e) => handleFormChange('cite', e.target.value, index, 'url')}
-                disabled={readOnly}
-              />
+          <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex justify-between items-start">
+              <div className="flex-1 space-y-4">
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Citation Text"
+                  value={citation.text || ''}
+                  onChange={(e) => handleFormChange('cite', e.target.value, index, 'text')}
+                  multiline
+                  rows={2}
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="DOI"
+                  value={citation.doi || ''}
+                  onChange={(e) => handleFormChange('cite', e.target.value, index, 'doi')}
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="URL"
+                  value={citation.url || ''}
+                  onChange={(e) => handleFormChange('cite', e.target.value, index, 'url')}
+                  disabled={readOnly}
+                  className="bg-white rounded-md"
+                  InputProps={{
+                    className: "rounded-md",
+                  }}
+                />
+              </div>
+              {!readOnly && (
+                <button
+                  onClick={() => removeArrayItem('cite', index)}
+                  className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
-            {!readOnly && (
-              <button
-                onClick={() => removeArrayItem('cite', index)}
-                className="text-red-600 hover:text-red-700 p-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            )}
           </div>
         ))}
       </div>
