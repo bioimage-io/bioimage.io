@@ -825,7 +825,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         )}
 
         {/* Main content area */}
-        <div className="w-full flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col overflow-hidden min-h-[80vh]">
           {/* Status bar */}
           {files.length > 0 && (
             <div className="border-b border-gray-200 bg-white sticky top-0">
@@ -895,8 +895,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             </div>
           )}
 
-          {/* Content area */}
-          <div className="flex-1 overflow-auto">
+          {/* Content area - update height calculation */}
+          <div className="flex-1 overflow-auto min-h-[calc(80vh-145px)]">
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="mt-10 text-center max-w-2xl mx-auto">
@@ -971,7 +971,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 </div>
               </div>
             ) : selectedFile ? (
-              <div className="h-[calc(100vh-145px)]">
+              <div className="h-full min-h-[calc(80vh-145px)]">
                 {isImageFile(selectedFile.name) ? (
                   <div className="flex flex-col gap-4">
                     {imageUrl ? (

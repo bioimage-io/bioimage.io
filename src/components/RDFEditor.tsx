@@ -293,13 +293,35 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   // Add more fields to the form based on the reference implementation
   const renderForm = () => (
     <div className="space-y-8 px-8 py-6 text-sm">
+      {/* Add note about form limitations */}
+      <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+        <div className="flex">
+          <div className="flex-shrink-0">
+            <svg className="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div className="ml-3">
+            <p className="text-sm text-blue-700">
+              This form contains common fields. To edit additional fields, please use the{' '}
+              <button 
+                onClick={() => setIsFormMode(false)}
+                className="font-medium underline hover:text-blue-800"
+              >
+                Advanced RDF Editor
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Section styling */}
       <div className="space-y-6">
         {/* Section Header */}
         <div className="border-b border-gray-200 pb-4">
           <h2 className="text-xl font-semibold text-gray-900">Basic Information</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Basic details about your resource
+            Basic details about your artifact
           </p>
         </div>
 
@@ -316,7 +338,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
               }}
               disabled={readOnly}
               size="small"
-              helperText="Select the type of resource: model, application, or dataset"
+              helperText="Select the type of artifact: model, application, or dataset"
               className="bg-white rounded-md"
               InputProps={{
                 className: "rounded-md",
@@ -337,7 +359,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             onChange={(e) => handleFormChange('name', e.target.value)}
             required
             error={!!errors.name}
-            helperText="The name of your deposit (note: / is not allowed in the name)"
+            helperText="The name of your artifact (note: / is not allowed in the name)"
             disabled={readOnly}
             className="bg-white rounded-md"
             InputProps={{
@@ -355,7 +377,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             rows={3}
             required
             disabled={readOnly}
-            helperText="A detailed description of your resource"
+            helperText="A detailed description of your artifact"
             className="bg-white rounded-md"
             InputProps={{
               className: "rounded-md",
@@ -505,7 +527,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         <div className="border-b border-gray-200 pb-4">
           <h2 className="text-xl font-semibold text-gray-900">Uploader Information</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Details about who is uploading this resource
+            Details about who is uploading this artifact
           </p>
         </div>
 
@@ -550,7 +572,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Authors</h2>
             <p className="mt-1 text-sm text-gray-500">
-              The authors who contributed to this resource item
+              The authors who contributed to this artifact
             </p>
           </div>
           {!readOnly && (
@@ -631,7 +653,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Maintainers</h2>
             <p className="mt-1 text-sm text-gray-500">
-              The maintainers who maintain this resource item. The first maintainer will be contacted for approval.
+              The maintainers who maintain this artifact. The first maintainer will be contacted for approval.
             </p>
           </div>
           {!readOnly && (
@@ -710,7 +732,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Citations</h2>
             <p className="mt-1 text-sm text-gray-500">
-              How this resource item should be cited
+              How this artifact should be cited
             </p>
           </div>
           {!readOnly && (

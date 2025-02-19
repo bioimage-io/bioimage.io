@@ -1553,7 +1553,7 @@ const Edit: React.FC = () => {
         {/* Sidebar - update z-index */}
         <div className={`${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] lg:h-full overflow-hidden`}>
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] h-full overflow-hidden`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1610,10 +1610,10 @@ const Edit: React.FC = () => {
 
         </div>
 
-        {/* Main content area - update to handle sidebar space */}
-        <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'lg:ml-80' : ''} w-full`}>
-          {/* Status bar - update responsive styles */}
-          {activeTab === 'files' && (
+        {/* Main content area */}
+        <div className="w-full flex flex-col overflow-hidden min-h-[80vh]">
+          {/* Status bar */}
+          {files.length > 0 && (
             <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
               <div className={`p-2 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -1678,8 +1678,8 @@ const Edit: React.FC = () => {
             </div>
           )}
 
-          {/* Content area */}
-          <div className="w-full">
+          {/* Content area - update height calculation */}
+          <div className="flex-1 overflow-auto min-h-[calc(80vh-145px)]">
             {renderContent()}
           </div>
         </div>
