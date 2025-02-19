@@ -51,7 +51,7 @@ interface TestResult {
   }>;
 }
 
-type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html';
+type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html' | '.ijm';
 type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
 interface UploadProps {
@@ -125,7 +125,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   }, [files]);
 
   const isTextFile = (filename: string): boolean => {
-    const textExtensions: SupportedTextFiles[] = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
+    const textExtensions: SupportedTextFiles[] = [
+      '.txt', '.yml', '.yaml', '.json', '.md', '.py', 
+      '.js', '.ts', '.jsx', '.tsx', '.css', '.html',
+      '.ijm'
+    ];
     return textExtensions.some(ext => filename.toLowerCase().endsWith(ext));
   };
 
@@ -171,29 +175,39 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       'yml': 'yaml',
       'yaml': 'yaml',
       'md': 'markdown',
-      'txt': 'plaintext'
+      'txt': 'plaintext',
+      'ijm': 'javascript'
     };
     return languageMap[extension] || 'plaintext';
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    // Show loading state immediately when files are dropped
+    setUploadStatus({
+      message: 'Processing zip file...',
+      severity: 'info',
+      progress: 0 // Add initial progress
+    });
+    
     const zipFile = acceptedFiles[0];
     const zip = new JSZip();
     
-    // Set loading state while processing the zip
-    setUploadStatus({
-      message: 'Processing zip file...',
-      severity: 'info'
-    });
-    
     try {
-      // Show loading spinner while processing
+      // Add a small delay to show initial loading state
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const loadedZip = await zip.loadAsync(zipFile);
       const fileNodes: FileNode[] = [];
 
-      // Add loading progress
-      let processedFiles = 0;
       const totalFiles = Object.keys(loadedZip.files).length;
+      let processedFiles = 0;
+
+      // Update progress as files are processed
+      setUploadStatus({
+        message: 'Reading zip contents...',
+        severity: 'info',
+        progress: 5 // Show some initial progress
+      });
 
       for (const [path, file] of Object.entries(loadedZip.files)) {
         if (!file.dir) {
@@ -214,7 +228,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           setUploadStatus({
             message: `Processing files... (${processedFiles}/${totalFiles})`,
             severity: 'info',
-            progress: (processedFiles / totalFiles) * 100
+            progress: 5 + ((processedFiles / totalFiles) * 95) // Scale progress from 5-100%
           });
         }
       }
@@ -222,10 +236,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       setFiles(fileNodes);
       setShowDragDrop(false);
       
-      // Set upload status with number of files loaded
       setUploadStatus({
         message: `${fileNodes.length} files loaded`,
-        severity: 'info'
+        severity: 'info',
+        progress: 100
       });
 
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
@@ -815,8 +829,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           {/* Status bar with upload button and progress */}
           {files.length > 0 && (
             <div className="border-b border-gray-200 bg-white">
-              {/* Container with padding except bottom when progress bar is shown */}
-              <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
+              {/* Container with padding */}
+              <div className="p-4">
                 {/* Flex container that stacks below 1024px */}
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                   {/* Status section */}
@@ -865,17 +879,18 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 </div>
               </div>
 
-              {/* Progress bar at the bottom edge */}
+              {/* Progress bar with increased top margin */}
               {uploadStatus?.progress !== undefined && (
-                <LinearProgress 
-                  variant="determinate" 
-                  value={uploadStatus.progress} 
-                  sx={{ 
-                    height: 4,
-                    borderRadius: 0,
-                    marginTop: 1,
-                  }}
-                />
+                <div className="mt-2"> {/* Add margin container */}
+                  <LinearProgress 
+                    variant="determinate" 
+                    value={uploadStatus.progress} 
+                    sx={{ 
+                      height: 4,
+                      borderRadius: 0,
+                    }}
+                  />
+                </div>
               )}
             </div>
           )}

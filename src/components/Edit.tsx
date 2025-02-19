@@ -113,7 +113,11 @@ const Edit: React.FC = () => {
   }, [artifactInfo]);
 
   const isTextFile = (filename: string): boolean => {
-    const textExtensions = ['.txt', '.yml', '.yaml', '.json', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html'];
+    const textExtensions = [
+      '.txt', '.yml', '.yaml', '.json', '.md', '.py', 
+      '.js', '.ts', '.jsx', '.tsx', '.css', '.html',
+      '.ijm'
+    ];
     return textExtensions.some(ext => filename.toLowerCase().endsWith(ext));
   };
 
@@ -159,7 +163,8 @@ const Edit: React.FC = () => {
       'yml': 'yaml',
       'yaml': 'yaml',
       'md': 'markdown',
-      'txt': 'plaintext'
+      'txt': 'plaintext',
+      'ijm': 'javascript'
     };
     return languageMap[extension] || 'plaintext';
   };
