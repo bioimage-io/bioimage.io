@@ -35,6 +35,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
+  const [isMobile, setIsMobile] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -63,6 +64,17 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       }
     }
   }, [isOpen, testResult]);
+
+  // Add resize listener
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024); // 1024px matches Tailwind's lg breakpoint
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const runTest = async () => {
     if (!artifactId || !server) return;
@@ -147,6 +159,34 @@ Please keep this window open while the test is running.`;
     return content;
   };
 
+  const renderContent = () => (
+    <div className="p-6 relative">
+      <button
+        onClick={() => setIsOpen(false)}
+        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      {isLoading && (
+        <div className="flex items-center justify-center mb-4">
+          <img 
+            src="/img/bioengine-logo-black.svg" 
+            alt="BioEngine Logo" 
+            className="h-28 animate-pulse"
+          />
+        </div>
+      )}
+      <ReactMarkdown 
+        className="prose prose-sm max-w-none"
+        remarkPlugins={[remarkGfm]}
+      >
+        {getMarkdownContent()}
+      </ReactMarkdown>
+    </div>
+  );
+
   return (
     <div className={`relative ${className}`}>
       <div className="flex h-[40px]" ref={buttonRef}>
@@ -210,36 +250,22 @@ Please keep this window open while the test is running.`;
           </Menu.Button>
 
           {(testResult || isLoading) && isOpen && (
-            <div 
-              ref={dropdownRef}
-              className="absolute mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
-            >
-              <div className="p-6 relative">
-                <button
-                  onClick={() => setIsOpen(false)}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-                {isLoading && (
-                  <div className="flex items-center justify-center mb-4">
-                    <img 
-                      src="/img/bioengine-logo-black.svg" 
-                      alt="BioEngine Logo" 
-                      className="h-28 animate-pulse"
-                    />
-                  </div>
-                )}
-                <ReactMarkdown 
-                  className="prose prose-sm max-w-none"
-                  remarkPlugins={[remarkGfm]}
-                >
-                  {getMarkdownContent()}
-                </ReactMarkdown>
+            isMobile ? (
+              // Modal dialog for mobile
+              <div className="fixed inset-0 bg-black bg-opacity-50 z-[100]">
+                <div className="fixed inset-4 bg-white rounded-lg overflow-auto">
+                  {renderContent()}
+                </div>
               </div>
-            </div>
+            ) : (
+              // Dropdown for desktop
+              <div 
+                ref={dropdownRef}
+                className="absolute mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+              >
+                {renderContent()}
+              </div>
+            )
           )}
         </Menu>
       </div>

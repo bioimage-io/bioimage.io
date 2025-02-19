@@ -1559,7 +1559,7 @@ const Edit: React.FC = () => {
           fixed lg:relative 
           top-[48px] lg:top-0 bottom-0 left-0
           transition-transform duration-300 ease-in-out 
-          z-30
+          z-20
           overflow-hidden
         `}>
 
@@ -1622,7 +1622,7 @@ const Edit: React.FC = () => {
         <div className="w-full flex flex-col overflow-hidden min-h-[80vh]">
           {/* Status bar */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
+            <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
               <div className={`p-2 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   {/* Status section - add max width for large screens */}
@@ -1664,8 +1664,8 @@ const Edit: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Buttons section - update flex properties */}
-                  <div className="flex flex-wrap gap-2 lg:justify-end lg:flex-nowrap">
+                  {/* Buttons section - add relative positioning and higher z-index */}
+                  <div className="flex flex-wrap gap-2 lg:justify-end lg:flex-nowrap relative z-50">
                     {renderActionButtons()}
                   </div>
                 </div>
@@ -1710,7 +1710,7 @@ const Edit: React.FC = () => {
       {/* Update overlay for mobile */}
       {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 top-[48px] bg-black bg-opacity-50 z-20"
+          className="lg:hidden fixed inset-0 top-[48px] bg-black bg-opacity-50 z-10"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
