@@ -29,7 +29,7 @@ interface AdminResourceCardProps {
   emoji?: string;
 }
 
-const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
+const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   title,
   description,
   tags,
@@ -198,4 +198,4 @@ const AdminResourceCard: React.FC<AdminResourceCardProps> = ({
   );
 };
 
-export default AdminResourceCard; 
+export default MyArtifactCard; 

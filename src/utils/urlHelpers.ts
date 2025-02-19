@@ -12,7 +12,7 @@ export const resolveHyphaUrl = (path: string, resourceId: string): string => {
     return path;
   }
 
-  // Extract the ID from the full resource ID (removing any prefix like 'bioimage.io/')
+  // Extract the ID from the full artifact ID (removing any prefix like 'bioimage.io/')
   const id = resourceId.split('/').pop();
   
   // Construct the full URL

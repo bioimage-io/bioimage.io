@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog as MuiDialog, TextField } from '@mui/material';
 import Comments from './Comments';
-import ResourceCard from './ResourceCard';
+import ArtifactCard from './ArtifactCard';
 import ModelTester from './ModelTester';
 import { ArtifactInfo } from '../types/artifact';
 import ArtifactAdmin from './ArtifactAdmin';
@@ -281,7 +281,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         )}
 
         <div className="max-w-sm mx-auto">
-          {artifactInfo && <ResourceCard resource={artifactInfo} />}
+          {artifactInfo && <ArtifactCard artifact={artifactInfo} />}
         </div>
       </div>
 

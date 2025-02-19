@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 
-import ResourceGrid from './components/ResourceGrid';
-import ResourceDetails from './components/ResourceDetails';
+import ArtifactGrid from './components/ArtifactGrid';
+import ArtifactDetails from './components/ArtifactDetails';
 import Snackbar from './components/Snackbar';
 import About from './components/About';
 import Footer from './components/Footer';
@@ -60,22 +60,22 @@ const AppContent: React.FC = () => {
             path="/"
             element={
               <>
-                <ResourceGrid />
+                <ArtifactGrid />
               </>
             }
           />
           <Route 
             path="/resources/:id" 
-            element={<ResourceDetails />} 
+            element={<ArtifactDetails />} 
           />
           <Route 
             path="/about" 
             element={<About />} 
           />
-          <Route path="/models" element={<ResourceGrid type="model" />} />
-          <Route path="/applications" element={<ResourceGrid type="application" />} />
-          <Route path="/notebooks" element={<ResourceGrid type="notebook" />} />
-          <Route path="/datasets" element={<ResourceGrid type="dataset" />} />
+          <Route path="/models" element={<ArtifactGrid type="model" />} />
+          <Route path="/applications" element={<ArtifactGrid type="application" />} />
+          <Route path="/notebooks" element={<ArtifactGrid type="notebook" />} />
+          <Route path="/datasets" element={<ArtifactGrid type="dataset" />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/my-artifacts" element={<MyArtifacts />} />
           <Route path="/edit/:artifactId" element={<Edit />} />

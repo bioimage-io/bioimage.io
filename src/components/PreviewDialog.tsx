@@ -1,15 +1,15 @@
 import { Dialog, DialogTitle, DialogContent, IconButton, Box } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { Resource } from '../types';
-import ResourceDetails from './ResourceDetails';
+import { Artifact } from '../types';
+import ArtifactDetails from './ArtifactDetails';
 
 interface PreviewDialogProps {
   open: boolean;
-  resource: Resource;
+  artifact: Artifact;
   onClose: () => void;
 }
 
-export const PreviewDialog = ({ open, resource, onClose }: PreviewDialogProps) => {
+export const PreviewDialog = ({ open, artifact, onClose }: PreviewDialogProps) => {
   return (
     <Dialog
       open={open}
@@ -24,14 +24,14 @@ export const PreviewDialog = ({ open, resource, onClose }: PreviewDialogProps) =
       }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>{resource.manifest.name}</h2>
+        <h2>{artifact.manifest.name}</h2>
         <IconButton onClick={onClose} size="small">
           <CloseIcon />
         </IconButton>
       </DialogTitle>
       <DialogContent dividers sx={{ overflowY: 'auto' }}>
         <Box sx={{ p: 2 }}>
-          <ResourceDetails />
+          <ArtifactDetails />
         </Box>
       </DialogContent>
     </Dialog>

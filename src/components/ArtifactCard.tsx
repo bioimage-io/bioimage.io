@@ -10,12 +10,12 @@ import { ArtifactInfo } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
 interface ResourceCardProps {
-  resource: ArtifactInfo;
+  artifact: ArtifactInfo;
 }
 
-export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
+export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const covers = resource.manifest.covers || [];
+  const covers = artifact.manifest.covers || [];
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -33,20 +33,20 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const handleClick = (e: React.MouseEvent) => {
     // Only navigate if the click target is the card itself, not children
     // if (e.target === e.currentTarget) {
-      const id = resource.id.split('/').pop();
+      const id = artifact.id.split('/').pop();
       navigate(`/resources/${id}`);
     // }
   };
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
-    const id = resource.id.split('/').pop();
+    const id = artifact.id.split('/').pop();
     window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   const handleCopyId = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card navigation
-    const id = resource.id.split('/').pop() || '';
+    const id = artifact.id.split('/').pop() || '';
     navigator.clipboard.writeText(id);
     setShowCopied(true);
     setTimeout(() => setShowCopied(false), 2000);
@@ -55,7 +55,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   const handlePreviewOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelectedResource(resource);
+    setSelectedResource(artifact);
     setPreviewOpen(true);
   };
 
@@ -66,7 +66,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   // Get the resolved cover URL for the current index
   const getCurrentCoverUrl = () => {
     if (covers.length === 0) return '';
-    return resolveHyphaUrl(covers[currentImageIndex], resource.id);
+    return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
   };
 
   return (
@@ -114,7 +114,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
 
       <PreviewDialog 
         open={previewOpen}
-        resource={resource}
+        artifact={artifact}
         onClose={handlePreviewClose}
       />
 
@@ -124,7 +124,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
             onClick={handleClick}
             component="img"
             image={getCurrentCoverUrl()}
-            alt={resource.manifest.name}
+            alt={artifact.manifest.name}
             sx={{
               position: 'absolute',
               top: 0,
@@ -150,18 +150,18 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
               borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
             }}
           >
-            {resource.manifest.icon ? (
+            {artifact.manifest.icon ? (
               <img
-                src={resource.manifest.icon}
-                alt={resource.manifest.name}
+                src={artifact.manifest.icon}
+                alt={artifact.manifest.name}
                 style={{
                   width: '40%',
                   height: '40%',
                   objectFit: 'contain'
                 }}
               />
-            ) : resource.manifest.id_emoji ? (
-              <span style={{ fontSize: '3rem' }}>{resource.manifest.id_emoji}</span>
+            ) : artifact.manifest.id_emoji ? (
+              <span style={{ fontSize: '3rem' }}>{artifact.manifest.id_emoji}</span>
             ) : (
               <div className="w-16 h-16 bg-gray-200 rounded-full" />
             )}
@@ -172,27 +172,27 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex-shrink-0 w-6">
-              {resource.manifest.icon ? (
+              {artifact.manifest.icon ? (
                 <img
-                  src={resource.manifest.icon}
-                  alt={resource.manifest.name}
+                  src={artifact.manifest.icon}
+                  alt={artifact.manifest.name}
                   className="w-6 h-6 object-contain"
                 />
-              ) : resource.manifest.id_emoji ? (
-                <span className="text-xl">{resource.manifest.id_emoji}</span>
+              ) : artifact.manifest.id_emoji ? (
+                <span className="text-xl">{artifact.manifest.id_emoji}</span>
               ) : (
                 <div className="w-6 h-6 bg-gray-200 rounded-full" />
               )}
             </div>
             <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
-              {resource.manifest.name}
+              {artifact.manifest.name}
             </h3>
           </div>
 
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
               <span className="font-medium">ID:</span>
-              <code className="font-mono">{resource.id.split('/').pop()}</code>
+              <code className="font-mono">{artifact.id.split('/').pop()}</code>
               <Tooltip title="Copy ID" placement="top">
                 <IconButton
                   onClick={handleCopyId}
@@ -211,12 +211,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
         </div>
         
         <p className="text-sm text-gray-600 my-4 line-clamp-2">
-          {resource.manifest.description}
+          {artifact.manifest.description}
         </p>
 
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1.5">
-            {resource.manifest.tags?.slice(0, 3).map((tag: string) => (
+            {artifact.manifest.tags?.slice(0, 3).map((tag: string) => (
               <span
                 key={tag}
                 className="px-2 py-0.5 bg-gray-50 text-gray-600 text-xs rounded-full border border-gray-100"
@@ -226,7 +226,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
             ))}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {resource.manifest.badges?.map((badge) => (
+            {artifact.manifest.badges?.map((badge) => (
               <a
                 key={badge.url}
                 href={badge.url}
@@ -269,4 +269,4 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ resource }) => {
   );
 };
 
-export default ResourceCard; 
+export default ArtifactCard; 

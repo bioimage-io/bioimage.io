@@ -50,7 +50,7 @@ export interface HyphaState {
   isLoggedIn: boolean;
   setLoggedIn: (status: boolean) => void;
   selectedResource: ArtifactInfo | null;
-  setSelectedResource: (resource: ArtifactInfo | null) => void;
+  setSelectedResource: (artifact: ArtifactInfo | null) => void;
   fetchResource: (id: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
@@ -104,7 +104,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   },
   setTotalItems: (total) => set({ totalItems: total }),
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
-  setSelectedResource: (resource) => set({ selectedResource: resource }),
+  setSelectedResource: (artifact) => set({ selectedResource: artifact }),
   connect: async (config: ConnectionConfig) => {
     try {
       const client = hyphaWebsocketClient;
@@ -214,13 +214,13 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to fetch resource: ${response.statusText}`);
+        throw new Error(`Failed to fetch artifact: ${response.statusText}`);
       }
       
       const data = await response.json();
       set({ selectedResource: data, isLoading: false });
     } catch (error) {
-      console.error('Error fetching resource:', error);
+      console.error('Error fetching artifact:', error);
       set({ 
         isLoading: false, 
         error: error instanceof Error ? error.message : 'An unknown error occurred',

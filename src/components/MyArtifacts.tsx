@@ -5,12 +5,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { Switch } from '@headlessui/react';
-import AdminResourceCard from './AdminResourceCard';
+import MyArtifactCard from './MyArtifactCard';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
-import { Pagination } from './ResourceGrid';
+import { Pagination } from './ArtifactGrid';
 
 interface Artifact {
   id: string;
@@ -293,7 +293,7 @@ const MyArtifacts: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {artifacts.map((artifact) => (
               <div key={artifact.id}>
-                <AdminResourceCard
+                <MyArtifactCard
                   id={artifact.id}
                   title={artifact.manifest?.name || artifact.alias}
                   status={artifact.manifest?.status}

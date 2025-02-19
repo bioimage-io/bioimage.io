@@ -11,7 +11,7 @@ import { Menu } from '@headlessui/react';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import StatusBadge from './StatusBadge';
-import { Pagination } from './ResourceGrid';
+import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
-import ResourceCard from './ResourceCard';
+import ArtifactCard from './ArtifactCard';
 import PartnerScroll from './PartnerScroll';
 import { Grid } from '@mui/material';
 import TagSelection from './TagSelection';
@@ -65,7 +65,7 @@ const LoadingOverlay = () => (
   </div>
 );
 
-export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
+export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const location = useLocation();
@@ -94,10 +94,10 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   }, [location.pathname]);
 
   useEffect(() => {
-    // Update resource type in store when path changes
+    // Update artifact type in store when path changes
     const currentType = getCurrentType();
     setResourceType(currentType);
-    // Reset to first page when resource type changes
+    // Reset to first page when artifact type changes
     setCurrentPage(1);
   }, [getCurrentType, setResourceType]);
 
@@ -193,10 +193,10 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
       </div>
 
       <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
-        {resources.map((resource) => (
+        {resources.map((artifact) => (
           <Grid 
             item 
-            key={resource.id} 
+            key={artifact.id} 
             xs={12}
             sm={6} 
             md={4} 
@@ -207,7 +207,7 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
               margin: '0 auto'
             }}
           >
-            <ResourceCard resource={resource} />
+            <ArtifactCard artifact={artifact} />
           </Grid>
         ))}
       </Grid>
@@ -223,4 +223,4 @@ export const ResourceGrid: React.FC<ResourceGridProps> = ({ type }) => {
   );
 };
 
-export default ResourceGrid; 
+export default ArtifactGrid; 

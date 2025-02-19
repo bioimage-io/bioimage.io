@@ -24,7 +24,7 @@ import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import remarkGfm from 'remark-gfm';
 
-const ResourceDetails = () => {
+const ArtifactDetails = () => {
   const { id } = useParams();
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
@@ -132,7 +132,7 @@ const ResourceDetails = () => {
   }
 
   if (!selectedResource) {
-    return <div>Resource not found</div>;
+    return <div>Artifact not found</div>;
   }
 
   const { manifest } = selectedResource as ArtifactInfo;
@@ -526,4 +526,4 @@ const ResourceDetails = () => {
   );
 };
 
-export default ResourceDetails; 
+export default ArtifactDetails; 
