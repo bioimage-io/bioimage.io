@@ -300,7 +300,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           {!readOnly && (
             <button
               onClick={() => addArrayItem('authors')}
-              className="text-xs text-blue-600 hover:text-blue-700"
+              className="text-sm text-blue-600 hover:text-blue-700"
             >
               + Add Author
             </button>
@@ -357,7 +357,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           {!readOnly && (
             <button
               onClick={() => addArrayItem('maintainers')}
-              className="text-xs text-blue-600 hover:text-blue-700"
+              className="text-sm text-blue-600 hover:text-blue-700"
             >
               + Add Maintainer
             </button>
@@ -415,7 +415,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           {!readOnly && (
             <button
               onClick={() => addArrayItem('cite')}
-              className="text-xs text-blue-600 hover:text-blue-700"
+              className="text-sm text-blue-600 hover:text-blue-700"
             >
               + Add Citation
             </button>
@@ -487,6 +487,20 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       {showModeSwitch && (
         <div className="flex items-center justify-end gap-3 px-4 py-2 border-b bg-gray-50">
           <button
+            onClick={() => setIsFormMode(true)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${
+              isFormMode 
+                ? 'bg-blue-100 text-blue-700 font-medium'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+            disabled={readOnly}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 6h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1zm0 6h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1z" />
+            </svg>
+            Simple RDF Form
+          </button>
+          <button
             onClick={() => setIsFormMode(false)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${
               !isFormMode 
@@ -499,22 +513,9 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
             </svg>
-            Code
+            Advanced RDF Editor
           </button>
-          <button
-            onClick={() => setIsFormMode(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${
-              isFormMode 
-                ? 'bg-blue-100 text-blue-700 font-medium'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            disabled={readOnly}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 6h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1zm0 6h16a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1z" />
-            </svg>
-            Form
-          </button>
+          
         </div>
       )}
       

@@ -92,7 +92,7 @@ const Edit: React.FC = () => {
   });
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
@@ -1159,13 +1159,27 @@ const Edit: React.FC = () => {
     const shouldDisableActions = isRdfFile && (!isContentValid || hasContentChanged);
 
     return (
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+        {/* Back to Edit button - only show in review tab */}
+        {activeTab === 'review' && (
+          <button
+            onClick={() => handleTabChange('files')}
+            className="flex items-center justify-center gap-2 px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 w-full sm:w-auto"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Edit
+          </button>
+        )}
+
+        {/* Save button */}
         {selectedFile && isTextFile(selectedFile.name) && (
           <button
             onClick={() => handleSave(selectedFile)}
             disabled={!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'}
             title={`Save (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S)`}
-            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
               ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
@@ -1177,31 +1191,37 @@ const Edit: React.FC = () => {
           </button>
         )}
 
+        {/* Validator button */}
         {isRdfFile && (
-          <div title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
+          <div className="w-full sm:w-auto" title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
             <ModelValidator
               rdfContent={getLatestRdfContent()}
               isDisabled={!server}
               onValidationComplete={handleValidationComplete}
               data-testid="model-validator-button"
+              className="w-full sm:w-auto"
             />
           </div>
         )}
 
-        {isStaged && artifactType === 'model' && (
-          <ModelTester
-            artifactId={artifactId}
-            modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=stage`}
-            isDisabled={!server}
-          />
+        {/* Test Model button */}
+        {isStaged && artifactType === 'model' && artifactId && (
+          <div className="w-full sm:w-auto">
+            <ModelTester
+              artifactId={artifactId}
+              modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=stage`}
+              isDisabled={!server}
+              className="w-full sm:w-auto"
+            />
+          </div>
         )}
 
-        {/* Review & Publish button - only show when staged */}
+        {/* Review & Publish button */}
         {isStaged && (
           <button
             onClick={() => handleTabChange('review')}
             disabled={shouldDisableActions}
-            className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
               ${shouldDisableActions
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : activeTab === 'review'
@@ -1501,22 +1521,18 @@ const Edit: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)]">
-      {/* Header - remove border-b since content will scroll under it */}
-      <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 z-30">
+    <div className="flex flex-col">
+      {/* Header - make it fixed for small screens */}
+      <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 z-30 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          {/* Toggle sidebar button - moved to the left */}
+          {/* Toggle sidebar button */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
+            className="p-2 rounded-md text-gray-500 hover:bg-gray-100 lg:hidden"
             aria-label="Toggle sidebar"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {isSidebarOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
 
@@ -1528,19 +1544,16 @@ const Edit: React.FC = () => {
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back to My Artifacts
+            <span className="hidden sm:inline">Back to My Artifacts</span>
           </button>
         </div>
-
-        {/* Empty div to maintain flex justify-between */}
-        <div></div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - update to be sticky and remove h-full */}
+      <div className="flex flex-1 overflow-hidden relative lg:w-full">
+        {/* Sidebar - update positioning and z-index */}
         <div className={`${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col sticky max-h-[calc(100vh-49px)] lg:static z-20 transition-transform duration-300 ease-in-out`}>
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 z-40 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] lg:h-full overflow-hidden`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1597,21 +1610,19 @@ const Edit: React.FC = () => {
 
         </div>
 
-        {/* Main content area - add w-full */}
-        <div className="w-full">
-          {/* Status bar - make it sticky */}
+        {/* Main content area - update to handle sidebar space */}
+        <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'lg:ml-80' : ''} w-full`}>
+          {/* Status bar - update responsive styles */}
           {activeTab === 'files' && (
-            <div className="border-b border-gray-200 bg-white sticky z-20">
-              {/* Container with padding except bottom when progress bar is shown */}
+            <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
               <div className={`p-4 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
-                {/* Flex container that stacks below 1024px */}
-                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  {/* Status section */}
-                  <div className="flex-grow min-w-0">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  {/* Status section - add max width for large screens */}
+                  <div className="flex-grow min-w-0 lg:max-w-[50%]">
                     {copyProgress ? (
                       <>
                         <div className="flex items-center gap-2">
-                          <span className="text-blue-600">
+                          <span className="text-blue-600 truncate">
                             Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
                           </span>
                         </div>
@@ -1625,7 +1636,7 @@ const Edit: React.FC = () => {
                       <>
                         {uploadStatus && (
                           <div className="flex items-center gap-2">
-                            <span className={`text-base ${
+                            <span className={`text-base truncate ${
                               uploadStatus.severity === 'error' ? 'text-red-600' :
                               uploadStatus.severity === 'success' ? 'text-green-600' :
                               'text-blue-600'
@@ -1645,8 +1656,8 @@ const Edit: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Buttons section */}
-                  <div className="flex gap-2 flex-shrink-0">
+                  {/* Buttons section - update flex properties */}
+                  <div className="flex flex-wrap gap-2 lg:justify-end lg:flex-nowrap">
                     {renderActionButtons()}
                   </div>
                 </div>
@@ -1667,7 +1678,7 @@ const Edit: React.FC = () => {
             </div>
           )}
 
-          {/* Content area - add w-full */}
+          {/* Content area */}
           <div className="w-full">
             {renderContent()}
           </div>
@@ -1688,10 +1699,10 @@ const Edit: React.FC = () => {
         onClose={() => setValidationErrors([])}
       />
 
-      {/* Add overlay for mobile when sidebar is open */}
-      {files.length > 0 && isSidebarOpen && (
+      {/* Update overlay for mobile */}
+      {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10"
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}

@@ -108,7 +108,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [isValidated, setIsValidated] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
   const [uploadedArtifact, setUploadedArtifact] = useState<UploadArtifact | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [generatedId, setGeneratedId] = useState<string | null>(null);
   const [generatedEmoji, setGeneratedEmoji] = useState<string | null>(null);
 
@@ -683,7 +683,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)]"> {/* 48px is navbar height */}
+    <div className="flex flex-col]">
       {/* Add back button when viewing existing artifact */}
       {files.length > 0 && (<>
         {/* Add toggle sidebar button - only show when files are loaded */}
@@ -899,7 +899,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           <div className="flex-1 overflow-auto">
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
-                <div className="text-center max-w-2xl mx-auto">
+                <div className="mt-10 text-center max-w-2xl mx-auto">
                   {uploadStatus?.message && uploadStatus.severity === 'info' && uploadStatus.progress !== undefined ? (
                     // Show loading spinner while processing
                     <div className="flex flex-col items-center justify-center mb-8">

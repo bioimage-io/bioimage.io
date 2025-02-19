@@ -84,7 +84,7 @@ const AppContent: React.FC = () => {
           <Route path="/api" element={<ApiDocs />} />
         </Routes>
       </main>
-      {!hideFooter && <Footer />}
+      <Footer />
     </div>
   );
 };
