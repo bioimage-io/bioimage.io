@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { Switch, TextField, FormControl, FormHelperText } from '@mui/material';
+import { Switch, TextField, FormControl, FormHelperText, Autocomplete } from '@mui/material';
 import yaml from 'js-yaml';
 
 interface Author {
@@ -19,6 +19,12 @@ interface Citation {
   text?: string;
   doi?: string;
   url?: string;
+}
+
+interface SPDXLicense {
+  licenseId: string;
+  name: string;
+  reference: string;
 }
 
 interface RDFContent {
@@ -59,6 +65,33 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const [formData, setFormData] = useState<RDFContent>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editorContent, setEditorContent] = useState(content);
+  const [licenses, setLicenses] = useState<SPDXLicense[]>([]);
+  const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
+
+  const validateTag = (tag: string) => {
+    // Allow lowercase letters, numbers, and special characters: +*#;./%@
+    return /^[a-z0-9+*#;./%@]+$/.test(tag);
+  };
+
+  const fetchLicenses = useCallback(async () => {
+    if (licenses.length > 0) return; // Don't fetch if we already have licenses
+    
+    setIsLoadingLicenses(true);
+    try {
+      const response = await fetch('https://raw.githubusercontent.com/spdx/license-list-data/master/json/licenses.json');
+      const data = await response.json();
+      const formattedLicenses = data.licenses.map((license: any) => ({
+        licenseId: license.licenseId,
+        name: license.name,
+        reference: license.reference
+      }));
+      setLicenses(formattedLicenses);
+    } catch (error) {
+      console.error('Error fetching licenses:', error);
+    } finally {
+      setIsLoadingLicenses(false);
+    }
+  }, [licenses]);
 
   // Parse YAML content when component mounts or content changes
   useEffect(() => {
@@ -235,21 +268,45 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           disabled={readOnly}
         />
 
-        <TextField
+        <Autocomplete
           fullWidth
           size="small"
-          label="License"
-          value={formData.license || ''}
-          onChange={(e) => handleFormChange('license', e.target.value)}
-          helperText={
-            <span>
-              Choose the license that fits you most, we recommend to use{' '}
-              <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                CC-BY-4.0
-              </a>
-            </span>
-          }
-          disabled={readOnly}
+          options={licenses}
+          loading={isLoadingLicenses}
+          value={licenses.find(l => l.licenseId === formData.license) || null}
+          onChange={(_, newValue) => handleFormChange('license', newValue?.licenseId || '')}
+          onOpen={fetchLicenses}
+          getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="License"
+              disabled={readOnly}
+              helperText={
+                <span>
+                  Choose the license that fits you most, we recommend to use{' '}
+                  <a 
+                    href="https://creativecommons.org/licenses/by/4.0/" 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-blue-600 hover:underline"
+                  >
+                    CC-BY-4.0
+                  </a>
+                  . For other license options, see{' '}
+                  <a 
+                    href="https://spdx.org/licenses" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    SPDX License List
+                  </a>
+                </span>
+              }
+            />
+          )}
+          isOptionEqualToValue={(option, value) => option.licenseId === value.licenseId}
         />
 
         <TextField
@@ -260,6 +317,46 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           onChange={(e) => handleFormChange('git_repo', e.target.value)}
           helperText="Git repository URL"
           disabled={readOnly}
+        />
+
+        {/* Add Tags field */}
+        <Autocomplete
+          fullWidth
+          multiple
+          size="small"
+          options={[]} // Empty array since we allow free input
+          value={formData.tags || []}
+          onChange={(_, newValue) => {
+            // Filter out invalid tags
+            const validTags = newValue.filter(tag => validateTag(tag));
+            handleFormChange('tags', validTags);
+          }}
+          freeSolo
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Tags"
+              helperText="Tags should contain only lowercase letters, numbers, or the following characters: +*#;./%@ (no spaces). Press Enter, Tab, or Space after each tag."
+              disabled={readOnly}
+              error={!!errors.tags}
+            />
+          )}
+          ChipProps={{
+            size: 'small'
+          }}
+          onInputChange={(event, value, reason) => {
+            if (reason === 'input' && !validateTag(value)) {
+              setErrors(prev => ({
+                ...prev,
+                tags: 'Invalid characters in tag'
+              }));
+            } else {
+              setErrors(prev => {
+                const { tags, ...rest } = prev;
+                return rest;
+              });
+            }
+          }}
         />
       </div>
 
@@ -273,7 +370,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             size="small"
             label="Email"
             value={formData.uploader?.email || ''}
-            disabled={true} // Always readonly
             required
             helperText="Email of the uploader (automatically set)"
           />
@@ -464,20 +560,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             )}
           </div>
         ))}
-      </div>
-
-      {/* Source */}
-      <div className="space-y-3">
-        <h3 className="text-base font-medium text-gray-900">Additional Information</h3>
-        <TextField
-          fullWidth
-          size="small"
-          label="Source URL"
-          value={formData.source || ''}
-          onChange={(e) => handleFormChange('source', e.target.value)}
-          helperText="The source URL of your deposit"
-          disabled={readOnly}
-        />
       </div>
     </div>
   );

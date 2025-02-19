@@ -683,7 +683,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   return (
-    <div className="flex flex-col]">
+    <div className="flex flex-col">
       {/* Add back button when viewing existing artifact */}
       {files.length > 0 && (<>
         {/* Add toggle sidebar button - only show when files are loaded */}
@@ -721,7 +721,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         {files.length > 0 && (
           <div className={`${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static z-20 transition-transform duration-300 ease-in-out`}>
+          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static transition-transform duration-300 ease-in-out`}>
             <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
               {generatedId ? (
                 <>
@@ -828,7 +828,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         <div className="w-full flex flex-col overflow-hidden">
           {/* Status bar */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white sticky top-0 z-20">
+            <div className="border-b border-gray-200 bg-white sticky top-0">
               {/* Container with padding */}
               <div className="p-4">
                 {/* Flex container that stacks below 1024px */}
@@ -1036,7 +1036,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       {/* Add overlay for mobile when sidebar is open */}
       {files.length > 0 && isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10"
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}

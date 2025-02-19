@@ -1550,10 +1550,10 @@ const Edit: React.FC = () => {
       </div>
 
       <div className="flex flex-1 overflow-hidden relative lg:w-full">
-        {/* Sidebar - update positioning and z-index */}
+        {/* Sidebar - update z-index */}
         <div className={`${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 z-40 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] lg:h-full overflow-hidden`}>
+        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] lg:h-full overflow-hidden`}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1702,7 +1702,7 @@ const Edit: React.FC = () => {
       {/* Update overlay for mobile */}
       {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
