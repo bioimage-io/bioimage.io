@@ -721,7 +721,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         {files.length > 0 && (
           <div className={`${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full fixed lg:static transition-transform duration-300 ease-in-out`}>
+          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col 
+          fixed lg:relative inset-y-0 
+          transition-transform duration-300 ease-in-out 
+          h-screen lg:h-[calc(100vh-64px)] z-40
+          overflow-hidden`}>
             <div className="p-4 border-b border-gray-200 flex flex-col gap-2">
               {generatedId ? (
                 <>
@@ -769,8 +773,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             </div>
 
             {/* Scrollable file list */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="py-2">
+            <div className="flex-1 overflow-y-auto min-h-[calc(100vh-200px)]">
+              <div className="py-2 h-full">
                 {files.map((file) => (
                   <div
                     key={file.path}
@@ -825,10 +829,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         )}
 
         {/* Main content area */}
-        <div className="w-full flex flex-col overflow-hidden min-h-[80vh]">
+        <div className="w-full flex flex-col overflow-hidden min-h-screen">
           {/* Status bar */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white sticky top-0">
+            <div className="border-b border-gray-200 bg-white sticky top-0 z-35">
               {/* Container with padding */}
               <div className="p-2">
                 {/* Flex container that stacks below 1024px */}
@@ -896,7 +900,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           )}
 
           {/* Content area - update height calculation */}
-          <div className="flex-1 overflow-auto min-h-[calc(80vh-145px)]">
+          <div className="flex-1 overflow-auto min-h-[calc(100vh-145px)]">
             {showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="mt-10 text-center max-w-2xl mx-auto">
@@ -1034,9 +1038,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       </div>
 
       {/* Add overlay for mobile when sidebar is open */}
-      {files.length > 0 && isSidebarOpen && (
+      {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50"
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}

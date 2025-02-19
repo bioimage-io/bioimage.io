@@ -92,7 +92,9 @@ const Edit: React.FC = () => {
   });
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    return window.innerWidth >= 1024; // 1024px is the lg breakpoint in Tailwind
+  });
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
@@ -1523,7 +1525,7 @@ const Edit: React.FC = () => {
   return (
     <div className="flex flex-col">
       {/* Header - make it fixed for small screens */}
-      <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 z-30 border-b border-gray-200">
+      <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 border-b border-gray-200">
         <div className="flex items-center gap-2">
           {/* Toggle sidebar button */}
           <button
@@ -1551,9 +1553,15 @@ const Edit: React.FC = () => {
 
       <div className="flex flex-1 overflow-hidden relative lg:w-full">
         {/* Sidebar - update z-index */}
-        <div className={`${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col fixed lg:relative inset-y-0 transition-transform duration-300 ease-in-out h-[calc(100vh-96px)] h-full overflow-hidden`}>
+        <div className={`
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} 
+          w-80 bg-gray-50 border-r border-gray-200 flex flex-col 
+          fixed lg:relative 
+          top-[48px] lg:top-0 bottom-0 left-0
+          transition-transform duration-300 ease-in-out 
+          z-30
+          overflow-hidden
+        `}>
 
           {/* Artifact Info Box - always visible */}
           <div className="border-t border-gray-200 bg-white p-4 space-y-2">
@@ -1702,7 +1710,7 @@ const Edit: React.FC = () => {
       {/* Update overlay for mobile */}
       {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50"
+          className="lg:hidden fixed inset-0 top-[48px] bg-black bg-opacity-50 z-20"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}

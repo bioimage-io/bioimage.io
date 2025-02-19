@@ -319,7 +319,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       <div className="space-y-6">
         {/* Section Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h2 className="text-xl font-semibold text-gray-900">Basic Information</h2>
+          <h2 className="text-base font-semibold text-gray-900">Basic Information</h2>
           <p className="mt-1 text-sm text-gray-500">
             Basic details about your artifact
           </p>
@@ -525,7 +525,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       {/* Uploader Section */}
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4">
-          <h2 className="text-xl font-semibold text-gray-900">Uploader Information</h2>
+          <h2 className="text-base font-semibold text-gray-900">Uploader Information</h2>
           <p className="mt-1 text-sm text-gray-500">
             Details about who is uploading this artifact
           </p>
@@ -570,7 +570,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Authors</h2>
+            <h2 className="text-base font-semibold text-gray-900">Authors</h2>
             <p className="mt-1 text-sm text-gray-500">
               The authors who contributed to this artifact
             </p>
@@ -651,7 +651,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Maintainers</h2>
+            <h2 className="text-base font-semibold text-gray-900">Maintainers</h2>
             <p className="mt-1 text-sm text-gray-500">
               The maintainers who maintain this artifact. The first maintainer will be contacted for approval.
             </p>
@@ -730,7 +730,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Citations</h2>
+            <h2 className="text-base font-semibold text-gray-900">Citations</h2>
             <p className="mt-1 text-sm text-gray-500">
               How this artifact should be cited
             </p>
