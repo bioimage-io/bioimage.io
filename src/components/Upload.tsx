@@ -13,10 +13,13 @@ import RDFEditor from './RDFEditor';
 interface FileNode {
   name: string;
   path: string;
-  content: string | ArrayBuffer;
+  content?: string | ArrayBuffer;
   isDirectory: boolean;
   children?: FileNode[];
   edited?: boolean;
+  size: number;
+  handle?: JSZip.JSZipObject;
+  loaded?: boolean;
 }
 
 interface Manifest {
@@ -69,6 +72,7 @@ interface UploadArtifact {
 // Add type definition for manifest
 interface RdfManifest {
   type: 'model' | 'application' | 'dataset';
+  name: string;
   [key: string]: any;
 }
 
@@ -183,18 +187,16 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    // Show loading state immediately when files are dropped
     setUploadStatus({
       message: 'Processing zip file...',
       severity: 'info',
-      progress: 0 // Add initial progress
+      progress: 0
     });
     
     const zipFile = acceptedFiles[0];
     const zip = new JSZip();
     
     try {
-      // Add a small delay to show initial loading state
       await new Promise(resolve => setTimeout(resolve, 100));
       
       const loadedZip = await zip.loadAsync(zipFile);
@@ -203,11 +205,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const totalFiles = Object.keys(loadedZip.files).length;
       let processedFiles = 0;
 
-      // Update progress as files are processed
       setUploadStatus({
         message: 'Reading zip contents...',
         severity: 'info',
-        progress: 5 // Show some initial progress
+        progress: 5
       });
 
       for (const [path, file] of Object.entries(loadedZip.files)) {
@@ -215,21 +216,28 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           const pathParts = path.split('/');
           const fileName = pathParts[pathParts.length - 1];
           
-          const isImage = fileName.match(/\.(png|jpg|jpeg|gif)$/i);
-          const content = await file.async(isImage ? 'arraybuffer' : 'string');
-
-          fileNodes.push({
+          const fileNode: FileNode = {
             name: fileName,
             path: path,
-            content: content,
-            isDirectory: false
-          });
+            isDirectory: false,
+            size: file._data ? file._data.uncompressedSize : 0,
+            handle: file
+          };
+
+          // Only load rdf.yaml content immediately
+          if (fileName === 'rdf.yaml') {
+            const content = await file.async('string');
+            fileNode.content = content;
+            fileNode.loaded = true;
+          }
+
+          fileNodes.push(fileNode);
 
           processedFiles++;
           setUploadStatus({
             message: `Processing files... (${processedFiles}/${totalFiles})`,
             severity: 'info',
-            progress: 5 + ((processedFiles / totalFiles) * 95) // Scale progress from 5-100%
+            progress: 5 + ((processedFiles / totalFiles) * 95)
           });
         }
       }
@@ -237,16 +245,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       setFiles(fileNodes);
       setShowDragDrop(false);
       
-      setUploadStatus({
-        message: `${fileNodes.length} files loaded`,
-        severity: 'info',
-        progress: 100
-      });
-
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
         handleFileSelect(rdfFile);
       }
+
     } catch (error) {
       console.error('Error reading zip file:', error);
       setUploadStatus({
@@ -263,17 +266,65 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   });
 
+  const loadFileContent = async (file: FileNode) => {
+    if (!file.handle || file.loaded) return null;
+
+    try {
+      const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
+      const content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+      
+      setFiles(prevFiles => prevFiles.map(f => 
+        f.path === file.path 
+          ? { ...f, content, loaded: true }
+          : f
+      ));
+
+      return content;
+    } catch (error) {
+      console.error('Error loading file content:', error);
+      throw error;
+    }
+  };
+
   const handleFileSelect = async (file: FileNode) => {
-    setSelectedFile(file);
     setImageUrl(null);
-    
-    if (isImageFile(file.name)) {
-      try {
-        const url = await getImageDataUrl(file.content, file.name);
-        setImageUrl(url);
-      } catch (error) {
-        console.error('Error generating image URL:', error);
+    setSelectedFile(null);
+
+    if (isTextFile(file.name) || isImageFile(file.name)) {
+      if (file.loaded && file.content) {
+        if (isImageFile(file.name)) {
+          const url = await getImageDataUrl(file.content, file.name);
+          setImageUrl(url);
+        }
+        setSelectedFile(file);
+      } else {
+        try {
+          setUploadStatus({
+            message: `Loading ${file.name}...`,
+            severity: 'info'
+          });
+
+          const content = await loadFileContent(file);
+          if (!content) return;
+          
+          const updatedFile = { ...file, content, loaded: true };
+          
+          if (isImageFile(file.name)) {
+            const url = await getImageDataUrl(content, file.name);
+            setImageUrl(url);
+          }
+
+          setSelectedFile(updatedFile);
+          setUploadStatus(null);
+        } catch (error) {
+          setUploadStatus({
+            message: `Error loading ${file.name}`,
+            severity: 'error'
+          });
+        }
       }
+    } else {
+      setSelectedFile(file);
     }
   };
 
@@ -485,29 +536,51 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           progress: ((index + 1) / (remainingFiles.length + 1)) * 100
         });
 
-        const putUrl = await artifactManager.put_file({
-          artifact_id: artifact.id,
-          file_path: file.path,
-          _rkwargs: true,
-        });
+        try {
+          // Load content
+          const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
+          const content = file.handle ? await file.handle.async(isImage ? 'arraybuffer' : 'string') : file.content;
 
-        const blob = new Blob([file.content], { type: "application/octet-stream" });
-        await axios.put(putUrl, blob, {
-          headers: {
-            "Content-Type": ""
-          },
-          onUploadProgress: (progressEvent) => {
-            const progress = progressEvent.total
-              ? (progressEvent.loaded / progressEvent.total) * 100
-              : 0;
-            
-            setUploadStatus({
-              message: `Uploading ${file.name}...`,
-              severity: 'info',
-              progress: ((index + (progress / 100)) / remainingFiles.length) * 100
-            });
+          if (!content) {
+            throw new Error(`No content available for ${file.name}`);
           }
-        });
+
+          // Upload the file
+          const putUrl = await artifactManager.put_file({
+            artifact_id: artifact.id,
+            file_path: file.path,
+            _rkwargs: true,
+          });
+
+          const blob = new Blob([content], { type: "application/octet-stream" });
+          await axios.put(putUrl, blob, {
+            headers: {
+              "Content-Type": ""
+            },
+            onUploadProgress: (progressEvent) => {
+              const progress = progressEvent.total
+                ? (progressEvent.loaded / progressEvent.total) * 100
+                : 0;
+              
+              setUploadStatus({
+                message: `Uploading ${file.name}...`,
+                severity: 'info',
+                progress: ((index + (progress / 100)) / remainingFiles.length) * 100
+              });
+            }
+          });
+
+          // Clear content from memory after successful upload
+          setFiles(prevFiles => prevFiles.map(f => 
+            f.path === file.path 
+              ? { ...f, content: undefined, loaded: false }
+              : f
+          ));
+
+        } catch (error) {
+          console.error(`Error uploading ${file.name}:`, error);
+          throw new Error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
       }
 
       // After successful upload, redirect to edit page
@@ -558,7 +631,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           _rkwargs: true,
         });
         
-        const blob = new Blob([file.content], { type: "application/octet-stream" });
+        const blob = new Blob([file.content!], { type: "application/octet-stream" });
         await axios.put(putUrl, blob, {
           headers: {
             "Content-Type": ""
@@ -651,25 +724,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       }
     } catch (error) {
       console.error('Error loading artifact files:', error);
-    }
-  };
-
-  const loadFileContent = async (filePath: string) => {
-    if (!artifactManager || !artifactId) return '';
-
-    try {
-      const url = await artifactManager.get_file({
-        artifact_id: artifactId,
-        file_path: filePath,
-        _rkwargs: true
-      });
-
-      const response = await fetch(url);
-      const content = await response.text();
-      return content;
-    } catch (error) {
-      console.error('Error loading file content:', error);
-      return '';
     }
   };
 
@@ -826,7 +880,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         <div className="w-full flex flex-col overflow-hidden min-h-screen">
           {/* Status bar */}
           {files.length > 0 && (
-            <div className="border-b border-gray-200 bg-white sticky top-0 z-35">
+            <div className="border-b border-gray-200 bg-white sticky top-0 z-50">
               {/* Container with padding */}
               <div className="p-2">
                 {/* Flex container that stacks below 1024px */}
@@ -1014,7 +1068,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       <h3 className="font-medium text-lg mb-4">File Information</h3>
                       <div className="space-y-2">
                         <p><span className="font-medium">Name:</span> {selectedFile.name}</p>
-                        <p><span className="font-medium">Size:</span> {formatFileSize(selectedFile.content instanceof ArrayBuffer ? selectedFile.content.byteLength : selectedFile.content.length)}</p>
+                        <p><span className="font-medium">Size:</span> {formatFileSize(selectedFile.size)}</p>
                         <p><span className="font-medium">Type:</span> {selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</p>
                       </div>
                       <p className="mt-4 text-sm text-gray-400">This file type cannot be previewed</p>
