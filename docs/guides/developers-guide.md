@@ -102,9 +102,10 @@ Several community partners provide tools to create models in the BioImage.IO for
 
 In both cases, follow the steps outlined in the respective notebooks to generate your model. Once the process is complete, you can upload the model to the BioImage Model Zoo.
 
-#### 3. Using a Graphical User Interface (GUI)
-#TODO by Tomaz
-Each method allows flexibility based on your expertise and tools at hand. Always validate your model before uploading to ensure compliance with BioImage.IO specifications.
+#### 3. Using the Model Builder Graphical User Interface (GUI)
+You can also use the [Model Builder desktop application](https://github.com/kreshuklab/bioimg_rs/blob/master/bioimg_gui/README.md) to create your model file or edit existing ones. Just download it from the [releases page](https://github.com/kreshuklab/bioimg_rs/releases) and follow the instructions inside the application.
+
+After filling up all fields you'll be able to export your model to a `.zip` file that you can then upload to the model zoo to be used by other people.
 
 ### Upload the model to the BioImage Model Zoo
 Once you have created a model in the BioImage.IO format, you can upload it to the BioImage Model Zoo. The process is straightforward and involves the following steps:
