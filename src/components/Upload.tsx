@@ -20,6 +20,7 @@ interface FileNode {
   size: number;
   handle?: JSZip.JSZipObject;
   loaded?: boolean;
+  file?: File;
 }
 
 interface Manifest {
@@ -187,13 +188,24 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    // Check if we have a zip file or regular files
+    const isZipFile = acceptedFiles.length === 1 && acceptedFiles[0].name.toLowerCase().endsWith('.zip');
+    
+    if (isZipFile) {
+      await processZipFile(acceptedFiles[0]);
+    } else {
+      await processFilesAndFolders(acceptedFiles);
+    }
+  }, []);
+
+  // Process a zip file (existing functionality)
+  const processZipFile = async (zipFile: File) => {
     setUploadStatus({
       message: 'Processing zip file...',
       severity: 'info',
       progress: 0
     });
     
-    const zipFile = acceptedFiles[0];
     const zip = new JSZip();
     
     try {
@@ -220,7 +232,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             name: fileName,
             path: path,
             isDirectory: false,
-            size: file._data ? file._data.uncompressedSize : 0,
+            size: (file as any)._data ? (file as any)._data.uncompressedSize : 0,
             handle: file
           };
 
@@ -257,29 +269,183 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         severity: 'error'
       });
     }
-  }, []);
+  };
+
+  // Process files and folders (new functionality)
+  const processFilesAndFolders = async (acceptedFiles: File[]) => {
+    setUploadStatus({
+      message: 'Processing files...',
+      severity: 'info',
+      progress: 0
+    });
+
+    try {
+      const fileNodes: FileNode[] = [];
+      const totalFiles = acceptedFiles.length;
+      
+      // Sort files to prioritize rdf.yaml
+      const sortedFiles = [...acceptedFiles].sort((a, b) => {
+        if (a.name === 'rdf.yaml') return -1;
+        if (b.name === 'rdf.yaml') return 1;
+        return 0;
+      });
+
+      for (let i = 0; i < sortedFiles.length; i++) {
+        const file = sortedFiles[i];
+        // Ensure file has name property by using type assertion
+        const relativePath = (file as File).webkitRelativePath || (file as File).name;
+        const pathParts = relativePath.split('/');
+        const fileName = pathParts[pathParts.length - 1];
+        
+        const fileNode: FileNode = {
+          name: fileName,
+          path: relativePath,
+          isDirectory: false,
+          size: file.size,
+          file: file, // Store the actual File object instead of JSZip handle
+          loaded: false
+        };
+
+        // Only load rdf.yaml content immediately
+        if (fileName === 'rdf.yaml') {
+          const content = await readFileContent(file);
+          fileNode.content = content;
+          fileNode.loaded = true;
+        }
+
+        fileNodes.push(fileNode);
+
+        setUploadStatus({
+          message: `Processing files... (${i + 1}/${totalFiles})`,
+          severity: 'info',
+          progress: ((i + 1) / totalFiles) * 100
+        });
+      }
+
+      setFiles(fileNodes);
+      setShowDragDrop(false);
+      
+      const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
+      if (rdfFile) {
+        handleFileSelect(rdfFile);
+      } else {
+        // If no rdf.yaml found, show a warning
+        setUploadStatus({
+          message: 'Warning: No rdf.yaml file found. This is required for BioImage.io models.',
+          severity: 'error'
+        });
+      }
+    } catch (error) {
+      console.error('Error processing files:', error);
+      setUploadStatus({
+        message: 'Error processing files',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Helper function to read file content
+  const readFileContent = (file: File): Promise<string | ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result) {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to read file'));
+        }
+      };
+      reader.onerror = () => {
+        reject(reader.error);
+      };
+      
+      if (isImageFile(file.name)) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
+    // Accept all files and directories
+    noClick: false,
+    noKeyboard: false,
+    noDrag: false,
+    multiple: true,
+    // Support directory upload
+    useFsAccessApi: false, // Set to false for broader browser compatibility
+    // Accept all file types
     accept: {
-      'application/zip': ['.zip']
+      '*': ['.*'], // Accept all file types
     }
   });
 
+  // Custom input props to enable directory upload
+  const customInputProps = {
+    ...getInputProps(),
+    webkitdirectory: true,
+    directory: true,
+    mozdirectory: true
+  };
+
+  // Regular file input props (without directory selection)
+  const fileInputProps = {
+    ...getInputProps(),
+    webkitdirectory: undefined,
+    directory: undefined,
+    mozdirectory: undefined
+  };
+
+  // Create refs for the file and folder inputs
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Function to trigger file input click
+  const handleFileButtonClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  // Function to trigger folder input click
+  const handleFolderButtonClick = () => {
+    if (folderInputRef.current) {
+      folderInputRef.current.click();
+    }
+  };
+
   const loadFileContent = async (file: FileNode) => {
-    if (!file.handle || file.loaded) return null;
+    if (file.loaded) return file.content;
 
     try {
-      const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
-      const content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
-      
-      setFiles(prevFiles => prevFiles.map(f => 
-        f.path === file.path 
-          ? { ...f, content, loaded: true }
-          : f
-      ));
+      if (file.handle) {
+        // Handle JSZip file
+        const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
+        const content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+        
+        setFiles(prevFiles => prevFiles.map(f => 
+          f.path === file.path 
+            ? { ...f, content, loaded: true }
+            : f
+        ));
 
-      return content;
+        return content;
+      } else if (file.file) {
+        // Handle regular File object
+        const content = await readFileContent(file.file);
+        
+        setFiles(prevFiles => prevFiles.map(f => 
+          f.path === file.path 
+            ? { ...f, content, loaded: true }
+            : f
+        ));
+
+        return content;
+      }
+      
+      return null;
     } catch (error) {
       console.error('Error loading file content:', error);
       throw error;
@@ -382,10 +548,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       let manifest: RdfManifest;
       try {
-        const content = typeof rdfFile.content === 'string' 
-          ? rdfFile.content
-          : new TextDecoder().decode(rdfFile.content);
-        manifest = yaml.load(content) as RdfManifest;
+        // Ensure rdf.yaml content is loaded
+        let rdfContent: string;
+        if (!rdfFile.loaded || !rdfFile.content) {
+          // Load content if not already loaded
+          if (rdfFile.handle) {
+            // From zip file
+            rdfContent = await rdfFile.handle.async('string');
+          } else if (rdfFile.file) {
+            // From regular file
+            rdfContent = await readFileContent(rdfFile.file) as string;
+          } else {
+            throw new Error('Cannot load rdf.yaml content');
+          }
+        } else {
+          rdfContent = typeof rdfFile.content === 'string' 
+            ? rdfFile.content
+            : new TextDecoder().decode(rdfFile.content);
+        }
+        
+        manifest = yaml.load(rdfContent) as RdfManifest;
 
         // Set uploader email automatically
         manifest.uploader = {
@@ -537,9 +719,24 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         });
 
         try {
-          // Load content
-          const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
-          const content = file.handle ? await file.handle.async(isImage ? 'arraybuffer' : 'string') : file.content;
+          // Load content based on file source
+          let content: string | ArrayBuffer | null = null;
+          
+          if (file.handle) {
+            // From zip file
+            const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
+            content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+          } else if (file.file) {
+            // From regular file
+            if (!file.loaded || !file.content) {
+              content = await readFileContent(file.file);
+            } else {
+              content = file.content;
+            }
+          } else if (file.content) {
+            // Already loaded content
+            content = file.content;
+          }
 
           if (!content) {
             throw new Error(`No content available for ${file.name}`);
@@ -695,21 +892,24 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       });
 
       // Convert the file list to FileNode format
-      const nodes: FileNode[] = await Promise.all(fileList.map(async (file: any) => {
+      const nodes: FileNode[] = await Promise.all(fileList.map(async (fileInfo: any) => {
+        // Use a more explicit type assertion
+        const file = fileInfo as { type: string; name: string };
+        
         if (file.type === 'file') {
-          const content = await loadFileContent(file.name);
           return {
             name: file.name,
             path: file.name,
-            content: content,
-            isDirectory: false
+            isDirectory: false,
+            size: 0,
+            loaded: false
           };
         }
         return {
           name: file.name,
           path: file.name,
-          content: '',
           isDirectory: true,
+          size: 0,
           children: []
         };
       }));
@@ -968,8 +1168,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     <div 
                       {...getRootProps()} 
                       className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
+                      onClick={handleFolderButtonClick}
                     >
-                      <input {...getInputProps()} />
+                      {/* Hidden inputs for file and folder selection */}
+                      <input {...fileInputProps} ref={fileInputRef} />
+                      <input {...customInputProps} ref={folderInputRef} style={{ display: 'none' }} />
+                      
                       <div className="mb-6">
                         <div className="w-16 h-16 mx-auto mb-4">
                           <svg className="w-full h-full text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -977,17 +1181,34 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                           </svg>
                         </div>
                         {isDragActive ? (
-                          <p className="text-lg text-blue-600 font-medium">Drop the zip file here...</p>
+                          <p className="text-lg text-blue-600 font-medium">Drop your files or folder here...</p>
                         ) : (
                           <>
                             <p className="text-lg text-gray-700 font-medium mb-2">
-                              Drag & drop your model package here
-                            </p>
-                            <p className="text-gray-500">
-                              or click to browse your files
+                              Drag & drop your model files here
                             </p>
                           </>
                         )}
+                      </div>
+                      <div className="text-sm text-gray-500 bg-blue-50 p-3 rounded-md border border-blue-100">
+                        <p className="font-medium text-blue-700 mb-1">💡 Pro Tip for Large Files</p>
+                        <p className="mb-3">For models with large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
+                        
+                        {/* Added buttons here */}
+                        <div className="flex flex-col sm:flex-row justify-center gap-3 mt-4">
+                          <button
+                            type="button"
+                            onClick={handleFolderButtonClick}
+                            className="px-4 py-2 bg-blue-100 border border-blue-200 rounded-md text-blue-700 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                          >
+                            <span className="flex items-center gap-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                              </svg>
+                              Select Files
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1012,9 +1233,18 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     <ol className="list-decimal list-inside space-y-3 text-gray-600 text-base">
                       <li className="leading-relaxed">Prepare your model package following the BioImage.io specification</li>
                       <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> file</li>
-                      <li className="leading-relaxed">Compress all files into a ZIP archive</li>
-                      <li className="leading-relaxed">Upload the ZIP file using this interface</li>
+                      <li className="leading-relaxed">Upload using one of these methods:
+                        <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
+                          <li><strong>Folder upload:</strong> Drag & drop a folder containing all your model files (recommended for large files)</li>
+                          <li><strong>Multiple files:</strong> Select all files individually</li>
+                          <li><strong>ZIP archive:</strong> Compress all files into a ZIP (not recommended for files &gt;3GB)</li>
+                        </ul>
+                      </li>
                     </ol>
+                    <div className="mt-4 bg-yellow-50 p-3 rounded-md border border-yellow-100 text-sm">
+                      <p className="font-medium text-yellow-700">⚠️ Important Note for Large Files</p>
+                      <p className="text-yellow-600">If your model contains large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
+                    </div>
                     <p className="text-sm text-gray-500 mt-6">
                       Need help? Check out our <a href="#" className="text-blue-600 hover:underline font-medium">documentation</a> or 
                       join our <a href="#" className="text-blue-600 hover:underline font-medium">community forum</a>.
