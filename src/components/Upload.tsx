@@ -1282,7 +1282,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       </div>
                       <div className="text-sm text-gray-500 bg-blue-50 p-3 rounded-md border border-blue-100">
                         <p className="font-medium text-blue-700 mb-1">💡 Pro Tip for Large Files</p>
-                        <p className="mb-3">For models with large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
+                        <p className="mb-3">For models with large files (&gt;3GB), please upload individual files instead of a ZIP archive to avoid memory issues in your browser.</p>
                         
                         {/* Added buttons here */}
                         <div className="flex flex-col sm:flex-row justify-center gap-3 mt-4">
