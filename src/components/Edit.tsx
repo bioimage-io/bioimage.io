@@ -11,15 +11,43 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import StatusBadge from './StatusBadge';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
+import { Alert, Snackbar } from '@mui/material';
+import { Drawer } from '@mui/material';
+
+// Helper function to extract weight file paths from manifest
+const extractWeightFiles = (manifest: any): string[] => {
+  if (!manifest || !manifest.weights) return [];
+  
+  const weightFiles: string[] = [];
+  Object.entries(manifest.weights).forEach(([_, weightInfo]: [string, any]) => {
+    if (weightInfo && weightInfo.source) {
+      // Handle paths that might start with ./ or just be filenames
+      let path = weightInfo.source;
+      if (path.startsWith('./')) {
+        path = path.substring(2);
+      }
+      weightFiles.push(path);
+    }
+  });
+  
+  return weightFiles;
+};
+
+// Add this interface for size-only file info
+interface SizeInfo {
+  fileSize: number;
+  type: 'size-only';
+}
 
 interface FileNode {
   name: string;
   path: string;
-  content?: string | ArrayBuffer;
+  content?: string | ArrayBuffer | SizeInfo;
   isDirectory: boolean;
   children?: FileNode[];
   edited?: boolean;
   isCommentsFile?: boolean;
+  fileSize?: number;
 }
 
 // Add this interface for the tab type
@@ -284,17 +312,56 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
       
-      const response = await fetch(url);
-      const content = isTextFile(file.name) ? 
-        await response.text() : 
-        await response.arrayBuffer();
+      // For text or image files, download the full content
+      if (isTextFile(file.name) || isImageFile(file.name)) {
+        const response = await fetch(url);
+        const content = isTextFile(file.name) ? 
+          await response.text() : 
+          await response.arrayBuffer();
 
-      setUploadStatus({
-        message: 'File loaded successfully',
-        severity: 'success'
-      });
+        setUploadStatus({
+          message: 'File loaded successfully',
+          severity: 'success'
+        });
 
-      return content;
+        return content;
+      } 
+      // For unknown file types, just get the size using a HEAD request or Range request
+      else {
+
+        // If HEAD request fails or doesn't return content-length, try a Range request
+        const rangeResponse = await fetch(url, {
+          headers: {
+            Range: 'bytes=0-1' // Just get the first byte to determine file existence and size
+          }
+        });
+        
+        // Get content-range header which contains the file size
+        const contentRange = rangeResponse.headers.get('content-range');
+        let size = 0;
+        
+        if (contentRange) {
+          // content-range format is like "bytes 0-1/12345" where 12345 is the total size
+          const match = contentRange.match(/bytes \d+-\d+\/(\d+)/);
+          if (match) {
+            size = parseInt(match[1], 10);
+          }
+        } else if (rangeResponse.headers.get('content-length')) {
+          // If there's no content-range but there is content-length
+          size = parseInt(rangeResponse.headers.get('content-length')!, 10);
+        }
+        
+        setUploadStatus({
+          message: 'File info loaded successfully',
+          severity: 'success'
+        });
+        
+        // Return a placeholder with size info
+        return {
+          fileSize: size,
+          type: 'size-only' as const
+        };
+      }
     } catch (error) {
       console.error('Error fetching file content:', error);
       setUploadStatus({
@@ -341,7 +408,8 @@ const Edit: React.FC = () => {
           )
         );
 
-        if (isImageFile(file.name)) {
+        // If the file is an image, generate URL
+        if (isImageFile(file.name) && (typeof content === 'string' || content instanceof ArrayBuffer)) {
           try {
             const url = await getImageDataUrl(content, file.name);
             setImageUrl(url);
@@ -350,8 +418,8 @@ const Edit: React.FC = () => {
           }
         }
       }
-    } else if (isImageFile(file.name)) {
-      // If content is already loaded, just generate the image URL
+    } else if (isImageFile(file.name) && (typeof file.content === 'string' || file.content instanceof ArrayBuffer)) {
+      // If content is already loaded and it's an image, just generate the image URL
       try {
         const url = await getImageDataUrl(file.content, file.name);
         setImageUrl(url);
@@ -608,6 +676,28 @@ const Edit: React.FC = () => {
     }
   };
 
+  // Add helper function to get file size
+  const getFileSize = (file: FileNode): number | undefined => {
+    if (!file.content) return undefined;
+    
+    // If content is SizeInfo
+    if (typeof file.content === 'object' && 'type' in file.content && file.content.type === 'size-only') {
+      return file.content.fileSize;
+    }
+    
+    // If content is ArrayBuffer
+    if (file.content instanceof ArrayBuffer) {
+      return file.content.byteLength;
+    }
+    
+    // If content is string
+    if (typeof file.content === 'string') {
+      return file.content.length;
+    }
+    
+    return undefined;
+  };
+
   const renderFileContent = () => {
     if (!selectedFile) {
       return (
@@ -679,13 +769,16 @@ const Edit: React.FC = () => {
       );
     }
 
+    // For binary or other unknown file types
+    const fileSize = getFileSize(selectedFile);
+    
     return (
       <div className="h-[calc(100vh-113px)] flex items-center justify-center">
         <div className="bg-gray-50 p-6 rounded-lg max-w-md w-full mx-4">
           <h3 className="font-medium text-lg mb-4">File Information</h3>
           <div className="space-y-2">
             <p><span className="font-medium">Name:</span> {selectedFile.name}</p>
-            <p><span className="font-medium">Size:</span> {formatFileSize(selectedFile.content instanceof ArrayBuffer ? selectedFile.content.byteLength : selectedFile.content.length)}</p>
+            <p><span className="font-medium">Size:</span> {fileSize !== undefined ? formatFileSize(fileSize) : 'Unknown'}</p>
             <p><span className="font-medium">Type:</span> {selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</p>
           </div>
           <p className="mt-4 text-sm text-gray-400">This file type cannot be previewed</p>
@@ -907,6 +1000,37 @@ const Edit: React.FC = () => {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
 
+    // Get the manifest to check for weight files
+    let weightFilePaths: string[] = [];
+    try {
+      // Find the rdf.yaml file
+      const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
+      if (rdfFile) {
+        // Load content if needed
+        let rdfContent: string;
+        if (!rdfFile.content) {
+          const content = await fetchFileContent(rdfFile);
+          if (typeof content === 'string') {
+            rdfContent = content;
+          } else {
+            throw new Error('Failed to load rdf.yaml content');
+          }
+        } else {
+          rdfContent = typeof rdfFile.content === 'string' 
+            ? rdfFile.content 
+            : new TextDecoder().decode(rdfFile.content as ArrayBuffer);
+        }
+        
+        // Parse the manifest and extract weight files
+        const manifest = yaml.load(rdfContent) as any;
+        if (manifest && manifest.type === 'model') {
+          weightFilePaths = extractWeightFiles(manifest);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for weight files:', error);
+    }
+
     for (const file of acceptedFiles) {
       try {
         setUploadStatus({
@@ -914,13 +1038,31 @@ const Edit: React.FC = () => {
           severity: 'info'
         });
 
-        // Get presigned URL for upload
-        // TODO: If the file is a model weights file, we need to change the download weight
-        const presignedUrl = await artifactManager.put_file({
+        // Check if this is a weight file
+        const isWeightFile = weightFilePaths.some((weightPath: string) => {
+          const normalizedFilePath = file.name.startsWith('./') ? file.name.substring(2) : file.name;
+          return normalizedFilePath === weightPath ||
+                 normalizedFilePath.endsWith(`/${weightPath}`) ||
+                 weightPath.endsWith(`/${normalizedFilePath}`);
+        });
+
+        // Get presigned URL for upload, setting download_weight for weight files
+        const putConfig: {
+          artifact_id: string;
+          file_path: string;
+          download_weight?: number;
+          _rkwargs: boolean;
+        } = {
           artifact_id: artifactId,
           file_path: file.name,
           _rkwargs: true
-        });
+        };
+        
+        if (isWeightFile) {
+          putConfig.download_weight = 1;
+        }
+        
+        const presignedUrl = await artifactManager.put_file(putConfig);
 
         // Upload file content
         const response = await fetch(presignedUrl, {
@@ -949,9 +1091,14 @@ const Edit: React.FC = () => {
         setSelectedFile(newFile);
 
         setUploadStatus({
-          message: `${file.name} uploaded successfully`,
+          message: `${file.name} uploaded successfully${isWeightFile ? ' (marked as weight file)' : ''}`,
           severity: 'success'
         });
+        
+        // If we uploaded a weight file, refresh to update artifact info with new download_weights
+        if (isWeightFile) {
+          loadArtifactFiles();
+        }
       } catch (error) {
         console.error('Error uploading file:', error);
         setUploadStatus({
@@ -960,7 +1107,7 @@ const Edit: React.FC = () => {
         });
       }
     }
-  }, [artifactId, artifactManager]);
+  }, [artifactId, artifactManager, files, fetchFileContent]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -1091,6 +1238,21 @@ const Edit: React.FC = () => {
                   </span>
                 )}
 
+                {/* Download weight badge - updated to check both config.download_weights and staging */}
+                {(
+                  // Check in config.download_weights for published versions
+                  (artifactInfo?.config?.download_weights && artifactInfo.config.download_weights[file.path] > 0) ||
+                  // Check in staging array for staged files
+                  (isStaged && artifactInfo?.staging && artifactInfo.staging.some(
+                    (item: {path: string; download_weight: number}) => 
+                      item.path === file.path && item.download_weight > 0
+                  ))
+                ) && (
+                  <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium ml-1">
+                    weight
+                  </span>
+                )}
+
                 {/* Delete button */}
                 <button
                   onClick={(e) => {
@@ -1195,7 +1357,7 @@ const Edit: React.FC = () => {
                 : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
             </svg>
             Save
           </button>
@@ -1304,7 +1466,36 @@ const Edit: React.FC = () => {
           _rkwargs: true
         });
         // Filter out directories, only keep files
-        const filesToCopy = existingFiles.filter(file => file.type === 'file');
+        const filesToCopy = existingFiles.filter((file: { type: string }) => file.type === 'file');
+
+        // Get the manifest to check for weight files
+        let weightFilePaths: string[] = [];
+        try {
+          // Find the rdf.yaml file in the existing version
+          const rdfFileInfo = filesToCopy.find((file: { name: string }) => file.name === 'rdf.yaml');
+          if (rdfFileInfo) {
+            // Get download URL for the rdf.yaml file
+            const downloadUrl = await artifactManager.get_file({
+              artifact_id: artifactId,
+              file_path: 'rdf.yaml',
+              _rkwargs: true
+            });
+            
+            // Download the rdf.yaml content
+            const response = await fetch(downloadUrl);
+            if (response.ok) {
+              const rdfContent = await response.text();
+              
+              // Parse the manifest and extract weight files
+              const manifest = yaml.load(rdfContent) as any;
+              if (manifest && manifest.type === 'model') {
+                weightFilePaths = extractWeightFiles(manifest);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking for weight files:', error);
+        }
 
         // Set up progress tracking
         setCopyProgress({
@@ -1330,13 +1521,31 @@ const Edit: React.FC = () => {
               _rkwargs: true
             });
 
-            // Get upload URL for the new version
-            // TODO: If the file is a model weights file, we need to change the download weight
-            const uploadUrl = await artifactManager.put_file({
+            // Check if this is a weight file
+            const isWeightFile = weightFilePaths.some((weightPath: string) => {
+              const normalizedFilePath = file.name.startsWith('./') ? file.name.substring(2) : file.name;
+              return normalizedFilePath === weightPath ||
+                    normalizedFilePath.endsWith(`/${weightPath}`) ||
+                    weightPath.endsWith(`/${normalizedFilePath}`);
+            });
+
+            // Get upload URL for the new version, setting download_weight for weight files
+            const putConfig: {
+              artifact_id: string;
+              file_path: string;
+              download_weight?: number;
+              _rkwargs: boolean;
+            } = {
               artifact_id: artifactId,
               file_path: file.name,
               _rkwargs: true
-            });
+            };
+            
+            if (isWeightFile) {
+              putConfig.download_weight = 1;
+            }
+            
+            const uploadUrl = await artifactManager.put_file(putConfig);
 
             // Download and upload the file
             const response = await fetch(downloadUrl);
@@ -1642,11 +1851,6 @@ const Edit: React.FC = () => {
                             Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
                           </span>
                         </div>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={(copyProgress.current / copyProgress.total) * 100} 
-                          sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                        />
                       </>
                     ) : (
                       <>

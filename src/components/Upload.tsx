@@ -10,6 +10,25 @@ import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
 
+// Helper function to extract weight file paths from manifest
+const extractWeightFiles = (manifest: any): string[] => {
+  if (!manifest || !manifest.weights) return [];
+  
+  const weightFiles: string[] = [];
+  Object.entries(manifest.weights).forEach(([_, weightInfo]: [string, any]) => {
+    if (weightInfo && weightInfo.source) {
+      // Handle paths that might start with ./ or just be filenames
+      let path = weightInfo.source;
+      if (path.startsWith('./')) {
+        path = path.substring(2);
+      }
+      weightFiles.push(path);
+    }
+  });
+  
+  return weightFiles;
+};
+
 interface FileNode {
   name: string;
   path: string;
@@ -551,6 +570,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       }
 
       let manifest: RdfManifest;
+      let weightFilePaths: string[] = [];
+      
       try {
         // Ensure rdf.yaml content is loaded
         let rdfContent: string;
@@ -572,6 +593,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
         
         manifest = yaml.load(rdfContent) as RdfManifest;
+
+        // Extract weight files for later use
+        weightFilePaths = manifest.type === 'model' ? extractWeightFiles(manifest) : [];
 
         // Set uploader email automatically
         manifest.uploader = {
@@ -757,12 +781,28 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           }
 
-          // Get the upload URL
-          const putUrl = await artifactManager.put_file({
+          // Check if this is a weight file that needs download_weight=1
+          const isWeightFile = weightFilePaths.some((weightPath: string) => {
+            const normalizedFilePath = file.path.startsWith('./') ? file.path.substring(2) : file.path;
+            return normalizedFilePath === weightPath || 
+                   normalizedFilePath.endsWith(`/${weightPath}`) ||
+                   weightPath.endsWith(`/${normalizedFilePath}`);
+          });
+          const putConfig: {
+            artifact_id: any;
+            file_path: string;
+            download_weight?: number;
+            _rkwargs: boolean;
+          } = {
             artifact_id: artifact.id,
             file_path: file.path,
             _rkwargs: true,
-          });
+          }
+          if (isWeightFile) {
+            putConfig.download_weight = 1;
+          }
+          // Get the upload URL with download_weight if this is a weight file
+          const putUrl = await artifactManager.put_file(putConfig);
 
           if (isLargeFile && fileObject) {
             // Perform chunked upload for large files
