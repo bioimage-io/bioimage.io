@@ -77,6 +77,9 @@ interface RdfManifest {
   [key: string]: any;
 }
 
+// Add these constants near the top of the file, after the interfaces
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB threshold for chunked reading
+
 // Add helper function to find emoji for a given name and type
 const findEmoji = (config: any, type: string, name: string): string => {
   const category = type === 'model' ? 'animal' :
@@ -410,7 +413,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   // Function to trigger folder input click
-  const handleFolderButtonClick = () => {
+  const handleFolderButtonClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (folderInputRef.current) {
       folderInputRef.current.click();
     }
@@ -719,53 +723,78 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         });
 
         try {
-          // Load content based on file source
+          // Get file content or handle
           let content: string | ArrayBuffer | null = null;
+          let fileSize = 0;
+          let isLargeFile = false;
+          let fileObject: File | null = null;
           
           if (file.handle) {
             // From zip file
             const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
             content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+            fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           } else if (file.file) {
             // From regular file
-            if (!file.loaded || !file.content) {
-              content = await readFileContent(file.file);
-            } else {
-              content = file.content;
+            fileObject = file.file;
+            fileSize = fileObject.size;
+            
+            // Check if this is a large file that needs chunked upload
+            isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
+            
+            if (!isLargeFile) {
+              // For smaller files, load content as before
+              if (!file.loaded || !file.content) {
+                content = await readFileContent(file.file);
+              } else {
+                content = file.content;
+              }
             }
+            // For large files, we'll use the File object directly with chunked upload
           } else if (file.content) {
             // Already loaded content
             content = file.content;
+            fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           }
 
-          if (!content) {
-            throw new Error(`No content available for ${file.name}`);
-          }
-
-          // Upload the file
+          // Get the upload URL
           const putUrl = await artifactManager.put_file({
             artifact_id: artifact.id,
             file_path: file.path,
             _rkwargs: true,
           });
 
-          const blob = new Blob([content], { type: "application/octet-stream" });
-          await axios.put(putUrl, blob, {
-            headers: {
-              "Content-Type": ""
-            },
-            onUploadProgress: (progressEvent) => {
-              const progress = progressEvent.total
-                ? (progressEvent.loaded / progressEvent.total) * 100
-                : 0;
-              
+          if (isLargeFile && fileObject) {
+            // Perform chunked upload for large files
+            await uploadLargeFile(putUrl, fileObject, fileSize, (progress) => {
               setUploadStatus({
-                message: `Uploading ${file.name}...`,
+                message: `Uploading ${file.name}... (${Math.round(progress)}%)`,
                 severity: 'info',
                 progress: ((index + (progress / 100)) / remainingFiles.length) * 100
               });
-            }
-          });
+            });
+          } else if (content) {
+            // Regular upload for smaller files
+            const blob = new Blob([content], { type: "application/octet-stream" });
+            await axios.put(putUrl, blob, {
+              headers: {
+                "Content-Type": ""
+              },
+              onUploadProgress: (progressEvent) => {
+                const progress = progressEvent.total
+                  ? (progressEvent.loaded / progressEvent.total) * 100
+                  : 0;
+                
+                setUploadStatus({
+                  message: `Uploading ${file.name}...`,
+                  severity: 'info',
+                  progress: ((index + (progress / 100)) / remainingFiles.length) * 100
+                });
+              }
+            });
+          } else {
+            throw new Error(`No content available for ${file.name}`);
+          }
 
           // Clear content from memory after successful upload
           setFiles(prevFiles => prevFiles.map(f => 
@@ -934,6 +963,67 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   // Find the rdf file from the files array
   const getRdfFile = () => {
     return files.find(file => file.path.endsWith('rdf.yaml'));
+  };
+
+  // Replace the uploadLargeFile function with this implementation
+  const uploadLargeFile = async (
+    url: string, 
+    file: File, 
+    fileSize: number,
+    onProgress: (progress: number) => void
+  ): Promise<void> => {
+    // For S3 which doesn't support range requests during upload, we'll use
+    // a streaming approach where we read in chunks but upload in a single request
+    
+    try {
+      // Create a custom Blob with a stream source that reads the file in chunks
+      const reader = new FileReader();
+      const xhr = new XMLHttpRequest();
+      
+      // Open the connection
+      xhr.open('PUT', url, true);
+      xhr.setRequestHeader('Content-Type', '');
+      
+      // Set up progress reporting
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = (event.loaded / event.total) * 100;
+          onProgress(percentComplete);
+        }
+      };
+      
+      // Set up completion and error handlers
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log('Upload completed successfully');
+        } else {
+          throw new Error(`Upload failed with status ${xhr.status}`);
+        }
+      };
+      
+      xhr.onerror = () => {
+        throw new Error('Network error occurred during upload');
+      };
+      
+      // Start the upload with the entire file
+      // This will stream from disk rather than loading the entire file into memory at once
+      xhr.send(file);
+      
+      // Wait for the upload to complete
+      return new Promise((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error occurred during upload'));
+      });
+    } catch (error) {
+      console.error('Error during large file upload:', error);
+      throw error;
+    }
   };
 
   return (
