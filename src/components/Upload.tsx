@@ -138,6 +138,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [generatedId, setGeneratedId] = useState<string | null>(null);
   const [generatedEmoji, setGeneratedEmoji] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (artifactId) {
@@ -407,9 +408,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   // Custom input props to enable directory upload
   const customInputProps = {
     ...getInputProps(),
-    webkitdirectory: true,
-    directory: true,
-    mozdirectory: true
+    webkitdirectory: "true",
+    directory: "true",
+    mozdirectory: "true"
   };
 
   // Regular file input props (without directory selection)
@@ -478,6 +479,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const handleFileSelect = async (file: FileNode) => {
     setImageUrl(null);
     setSelectedFile(null);
+    setImageDimensions(null); // Reset image dimensions when selecting a new file
 
     if (isTextFile(file.name) || isImageFile(file.name)) {
       if (file.loaded && file.content) {
@@ -1066,6 +1068,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
+  // Add this function before renderFileContent
+  const checkImageDimensions = (url: string, fileName: string) => {
+    const img = new Image();
+    img.onload = () => {
+      setImageDimensions({ width: img.width, height: img.height });
+    };
+    img.src = url;
+  };
+
   return (
     <div className="flex flex-col">
       {/* Add back button when viewing existing artifact */}
@@ -1335,7 +1346,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                               </svg>
-                              Select Files
+                              Select Folder
                             </span>
                           </button>
                         </div>
@@ -1385,18 +1396,43 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             ) : selectedFile ? (
               <div className="h-full min-h-[calc(80vh-145px)]">
                 {isImageFile(selectedFile.name) ? (
-                  <div className="flex flex-col gap-4">
-                    {imageUrl ? (
-                      <img 
-                        src={imageUrl}
-                        alt={selectedFile.name} 
-                        className="max-w-full h-auto"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-40 bg-gray-50 rounded-lg">
-                        <div className="text-gray-400">Loading image...</div>
+                  <div className="flex flex-col items-center justify-center p-8">
+                    <div className="relative w-full max-w-4xl bg-white rounded-xl shadow-lg overflow-hidden">
+                      {/* File info badge */}
+                      <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2">
+                        <span>{selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</span>
+                        <span>•</span>
+                        <span>{imageDimensions ? `${imageDimensions.width}×${imageDimensions.height}` : '...'}</span>
+                        <span>•</span>
+                        <span>{formatFileSize(selectedFile.size)}</span>
                       </div>
-                    )}
+                      
+                      {/* Image container */}
+                      <div className="relative aspect-video bg-gray-900/5 flex items-center justify-center p-4">
+                        {imageUrl ? (
+                          <img 
+                            src={imageUrl}
+                            alt={selectedFile.name}
+                            className="max-w-full max-h-[70vh] h-auto object-contain rounded-lg"
+                            onLoad={() => checkImageDimensions(imageUrl, selectedFile.name)}
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center h-40 w-full">
+                            <div className="text-gray-400 flex flex-col items-center">
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                              <span>Loading image...</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* File name footer */}
+                      <div className="px-4 py-3 bg-gray-50 border-t">
+                        <p className="text-sm text-gray-600 font-medium truncate">
+                          {selectedFile.name}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ) : selectedFile.name.endsWith('rdf.yaml') ? (
                   <RDFEditor
