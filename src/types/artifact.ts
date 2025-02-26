@@ -32,6 +32,7 @@ export interface ArtifactInfo {
   parent_id?: string;
   alias?: string;
   manifest: {
+    type: string;
     name: string;
     description: string;
     icon?: string;
@@ -39,7 +40,6 @@ export interface ArtifactInfo {
     tags?: string[];
     badges?: Badge[];
     covers?: string[];
-    type?: string[];
     documentation?: string;
     authors?: Author[];
     cite?: Citation[];
@@ -69,4 +69,43 @@ export interface ArtifactInfo {
   name?: string; // From manifest
   description?: string; // From manifest
   _id?: string; // Internal ID
+}
+
+export interface Documentation {
+  url?: string;
+  text?: string;
+}
+
+export interface Link {
+  url: string;
+  text: string;
+}
+
+export interface Config {
+  [key: string]: any;
+}
+
+export interface Weight {
+  source: string;
+  sha256?: string;
+  size?: number;
+}
+
+export interface Manifest {
+  type: string;
+  name: string;
+  description: string;
+  icon?: string;
+  id_emoji?: string;
+  tags?: string[];
+  badges?: Badge[];
+  covers?: string[];
+  authors?: Author[];
+  cite?: Citation[];
+  documentation?: Documentation;
+  links?: Link[];
+  config?: Config;
+  weights?: Weight[];
+  status?: string;
+  uploader: Uploader;
 } 

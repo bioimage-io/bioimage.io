@@ -174,9 +174,10 @@ const Edit: React.FC = () => {
   const getImageDataUrl = async (content: string | ArrayBuffer, fileName: string): Promise<string> => {
     if (typeof content === 'string') {
       const encoder = new TextEncoder();
-      content = encoder.encode(content).buffer;
+      const uint8Array = encoder.encode(content);
+      content = uint8Array.buffer as ArrayBuffer;
     }
-
+    
     const extension = fileName.toLowerCase().split('.').pop() || '';
     const bytes = new Uint8Array(content as ArrayBuffer);
     const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
@@ -446,17 +447,20 @@ const Edit: React.FC = () => {
         errors.push(`The 'id_emoji' field must be "${artifactEmoji}"`);
       }
 
-      // Check uploader email only if it exists
-      if (manifest.uploader?.email && manifest.uploader.email !== userEmail) {
-        errors.push(`The uploader email must be "${userEmail}"`);
-      }
+      // Only check uploader email if not a collection admin
+      if (!isCollectionAdmin) {
+        // Check uploader email only if it exists
+        if (manifest.uploader?.email && manifest.uploader.email !== userEmail) {
+          errors.push(`The uploader email must be "${userEmail}"`);
+        }
 
-      // Check legacy nickname fields
-      if (manifest.config?.bioimageio?.nickname && manifest.config.bioimageio.nickname !== shortId) {
-        errors.push(`Legacy nickname field 'config.bioimageio.nickname' must be "${shortId}"`);
-      }
-      if (manifest.config?.bioimageio?.nickname_icon && manifest.config.bioimageio.nickname_icon !== artifactEmoji) {
-        errors.push(`Legacy nickname field 'config.bioimageio.nickname_icon' must be "${artifactEmoji}"`);
+        // Check legacy nickname fields
+        if (manifest.config?.bioimageio?.nickname && manifest.config.bioimageio.nickname !== shortId) {
+          errors.push(`Legacy nickname field 'config.bioimageio.nickname' must be "${shortId}"`);
+        }
+        if (manifest.config?.bioimageio?.nickname_icon && manifest.config.bioimageio.nickname_icon !== artifactEmoji) {
+          errors.push(`Legacy nickname field 'config.bioimageio.nickname_icon' must be "${artifactEmoji}"`);
+        }
       }
 
       return {
@@ -497,79 +501,97 @@ const Edit: React.FC = () => {
   const handleSave = async (file: FileNode) => {
     if (!artifactManager || !unsavedChanges[file.path]) return;
 
-    // For rdf.yaml, validate and potentially update content before saving
-    if (file.path.endsWith('rdf.yaml')) {
-      try {
-        if (!user?.email) {
-          setValidationErrors(['You must be logged in to save changes']);
-          return;
-        }
+    try {
+      setUploadStatus({
+        message: 'Saving changes...',
+        severity: 'info'
+      });
 
-        // Parse the YAML content
-        let content = unsavedChanges[file.path];
-        let manifest = yaml.load(content) as any;
-
-        // Add or update uploader info if missing or different
-        if (!manifest.uploader?.email) {
-          manifest.uploader = {
-            ...manifest.uploader,
-            email: user.email
-          };
-          // Update the content with new uploader info
-          content = yaml.dump(manifest);
-          // Update unsaved changes with new content
-          setUnsavedChanges(prev => ({
-            ...prev,
-            [file.path]: content
-          }));
-        } else if (manifest.uploader.email !== user.email) {
-          setValidationErrors([`The uploader email must be "${user.email}"`]);
-          return;
-        }
-
-        // Proceed with full validation
-        const validation = validateRdfContent(
-          content,
-          artifactInfo?.id || '',
-          artifactInfo?.manifest?.id_emoji || '',
-          user.email
-        );
-
-        if (!validation.success) {
-          setValidationErrors(validation.errors);
-          return;
-        }
-
-        // Continue with saving the updated content
+      // If user is collection admin and not in stage mode, create temporary stage
+      let needsStageCleanup = false;
+      if (isCollectionAdmin && !isStaged) {
         try {
-          setUploadStatus({
-            message: 'Saving changes...',
-            severity: 'info'
-          });
-
-          // Get the presigned URL for uploading
-          const presignedUrl = await artifactManager.put_file({
+          // Create temporary stage
+          await artifactManager.edit({
             artifact_id: artifactId,
-            file_path: file.path,
+            version: "stage",
             _rkwargs: true
           });
-
-          // Upload the file content
-          const response = await fetch(presignedUrl, {
-            method: 'PUT',
-            body: content, // Use the potentially updated content
-            headers: {
-              'Content-Type': '' // important for s3
-            }
+          needsStageCleanup = true;
+        } catch (error) {
+          console.error('Error creating temporary stage:', error);
+          setUploadStatus({
+            message: 'Error creating temporary stage',
+            severity: 'error'
           });
+          return;
+        }
+      }
 
-          if (!response.ok) {
-            throw new Error('Failed to upload file');
+      try {
+        // For rdf.yaml, validate content before saving
+        if (file.path.endsWith('rdf.yaml')) {
+          if (!user?.email) {
+            setValidationErrors(['You must be logged in to save changes']);
+            return;
           }
 
-          // Update the manifest if this is rdf.yaml
+          // Parse the YAML content
+          let content = unsavedChanges[file.path];
+          let manifest = yaml.load(content) as any;
+
+          // Only add/update uploader info if not a collection admin and uploader is missing
+          if (!isCollectionAdmin) {
+            if (!manifest.uploader?.email) {
+              manifest.uploader = {
+                ...manifest.uploader,
+                email: user.email
+              };
+              // Update the content with new uploader info
+              content = yaml.dump(manifest);
+              // Update unsaved changes with new content
+              setUnsavedChanges(prev => ({
+                ...prev,
+                [file.path]: content
+              }));
+            }
+          }
+
+          // Proceed with full validation
+          const validation = validateRdfContent(
+            content,
+            artifactInfo?.id || '',
+            artifactInfo?.manifest?.id_emoji || '',
+            user.email
+          );
+
+          if (!validation.success) {
+            setValidationErrors(validation.errors);
+            return;
+          }
+
           try {
-            // Update artifact with new manifest data
+            // Get the presigned URL for uploading
+            const presignedUrl = await artifactManager.put_file({
+              artifact_id: artifactId,
+              file_path: file.path,
+              _rkwargs: true
+            });
+
+            // Upload the file content
+            const response = await fetch(presignedUrl, {
+              method: 'PUT',
+              body: content,
+              headers: {
+                'Content-Type': '' // important for s3
+              }
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to upload file');
+            }
+
+            // Update the manifest
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: manifest,
@@ -590,48 +612,90 @@ const Edit: React.FC = () => {
                 ...manifest
               }
             } : null);
+
           } catch (error) {
-            console.error('Error updating manifest:', error);
+            console.error('Error saving rdf.yaml:', error);
             setUploadStatus({
-              message: 'Error updating manifest from rdf.yaml',
+              message: 'Error saving rdf.yaml',
               severity: 'error'
             });
             return;
           }
-
-          // Update the local state
-          setFiles(files.map(f => 
-            f.path === file.path 
-              ? { ...f, content, edited: false }
-              : f
-          ));
-
-          // Clear unsaved changes for this file
-          setUnsavedChanges(prev => {
-            const newState = { ...prev };
-            delete newState[file.path];
-            return newState;
+        } else {
+          // Handle non-rdf.yaml files
+          const presignedUrl = await artifactManager.put_file({
+            artifact_id: artifactId,
+            file_path: file.path,
+            _rkwargs: true
           });
 
-          setUploadStatus({
-            message: 'Changes saved',
-            severity: 'success'
+          const response = await fetch(presignedUrl, {
+            method: 'PUT',
+            body: unsavedChanges[file.path],
+            headers: {
+              'Content-Type': '' // important for s3
+            }
           });
-        } catch (error) {
-          console.error('Error saving changes:', error);
-          setUploadStatus({
-            message: 'Error saving changes',
-            severity: 'error'
-          });
+
+          if (!response.ok) {
+            throw new Error('Failed to upload file');
+          }
         }
+
+        // If we created a temporary stage, commit changes immediately
+        if (needsStageCleanup) {
+          try {
+            await artifactManager.commit({
+              artifact_id: artifactId,
+              version: null, // This will update the current version
+              comment: `Updated ${file.path}`,
+              _rkwargs: true
+            });
+
+            // Refresh artifact files to get the latest state
+            await loadArtifactFiles();
+          } catch (error) {
+            console.error('Error committing changes:', error);
+            setUploadStatus({
+              message: 'Error committing changes',
+              severity: 'error'
+            });
+            return;
+          }
+        }
+
+        // Update the local state
+        setFiles(files.map(f => 
+          f.path === file.path 
+            ? { ...f, content: unsavedChanges[file.path], edited: false }
+            : f
+        ));
+
+        // Clear unsaved changes for this file
+        setUnsavedChanges(prev => {
+          const newState = { ...prev };
+          delete newState[file.path];
+          return newState;
+        });
+
+        setUploadStatus({
+          message: needsStageCleanup ? 'Changes saved and committed' : 'Changes saved',
+          severity: 'success'
+        });
+
       } catch (error) {
-        console.error('Error parsing rdf.yaml:', error);
-        setValidationErrors(['Invalid YAML format']);
-        return;
+        console.error('Error in save process:', error);
+        setUploadStatus({
+          message: 'Error saving changes',
+          severity: 'error'
+        });
       }
-    } else {
-      // Handle non-rdf.yaml files...
-      // ... (rest of the original save logic for other files)
+    } catch (error) {
+      console.error('Error in save process:', error);
+      setUploadStatus({
+        message: 'Error saving changes',
+        severity: 'error'
+      });
     }
   };
 
@@ -730,19 +794,45 @@ const Edit: React.FC = () => {
     }
 
     if (isImageFile(selectedFile.name)) {
+      // Get file size and type information
+      const fileSize = getFileSize(selectedFile);
+      const fileType = selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown';
+      
       return (
         <div className="flex flex-col items-center justify-center p-8">
-          {imageUrl ? (
-            <img 
-              src={imageUrl}
-              alt={selectedFile.name} 
-              className="max-w-full h-auto"
-            />
-          ) : (
-            <div className="flex items-center justify-center h-40 bg-gray-50 rounded-lg w-full">
-              <div className="text-gray-400">Loading image...</div>
+          <div className="relative w-full max-w-4xl bg-white rounded-xl shadow-lg overflow-hidden">
+            {/* File info badge */}
+            <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2">
+              <span>{fileType}</span>
+              <span>•</span>
+              <span>{fileSize !== undefined ? formatFileSize(fileSize) : 'Unknown'}</span>
             </div>
-          )}
+            
+            {/* Image container */}
+            <div className="relative aspect-video bg-gray-900/5 flex items-center justify-center p-4">
+              {imageUrl ? (
+                <img 
+                  src={imageUrl}
+                  alt={selectedFile.name}
+                  className="max-w-full max-h-[70vh] h-auto object-contain rounded-lg"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-40 w-full">
+                  <div className="text-gray-400 flex flex-col items-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                    <span>Loading image...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* File name footer */}
+            <div className="px-4 py-3 bg-gray-50 border-t">
+              <p className="text-sm text-gray-600 font-medium truncate">
+                {selectedFile.name}
+              </p>
+            </div>
+          </div>
         </div>
       );
     }
@@ -1000,6 +1090,26 @@ const Edit: React.FC = () => {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
 
+    // If collection admin and not in stage mode, create temporary stage
+    let needsStageCleanup = false;
+    if (isCollectionAdmin && !isStaged) {
+      try {
+        await artifactManager.edit({
+          artifact_id: artifactId,
+          version: "stage",
+          _rkwargs: true
+        });
+        needsStageCleanup = true;
+      } catch (error) {
+        console.error('Error creating temporary stage:', error);
+        setUploadStatus({
+          message: 'Error creating temporary stage',
+          severity: 'error'
+        });
+        return;
+      }
+    }
+
     // Get the manifest to check for weight files
     let weightFilePaths: string[] = [];
     try {
@@ -1046,7 +1156,7 @@ const Edit: React.FC = () => {
                  weightPath.endsWith(`/${normalizedFilePath}`);
         });
 
-        // Get presigned URL for upload, setting download_weight for weight files
+        // Get presigned URL for upload
         const putConfig: {
           artifact_id: string;
           file_path: string;
@@ -1077,6 +1187,25 @@ const Edit: React.FC = () => {
           throw new Error('Failed to upload file');
         }
 
+        // If collection admin and not in stage mode, commit changes immediately
+        if (isCollectionAdmin && !isStaged) {
+          try {
+            await artifactManager.commit({
+              artifact_id: artifactId,
+              version: null, // This will update the current version
+              comment: `Added ${file.name}`,
+              _rkwargs: true
+            });
+          } catch (error) {
+            console.error('Error committing changes:', error);
+            setUploadStatus({
+              message: 'Error committing changes',
+              severity: 'error'
+            });
+            continue;
+          }
+        }
+
         // Add file to local state
         const content = await file.text();
         const newFile: FileNode = {
@@ -1084,7 +1213,7 @@ const Edit: React.FC = () => {
           path: file.name,
           content,
           isDirectory: false,
-          edited: true
+          edited: false // Set to false since we've already committed if needed
         };
 
         setFiles(prev => [...prev, newFile]);
@@ -1107,7 +1236,7 @@ const Edit: React.FC = () => {
         });
       }
     }
-  }, [artifactId, artifactManager, files, fetchFileContent]);
+  }, [artifactId, artifactManager, files, isCollectionAdmin, isStaged]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -1124,11 +1253,50 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
 
+      // If collection admin and not in stage mode, create temporary stage
+      let needsStageCleanup = false;
+      if (isCollectionAdmin && !isStaged) {
+        try {
+          await artifactManager.edit({
+            artifact_id: artifactId,
+            version: "stage",
+            _rkwargs: true
+          });
+          needsStageCleanup = true;
+        } catch (error) {
+          console.error('Error creating temporary stage:', error);
+          setUploadStatus({
+            message: 'Error creating temporary stage',
+            severity: 'error'
+          });
+          return;
+        }
+      }
+
       await artifactManager.remove_file({
         artifact_id: artifactId,
         file_path: file.path,
         _rkwargs: true
       });
+
+      // If collection admin and not in stage mode, commit changes immediately
+      if (isCollectionAdmin && !isStaged) {
+        try {
+          await artifactManager.commit({
+            artifact_id: artifactId,
+            version: null, // This will update the current version
+            comment: `Deleted ${file.name}`,
+            _rkwargs: true
+          });
+        } catch (error) {
+          console.error('Error committing changes:', error);
+          setUploadStatus({
+            message: 'Error committing changes',
+            severity: 'error'
+          });
+          return;
+        }
+      }
 
       // Clear selected file if it was the deleted one
       if (selectedFile?.path === file.path) {
@@ -1142,7 +1310,7 @@ const Edit: React.FC = () => {
         });
       }
 
-      // Refresh the file list from the server instead of just updating local state
+      // Refresh the file list from the server
       await loadArtifactFiles();
 
       setUploadStatus({
@@ -1171,6 +1339,8 @@ const Edit: React.FC = () => {
               <input
                 type="file"
                 multiple
+                title="Upload files"
+                aria-label="Upload files"
                 onChange={(e) => {
                   if (e.target.files) {
                     onDrop(Array.from(e.target.files));
@@ -1195,13 +1365,13 @@ const Edit: React.FC = () => {
           files.map((file) => (
             <div
               key={file.path}
-              className="group relative"
+              onClick={() => handleFileSelect(file)}
+              className={`group relative flex items-center px-4 py-2 cursor-pointer hover:bg-gray-50 ${
+                selectedFile?.path === file.path ? 'bg-blue-50 hover:bg-blue-50' : ''
+              }`}
             >
-              <div
-                onClick={() => handleFileSelect(file)}
-                className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3
-                  ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
-              >
+              {/* File icon and name */}
+              <div className="flex items-center flex-1 min-w-0">
                 {/* File Icon */}
                 <span className="flex-shrink-0">
                   {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
@@ -1253,12 +1423,14 @@ const Edit: React.FC = () => {
                   </span>
                 )}
 
-                {/* Delete button */}
+                {/* Delete button - hidden by default, shown on group hover */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowDeleteConfirm(file.path);
                   }}
+                  title="Delete file"
+                  aria-label="Delete file"
                   className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
                 >
                   <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1332,19 +1504,7 @@ const Edit: React.FC = () => {
 
     return (
       <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-        {/* Back to Edit button - only show in review tab */}
-        {activeTab === 'review' && (
-          <button
-            onClick={() => handleTabChange('files')}
-            className="flex items-center justify-center gap-2 px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 w-full sm:w-auto"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Edit
-          </button>
-        )}
-
+      
         {/* Save button */}
         {selectedFile && isTextFile(selectedFile.name) && (
           <button
@@ -1642,30 +1802,20 @@ const Edit: React.FC = () => {
       {
         key: 's',
         ctrlKey: true,
-        metaKey: true, // for Mac
-        handler: (e: KeyboardEvent) => {
-          e.preventDefault();
+        metaKey: true,
+        handler: () => {
           if (selectedFile && isTextFile(selectedFile.name)) {
             handleSave(selectedFile);
           }
         }
       },
       {
-        key: 'r',
+        key: 'v',
         ctrlKey: true,
-        metaKey: true, // for Mac
-        handler: (e: KeyboardEvent) => {
-          e.preventDefault();
+        metaKey: true,
+        handler: () => {
           if (selectedFile?.path.endsWith('rdf.yaml')) {
-            // Get latest content including unsaved changes
-            const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
-            if (!rdfFile) return;
-            
-            // Trigger validation via button click
-            const validator = document.querySelector('[data-testid="model-validator-button"]');
-            if (validator instanceof HTMLButtonElement) {
-              validator.click();
-            }
+            handleValidate();
           }
         }
       }
@@ -1674,11 +1824,12 @@ const Edit: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       shortcuts.forEach(shortcut => {
         if (
-          e.key.toLowerCase() === shortcut.key &&
+          e.key === shortcut.key &&
           (!shortcut.ctrlKey || e.ctrlKey) &&
           (!shortcut.metaKey || e.metaKey)
         ) {
-          shortcut.handler(e);
+          e.preventDefault();
+          shortcut.handler();
         }
       });
     };
@@ -1785,9 +1936,9 @@ const Edit: React.FC = () => {
             {artifactInfo ? (
               <>
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900">
+                  <p className="text-base text-gray-900 truncate max-w-[180px]" title={artifactInfo.manifest.name}>
                     {artifactInfo.manifest.name}
-                  </h3>
+                  </p>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                     {artifactInfo.staging !== null ? 'stage' : (lastVersion ? `v${lastVersion}` : '')}
                   </span>
@@ -1802,7 +1953,6 @@ const Edit: React.FC = () => {
                       {artifactInfo.manifest.id_emoji}
                     </span>
                   )}
-                  <span>ID: </span>
                   <code className="bg-gray-100 px-2 py-0.5 rounded select-all">
                     {artifactInfo.id.split('/').pop()}
                   </code>
@@ -1815,13 +1965,17 @@ const Edit: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                     </svg>
                   </button>
+                  
                 </div>
                 {/* Add status badge if artifact is staged */}
                 {artifactInfo.staging !== null && artifactInfo.manifest?.status && (
                   <div className="mt-2">
-                    <StatusBadge status={artifactInfo.manifest.status} size="small" />
+                    <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                      status: {artifactInfo.manifest.status}
+                    </span>
                   </div>
                 )}
+               
               </>
             ) : (
               <div className="text-sm text-gray-500">Loading artifact info...</div>
@@ -1837,8 +1991,8 @@ const Edit: React.FC = () => {
 
         {/* Main content area */}
         <div className="w-full flex flex-col overflow-hidden min-h-[80vh]">
-          {/* Status bar */}
-          {files.length > 0 && (
+          {/* Status bar - only show when not in review tab */}
+          {files.length > 0 && activeTab !== 'review' && (
             <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
               <div className={`p-2 ${uploadStatus?.progress !== undefined ? 'pb-0' : ''}`}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

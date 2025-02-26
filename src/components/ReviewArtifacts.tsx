@@ -3,7 +3,7 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
-import { Dialog, Transition, Switch } from '@headlessui/react';
+import { Dialog, Transition, Switch, Listbox } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { EllipsisVerticalIcon } from '@heroicons/react/24/outline';
@@ -14,6 +14,9 @@ import StatusBadge from './StatusBadge';
 import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
+
+// Define view mode type for the dropdown
+type ViewMode = 'published' | 'staging' | 'pending';
 
 interface Artifact {
   id: string;
@@ -51,24 +54,32 @@ const ReviewArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
-  const [showPendingOnly, setShowPendingOnly] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>('pending');
   const [copiedIds, setCopiedIds] = useState<{[key: string]: boolean}>({});
+
+  // View mode options for the dropdown
+  const viewModeOptions = [
+    { id: 'published', name: 'Published' },
+    { id: 'staging', name: 'Staging' },
+    { id: 'pending', name: 'Pending Review' }
+  ];
 
   useEffect(() => {
     if (isLoggedIn && user) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, showPendingOnly, reviewArtifactsPage]);
+  }, [artifactManager, user, isLoggedIn, viewMode, reviewArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
 
     try {
       setLoading(true);
-      const filters = {
-        version: "stage",
+      const filters: any = {
+        version: viewMode === 'published' ? "latest" : "stage",
       };
-      if (showPendingOnly) {
+      
+      if (viewMode === 'pending') {
         filters.manifest = { status: 'request-review' };
       }
 
@@ -143,7 +154,8 @@ const ReviewArtifacts: React.FC = () => {
       setLoading(true);
       await artifactManager.delete({
         artifact_id: artifactToDelete.id,
-        version:  artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null,
+        version: viewMode === 'published' ? "published" : 
+          (artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null),
         delete_files: true,
         recursive: true,
         _rkwargs: true
@@ -165,15 +177,12 @@ const ReviewArtifacts: React.FC = () => {
       if (!artifact.manifest) return;
       
       let updatedManifest = { ...artifact.manifest };
-      
-
       updatedManifest.status = newStatus;
-
 
       await artifactManager.edit({
         artifact_id: artifact.id,
         manifest: updatedManifest,
-        version: "stage",
+        version: viewMode === 'published' ? "latest" : "stage",
         _rkwargs: true
       });
       
@@ -189,8 +198,8 @@ const ReviewArtifacts: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Calculate number of pending review artifacts
-  const pendingCount = artifacts.filter(a => a.manifest?.status === 'request-review').length;
+  // Calculate number of pending review artifacts - only consider if showing staged artifacts
+  const pendingCount = viewMode === 'pending' ? artifacts.length : 0;
 
   const handleCopyId = (artifactId: string) => {
     const id = artifactId.split('/').pop() || '';
@@ -220,36 +229,74 @@ const ReviewArtifacts: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col">
-      <div className="bg-white border-b border-gray-200">
+    <div className={`flex flex-col ${viewMode === 'published' ? 'bg-gray-50' : 'bg-white'}`}>
+      <div className={`${viewMode === 'published' ? 'bg-blue-50' : 'bg-white'} border-b border-gray-200`}>
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
-              Review Staged Artifacts
+              {viewMode === 'published' ? "Manage Published Artifacts" : 
+               viewMode === 'staging' ? "Review Staged Artifacts" : 
+               "Review Pending Artifacts"}
             </h1>
             <div className="flex items-center space-x-4">
-              <div className="flex items-center">
-                <Switch
-                  checked={showPendingOnly}
-                  onChange={(checked) => {
-                    setShowPendingOnly(checked);
-                    setReviewArtifactsPage(1);
-                  }}
-                  className={`${
-                    showPendingOnly ? 'bg-blue-600' : 'bg-gray-200'
-                  } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
-                >
-                  <span className="sr-only">Show pending review artifacts only</span>
-                  <span
-                    className={`${
-                      showPendingOnly ? 'translate-x-6' : 'translate-x-1'
-                    } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
-                  />
-                </Switch>
-                <span className="ml-2 text-sm text-gray-600">
-                  {showPendingOnly ? 'Pending Review' : 'All Artifacts'}
-                </span>
+              <div className="relative w-64">
+                <Listbox value={viewMode} onChange={(newMode: ViewMode) => {
+                  setViewMode(newMode);
+                  setReviewArtifactsPage(1);
+                }}>
+                  <div className="relative mt-1">
+                    <Listbox.Button className="relative w-full cursor-default rounded-lg bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-300 sm:text-sm">
+                      <span className="block truncate">
+                        {viewModeOptions.find(option => option.id === viewMode)?.name}
+                      </span>
+                      <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <ChevronDownIcon
+                          className="h-5 w-5 text-gray-400"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </Listbox.Button>
+                    <Transition
+                      as={Fragment}
+                      leave="transition ease-in duration-100"
+                      leaveFrom="opacity-100"
+                      leaveTo="opacity-0"
+                    >
+                      <Listbox.Options className="absolute mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm z-10">
+                        {viewModeOptions.map((option) => (
+                          <Listbox.Option
+                            key={option.id}
+                            className={({ active }) =>
+                              `relative cursor-default select-none py-2 pl-10 pr-4 ${
+                                active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                              }`
+                            }
+                            value={option.id}
+                          >
+                            {({ selected }) => (
+                              <>
+                                <span
+                                  className={`block truncate ${
+                                    selected ? 'font-medium' : 'font-normal'
+                                  }`}
+                                >
+                                  {option.name}
+                                </span>
+                                {selected ? (
+                                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
+                                    <CheckCircleIcon className="h-5 w-5" aria-hidden="true" />
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                          </Listbox.Option>
+                        ))}
+                      </Listbox.Options>
+                    </Transition>
+                  </div>
+                </Listbox>
               </div>
+              
               <button
                 onClick={loadArtifacts}
                 disabled={loading}
@@ -264,142 +311,144 @@ const ReviewArtifacts: React.FC = () => {
           </div>
 
           {/* Info Box with Collapsible Guidelines */}
-          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <InformationCircleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
-              </div>
-              <div className="ml-3 w-full">
-                <h3 className="text-sm font-medium text-blue-800">
-                  Privileged Reviewer Access
-                </h3>
-                <div className="mt-2 text-sm text-blue-700">
-                {pendingCount > 0 && <p className="mt-1">You have {pendingCount} item{pendingCount !== 1 ? 's' : ''} waiting for review.</p>}
-                  <p className="mt-1">As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines.</p>
+          {(viewMode !== 'published' || artifacts.length > 0) && (
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <InformationCircleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
                 </div>
+                <div className="ml-3 w-full">
+                  <h3 className="text-sm font-medium text-blue-800">
+                    {viewMode === 'published' ? 
+                      "Managing Published Models in the Model Zoo" : 
+                      "Privileged Reviewer Access"}
+                  </h3>
+                  <div className="mt-2 text-sm text-blue-700">
+                  {viewMode === 'pending' && pendingCount > 0 && 
+                    <p className="mt-1">You have {pendingCount} item{pendingCount !== 1 ? 's' : ''} waiting for review.</p>}
+                    <p className="mt-1">
+                      {viewMode === 'published' ? 
+                        "As a privileged reviewer, you can edit and manage all published models in the BioImage Model Zoo. Any changes made will be immediately visible to users." : 
+                        "As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines."}
+                    </p>
+                  </div>
 
-                {/* Collapsible Guidelines Section */}
-                <div className="mt-4 border-t border-blue-200 pt-4">
-                  <button
-                    className="w-full flex justify-between items-center text-left text-sm font-medium text-blue-800"
-                    onClick={() => setIsGuidelinesOpen(!isGuidelinesOpen)}
-                  >
-                    <span>Review Guidelines</span>
-                    {isGuidelinesOpen ? (
-                      <ChevronUpIcon className="h-5 w-5 text-blue-500" />
-                    ) : (
-                      <ChevronDownIcon className="h-5 w-5 text-blue-500" />
-                    )}
-                  </button>
-                  
-                  <Transition
-                    show={isGuidelinesOpen}
-                    enter="transition-all ease-in-out duration-300"
-                    enterFrom="max-h-0 opacity-0"
-                    enterTo="max-h-[800px] opacity-100"
-                    leave="transition-all ease-in-out duration-200"
-                    leaveFrom="max-h-[800px] opacity-100"
-                    leaveTo="max-h-0 opacity-0"
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-4 text-sm text-blue-700">
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-medium text-blue-800">1. Basic Information Completeness</h4>
-                          <ul className="mt-1 list-disc list-inside space-y-1">
-                            <li>Name is descriptive and follows convention (e.g., "3D UNet Arabidopsis Apical Stem Cells")</li>
-                            <li>Authors and maintainers are properly listed with contact information</li>
-                            <li>License is specified (e.g., MIT, Apache)</li>
-                            <li>Proper citation information is included with DOI/URL</li>
-                            <li>Tags are relevant and help in model discovery (e.g., "3d", "unet", "semantic-segmentation")</li>
-                          </ul>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-blue-800">2. Documentation Quality</h4>
-                          <ul className="mt-1 list-disc list-inside space-y-1">
-                            <li>Description clearly explains:
-                              <ul className="ml-6 list-circle">
-                                <li>Model's purpose and use case</li>
-                                <li>Input data requirements (e.g., "confocal images of Arabidopsis thaliana")</li>
-                                <li>Expected results and output format</li>
+                  {/* Collapsible Guidelines Section - Only show for non-published artifacts */}
+                  {viewMode !== 'published' && (
+                    <div className="mt-4 border-t border-blue-200 pt-4">
+                      <button
+                        className="w-full flex justify-between items-center text-left text-sm font-medium text-blue-800"
+                        onClick={() => setIsGuidelinesOpen(!isGuidelinesOpen)}
+                      >
+                        <span>Review Guidelines</span>
+                        {isGuidelinesOpen ? (
+                          <ChevronUpIcon className="h-5 w-5 text-blue-500" />
+                        ) : (
+                          <ChevronDownIcon className="h-5 w-5 text-blue-500" />
+                        )}
+                      </button>
+                      
+                      <div className={`${isGuidelinesOpen ? 'block' : 'hidden'} overflow-hidden`}>
+                        <div className="mt-4 text-sm text-blue-700">
+                          <div className="space-y-4">
+                            <div>
+                              <h4 className="font-medium text-blue-800">1. Basic Information Completeness</h4>
+                              <ul className="mt-1 list-disc list-inside space-y-1">
+                                <li>Name is descriptive and follows convention (e.g., "3D UNet Arabidopsis Apical Stem Cells")</li>
+                                <li>Authors and maintainers are properly listed with contact information</li>
+                                <li>License is specified (e.g., MIT, Apache)</li>
+                                <li>Proper citation information is included with DOI/URL</li>
+                                <li>Tags are relevant and help in model discovery (e.g., "3d", "unet", "semantic-segmentation")</li>
                               </ul>
-                            </li>
-                            <li>Documentation includes:
-                              <ul className="ml-6 list-circle">
-                                <li>Step-by-step usage instructions</li>
-                                <li>Input data specifications (e.g., voxel size, dimensions)</li>
-                                <li>Example workflow or notebook</li>
+                            </div>
+                            
+                            <div>
+                              <h4 className="font-medium text-blue-800">2. Documentation Quality</h4>
+                              <ul className="mt-1 list-disc list-inside space-y-1">
+                                <li>Description clearly explains:
+                                  <ul className="ml-6 list-circle">
+                                    <li>Model's purpose and use case</li>
+                                    <li>Input data requirements (e.g., "confocal images of Arabidopsis thaliana")</li>
+                                    <li>Expected results and output format</li>
+                                  </ul>
+                                </li>
+                                <li>Documentation includes:
+                                  <ul className="ml-6 list-circle">
+                                    <li>Step-by-step usage instructions</li>
+                                    <li>Input data specifications (e.g., voxel size, dimensions)</li>
+                                    <li>Example workflow or notebook</li>
+                                  </ul>
+                                </li>
                               </ul>
-                            </li>
-                          </ul>
-                        </div>
+                            </div>
 
-                        <div>
-                          <h4 className="font-medium text-blue-800">3. Technical Requirements</h4>
-                          <ul className="mt-1 list-disc list-inside space-y-1">
-                            <li>Input/Output specifications are complete:
-                              <ul className="ml-6 list-circle">
-                                <li>Correct axes information (e.g., "bczyx")</li>
-                                <li>Data types and ranges</li>
-                                <li>Shape requirements</li>
+                            <div>
+                              <h4 className="font-medium text-blue-800">3. Technical Requirements</h4>
+                              <ul className="mt-1 list-disc list-inside space-y-1">
+                                <li>Input/Output specifications are complete:
+                                  <ul className="ml-6 list-circle">
+                                    <li>Correct axes information (e.g., "bczyx")</li>
+                                    <li>Data types and ranges</li>
+                                    <li>Shape requirements</li>
+                                  </ul>
+                                </li>
+                                <li>Sample data is provided:
+                                  <ul className="ml-6 list-circle">
+                                    <li>Test inputs and outputs</li>
+                                    <li>Sample images for verification</li>
+                                    <li>Cover images showing input/output examples</li>
+                                  </ul>
+                                </li>
+                                <li>Model weights and architecture are properly specified</li>
                               </ul>
-                            </li>
-                            <li>Sample data is provided:
-                              <ul className="ml-6 list-circle">
-                                <li>Test inputs and outputs</li>
-                                <li>Sample images for verification</li>
-                                <li>Cover images showing input/output examples</li>
+                            </div>
+
+                            <div>
+                              <h4 className="font-medium text-blue-800">4. Visual Presentation</h4>
+                              <ul className="mt-1 list-disc list-inside space-y-1">
+                                <li>Cover images:
+                                  <ul className="ml-6 list-circle">
+                                    <li>Show clear input/output examples</li>
+                                    <li>Are of good quality and representative</li>
+                                    <li>Include scale bars where applicable</li>
+                                  </ul>
+                                </li>
+                                <li>Icons and badges are appropriate and informative</li>
+                                <li>Visual documentation helps understand the model's function</li>
                               </ul>
-                            </li>
-                            <li>Model weights and architecture are properly specified</li>
-                          </ul>
-                        </div>
+                            </div>
 
-                        <div>
-                          <h4 className="font-medium text-blue-800">4. Visual Presentation</h4>
-                          <ul className="mt-1 list-disc list-inside space-y-1">
-                            <li>Cover images:
-                              <ul className="ml-6 list-circle">
-                                <li>Show clear input/output examples</li>
-                                <li>Are of good quality and representative</li>
-                                <li>Include scale bars where applicable</li>
+                            <div>
+                              <h4 className="font-medium text-blue-800">5. Ethical & Scientific Standards</h4>
+                              <ul className="mt-1 list-disc list-inside space-y-1">
+                                <li>Training data is properly cited and credited</li>
+                                <li>Model limitations and assumptions are clearly stated</li>
+                                <li>Performance metrics and validation methods are documented</li>
+                                <li>Potential biases or limitations are disclosed</li>
+                                <li>Compliance with data privacy and sharing guidelines</li>
                               </ul>
-                            </li>
-                            <li>Icons and badges are appropriate and informative</li>
-                            <li>Visual documentation helps understand the model's function</li>
-                          </ul>
-                        </div>
+                            </div>
 
-                        <div>
-                          <h4 className="font-medium text-blue-800">5. Ethical & Scientific Standards</h4>
-                          <ul className="mt-1 list-disc list-inside space-y-1">
-                            <li>Training data is properly cited and credited</li>
-                            <li>Model limitations and assumptions are clearly stated</li>
-                            <li>Performance metrics and validation methods are documented</li>
-                            <li>Potential biases or limitations are disclosed</li>
-                            <li>Compliance with data privacy and sharing guidelines</li>
-                          </ul>
-                        </div>
-
-                        <div className="bg-blue-100 p-3 rounded-md mt-4">
-                          <h4 className="font-medium text-blue-800">Review Checklist</h4>
-                          <p className="text-blue-700 text-sm mt-1">Before approving, ensure:</p>
-                          <ul className="mt-2 space-y-1 text-blue-700 text-sm">
-                            <li>✓ All required fields in RDF are completed</li>
-                            <li>✓ Documentation is clear for non-expert users</li>
-                            <li>✓ Sample data works as expected</li>
-                            <li>✓ Visual materials are informative</li>
-                            <li>✓ Scientific citations are proper</li>
-                          </ul>
+                            <div className="bg-blue-100 p-3 rounded-md mt-4">
+                              <h4 className="font-medium text-blue-800">Review Checklist</h4>
+                              <p className="text-blue-700 text-sm mt-1">Before approving, ensure:</p>
+                              <ul className="mt-2 space-y-1 text-blue-700 text-sm">
+                                <li>✓ All required fields in RDF are completed</li>
+                                <li>✓ Documentation is clear for non-expert users</li>
+                                <li>✓ Sample data works as expected</li>
+                                <li>✓ Visual materials are informative</li>
+                                <li>✓ Scientific citations are proper</li>
+                              </ul>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </Transition>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -416,7 +465,7 @@ const ReviewArtifacts: React.FC = () => {
         ) : artifacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <CheckCircleIcon className="h-12 w-12 text-green-500 mb-4" />
-            <p>No artifacts waiting for review</p>
+            <p>No {viewMode === 'published' ? "published artifacts found" : "artifacts waiting for review"}</p>
           </div>
         ) : (
           <div className="bg-white shadow overflow-hidden sm:rounded-md">
@@ -500,7 +549,7 @@ const ReviewArtifacts: React.FC = () => {
                           onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
                           className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >
-                          Review
+                          {viewMode === 'published' ? "Edit" : "Review"}
                         </button>
                         
                         <Menu as="div" className="relative">
@@ -517,43 +566,47 @@ const ReviewArtifacts: React.FC = () => {
                             leaveTo="transform opacity-0 scale-95"
                           >
                             <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                              <Menu.Item>
-                                {({ active }) => (
-                                  <button
-                                    onClick={() => handleStatusChange(artifact, 'in-review')}
-                                    className={`${
-                                      active ? 'bg-gray-100' : ''
-                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                  >
-                                    Mark as In Review
-                                  </button>
-                                )}
-                              </Menu.Item>
-                              <Menu.Item>
-                                {({ active }) => (
-                                  <button
-                                    onClick={() => handleStatusChange(artifact, 'revision')}
-                                    className={`${
-                                      active ? 'bg-gray-100' : ''
-                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                  >
-                                    Request Revision
-                                  </button>
-                                )}
-                              </Menu.Item>
-                              <Menu.Item>
-                                {({ active }) => (
-                                  <button
-                                    onClick={() => handleStatusChange(artifact, 'accepted')}
-                                    className={`${
-                                      active ? 'bg-gray-100' : ''
-                                    } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                  >
-                                    Accept
-                                  </button>
-                                )}
-                              </Menu.Item>
-                              <div className="border-t border-gray-100" />
+                              {viewMode !== 'published' && (
+                                <>
+                                  <Menu.Item>
+                                    {({ active }) => (
+                                      <button
+                                        onClick={() => handleStatusChange(artifact, 'in-review')}
+                                        className={`${
+                                          active ? 'bg-gray-100' : ''
+                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                      >
+                                        Mark as In Review
+                                      </button>
+                                    )}
+                                  </Menu.Item>
+                                  <Menu.Item>
+                                    {({ active }) => (
+                                      <button
+                                        onClick={() => handleStatusChange(artifact, 'revision')}
+                                        className={`${
+                                          active ? 'bg-gray-100' : ''
+                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                      >
+                                        Request Revision
+                                      </button>
+                                    )}
+                                  </Menu.Item>
+                                  <Menu.Item>
+                                    {({ active }) => (
+                                      <button
+                                        onClick={() => handleStatusChange(artifact, 'accepted')}
+                                        className={`${
+                                          active ? 'bg-gray-100' : ''
+                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                      >
+                                        Accept
+                                      </button>
+                                    )}
+                                  </Menu.Item>
+                                  <div className="border-t border-gray-100" />
+                                </>
+                              )}
                               <Menu.Item>
                                 {({ active }) => (
                                   <button
@@ -565,7 +618,7 @@ const ReviewArtifacts: React.FC = () => {
                                       active ? 'bg-gray-100' : ''
                                     } flex w-full items-center px-4 py-2 text-sm text-red-600`}
                                   >
-                                    Delete
+                                    Delete {viewMode === 'published' ? "Published Model" : ""}
                                   </button>
                                 )}
                               </Menu.Item>
@@ -724,11 +777,13 @@ const ReviewArtifacts: React.FC = () => {
                   </div>
                   <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                     <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                      Delete Staged Version
+                      Delete {viewMode === 'published' ? "Published Model" : "Staged Version"}
                     </Dialog.Title>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
-                        Are you sure you want to delete this staged version? This action cannot be undone.
+                        Are you sure you want to delete this {viewMode === 'published' ? "published model" : "staged version"}? 
+                        {viewMode === 'published' && " This will remove the model from the public Model Zoo."}
+                        {" "}This action cannot be undone.
                       </p>
                     </div>
                   </div>
