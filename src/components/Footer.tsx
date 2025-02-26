@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 const footerLinks = [
   {
@@ -73,23 +74,56 @@ const Footer: React.FC = () => {
           ))}
         </div>
 
+
         {/* Content Section */}
         <div className="text-center space-y-6 max-w-4xl mx-auto">
           <div className="border-t border-gray-200 pt-6">
-            <p className="text-base text-gray-700 font-medium mb-4">
-              BioImage.IO -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
+             {/* Made with love */}
+          <div className="pt-4">
+          <p className="text-sm font-medium text-gray-600">
+              
+              Made with <span role="img" aria-label="love">❤️</span> by the BioImage Model Zoo community
             </p>
+            <br></br>
+        
+            
+          </div>
             
             <img
               src="/img/EuropeanFlag-Funded by the EU-POS.jpg"
               alt="Funded by the European Union"
               className="w-[300px] mx-auto mb-4"
             />
-            
+              <p className="text-sm text-gray-600 leading-relaxed px-4">
+              BioImage.IO -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
+            </p>
             <p className="text-sm text-gray-600 leading-relaxed px-4">
               AI4Life receives funding from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them.
             </p>
           </div>
+
+          {/* License and Terms */}
+          <div className="border-t border-gray-200 pt-6 flex flex-col items-center justify-center space-y-2">
+            <p className="text-sm text-gray-600">
+              All content is licensed under{' '}
+              <a 
+                href="https://creativecommons.org/licenses/by/4.0/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                CC-BY 4.0
+              </a>
+              {' '}unless explicitly specified otherwise
+            </p>
+            <p className="text-sm text-gray-600">
+              <Link to="/toc" className="text-blue-600 hover:text-blue-800 hover:underline">
+                Terms of Service
+              </Link>
+            </p>
+          </div>
+
+         
         </div>
       </div>
     </footer>

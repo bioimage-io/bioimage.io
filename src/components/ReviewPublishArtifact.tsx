@@ -35,6 +35,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   hasContentChanged
 }) => {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [publishData, setPublishData] = useState<{ version: string; comment: string }>({
     version: '',
     comment: ''
@@ -78,6 +79,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         _rkwargs: true
       });
       setStatus('request-review');
+      setShowReviewDialog(false);
     } catch (error) {
       console.error('Error submitting for review:', error);
     }
@@ -243,7 +245,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               <>
                 {status !== 'request-review' ? (
                   <button
-                    onClick={handleSubmit}
+                    onClick={() => setShowReviewDialog(true)}
                     disabled={shouldDisableActions}
                     className={`inline-flex items-center px-4 py-2 h-10 rounded-md text-sm font-medium shadow-sm
                       ${shouldDisableActions 
@@ -273,10 +275,32 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
         {/* Status Badge - Centered and more prominent */}
         {isStaged && status && (
-          <div className="flex justify-center mb-8">
+          <div className="flex flex-col items-center gap-4 mb-8">
             <div className="inline-block transform hover:scale-105 transition-transform">
               <StatusBadge status={status} size="large" />
             </div>
+            
+            {/* Info box for models under review */}
+            {status === 'request-review' && (
+              <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <svg className="w-6 h-6 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h4 className="text-sm font-medium text-blue-900 mb-1">Under Review</h4>
+                    <p className="text-sm text-blue-800">
+                      Your artifact is being reviewed by our admin team. During this process:
+                    </p>
+                    <ul className="list-disc pl-5 mt-2 text-sm text-blue-800 space-y-1">
+                      <li>Admins may make changes to improve compatibility and documentation</li>
+                      <li>Use the comment box below to communicate with the review team</li>
+                      <li>Check back regularly for updates or questions from reviewers</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -461,6 +485,56 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           )}
         </Disclosure>
       )}
+
+      {/* Review Request Dialog */}
+      <MuiDialog
+        open={showReviewDialog}
+        onClose={() => setShowReviewDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <div className="p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">
+            Submit for Review
+          </h3>
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+              <h4 className="font-medium mb-2">Review Process Information</h4>
+              <p className="mb-3">
+                By submitting this artifact for review, you acknowledge that:
+              </p>
+              <ul className="list-disc pl-4 space-y-2">
+                <li>Our admin team will be notified and will review your submission</li>
+                <li>Reviewers may make changes to your artifact to ensure it meets BioImage.io standards</li>
+                <li>Changes may include:
+                  <ul className="list-disc pl-4 mt-1 text-blue-700">
+                    <li>Metadata formatting and organization</li>
+                    <li>Documentation improvements</li>
+                    <li>Technical compatibility adjustments</li>
+                    <li>File structure optimization</li>
+                  </ul>
+                </li>
+                <li>You can communicate with reviewers through the comment section</li>
+                <li>You can withdraw your submission at any time during the review process</li>
+              </ul>
+            </div>
+          </div>
+          <div className="mt-6 flex gap-3 justify-end">
+            <button
+              onClick={() => setShowReviewDialog(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Submit for Review
+            </button>
+          </div>
+        </div>
+      </MuiDialog>
 
       {/* Publish Dialog */}
       {renderPublishDialog()}

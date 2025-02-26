@@ -16,6 +16,7 @@ import { HyphaProvider } from './HyphaContext';
 import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
+import TermsOfService from './components/TermsOfService';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -82,6 +83,7 @@ const AppContent: React.FC = () => {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/review" element={<ReviewArtifacts />} />
           <Route path="/api" element={<ApiDocs />} />
+          <Route path="/toc" element={<TermsOfService />} />
         </Routes>
       </main>
       <Footer />

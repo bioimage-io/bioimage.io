@@ -593,6 +593,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     try {
       setIsUploading(true);
       setUploadStatus({
+        message: 'By uploading, you agree to our Terms of Service (see /toc)',
+        severity: 'info'
+      });
+
+      // Add a small delay to show the ToS message
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      setUploadStatus({
         message: 'Reading manifest file...',
         severity: 'info'
       });
@@ -1367,6 +1375,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                   ) : (
                     <div 
                       {...getRootProps()} 
+                      onClick={handleFileButtonClick}
                       className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
                     >
                       {/* Hidden inputs for file and folder selection */}
@@ -1445,7 +1454,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       <p className="text-yellow-600">If your model contains large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
                     </div>
                     <p className="text-sm text-gray-500 mt-6">
-                      Need help? Check out our <a href="#" className="text-blue-600 hover:underline font-medium">documentation</a> or 
+                      Need help? Check out our <a href="#" className="text-blue-600 hover:underline font-medium">documentation</a>, 
+                      read our <Link to="/toc" className="text-blue-600 hover:underline font-medium">terms of service</Link>, or 
                       join our <a href="#" className="text-blue-600 hover:underline font-medium">community forum</a>.
                     </p>
                   </div>
