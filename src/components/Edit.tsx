@@ -825,7 +825,8 @@ const Edit: React.FC = () => {
       return (
         <div className="h-[calc(100vh-145px)]">
           <RDFEditor
-            content={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
+            content={unsavedChanges[selectedFile.path] ?? 
+              (typeof selectedFile.content === 'string' ? selectedFile.content : '')}
             onChange={(value) => handleEditorChange(value, selectedFile)}
             readOnly={false}
             showModeSwitch={true}
@@ -921,14 +922,15 @@ const Edit: React.FC = () => {
             language={getEditorLanguage(selectedFile.name)}
             value={unsavedChanges[selectedFile.path] ?? 
               (typeof selectedFile.content === 'string' ? selectedFile.content : '')}
-            onChange={(value) => handleEditorChange(value, selectedFile)}
+            onChange={(value: string | undefined) => handleEditorChange(value ?? '', selectedFile)}
             options={{
               minimap: { enabled: false },
               scrollBeyondLastLine: true,
               wordWrap: 'on',
               lineNumbers: 'on',
               renderWhitespace: 'selection',
-              folding: true
+              folding: true,
+              readOnly: false // Explicitly set readOnly to false
             }}
           />
         </div>

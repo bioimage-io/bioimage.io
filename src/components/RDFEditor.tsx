@@ -113,6 +113,9 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
   const [remoteSuggestions, setRemoteSuggestions] = useState<string[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const [isInternalChange, setIsInternalChange] = useState(false);
+  const [tempLicenseValue, setTempLicenseValue] = useState<string | null>(null);
+  const [isLicenseOpen, setIsLicenseOpen] = useState(false);
 
   // Combine local and remote suggestions
   const tagSuggestions = [...Object.values(tagCategories).flat(), ...remoteSuggestions];
@@ -164,8 +167,14 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     []
   );
 
-  // Parse YAML content when component mounts or content changes
+  // Parse YAML content when component mounts or content changes from parent
   useEffect(() => {
+    // Skip if the change was internal
+    if (isInternalChange) {
+      setIsInternalChange(false);
+      return;
+    }
+
     try {
       setEditorContent(content);
       const parsed = yaml.load(content) as RDFContent;
@@ -180,7 +189,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       console.error('Error parsing YAML:', error);
       setErrors({ yaml: 'Invalid YAML format' });
     }
-  }, [content, licenses.length, fetchLicenses]);
+  }, [content]); // Remove licenses.length and fetchLicenses from dependencies
 
   // Add a new useEffect to fetch licenses on component mount
   useEffect(() => {
@@ -191,7 +200,10 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   // Handle editor content changes
   const handleEditorChange = (value: string | undefined) => {
     if (!value) return;
+    
+    setIsInternalChange(true);
     setEditorContent(value);
+    
     try {
       const parsed = yaml.load(value) as RDFContent;
       setFormData(parsed || {});
@@ -210,6 +222,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     index?: number,
     subfield?: string
   ) => {
+    setIsInternalChange(true);
     const newFormData = { ...formData };
 
     if (index !== undefined && subfield && (field === 'authors' || field === 'maintainers' || field === 'cite')) {
@@ -443,21 +456,29 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             size="small"
             options={licenses}
             loading={isLoadingLicenses}
-            value={licenses.find(l => l.licenseId === formData.license) || null}
-            onChange={(_, newValue) => handleFormChange('license', newValue?.licenseId || '')}
-            onOpen={fetchLicenses}
-            getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
-            isOptionEqualToValue={(option, value) => option.licenseId === value.licenseId}
-            ListboxProps={{
-              style: { maxHeight: '400px' }
+            open={isLicenseOpen}
+            value={isLicenseOpen ? null : (formData.license ? licenses.find(l => l.licenseId === formData.license) || null : null)}
+            onChange={(_, newValue) => {
+              handleFormChange('license', newValue?.licenseId || '');
+              setTempLicenseValue(null); // Clear temp value on selection
             }}
-            slotProps={{
-              popper: {
-                modifiers: [
-                  { name: 'flip', enabled: false },
-                  { name: 'preventOverflow', enabled: false }
-                ]
+            onOpen={() => {
+              setIsLicenseOpen(true);
+              setTempLicenseValue(formData.license || null); // Handle undefined case
+              fetchLicenses();
+            }}
+            onClose={() => {
+              setIsLicenseOpen(false);
+              // Only restore previous value if no selection was made and we have a temp value
+              if (tempLicenseValue && !formData.license) {
+                handleFormChange('license', tempLicenseValue);
               }
+            }}
+            getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
+            isOptionEqualToValue={(option, value) => {
+              if (!option || !value) return false;
+              const valueId = typeof value === 'string' ? value : value.licenseId;
+              return option.licenseId === valueId;
             }}
             renderInput={(params) => (
               <TextField
