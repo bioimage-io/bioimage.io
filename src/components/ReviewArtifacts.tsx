@@ -268,7 +268,7 @@ const ReviewArtifacts: React.FC = () => {
   return (
     <div className={`flex flex-col ${viewMode === 'published' ? 'bg-gray-50' : 'bg-white'}`}>
       <div className={`${viewMode === 'published' ? 'bg-blue-50' : 'bg-white'} border-b border-gray-200`}>
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="p-6">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
               {viewMode === 'published' ? "Manage Published Artifacts" : 

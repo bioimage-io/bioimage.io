@@ -123,7 +123,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   };
 
   const fetchLicenses = useCallback(async () => {
-    if (licenses.length > 0) return; // Don't fetch if we already have licenses
+    if (isLoadingLicenses) return; // Only prevent fetching if already loading
     
     setIsLoadingLicenses(true);
     try {
@@ -140,7 +140,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     } finally {
       setIsLoadingLicenses(false);
     }
-  }, [licenses]);
+  }, [isLoadingLicenses]);
 
   // Update the debounced fetch function to use setRemoteSuggestions
   const debouncedFetchTags = useCallback(
@@ -171,11 +171,22 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       const parsed = yaml.load(content) as RDFContent;
       setFormData(parsed || {});
       setErrors({});
+      
+      // If there's a license in the content, make sure we fetch the licenses
+      if (parsed?.license && licenses.length === 0) {
+        fetchLicenses();
+      }
     } catch (error) {
       console.error('Error parsing YAML:', error);
       setErrors({ yaml: 'Invalid YAML format' });
     }
-  }, [content]);
+  }, [content, licenses.length, fetchLicenses]);
+
+  // Add a new useEffect to fetch licenses on component mount
+  useEffect(() => {
+    // Fetch licenses on component mount to ensure they're available
+    fetchLicenses();
+  }, [fetchLicenses]);
 
   // Handle editor content changes
   const handleEditorChange = (value: string | undefined) => {
@@ -202,14 +213,25 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     const newFormData = { ...formData };
 
     if (index !== undefined && subfield && (field === 'authors' || field === 'maintainers' || field === 'cite')) {
-      const arrayField = [...(newFormData[field] as any[] || [])];
+      // Create a properly typed array based on the field
+      let arrayField: any[] = [...(newFormData[field] as any[] || [])];
+      
       arrayField[index] = {
         ...arrayField[index],
         [subfield]: value
       };
-      newFormData[field] = arrayField as RDFContent[typeof field];
+      
+      // Use a type assertion that matches the expected field type
+      if (field === 'authors') {
+        newFormData[field] = arrayField as Author[];
+      } else if (field === 'maintainers') {
+        newFormData[field] = arrayField as Maintainer[];
+      } else if (field === 'cite') {
+        newFormData[field] = arrayField as Citation[];
+      }
     } else {
-      newFormData[field] = value as RDFContent[typeof field];
+      // For non-array fields or direct array assignments, use a more specific type assertion
+      newFormData[field] = value;
     }
 
     setFormData(newFormData);
@@ -248,8 +270,17 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           arrayField.push('');
       }
       
-      // Type assertion to help TypeScript understand the field type
-      newFormData[field] = arrayField as RDFContent[typeof field];
+      // Use a type assertion that matches the expected field type
+      if (field === 'authors') {
+        newFormData[field] = arrayField as Author[];
+      } else if (field === 'maintainers') {
+        newFormData[field] = arrayField as Maintainer[];
+      } else if (field === 'cite') {
+        newFormData[field] = arrayField as Citation[];
+      } else if (field === 'tags' || field === 'links') {
+        newFormData[field] = arrayField as string[];
+      }
+      
       setFormData(newFormData);
       try {
         const newContent = yaml.dump(newFormData, {
@@ -273,8 +304,17 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       const arrayField = [...(newFormData[field] as any[] || [])];
       arrayField.splice(index, 1);
       
-      // Type assertion to help TypeScript understand the field type
-      newFormData[field] = arrayField as RDFContent[typeof field];
+      // Use a type assertion that matches the expected field type
+      if (field === 'authors') {
+        newFormData[field] = arrayField as Author[];
+      } else if (field === 'maintainers') {
+        newFormData[field] = arrayField as Maintainer[];
+      } else if (field === 'cite') {
+        newFormData[field] = arrayField as Citation[];
+      } else if (field === 'tags' || field === 'links') {
+        newFormData[field] = arrayField as string[];
+      }
+      
       setFormData(newFormData);
       try {
         const newContent = yaml.dump(newFormData, {
@@ -635,6 +675,8 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                   <button
                     onClick={() => removeArrayItem('authors', index)}
                     className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                    title="Remove Author"
+                    aria-label="Remove Author"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -715,6 +757,8 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                 <button
                   onClick={() => removeArrayItem('maintainers', index)}
                   className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                  title="Remove Maintainer"
+                  aria-label="Remove Maintainer"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -794,6 +838,8 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                 <button
                   onClick={() => removeArrayItem('cite', index)}
                   className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100"
+                  title="Remove Citation"
+                  aria-label="Remove Citation"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

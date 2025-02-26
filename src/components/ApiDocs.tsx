@@ -53,6 +53,7 @@ const ApiDocs: React.FC = () => {
                     type="text"
                     value={token}
                     readOnly
+                    aria-label="API Token"
                     className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                   <button
@@ -429,6 +430,182 @@ async function interactWithModelZoo() {
               All API calls should be wrapped in try-catch blocks to handle potential errors.
               The API will return appropriate error messages and status codes.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* HTTP Endpoints */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">HTTP Endpoints</h2>
+        <p className="text-gray-600 mb-4">
+          In addition to the programmatic API, you can also access artifacts directly via HTTP endpoints.
+          These endpoints are useful for direct access to models and their files without using the client libraries.
+        </p>
+
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Get Artifact Metadata</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600">
+              Retrieves metadata, manifest, and configuration for a specific artifact.
+            </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Query Parameters:</strong>
+            </p>
+            <ul className="list-disc list-inside text-gray-600 ml-4">
+              <li><code>version</code> (optional): Specific version to retrieve (defaults to latest)</li>
+              <li><code>silent</code> (optional): If true, doesn't increment view count</li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">List Child Artifacts</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/children
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600">
+              Lists all child artifacts of a specified parent artifact.
+            </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Query Parameters:</strong>
+            </p>
+            <ul className="list-disc list-inside text-gray-600 ml-4">
+              <li><code>keywords</code> (optional): Comma-separated search terms</li>
+              <li><code>filters</code> (optional): JSON-encoded filter criteria</li>
+              <li><code>offset</code> (optional): Pagination offset (default: 0)</li>
+              <li><code>limit</code> (optional): Maximum number of results (default: 100)</li>
+              <li><code>order_by</code> (optional): Field to sort by</li>
+              <li><code>pagination</code> (optional): Whether to return pagination metadata</li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Download Artifact Files</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/files/{"<path>"}
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600">
+              Retrieves a specific file from an artifact or lists files in a directory.
+            </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong>
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                https://hypha.aicell.io/bioimage-io/artifacts/trustworthy-llama/files/rdf.yaml?use_proxy=true
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600 mt-2">
+              <strong>Query Parameters:</strong>
+            </p>
+            <ul className="list-disc list-inside text-gray-600 ml-4">
+              <li><code>version</code> (optional): Specific version to retrieve</li>
+              <li><code>silent</code> (optional): If true, doesn't increment download count</li>
+              <li><code>use_proxy</code> (optional): If true, serves file through API proxy instead of redirecting</li>
+              <li><code>token</code> (optional): Authentication token for private artifacts</li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Download Artifact as ZIP</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/create-zip-file
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600">
+              Creates and downloads a ZIP file containing all or selected files from an artifact.
+            </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Query Parameters:</strong>
+            </p>
+            <ul className="list-disc list-inside text-gray-600 ml-4">
+              <li><code>file</code> (optional, repeatable): Specific files to include in the ZIP</li>
+              <li><code>version</code> (optional): Specific version to download</li>
+              <li><code>token</code> (optional): Authentication token for private artifacts</li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Access Files Inside ZIP Archives</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/zip-files/{"<zip_file_path>"}
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600">
+              Extracts and serves content from a ZIP file stored in an artifact without downloading the entire archive.
+            </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Query Parameters:</strong>
+            </p>
+            <ul className="list-disc list-inside text-gray-600 ml-4">
+              <li><code>path</code> (optional): Path to a specific file within the ZIP</li>
+              <li><code>version</code> (optional): Specific artifact version</li>
+              <li><code>token</code> (optional): Authentication token for private artifacts</li>
+            </ul>
           </div>
         </div>
       </div>

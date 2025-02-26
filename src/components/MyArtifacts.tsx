@@ -46,6 +46,10 @@ const MyArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deletionRequestLoading, setDeletionRequestLoading] = useState<string | null>(null);
+  const [isRequestDeletionDialogOpen, setIsRequestDeletionDialogOpen] = useState(false);
+  const [artifactToRequestDeletion, setArtifactToRequestDeletion] = useState<Artifact | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -108,8 +112,7 @@ const MyArtifacts: React.FC = () => {
     if (!artifactToDelete || !artifactManager) return;
 
     try {
-      setLoading(true);
-
+      setDeleteLoading(true);
 
       await artifactManager.delete({
         artifact_id: artifactToDelete.id,
@@ -120,48 +123,53 @@ const MyArtifacts: React.FC = () => {
       });
       
       // Refresh the artifacts list
-      await loadArtifacts();
+      loadArtifacts();
       setIsDeleteDialogOpen(false);
       setArtifactToDelete(null);
     } catch (err) {
       console.error('Error deleting artifact:', err);
       setError('Failed to delete artifact');
     } finally {
-      setLoading(false);
+      setDeleteLoading(false);
     }
   };
 
   const handleRequestDeletion = async (artifact: Artifact) => {
-    if (!artifactManager) return;
+    // Open the dialog instead of using window.confirm
+    setArtifactToRequestDeletion(artifact);
+    setIsRequestDeletionDialogOpen(true);
+  };
 
-    const userConfirmed = window.confirm(
-      "Are you sure you want to request deletion of this artifact? The item won't be deleted immediately. Instead, a request will be sent to the admin for approval."
-    );
-
-    if (!userConfirmed) return;
+  const confirmDeletionRequest = async () => {
+    if (!artifactManager || !artifactToRequestDeletion) return;
 
     try {
-      setLoading(true);
+      // Set loading state for this specific artifact
+      setDeletionRequestLoading(artifactToRequestDeletion.id);
       
       // Update the artifact's status using edit
       await artifactManager.edit({
-        artifact_id: artifact.id,
+        artifact_id: artifactToRequestDeletion.id,
         version: "stage",
         manifest: {
-          ...artifact.manifest,
+          ...artifactToRequestDeletion.manifest,
           status: 'deletion-requested'
         },
         _rkwargs: true
       });
 
+      // Close the dialog
+      setIsRequestDeletionDialogOpen(false);
+      setArtifactToRequestDeletion(null);
+
       // Refresh the artifacts list
-      await loadArtifacts();
+      loadArtifacts();
       
     } catch (err) {
       console.error('Error requesting deletion:', err);
       setError('Failed to request deletion');
     } finally {
-      setLoading(false);
+      setDeletionRequestLoading(null);
     }
   };
 
@@ -224,7 +232,7 @@ const MyArtifacts: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="p-6">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
               My Artifacts
@@ -313,6 +321,7 @@ const MyArtifacts: React.FC = () => {
                   isStaged={!!artifact.staging}
                   artifactType={artifact.type}
                   isCollectionAdmin={isCollectionAdmin}
+                  deletionRequestLoading={deletionRequestLoading === artifact.id}
                 />
               </div>
             ))}
@@ -374,9 +383,17 @@ const MyArtifacts: React.FC = () => {
                       type="button"
                       className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
                       onClick={handleDeleteArtifact}
-                      disabled={loading}
+                      disabled={deleteLoading}
                     >
-                      {loading ? 'Removing...' : 'Remove Staged'}
+                      {deleteLoading ? (
+                        <span className="inline-flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Removing...
+                        </span>
+                      ) : 'Remove Staged'}
                     </button>
                     <button
                       type="button"
@@ -384,6 +401,83 @@ const MyArtifacts: React.FC = () => {
                       onClick={() => {
                         setIsDeleteDialogOpen(false);
                         setArtifactToDelete(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition.Root>
+
+      {/* Deletion Request Dialog */}
+      <Transition.Root show={isRequestDeletionDialogOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={setIsRequestDeletionDialogOpen}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 z-10 overflow-y-auto">
+            <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                enterTo="opacity-100 translate-y-0 sm:scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+                leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+              >
+                <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
+                  <div className="sm:flex sm:items-start">
+                    <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
+                      <InformationCircleIcon className="h-6 w-6 text-yellow-600" />
+                    </div>
+                    <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
+                      <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
+                        Request Artifact Deletion
+                      </Dialog.Title>
+                      <div className="mt-2">
+                        <p className="text-sm text-gray-500">
+                          Are you sure you want to request deletion of this artifact? The item won't be deleted immediately. Instead, a request will be sent to the admin for approval.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                    <button
+                      type="button"
+                      className="inline-flex w-full justify-center rounded-md bg-yellow-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-yellow-500 sm:ml-3 sm:w-auto"
+                      onClick={confirmDeletionRequest}
+                      disabled={deletionRequestLoading !== null}
+                    >
+                      {deletionRequestLoading !== null ? (
+                        <span className="inline-flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Requesting...
+                        </span>
+                      ) : 'Request Deletion'}
+                    </button>
+                    <button
+                      type="button"
+                      className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                      onClick={() => {
+                        setIsRequestDeletionDialogOpen(false);
+                        setArtifactToRequestDeletion(null);
                       }}
                     >
                       Cancel

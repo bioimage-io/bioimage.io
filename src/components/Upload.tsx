@@ -214,6 +214,13 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     // Check if we have a zip file or regular files
     const isZipFile = acceptedFiles.length === 1 && acceptedFiles[0].name.toLowerCase().endsWith('.zip');
     
+    // Check if this is a directory upload
+    const isDirectoryUpload = acceptedFiles.length > 0 && 
+                             acceptedFiles[0].webkitRelativePath && 
+                             acceptedFiles[0].webkitRelativePath.includes('/');
+    
+    console.log('Files dropped:', acceptedFiles.length, 'isZipFile:', isZipFile, 'isDirectoryUpload:', isDirectoryUpload);
+    
     if (isZipFile) {
       await processZipFile(acceptedFiles[0]);
     } else {
@@ -306,6 +313,19 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const fileNodes: FileNode[] = [];
       const totalFiles = acceptedFiles.length;
       
+      // Check if this is a directory upload by examining webkitRelativePath
+      const isDirectoryUpload = acceptedFiles.length > 0 && 
+                               acceptedFiles[0].webkitRelativePath && 
+                               acceptedFiles[0].webkitRelativePath.includes('/');
+      
+      // Log directory upload detection
+      if (isDirectoryUpload) {
+        console.log('Directory upload detected:', {
+          firstFilePath: acceptedFiles[0].webkitRelativePath,
+          totalFiles: acceptedFiles.length
+        });
+      }
+      
       // Sort files to prioritize rdf.yaml
       const sortedFiles = [...acceptedFiles].sort((a, b) => {
         if (a.name === 'rdf.yaml') return -1;
@@ -315,8 +335,18 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       for (let i = 0; i < sortedFiles.length; i++) {
         const file = sortedFiles[i];
-        // Ensure file has name property by using type assertion
-        const relativePath = (file as File).webkitRelativePath || (file as File).name;
+        
+        // Get the relative path, handling both directory uploads and individual files
+        let relativePath = '';
+        
+        if (isDirectoryUpload && file.webkitRelativePath) {
+          // For directory uploads, use the full webkitRelativePath
+          relativePath = file.webkitRelativePath;
+        } else {
+          // For individual files, just use the filename
+          relativePath = file.name;
+        }
+        
         const pathParts = relativePath.split('/');
         const fileName = pathParts[pathParts.length - 1];
         
@@ -410,7 +440,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     ...getInputProps(),
     webkitdirectory: "true",
     directory: "true",
-    mozdirectory: "true"
+    mozdirectory: "true",
+    multiple: true
   };
 
   // Regular file input props (without directory selection)
@@ -718,9 +749,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         progress: 0
       });
 
+      // For directory uploads, we need to strip the folder name from the path
+      let rdfUploadPath = updatedRdfFile.path;
+      if (rdfUploadPath.includes('/')) {
+        // Extract just the filename without the directory structure
+        rdfUploadPath = 'rdf.yaml';
+        console.log(`Directory upload detected for rdf.yaml: Changed path from "${updatedRdfFile.path}" to "${rdfUploadPath}"`);
+      }
+
       const rdfPutUrl = await artifactManager.put_file({
         artifact_id: artifact.id,
-        file_path: updatedRdfFile.path,
+        file_path: rdfUploadPath,
         _rkwargs: true,
       });
 
@@ -790,6 +829,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                    normalizedFilePath.endsWith(`/${weightPath}`) ||
                    weightPath.endsWith(`/${normalizedFilePath}`);
           });
+          
+          // Debug log for file paths
+          console.log('Uploading file:', {
+            name: file.name,
+            path: file.path,
+            isDirectory: file.isDirectory,
+            size: file.size
+          });
+          
+          // For directory uploads, we need to strip the folder name from the path
+          // and only use the file name for the artifact manager
+          let uploadPath = file.path;
+          
+          // Check if this is a directory upload (path contains slashes)
+          if (uploadPath.includes('/')) {
+            // Extract just the filename without the directory structure
+            uploadPath = file.name;
+            console.log(`Directory upload detected: Changed path from "${file.path}" to "${uploadPath}"`);
+          }
+          
           const putConfig: {
             artifact_id: any;
             file_path: string;
@@ -797,7 +856,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             _rkwargs: boolean;
           } = {
             artifact_id: artifact.id,
-            file_path: file.path,
+            file_path: uploadPath, // Use the modified path without folder name
             _rkwargs: true,
           }
           if (isWeightFile) {
@@ -1100,7 +1159,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       {/* Show title section only when no files are loaded */}
       {showDragDrop && (
         <div className="bg-white border-b border-gray-80">
-          <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 text-center">
+          <div className="p-6 text-center">
             <h1 className="text-2xl font-semibold text-gray-900">
               Contributing to the BioImage Model Zoo
             </h1>
@@ -1127,7 +1186,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-medium text-gray-900">
                       {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
-                        yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
+                        (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
                     </h2>
                     <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                       stage
@@ -1309,7 +1368,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     <div 
                       {...getRootProps()} 
                       className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
-                      onClick={handleFolderButtonClick}
                     >
                       {/* Hidden inputs for file and folder selection */}
                       <input {...fileInputProps} ref={fileInputRef} />
@@ -1497,7 +1555,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               <div className="flex items-center justify-between">
                 <h3 className="font-medium text-gray-900">
                   {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
-                    yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string)?.name || 'Untitled'}
+                    (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
                 </h3>
                 <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                   stage

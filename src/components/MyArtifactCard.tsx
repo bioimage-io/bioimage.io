@@ -3,7 +3,7 @@ import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 import StatusBadge from './StatusBadge';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { Tooltip, IconButton } from '@mui/material';
+import { Tooltip, IconButton, CircularProgress } from '@mui/material';
 
 interface Author {
   name: string;
@@ -27,6 +27,8 @@ interface AdminResourceCardProps {
   onRequestDeletion?: () => void;
   id: string;
   emoji?: string;
+  isLoading?: boolean;
+  deletionRequestLoading?: boolean;
 }
 
 const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
@@ -47,6 +49,8 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   onRequestDeletion,
   id,
   emoji,
+  isLoading = false,
+  deletionRequestLoading = false,
 }) => {
   const [showCopied, setShowCopied] = useState(false);
 
@@ -152,6 +156,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               onClick={(e) => handleClick(e, onEdit)}
               className="flex items-center p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50"
               title="Edit"
+              disabled={isLoading}
             >
               <PencilIcon className="w-5 h-5" />
               <span className="ml-1">Edit</span>
@@ -163,6 +168,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
                     onClick={(e) => handleClick(e, onDelete)}
                     className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                     title="Delete"
+                    disabled={isLoading}
                   >
                     <TrashIcon className="w-5 h-5" />
                     <span className="ml-1">Delete</span>
@@ -172,9 +178,19 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
                     onClick={(e) => handleClick(e, onRequestDeletion)}
                     className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                     title="Request Deletion"
+                    disabled={deletionRequestLoading}
                   >
-                    <TrashIcon className="w-5 h-5" />
-                    <span className="ml-1">Delete</span>
+                    {deletionRequestLoading ? (
+                      <>
+                        <CircularProgress size={20} className="mr-2" />
+                        <span className="ml-1">Requesting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <TrashIcon className="w-5 h-5" />
+                        <span className="ml-1">Delete</span>
+                      </>
+                    )}
                   </button>
                 )}
               </>

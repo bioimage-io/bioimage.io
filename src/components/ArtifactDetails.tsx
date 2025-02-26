@@ -23,7 +23,6 @@ import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import remarkGfm from 'remark-gfm';
 
 const ArtifactDetails = () => {
   const { id } = useParams();
@@ -357,7 +356,6 @@ const ArtifactDetails = () => {
                 >
                   <ReactMarkdown 
                     className="markdown-body"
-                    remarkPlugins={[remarkGfm]}
                   >
                     {documentation}
                   </ReactMarkdown>

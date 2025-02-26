@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import { Menu } from '@headlessui/react';
-import remarkGfm from 'remark-gfm';
 
 interface TestResult {
   name: string;
@@ -181,7 +180,6 @@ Please keep this window open while the test is running.`;
       )}
       <ReactMarkdown 
         className="prose prose-sm max-w-none"
-        remarkPlugins={[remarkGfm]}
       >
         {getMarkdownContent()}
       </ReactMarkdown>
