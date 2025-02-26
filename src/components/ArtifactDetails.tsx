@@ -166,7 +166,7 @@ const ArtifactDetails = () => {
   const { manifest } = selectedResource as ArtifactInfo;
 
   return (
-    <Box sx={{ p: 3, maxWidth: '1200px', margin: '0 auto' }}>
+    <Box sx={{ p: 1, maxWidth: '1200px', margin: '0 auto' }}>
       {/* Header Section */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" gutterBottom>

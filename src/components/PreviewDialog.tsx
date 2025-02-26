@@ -30,7 +30,7 @@ export const PreviewDialog = ({ open, artifact, onClose }: PreviewDialogProps) =
         </IconButton>
       </DialogTitle>
       <DialogContent dividers sx={{ overflowY: 'auto' }}>
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 1 }}>
           <ArtifactDetails />
         </Box>
       </DialogContent>

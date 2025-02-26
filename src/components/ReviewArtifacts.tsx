@@ -56,6 +56,10 @@ const ReviewArtifacts: React.FC = () => {
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('pending');
   const [copiedIds, setCopiedIds] = useState<{[key: string]: boolean}>({});
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteIdConfirmation, setDeleteIdConfirmation] = useState('');
 
   // View mode options for the dropdown
   const viewModeOptions = [
@@ -107,7 +111,7 @@ const ReviewArtifacts: React.FC = () => {
     if (!selectedArtifact || !artifactManager) return;
 
     try {
-      setLoading(true);
+      setApproveLoading(true);
       await artifactManager.approve({
         artifact_id: selectedArtifact.id,
         _rkwargs: true
@@ -120,7 +124,7 @@ const ReviewArtifacts: React.FC = () => {
       console.error('Error approving artifact:', err);
       setError('Failed to approve artifact');
     } finally {
-      setLoading(false);
+      setApproveLoading(false);
     }
   };
 
@@ -128,7 +132,7 @@ const ReviewArtifacts: React.FC = () => {
     if (!selectedArtifact || !artifactManager) return;
 
     try {
-      setLoading(true);
+      setRejectLoading(true);
       await artifactManager.reject({
         artifact_id: selectedArtifact.id,
         reason: rejectReason,
@@ -143,32 +147,65 @@ const ReviewArtifacts: React.FC = () => {
       console.error('Error rejecting artifact:', err);
       setError('Failed to reject artifact');
     } finally {
-      setLoading(false);
+      setRejectLoading(false);
     }
+  };
+
+  // Define a function to check if the delete button should be disabled
+  const isDeleteButtonDisabled = (): boolean => {
+    // If delete is loading, disable the button
+    if (deleteLoading) return true;
+    
+    // For published models, require ID confirmation
+    if (viewMode === 'published' && artifactToDelete) {
+      const artifactShortId = artifactToDelete.id.split('/').pop() || '';
+      return deleteIdConfirmation !== artifactShortId;
+    }
+    
+    // For other types, no ID confirmation needed
+    return false;
   };
 
   const handleDeleteArtifact = async () => {
     if (!artifactToDelete || !artifactManager) return;
+    
+    // For published models, require ID confirmation
+    if (viewMode === 'published') {
+      const artifactShortId = artifactToDelete.id.split('/').pop() || '';
+      if (deleteIdConfirmation !== artifactShortId) {
+        setError('ID confirmation does not match. Deletion canceled.');
+        return;
+      }
+    }
 
     try {
-      setLoading(true);
+      setDeleteLoading(true);
       await artifactManager.delete({
         artifact_id: artifactToDelete.id,
-        version: viewMode === 'published' ? "published" : 
-          (artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null),
+        version: viewMode === 'published' ? "latest" : 
+          (artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : undefined),
         delete_files: true,
         recursive: true,
         _rkwargs: true
       });
       
-      await loadArtifacts();
+      // Close the dialog immediately after successful deletion
       setIsDeleteDialogOpen(false);
       setArtifactToDelete(null);
+      setDeleteIdConfirmation(''); // Reset the confirmation field
+      
+      // Then refresh the list
+      try {
+        await loadArtifacts();
+      } catch (refreshErr) {
+        console.error('Error refreshing artifacts after deletion:', refreshErr);
+        setError('Artifact was deleted, but there was an error refreshing the list. Please refresh manually.');
+      }
     } catch (err) {
       console.error('Error deleting artifact:', err);
       setError('Failed to delete artifact');
     } finally {
-      setLoading(false);
+      setDeleteLoading(false);
     }
   };
 
@@ -671,15 +708,25 @@ const ReviewArtifacts: React.FC = () => {
                 <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
                     type="button"
-                    className="inline-flex w-full justify-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 sm:ml-3 sm:w-auto"
+                    className={`inline-flex w-full justify-center rounded-md ${approveLoading ? 'bg-green-400' : 'bg-green-600 hover:bg-green-500'} px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${approveLoading ? 'cursor-not-allowed' : ''}`}
                     onClick={handleApprove}
+                    disabled={approveLoading}
                   >
-                    Approve
+                    {approveLoading ? (
+                      <div className="flex items-center">
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Approving...
+                      </div>
+                    ) : "Approve"}
                   </button>
                   <button
                     type="button"
                     className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
                     onClick={() => setIsApproveDialogOpen(false)}
+                    disabled={approveLoading}
                   >
                     Cancel
                   </button>
@@ -723,6 +770,7 @@ const ReviewArtifacts: React.FC = () => {
                         placeholder="Please provide a reason for rejection..."
                         value={rejectReason}
                         onChange={(e) => setRejectReason(e.target.value)}
+                        disabled={rejectLoading}
                       />
                     </div>
                   </div>
@@ -730,11 +778,19 @@ const ReviewArtifacts: React.FC = () => {
                 <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
                     type="button"
-                    className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
+                    className={`inline-flex w-full justify-center rounded-md ${rejectLoading ? 'bg-red-400' : 'bg-red-600 hover:bg-red-500'} px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${rejectLoading || !rejectReason.trim() ? 'cursor-not-allowed' : ''}`}
                     onClick={handleReject}
-                    disabled={!rejectReason.trim()}
+                    disabled={rejectLoading || !rejectReason.trim()}
                   >
-                    Reject
+                    {rejectLoading ? (
+                      <div className="flex items-center">
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Rejecting...
+                      </div>
+                    ) : "Reject"}
                   </button>
                   <button
                     type="button"
@@ -743,6 +799,7 @@ const ReviewArtifacts: React.FC = () => {
                       setIsRejectDialogOpen(false);
                       setRejectReason('');
                     }}
+                    disabled={rejectLoading}
                   >
                     Cancel
                   </button>
@@ -785,16 +842,60 @@ const ReviewArtifacts: React.FC = () => {
                         {viewMode === 'published' && " This will remove the model from the public Model Zoo."}
                         {" "}This action cannot be undone.
                       </p>
+                      
+                      {viewMode === 'published' && (
+                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                          <div className="flex">
+                            <ExclamationTriangleIcon className="h-5 w-5 text-red-600 flex-shrink-0 mr-2" />
+                            <div>
+                              <h4 className="text-sm font-medium text-red-800">Warning: Deleting Published Models</h4>
+                              <div className="mt-2 text-sm text-red-700">
+                                <p>Please try to avoid deleting published models as this can produce broken links in publications, documentation, and user workflows that reference this model.</p>
+                                <p className="mt-2">Only delete if you are absolutely certain this model should be removed from the Model Zoo.</p>
+                              </div>
+                              
+                              <div className="mt-4">
+                                <label htmlFor="confirm-deletion" className="block text-sm font-medium text-red-700">
+                                  To confirm deletion, please type the model ID: <span className="font-mono font-bold">{artifactToDelete?.id?.split('/').pop()}</span>
+                                </label>
+                                <div className="mt-1">
+                                  <input
+                                    type="text"
+                                    name="confirm-deletion"
+                                    id="confirm-deletion"
+                                    className="block w-full rounded-md border-red-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
+                                    placeholder="Enter model ID to confirm"
+                                    value={deleteIdConfirmation}
+                                    onChange={(e) => setDeleteIdConfirmation(e.target.value)}
+                                    disabled={deleteLoading}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
                     type="button"
-                    className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
+                    className={`inline-flex w-full justify-center rounded-md ${deleteLoading ? 'bg-red-400' : 'bg-red-600 hover:bg-red-500'} px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${
+                      isDeleteButtonDisabled() ? 'cursor-not-allowed opacity-60' : ''
+                    }`}
                     onClick={handleDeleteArtifact}
+                    disabled={isDeleteButtonDisabled()}
                   >
-                    Delete
+                    {deleteLoading ? (
+                      <div className="flex items-center">
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Deleting...
+                      </div>
+                    ) : "Delete"}
                   </button>
                   <button
                     type="button"
@@ -802,7 +903,9 @@ const ReviewArtifacts: React.FC = () => {
                     onClick={() => {
                       setIsDeleteDialogOpen(false);
                       setArtifactToDelete(null);
+                      setDeleteIdConfirmation(''); // Reset the confirmation field when canceling
                     }}
+                    disabled={deleteLoading}
                   >
                     Cancel
                   </button>
