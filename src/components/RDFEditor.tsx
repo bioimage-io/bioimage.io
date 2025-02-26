@@ -448,6 +448,17 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             onOpen={fetchLicenses}
             getOptionLabel={(option) => `${option.licenseId} - ${option.name}`}
             isOptionEqualToValue={(option, value) => option.licenseId === value.licenseId}
+            ListboxProps={{
+              style: { maxHeight: '400px' }
+            }}
+            slotProps={{
+              popper: {
+                modifiers: [
+                  { name: 'flip', enabled: false },
+                  { name: 'preventOverflow', enabled: false }
+                ]
+              }
+            }}
             renderInput={(params) => (
               <TextField
                 {...params}

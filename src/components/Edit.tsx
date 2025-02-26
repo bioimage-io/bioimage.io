@@ -479,24 +479,30 @@ const Edit: React.FC = () => {
   const handleEditorChange = (value: string | undefined, file: FileNode) => {
     if (!value || !file) return;
     
-    // Store unsaved changes in state
+    // Create updated file with new content
+    const updatedFile = { ...file, content: value, edited: true };
+    
+    // Update files array while preserving other files
+    setFiles(prevFiles => 
+      prevFiles.map(f => 
+        f.path === file.path ? updatedFile : f
+      )
+    );
+    
+    // Update selected file
+    setSelectedFile(updatedFile);
+    
+    // Store unsaved changes
     setUnsavedChanges(prev => ({
       ...prev,
       [file.path]: value
     }));
 
-    // Mark file as edited in files array
-    setFiles(prevFiles => 
-      prevFiles.map(f => 
-        f.path === file.path 
-          ? { ...f, edited: true }
-          : f
-      )
-    );
-
-    // Mark content as changed and invalidate previous validation
-    setHasContentChanged(true);
-    setIsContentValid(false);
+    // If this is the rdf.yaml file, mark content as changed and invalidate previous validation
+    if (file.path.endsWith('rdf.yaml')) {
+      setHasContentChanged(true);
+      setIsContentValid(false);
+    }
   };
 
   const handleSave = async (file: FileNode) => {
@@ -821,7 +827,7 @@ const Edit: React.FC = () => {
           <RDFEditor
             content={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
             onChange={(value) => handleEditorChange(value, selectedFile)}
-            readOnly={!isTextFile(selectedFile.name)}
+            readOnly={false}
             showModeSwitch={true}
           />
         </div>

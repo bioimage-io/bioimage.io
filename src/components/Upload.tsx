@@ -9,6 +9,7 @@ import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
+import TermsOfService from './TermsOfService';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -139,6 +140,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [generatedId, setGeneratedId] = useState<string | null>(null);
   const [generatedEmoji, setGeneratedEmoji] = useState<string | null>(null);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [showingTos, setShowingTos] = useState(false);
 
   useEffect(() => {
     if (artifactId) {
@@ -592,14 +594,27 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
     try {
       setIsUploading(true);
+      setShowingTos(true);
       setUploadStatus({
-        message: 'By uploading, you agree to our Terms of Service (see /toc)',
+        message: 'Please review and agree to our Terms of Service to continue',
         severity: 'info'
       });
+      return; // Stop here and wait for user agreement
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setUploadStatus({
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        severity: 'error'
+      });
+      setIsUploading(false);
+    }
+  };
 
-      // Add a small delay to show the ToS message
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
+  const handleAgreeAndUpload = async () => {
+    try {
+      // Hide the ToS page immediately after agreement
+      setShowingTos(false);
+      
       setUploadStatus({
         message: 'Reading manifest file...',
         severity: 'info'
@@ -929,7 +944,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           : 'Upload failed: Unknown error occurred',
         severity: 'error'
       });
-    } finally {
       setIsUploading(false);
     }
   };
@@ -1357,7 +1371,50 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
           {/* Content area - update height calculation */}
           <div className="flex-1 overflow-auto min-h-[calc(100vh-145px)]">
-            {showDragDrop ? (
+            {showingTos ? (
+              <div className="relative">
+                {/* Notification Banner */}
+                <div className="sticky top-0 z-10 bg-blue-50 border-b border-blue-200 p-4 shadow-sm">
+                  <div className="max-w-4xl mx-auto">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <svg className="h-6 w-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-blue-700 font-medium">
+                        Please review our Terms of Service
+                      </p>
+                    </div>
+                    
+                    {/* Agreement Buttons */}
+                    <div className="flex justify-center gap-3">
+                      <button
+                        onClick={() => setShowingTos(false)}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium shadow-sm transition-colors duration-150 ease-in-out flex items-center space-x-2"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span>Cancel</span>
+                      </button>
+                      <button
+                        onClick={handleAgreeAndUpload}
+                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium shadow-sm transition-colors duration-150 ease-in-out flex items-center space-x-2"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>I Agree and Continue Upload</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Terms of Service Content */}
+                <div className="mt-4">
+                  <TermsOfService />
+                </div>
+              </div>
+            ) : showDragDrop ? (
               <div className="h-full flex items-center justify-center">
                 <div className="mt-10 text-center max-w-2xl mx-auto">
                   {uploadStatus?.message && uploadStatus.severity === 'info' && uploadStatus.progress !== undefined ? (

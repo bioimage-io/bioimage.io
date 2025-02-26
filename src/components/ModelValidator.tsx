@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import { Menu } from '@headlessui/react';
@@ -27,6 +27,20 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -77,11 +91,13 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
-      <ReactMarkdown 
-        className="prose prose-sm max-w-none"
-      >
-        {`# ${validationResult.success ? '✅ Validation Passed' : '❌ Validation Failed'}\n\n## Details\n\n${validationResult.details}`}
-      </ReactMarkdown>
+      {validationResult && (
+        <ReactMarkdown 
+          className="prose prose-sm max-w-none"
+        >
+          {`# ${validationResult.success ? '✅ Validation Passed' : '❌ Validation Failed'}\n\n## Details\n\n${validationResult.details}`}
+        </ReactMarkdown>
+      )}
     </div>
   );
 
@@ -150,13 +166,14 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
           {validationResult && isMenuOpen && (
             isMobile ? (
               <div className="fixed inset-0 bg-black bg-opacity-50 z-[100]">
-                <div className="fixed inset-4 bg-white rounded-lg overflow-auto">
+                <div ref={menuRef} className="fixed inset-4 bg-white rounded-lg overflow-auto">
                   {renderContent()}
                 </div>
               </div>
             ) : (
               <Menu.Items
                 static
+                ref={menuRef}
                 className="absolute right-0 mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-[100]"
               >
                 {renderContent()}
