@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
@@ -11,6 +11,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
 import ModelTester from './ModelTester';
+import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -37,6 +38,10 @@ const ArtifactDetails = () => {
   const [rdfContent, setRdfContent] = useState<string | null>(null);
   const [isRdfDialogOpen, setIsRdfDialogOpen] = useState(false);
   const [showCopied, setShowCopied] = useState(false);
+  const [showModelRunner, setShowModelRunner] = useState(false);
+  const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
+  const [containerHeight, setContainerHeight] = useState('400px');
+  const modelContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (id) {
@@ -123,6 +128,29 @@ const ArtifactDetails = () => {
     setTimeout(() => setShowCopied(false), 2000);
   };
 
+  const handleToggleModelRunner = () => {
+    setShowModelRunner(!showModelRunner);
+    // Reset container height when toggling off
+    if (showModelRunner) {
+      setContainerHeight('400px');
+    }
+  };
+
+  // Callback function to create and prepare a container for the model runner
+  const createModelRunnerContainer = (containerId: string): string => {
+    // Set the current container ID
+    setCurrentContainerId(containerId);
+    
+    // Set model runner to visible
+    setShowModelRunner(true);
+    
+    // Increase the container height for better model visualization
+    setContainerHeight('600px');
+    
+    // Return the container ID (this will be used by ModelRunner)
+    return containerId;
+  };
+
   if (isLoading) {
     return <div className="loading">Loading...</div>;
   }
@@ -194,10 +222,18 @@ const ArtifactDetails = () => {
             View Source
           </Button>
           {selectedResource?.manifest?.type === 'model' && (
-            <ModelTester 
-              artifactId={selectedResource.id}
-              isDisabled={false}
-            />
+            <>
+              <ModelTester 
+                artifactId={selectedResource.id}
+                isDisabled={false}
+              />
+              <ModelRunner
+                artifactId={selectedResource.id}
+                isDisabled={false}
+                onRunStateChange={setShowModelRunner}
+                createContainerCallback={createModelRunnerContainer}
+              />
+            </>
           )}
           {latestVersion && (
             <Chip 
@@ -209,75 +245,91 @@ const ArtifactDetails = () => {
         </Box>
       </Box>
 
-      {/* Cover Image Section */}
+      {/* Cover Image Section or Model Runner Container */}
       {selectedResource.manifest.covers && selectedResource.manifest.covers.length > 0 && (
         <Box 
           sx={{ 
             position: 'relative',
             width: '100%',
-            height: '400px',
+            height: containerHeight,
             mb: 3,
             borderRadius: 1,
             overflow: 'hidden',
-            backgroundColor: '#f5f5f5'
+            backgroundColor: '#f5f5f5',
+            transition: 'height 0.3s ease-in-out',
+            border: showModelRunner ? '1px solid #1976d2' : 'none'
           }}
+          data-cover-container="true"
         >
-          <img
-            src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
-            alt={`Cover ${currentImageIndex + 1}`}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain'
-            }}
-          />
-          {selectedResource.manifest.covers.length > 1 && (
+          {showModelRunner ? (
+            <div 
+              ref={modelContainerRef}
+              id={currentContainerId || "model-container"}
+              style={{
+                width: '100%',
+                height: '100%'
+              }}
+            />
+          ) : (
             <>
-              <IconButton
-                onClick={previousImage}
-                sx={{
-                  position: 'absolute',
-                  left: 8,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  }
+              <img
+                src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
+                alt={`Cover ${currentImageIndex + 1}`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain'
                 }}
-              >
-                <NavigateBeforeIcon />
-              </IconButton>
-              <IconButton
-                onClick={nextImage}
-                sx={{
-                  position: 'absolute',
-                  right: 8,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  }
-                }}
-              >
-                <NavigateNextIcon />
-              </IconButton>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 8,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                  color: 'white',
-                  padding: '4px 8px',
-                  borderRadius: 1,
-                  fontSize: '0.875rem'
-                }}
-              >
-                {currentImageIndex + 1} / {selectedResource.manifest.covers.length}
-              </Box>
+              />
+              {selectedResource.manifest.covers.length > 1 && (
+                <>
+                  <IconButton
+                    onClick={previousImage}
+                    sx={{
+                      position: 'absolute',
+                      left: 8,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                      }
+                    }}
+                  >
+                    <NavigateBeforeIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={nextImage}
+                    sx={{
+                      position: 'absolute',
+                      right: 8,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                      }
+                    }}
+                  >
+                    <NavigateNextIcon />
+                  </IconButton>
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      bottom: 8,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: 1,
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    {currentImageIndex + 1} / {selectedResource.manifest.covers.length}
+                  </Box>
+                </>
+              )}
             </>
           )}
         </Box>
@@ -384,7 +436,7 @@ const ArtifactDetails = () => {
                       {author.affiliation}
                     </Typography>
                   )}
-                  {index < (manifest.authors?.length ?? 0) - 1 && <Divider sx={{ my: 2 }} />}
+                  {index < (manifest.authors?.length || 0) - 1 && <Divider sx={{ my: 2 }} />}
                 </Box>
               ))}
             </CardContent>
@@ -436,7 +488,7 @@ const ArtifactDetails = () => {
                           DOI: {citation.doi}
                         </Link>
                       )}
-                      {index < manifest.cite.length - 1 && <Divider sx={{ my: 2 }} />}
+                      {index < (manifest.cite?.length || 0) - 1 && <Divider sx={{ my: 2 }} />}
                     </Box>
                   ))}
                 </Stack>

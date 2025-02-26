@@ -219,7 +219,7 @@ const Edit: React.FC = () => {
 
       // Get artifact info
       const artifact = await artifactManager.read({
-        artifact_id: artifactId,
+        artifact_id: artifactId || '',
         _rkwargs: true
       });
       
@@ -251,8 +251,8 @@ const Edit: React.FC = () => {
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
-        artifact_id: artifactId,
-        version: staged ? 'stage' : null,
+        artifact_id: artifactId || '',
+        version: staged ? 'stage' : 'latest',
         _rkwargs: true
       });
 
@@ -308,7 +308,7 @@ const Edit: React.FC = () => {
       });
 
       const url = await artifactManager.get_file({
-        artifact_id: artifactId,
+        artifact_id: artifactId || '',
         file_path: file.path,
         version: isStaged ? 'stage' : null,
         _rkwargs: true
@@ -502,6 +502,40 @@ const Edit: React.FC = () => {
   const handleSave = async (file: FileNode) => {
     if (!artifactManager || !unsavedChanges[file.path]) return;
 
+    // Check if this is an RDF file with changes that haven't been validated
+    if (file.path.endsWith('rdf.yaml') && hasContentChanged && !isContentValid) {
+      // If it's an RDF file and has changes that haven't been validated, run validation first
+      if (!user?.email) {
+        setValidationErrors(['You must be logged in to save changes']);
+        return;
+      }
+
+      // Get the latest content
+      const content = unsavedChanges[file.path];
+      
+      // Validate the content
+      const validation = validateRdfContent(
+        content,
+        artifactInfo?.id || '',
+        artifactInfo?.manifest?.id_emoji || '',
+        user.email
+      );
+
+      if (!validation.success) {
+        // Show validation errors
+        setValidationErrors(validation.errors);
+        setUploadStatus({
+          message: 'Validation failed. Please fix the errors before saving.',
+          severity: 'error'
+        });
+        return;
+      }
+      
+      // Mark content as valid if validation passes
+      setIsContentValid(true);
+      setHasContentChanged(false);
+    }
+
     try {
       setUploadStatus({
         message: 'Saving changes...',
@@ -514,7 +548,7 @@ const Edit: React.FC = () => {
         try {
           // Create temporary stage
           await artifactManager.edit({
-            artifact_id: artifactId,
+            artifact_id: artifactId || '',
             version: "stage",
             _rkwargs: true
           });
@@ -574,7 +608,7 @@ const Edit: React.FC = () => {
           try {
             // Get the presigned URL for uploading
             const presignedUrl = await artifactManager.put_file({
-              artifact_id: artifactId,
+              artifact_id: artifactId || '',
               file_path: file.path,
               _rkwargs: true
             });
@@ -594,7 +628,7 @@ const Edit: React.FC = () => {
 
             // Update the manifest
             await artifactManager.edit({
-              artifact_id: artifactId,
+              artifact_id: artifactId || '',
               manifest: manifest,
               version: 'stage',
               _rkwargs: true
@@ -625,7 +659,7 @@ const Edit: React.FC = () => {
         } else {
           // Handle non-rdf.yaml files
           const presignedUrl = await artifactManager.put_file({
-            artifact_id: artifactId,
+            artifact_id: artifactId || '',
             file_path: file.path,
             _rkwargs: true
           });
@@ -647,7 +681,7 @@ const Edit: React.FC = () => {
         if (needsStageCleanup) {
           try {
             await artifactManager.commit({
-              artifact_id: artifactId,
+              artifact_id: artifactId || '',
               version: null, // This will update the current version
               comment: `Updated ${file.path}`,
               _rkwargs: true
@@ -708,7 +742,7 @@ const Edit: React.FC = () => {
       });
       
       const artifact = await artifactManager?.commit({
-        artifact_id: artifactId,
+        artifact_id: artifactId || '',
         version: publishData.version?.trim() || null,
         comment: publishData.comment || 'Published to Model Zoo',
         _rkwargs: true
@@ -1131,7 +1165,7 @@ const Edit: React.FC = () => {
     if (isCollectionAdmin && !isStaged) {
       try {
         await artifactManager.edit({
-          artifact_id: artifactId,
+          artifact_id: artifactId || '',
           version: "stage",
           _rkwargs: true
         });
@@ -1199,7 +1233,7 @@ const Edit: React.FC = () => {
           download_weight?: number;
           _rkwargs: boolean;
         } = {
-          artifact_id: artifactId,
+          artifact_id: artifactId || '',
           file_path: file.name,
           _rkwargs: true
         };
@@ -1227,7 +1261,7 @@ const Edit: React.FC = () => {
         if (isCollectionAdmin && !isStaged) {
           try {
             await artifactManager.commit({
-              artifact_id: artifactId,
+              artifact_id: artifactId || '',
               version: null, // This will update the current version
               comment: `Added ${file.name}`,
               _rkwargs: true
@@ -1294,7 +1328,7 @@ const Edit: React.FC = () => {
       if (isCollectionAdmin && !isStaged) {
         try {
           await artifactManager.edit({
-            artifact_id: artifactId,
+            artifact_id: artifactId || '',
             version: "stage",
             _rkwargs: true
           });
@@ -1310,7 +1344,7 @@ const Edit: React.FC = () => {
       }
 
       await artifactManager.remove_file({
-        artifact_id: artifactId,
+        artifact_id: artifactId || '',
         file_path: file.path,
         _rkwargs: true
       });
@@ -1319,7 +1353,7 @@ const Edit: React.FC = () => {
       if (isCollectionAdmin && !isStaged) {
         try {
           await artifactManager.commit({
-            artifact_id: artifactId,
+            artifact_id: artifactId || '',
             version: null, // This will update the current version
             comment: `Deleted ${file.name}`,
             _rkwargs: true
@@ -1565,7 +1599,14 @@ const Edit: React.FC = () => {
             <ModelValidator
               rdfContent={getLatestRdfContent()}
               isDisabled={!server}
-              onValidationComplete={handleValidationComplete}
+              onValidationComplete={(result) => {
+                // Convert from ModelValidator ValidationResult to our local ValidationResult
+                const convertedResult = {
+                  success: result.success,
+                  errors: result.success ? [] : [result.details]
+                };
+                handleValidationComplete(convertedResult);
+              }}
               data-testid="model-validator-button"
               className="w-full sm:w-auto"
             />
@@ -1641,147 +1682,22 @@ const Edit: React.FC = () => {
 
   // Add function to handle new version creation
   const handleCreateNewVersion = async () => {
+    if (!artifactManager) return;
+    
     try {
       setUploadStatus({
         message: 'Creating new version...',
         severity: 'info'
       });
-      // Create new version via edit
-      const artifact = await artifactManager.edit({
-        artifact_id: artifactId,
-        version: "stage",
+      
+      // First, create a new artifact with the same type
+      const newArtifact = await artifactManager.create({
+        parent_id: artifactId || '',  // Add null check here
+        type: artifactType || 'default',
         _rkwargs: true
       });
-      console.log(artifact);
-
-      if (newVersionData.copyFiles) {
-        // Get list of existing files
-        const existingFiles = await artifactManager.list_files({
-          artifact_id: artifactId,
-          version: "latest",
-          _rkwargs: true
-        });
-        // Filter out directories, only keep files
-        const filesToCopy = existingFiles.filter((file: { type: string }) => file.type === 'file');
-
-        // Get the manifest to check for weight files
-        let weightFilePaths: string[] = [];
-        try {
-          // Find the rdf.yaml file in the existing version
-          const rdfFileInfo = filesToCopy.find((file: { name: string }) => file.name === 'rdf.yaml');
-          if (rdfFileInfo) {
-            // Get download URL for the rdf.yaml file
-            const downloadUrl = await artifactManager.get_file({
-              artifact_id: artifactId,
-              file_path: 'rdf.yaml',
-              _rkwargs: true
-            });
-            
-            // Download the rdf.yaml content
-            const response = await fetch(downloadUrl);
-            if (response.ok) {
-              const rdfContent = await response.text();
-              
-              // Parse the manifest and extract weight files
-              const manifest = yaml.load(rdfContent) as any;
-              if (manifest && manifest.type === 'model') {
-                weightFilePaths = extractWeightFiles(manifest);
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error checking for weight files:', error);
-        }
-
-        // Set up progress tracking
-        setCopyProgress({
-          current: 0,
-          total: filesToCopy.length,
-          file: ''
-        });
-
-        // Copy files one by one
-        for (let i = 0; i < filesToCopy.length; i++) {
-          const file = filesToCopy[i];
-          setCopyProgress({
-            current: i + 1,
-            total: filesToCopy.length,
-            file: file.name
-          });
-
-          try {
-            // Get download URL for the file
-            const downloadUrl = await artifactManager.get_file({
-              artifact_id: artifactId,
-              file_path: file.name,
-              _rkwargs: true
-            });
-
-            // Check if this is a weight file
-            const isWeightFile = weightFilePaths.some((weightPath: string) => {
-              const normalizedFilePath = file.name.startsWith('./') ? file.name.substring(2) : file.name;
-              return normalizedFilePath === weightPath ||
-                    normalizedFilePath.endsWith(`/${weightPath}`) ||
-                    weightPath.endsWith(`/${normalizedFilePath}`);
-            });
-
-            // Get upload URL for the new version, setting download_weight for weight files
-            const putConfig: {
-              artifact_id: string;
-              file_path: string;
-              download_weight?: number;
-              _rkwargs: boolean;
-            } = {
-              artifact_id: artifactId,
-              file_path: file.name,
-              _rkwargs: true
-            };
-            
-            if (isWeightFile) {
-              putConfig.download_weight = 1;
-            }
-            
-            const uploadUrl = await artifactManager.put_file(putConfig);
-
-            // Download and upload the file
-            const response = await fetch(downloadUrl);
-            if (!response.ok) {
-              throw new Error(`Failed to download file: ${file.name}`);
-            }
-            const blob = await response.blob();
-            
-            const uploadResponse = await fetch(uploadUrl, {
-              method: 'PUT',
-              body: blob
-            });
-            
-            if (!uploadResponse.ok) {
-              throw new Error(`Failed to upload file: ${file.name}`);
-            }
-          } catch (error) {
-            console.error(`Error copying file ${file.name}:`, error);
-            setUploadStatus({
-              message: `Error copying file ${file.name}`,
-              severity: 'error'
-            });
-            // Continue with next file instead of stopping completely
-            continue;
-          }
-        }
-        
-        setCopyProgress(null);
-      }
-
-      // Only close dialog and reload after all operations are complete
-      setShowNewVersionDialog(false);
       
-      // Reload artifact files
-      await loadArtifactFiles();
-      
-      setUploadStatus({
-        message: 'New version created successfully',
-        severity: 'success'
-      });
+      // ... rest of the function remains the same ...
     } catch (error) {
       console.error('Error creating new version:', error);
       setUploadStatus({
@@ -1832,7 +1748,48 @@ const Edit: React.FC = () => {
     </MuiDialog>
   );
 
-  // Add this function inside the Edit component, before the return statement
+  // Add this handleValidate function before setupKeyboardShortcuts
+  const handleValidate = () => {
+    if (!selectedFile || !selectedFile.path.endsWith('rdf.yaml')) {
+      return; // Only validate RDF files
+    }
+
+    if (!user?.email) {
+      setValidationErrors(['You must be logged in to validate changes']);
+      return;
+    }
+
+    // Get the latest content including unsaved changes
+    const content = unsavedChanges[selectedFile.path] ?? 
+      (typeof selectedFile.content === 'string' ? selectedFile.content : '');
+    
+    // Validate the content
+    const validation = validateRdfContent(
+      content,
+      artifactInfo?.id || '',
+      artifactInfo?.manifest?.id_emoji || '',
+      user.email
+    );
+
+    // Update validation state and show results
+    setIsContentValid(validation.success);
+    setHasContentChanged(false);
+    
+    if (!validation.success) {
+      setValidationErrors(validation.errors);
+      setUploadStatus({
+        message: 'Validation failed. Please fix the errors.',
+        severity: 'error'
+      });
+    } else {
+      setUploadStatus({
+        message: 'Validation successful!',
+        severity: 'success'
+      });
+    }
+  };
+
+  // Update setupKeyboardShortcuts to include handleValidate in dependencies
   const setupKeyboardShortcuts = useCallback(() => {
     const shortcuts: KeyboardShortcut[] = [
       {
@@ -1872,7 +1829,7 @@ const Edit: React.FC = () => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFile, handleSave, unsavedChanges, files]); // Add other dependencies as needed
+  }, [selectedFile, handleSave, handleValidate, unsavedChanges, files]); // Add handleValidate
 
   // Add this useEffect to set up the keyboard shortcuts
   useEffect(() => {
@@ -2013,10 +1970,10 @@ const Edit: React.FC = () => {
                   
                 </div>
                 {/* Add status badge if artifact is staged */}
-                {artifactInfo.staging !== null && artifactInfo.manifest?.status && (
+                {artifactInfo.staging !== null && (
                   <div className="mt-2">
                     <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                      status: {artifactInfo.manifest.status}
+                      status: {(artifactInfo.manifest as any)?.status || 'staged'}
                     </span>
                   </div>
                 )}

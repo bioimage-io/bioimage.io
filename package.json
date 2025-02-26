@@ -18,6 +18,7 @@
     "axios": "^1.7.9",
     "cra-template-typescript": "1.2.0",
     "date-fns": "^4.1.0",
+    "hypha-core": "^0.20.47",
     "hypha-rpc": "^0.20.47",
     "js-yaml": "^4.1.0",
     "jszip": "^3.10.1",
