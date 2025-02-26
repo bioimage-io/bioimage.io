@@ -384,7 +384,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       } else {
         // If no rdf.yaml found, show a warning
         setUploadStatus({
-          message: 'Warning: No rdf.yaml file found. This is required for BioImage.io models.',
+          message: 'Warning: No rdf.yaml file found. This is required for BioImage.IO models.',
           severity: 'error'
         });
       }
@@ -1439,7 +1439,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       How to upload your model:
                     </h3>
                     <ol className="list-decimal list-inside space-y-3 text-gray-600 text-base">
-                      <li className="leading-relaxed">Prepare your model package following the BioImage.io specification</li>
+                      <li className="leading-relaxed">Prepare your model package following the BioImage.IO specification</li>
                       <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> file</li>
                       <li className="leading-relaxed">Upload using one of these methods:
                         <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">

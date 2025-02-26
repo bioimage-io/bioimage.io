@@ -125,7 +125,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
             <h4 className="font-medium mb-2">Reviewer's Responsibility</h4>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Verify that the model meets BioImage.io technical specifications</li>
+              <li>Verify that the model meets BioImage.IO technical specifications</li>
               <li>Check that documentation is clear and complete</li>
               <li>Ensure all required files are present and valid</li>
               <li>Test model functionality with provided sample data</li>
@@ -211,6 +211,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     <div className="h-full px-6 py-4 space-y-6">
       {/* Preview Section */}
       <div className="bg-white rounded-lg shadow p-6">
+        
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,7 +241,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                 )}
               </>
         
-            
+          
             {artifactId && isStaged && (
               <>
                 {status !== 'request-review' ? (
@@ -273,6 +274,12 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           </div>
         </div>
 
+          
+        <div className="max-w-sm mx-auto mb-4">
+          {artifactInfo && <ArtifactCard artifact={artifactInfo} />}
+        </div>
+        
+
         {/* Status Badge - Centered and more prominent */}
         {isStaged && status && (
           <div className="flex flex-col items-center gap-4 mb-8">
@@ -304,9 +311,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           </div>
         )}
 
-        <div className="max-w-sm mx-auto">
-          {artifactInfo && <ArtifactCard artifact={artifactInfo} />}
-        </div>
+      </div>
+
+      {/* Comments */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <Comments artifactId={artifactId} />
       </div>
 
       {/* Version History Card */}
@@ -340,10 +349,6 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         </div>
       </div>
 
-      {/* Comments */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <Comments artifactId={artifactId} />
-      </div>
 
       {/* Admin Review Area */}
       {isCollectionAdmin && (
@@ -452,7 +457,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                           </p>
                           <ul className="list-disc ml-5 mt-1 space-y-1">
                             <li>Quality assurance of your model</li>
-                            <li>Compliance with BioImage.io standards</li>
+                            <li>Compliance with BioImage.IO standards</li>
                             <li>Proper documentation and metadata</li>
                             <li>Community feedback and improvements</li>
                           </ul>
@@ -505,7 +510,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               </p>
               <ul className="list-disc pl-4 space-y-2">
                 <li>Our admin team will be notified and will review your submission</li>
-                <li>Reviewers may make changes to your artifact to ensure it meets BioImage.io standards</li>
+                <li>Reviewers may make changes to your artifact to ensure it meets BioImage.IO standards</li>
                 <li>Changes may include:
                   <ul className="list-disc pl-4 mt-1 text-blue-700">
                     <li>Metadata formatting and organization</li>

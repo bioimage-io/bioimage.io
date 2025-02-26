@@ -1024,7 +1024,7 @@ const Edit: React.FC = () => {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
             <h4 className="font-medium mb-2">Reviewer's Responsibility</h4>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Verify that the model meets BioImage.io technical specifications</li>
+              <li>Verify that the model meets BioImage.IO technical specifications</li>
               <li>Check that documentation is clear and complete</li>
               <li>Ensure all required files are present and valid</li>
               <li>Test model functionality with provided sample data</li>
