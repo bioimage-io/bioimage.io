@@ -127,6 +127,7 @@ const Edit: React.FC = () => {
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -798,6 +799,15 @@ const Edit: React.FC = () => {
       const fileSize = getFileSize(selectedFile);
       const fileType = selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown';
       
+      // Check if this is a cover image
+      const isCoverImage = artifactInfo?.manifest?.covers?.some(
+        cover => cover === selectedFile.name
+      );
+      
+      // Determine warning status for cover images
+      const isTooBig = isCoverImage && imageDimensions && 
+        (imageDimensions.width > 300 || imageDimensions.height > 160);
+      
       return (
         <div className="flex flex-col items-center justify-center p-8">
           <div className="relative w-full max-w-4xl bg-white rounded-xl shadow-lg overflow-hidden">
@@ -805,8 +815,33 @@ const Edit: React.FC = () => {
             <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2">
               <span>{fileType}</span>
               <span>•</span>
+              <span>{imageDimensions ? `${imageDimensions.width}×${imageDimensions.height}` : '...'}</span>
+              <span>•</span>
               <span>{fileSize !== undefined ? formatFileSize(fileSize) : 'Unknown'}</span>
             </div>
+            
+            {/* Cover image warning */}
+            {isCoverImage && (
+              <div className={`absolute top-16 right-4 px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2 ${
+                isTooBig ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
+              }`}>
+                {isTooBig ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>Cover image too large (max: 300×160)</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Cover image (max: 300×160)</span>
+                  </>
+                )}
+              </div>
+            )}
             
             {/* Image container */}
             <div className="relative aspect-video bg-gray-900/5 flex items-center justify-center p-4">
@@ -815,6 +850,7 @@ const Edit: React.FC = () => {
                   src={imageUrl}
                   alt={selectedFile.name}
                   className="max-w-full max-h-[70vh] h-auto object-contain rounded-lg"
+                  onLoad={() => checkImageDimensions(imageUrl, selectedFile.name)}
                 />
               ) : (
                 <div className="flex items-center justify-center h-40 w-full">
@@ -1889,6 +1925,15 @@ const Edit: React.FC = () => {
       </div>
     </MuiDialog>
   );
+
+  // Add this function before renderFileContent
+  const checkImageDimensions = (url: string, fileName: string) => {
+    const img = new Image();
+    img.onload = () => {
+      setImageDimensions({ width: img.width, height: img.height });
+    };
+    img.src = url;
+  };
 
   return (
     <div className="flex flex-col">

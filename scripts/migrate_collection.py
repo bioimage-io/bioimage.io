@@ -161,6 +161,8 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
     # Upload cover images
     for cover in covers:
         await upload_file(artifact_manager, artifact_id, base_url, cover)
+        if ".thumbnail." in cover:
+            await upload_file(artifact_manager, artifact_id, base_url, cover.replace(".thumbnail.", "."))
 
     # Upload samples
     for file in attachments.get('files', []):
