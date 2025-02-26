@@ -266,9 +266,9 @@ const ReviewArtifacts: React.FC = () => {
   }
 
   return (
-    <div className={`flex flex-col ${viewMode === 'published' ? 'bg-gray-50' : 'bg-white'}`}>
-      <div className={`${viewMode === 'published' ? 'bg-blue-50' : 'bg-white'} border-b border-gray-200`}>
-        <div className="p-6">
+    <div className={`flex flex-col bg-white`}>
+      <div className={`bg-white border-b border-gray-200`}>
+        <div className="py-6 max-w-screen-lg mx-auto">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
               {viewMode === 'published' ? "Manage Published Artifacts" : 
@@ -490,186 +490,188 @@ const ReviewArtifacts: React.FC = () => {
       </div>
 
       <div className="p-6">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-            <div className="text-xl font-semibold text-gray-700">Loading artifacts...</div>
-          </div>
-        ) : error ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-red-500">{error}</div>
-          </div>
-        ) : artifacts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <CheckCircleIcon className="h-12 w-12 text-green-500 mb-4" />
-            <p>No {viewMode === 'published' ? "published artifacts found" : "artifacts waiting for review"}</p>
-          </div>
-        ) : (
-          <div className="bg-white shadow overflow-hidden sm:rounded-md">
-            <ul role="list" className="divide-y divide-gray-200">
-              {artifacts.map((artifact) => (
-                <li key={artifact.id}>
-                  <div className="px-4 py-4 sm:px-6 min-h-[300px]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              {artifact.manifest?.id_emoji && (
-                                <span className="text-xl">{artifact.manifest.id_emoji}</span>
-                              )}
-                              <h3 className="text-lg font-medium text-gray-900 truncate">
-                                {artifact.manifest?.name || artifact.alias}
-                              </h3>
-                            </div>
-
-                            <div className="flex items-center gap-1 text-xs text-gray-500">
-                              <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
-                                <span className="font-medium">ID:</span>
-                                <code className="font-mono">{artifact.id.split('/').pop()}</code>
-                                <Tooltip title="Copy ID" placement="top">
-                                  <IconButton
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCopyId(artifact.id);
-                                    }}
-                                    size="small"
-                                    className="ml-1 text-gray-400 hover:text-gray-600"
-                                    sx={{ padding: '2px' }}
-                                  >
-                                    <ContentCopyIcon sx={{ fontSize: 14 }} />
-                                  </IconButton>
-                                </Tooltip>
-                                {copiedIds[artifact.id] && (
-                                  <span className="text-green-600 ml-1">Copied!</span>
+        <div className="max-w-screen-lg mx-auto">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-full">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+              <div className="text-xl font-semibold text-gray-700">Loading artifacts...</div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-red-500">{error}</div>
+            </div>
+          ) : artifacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <CheckCircleIcon className="h-12 w-12 text-green-500 mb-4" />
+              <p>No {viewMode === 'published' ? "published artifacts found" : "artifacts waiting for review"}</p>
+            </div>
+          ) : (
+            <div className="bg-white shadow overflow-hidden sm:rounded-md">
+              <ul role="list" className="space-y-6">
+                {artifacts.map((artifact, index) => (
+                  <li key={artifact.id} className={`py-2 ${index !== artifacts.length - 1 ? 'border-b border-gray-200 pb-6' : ''}`}>
+                    <div className="px-4 py-6 sm:px-6 min-h-[300px]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                {artifact.manifest?.id_emoji && (
+                                  <span className="text-xl">{artifact.manifest.id_emoji}</span>
                                 )}
+                                <h3 className="text-lg font-medium text-gray-900 truncate">
+                                  {artifact.manifest?.name || artifact.alias}
+                                </h3>
+                              </div>
+
+                              <div className="flex items-center gap-1 text-xs text-gray-500">
+                                <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+                                  <span className="font-medium">ID:</span>
+                                  <code className="font-mono">{artifact.id.split('/').pop()}</code>
+                                  <Tooltip title="Copy ID" placement="top">
+                                    <IconButton
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCopyId(artifact.id);
+                                      }}
+                                      size="small"
+                                      className="ml-1 text-gray-400 hover:text-gray-600"
+                                      sx={{ padding: '2px' }}
+                                    >
+                                      <ContentCopyIcon sx={{ fontSize: 14 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                  {copiedIds[artifact.id] && (
+                                    <span className="text-green-600 ml-1">Copied!</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <StatusBadge status={artifact.manifest?.status} size="small" />
-                          </div>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Submitted by: {artifact.created_by}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {artifact.manifest?.description || 'No description'}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {artifact.manifest?.tags?.map((tag: string) => (
-                            <span key={tag} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                        
-                        {artifact.manifest?.covers && artifact.manifest.covers.length > 0 && (
-                          <div className="mt-3 flex gap-2 overflow-x-auto">
-                            {artifact.manifest.covers.slice(0, 3).map((cover: string, index: number) => (
-                              <div 
-                                key={index}
-                                className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-gray-200"
-                              >
-                                <img
-                                  src={resolveHyphaUrl(cover, artifact.id)}
-                                  alt={`Cover ${index + 1}`}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
+                          <div className="flex items-center gap-2">
+                              <StatusBadge status={artifact.manifest?.status} size="small" />
+                            </div>
+                          <p className="mt-1 text-sm text-gray-500">
+                            Submitted by: {artifact.created_by}
+                          </p>
+                          <p className="mt-1 text-sm text-gray-500">
+                            {artifact.manifest?.description || 'No description'}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {artifact.manifest?.tags?.map((tag: string) => (
+                              <span key={tag} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {tag}
+                              </span>
                             ))}
                           </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        <button
-                          onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
-                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                          {viewMode === 'published' ? "Edit" : "Review"}
-                        </button>
-                        
-                        <Menu as="div" className="relative">
-                          <Menu.Button className="inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                            <EllipsisVerticalIcon className="h-5 w-5" />
-                          </Menu.Button>
-                          <Transition
-                            as={Fragment}
-                            enter="transition ease-out duration-100"
-                            enterFrom="transform opacity-0 scale-95"
-                            enterTo="transform opacity-100 scale-100"
-                            leave="transition ease-in duration-75"
-                            leaveFrom="transform opacity-100 scale-100"
-                            leaveTo="transform opacity-0 scale-95"
+                          
+                          {artifact.manifest?.covers && artifact.manifest.covers.length > 0 && (
+                            <div className="mt-3 flex gap-2 overflow-x-auto">
+                              {artifact.manifest.covers.slice(0, 3).map((cover: string, index: number) => (
+                                <div 
+                                  key={index}
+                                  className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-gray-200"
+                                >
+                                  <img
+                                    src={resolveHyphaUrl(cover, artifact.id)}
+                                    alt={`Cover ${index + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <button
+                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
+                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
-                            <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                              {viewMode !== 'published' && (
-                                <>
-                                  <Menu.Item>
-                                    {({ active }) => (
-                                      <button
-                                        onClick={() => handleStatusChange(artifact, 'in-review')}
-                                        className={`${
-                                          active ? 'bg-gray-100' : ''
-                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                      >
-                                        Mark as In Review
-                                      </button>
-                                    )}
-                                  </Menu.Item>
-                                  <Menu.Item>
-                                    {({ active }) => (
-                                      <button
-                                        onClick={() => handleStatusChange(artifact, 'revision')}
-                                        className={`${
-                                          active ? 'bg-gray-100' : ''
-                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                      >
-                                        Request Revision
-                                      </button>
-                                    )}
-                                  </Menu.Item>
-                                  <Menu.Item>
-                                    {({ active }) => (
-                                      <button
-                                        onClick={() => handleStatusChange(artifact, 'accepted')}
-                                        className={`${
-                                          active ? 'bg-gray-100' : ''
-                                        } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                      >
-                                        Accept
-                                      </button>
-                                    )}
-                                  </Menu.Item>
-                                  <div className="border-t border-gray-100" />
-                                </>
-                              )}
-                              <Menu.Item>
-                                {({ active }) => (
-                                  <button
-                                    onClick={() => {
-                                      setArtifactToDelete(artifact);
-                                      setIsDeleteDialogOpen(true);
-                                    }}
-                                    className={`${
-                                      active ? 'bg-gray-100' : ''
-                                    } flex w-full items-center px-4 py-2 text-sm text-red-600`}
-                                  >
-                                    Delete {viewMode === 'published' ? "Published Model" : ""}
-                                  </button>
+                            {viewMode === 'published' ? "Edit" : "Review"}
+                          </button>
+                          
+                          <Menu as="div" className="relative">
+                            <Menu.Button className="inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                              <EllipsisVerticalIcon className="h-5 w-5" />
+                            </Menu.Button>
+                            <Transition
+                              as={Fragment}
+                              enter="transition ease-out duration-100"
+                              enterFrom="transform opacity-0 scale-95"
+                              enterTo="transform opacity-100 scale-100"
+                              leave="transition ease-in duration-75"
+                              leaveFrom="transform opacity-100 scale-100"
+                              leaveTo="transform opacity-0 scale-95"
+                            >
+                              <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                {viewMode !== 'published' && (
+                                  <>
+                                    <Menu.Item>
+                                      {({ active }) => (
+                                        <button
+                                          onClick={() => handleStatusChange(artifact, 'in-review')}
+                                          className={`${
+                                            active ? 'bg-gray-100' : ''
+                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                        >
+                                          Mark as In Review
+                                        </button>
+                                      )}
+                                    </Menu.Item>
+                                    <Menu.Item>
+                                      {({ active }) => (
+                                        <button
+                                          onClick={() => handleStatusChange(artifact, 'revision')}
+                                          className={`${
+                                            active ? 'bg-gray-100' : ''
+                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                        >
+                                          Request Revision
+                                        </button>
+                                      )}
+                                    </Menu.Item>
+                                    <Menu.Item>
+                                      {({ active }) => (
+                                        <button
+                                          onClick={() => handleStatusChange(artifact, 'accepted')}
+                                          className={`${
+                                            active ? 'bg-gray-100' : ''
+                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                        >
+                                          Accept
+                                        </button>
+                                      )}
+                                    </Menu.Item>
+                                    <div className="border-t border-gray-100" />
+                                  </>
                                 )}
-                              </Menu.Item>
-                            </Menu.Items>
-                          </Transition>
-                        </Menu>
+                                <Menu.Item>
+                                  {({ active }) => (
+                                    <button
+                                      onClick={() => {
+                                        setArtifactToDelete(artifact);
+                                        setIsDeleteDialogOpen(true);
+                                      }}
+                                      className={`${
+                                        active ? 'bg-gray-100' : ''
+                                      } flex w-full items-center px-4 py-2 text-sm text-red-600`}
+                                    >
+                                      Delete {viewMode === 'published' ? "Published Model" : ""}
+                                    </button>
+                                  )}
+                                </Menu.Item>
+                              </Menu.Items>
+                            </Transition>
+                          </Menu>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Approve Dialog */}
@@ -917,7 +919,7 @@ const ReviewArtifacts: React.FC = () => {
       </Transition.Root>
 
       {artifacts.length > 0 && (
-        <div className="mt-6">
+        <div className="mt-6 max-w-screen-lg mx-auto">
           <Pagination
             currentPage={reviewArtifactsPage}
             totalPages={Math.ceil(reviewArtifactsTotalItems / itemsPerPage)}
