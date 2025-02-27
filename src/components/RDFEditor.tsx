@@ -75,7 +75,7 @@ interface RDFEditorProps {
 
 // Add the getCompletion function
 async function getCompletion(text: string): Promise<string[]> {
-  const url = `https://www.ebi.ac.uk/ols/api/suggest?q=${text}`;
+  const url = `https://www.ebi.ac.uk/ols4/api/suggest?q=${text}`;
   let response = await fetch(url);
   if (response.ok) {
     const ret = await response.json();
@@ -83,7 +83,7 @@ async function getCompletion(text: string): Promise<string[]> {
     if (ret.response.numFound > 0) {
       results = ret.response.docs.map((d: any) => d.autosuggest);
     }
-    const selectUrl = `https://www.ebi.ac.uk/ols/api/select?q=${text}`;
+    const selectUrl = `https://www.ebi.ac.uk/ols4/api/select?q=${text}`;
     response = await fetch(selectUrl);
     if (response.ok) {
       const ret = await response.json();
@@ -117,12 +117,24 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const [tempLicenseValue, setTempLicenseValue] = useState<string | null>(null);
   const [isLicenseOpen, setIsLicenseOpen] = useState(false);
 
-  // Combine local and remote suggestions
-  const tagSuggestions = [...Object.values(tagCategories).flat(), ...remoteSuggestions];
+  // Combine local and remote suggestions and remove duplicates
+  const tagSuggestions = Array.from(new Set([...Object.values(tagCategories).flat(), ...remoteSuggestions]));
 
   const validateTag = (tag: string) => {
     // Allow lowercase letters, numbers, dashes, and special characters: +*#;./%@
     return /^[a-z0-9+*#;./%@-]+$/.test(tag);
+  };
+
+  const sanitizeTag = (tag: string) => {
+    // Convert to lowercase
+    let sanitized = tag.toLowerCase();
+    // Replace spaces and multiple consecutive dashes with a single dash
+    sanitized = sanitized.replace(/\s+/g, '-').replace(/-+/g, '-');
+    // Remove any characters that are not lowercase letters, numbers, or allowed special characters
+    sanitized = sanitized.replace(/[^a-z0-9+*#;./%@-]/g, '');
+    // Remove leading and trailing dashes
+    sanitized = sanitized.replace(/^-+|-+$/g, '');
+    return sanitized;
   };
 
   const fetchLicenses = useCallback(async () => {
@@ -155,9 +167,11 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       setIsLoadingTags(true);
       try {
         const suggestions = await getCompletion(inputValue);
-        // Filter suggestions to only include valid tags
-        const validSuggestions = suggestions.filter(tag => validateTag(tag));
-        setRemoteSuggestions(validSuggestions);
+        // Sanitize suggestions and remove duplicates
+        const sanitizedSuggestions = Array.from(new Set(
+          suggestions.map(tag => sanitizeTag(tag)).filter(tag => tag)
+        ));
+        setRemoteSuggestions(sanitizedSuggestions);
       } catch (error) {
         console.error('Error fetching tag suggestions:', error);
       } finally {
@@ -541,11 +555,13 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                 options={tagSuggestions}
                 value={formData.tags || []}
                 onChange={(_, newValue) => {
-                  // Filter and validate tags
-                  const validTags = newValue
-                    .map(tag => typeof tag === 'string' ? tag : '')
-                    .filter(tag => validateTag(tag));
-                  handleFormChange('tags', validTags);
+                  // Sanitize tags, remove duplicates, and filter out empty strings
+                  const uniqueSanitizedTags = Array.from(new Set(
+                    newValue
+                      .map(tag => typeof tag === 'string' ? sanitizeTag(tag) : '')
+                      .filter(tag => tag)
+                  ));
+                  handleFormChange('tags', uniqueSanitizedTags);
                 }}
                 onInputChange={(_, value) => {
                   if (value) {
@@ -583,8 +599,9 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                 <TagSelection 
                   onTagSelect={(tag) => {
                     const currentTags = formData.tags || [];
-                    if (!currentTags.includes(tag)) {
-                      handleFormChange('tags', [...currentTags, tag]);
+                    const sanitizedTag = sanitizeTag(tag);
+                    if (!currentTags.includes(sanitizedTag)) {
+                      handleFormChange('tags', [...currentTags, sanitizedTag]);
                     }
                   }} 
                 />
