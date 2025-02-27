@@ -41,7 +41,7 @@
           </a> -->
           <a
             class="navbar-item"
-            href="https://bioimageio-uploader.netlify.app/"
+            href="https://dev.bioimage.io/"
             target="_blank"
           >
             <b-icon icon="plus"></b-icon>

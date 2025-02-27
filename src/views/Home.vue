@@ -1,5 +1,34 @@
 <template>
   <div class="home">
+    <b-notification
+      v-if="showNotification"
+      type="is-info"
+      has-icon
+      aria-close-label="Close notification"
+      role="alert"
+      @close="showNotification = false"
+      :closable="true"
+      class="floating-notification"
+    >
+      🎉 We are excited to share that we are working on a new bioimage model zoo
+      website! 🚀
+      <br />
+      As a sneak peek, visit
+      <a href="https://dev.bioimage.io" target="_blank"
+        >https://dev.bioimage.io</a
+      >
+      ✨
+      <br />
+      The new website aims to improve:
+      <ul>
+        <li>🏠 Model hosting</li>
+        <li>🔌 Integration with user provided tools</li>
+        <li>▶️ Model test run capabilities</li>
+        <li>📤 Streamlined upload and review process</li>
+        <li>✨ And more!</li>
+      </ul>
+    </b-notification>
+
     <!-- Header -->
     <section
       class="hero is-link is-fullheight is-fullheight-with-navbar"
@@ -713,10 +742,15 @@ export default {
       displayMode: "card",
       currentTags: [],
       selectedPartner: null,
-      bioEngineConfigs: {}
+      bioEngineConfigs: {},
+      showNotification: false
     };
   },
   mounted: async function() {
+    setTimeout(() => {
+      this.showNotification = true;
+    }, 3000);
+
     this.resourceId = this.resourceId && this.resourceId.toLowerCase();
     window.addEventListener("resize", this.updateSize);
     window.dispatchEvent(new Event("resize"));
@@ -1482,5 +1516,32 @@ body {
 
 form {
   max-width: 100% !important;
+}
+
+.floating-notification {
+  position: fixed !important;
+  top: 80px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 500px;
+  min-width: 450px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+/* Add animation for the notification */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.floating-notification {
+  animation: slideIn 0.5s ease-out;
 }
 </style>
