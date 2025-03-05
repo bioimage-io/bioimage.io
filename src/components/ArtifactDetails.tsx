@@ -24,7 +24,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
-const ArtifactDetails = () => {
+const ArtifactDetails = (isStaged: Boolean = false) => {
   const { id } = useParams();
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
@@ -41,6 +41,7 @@ const ArtifactDetails = () => {
   const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
   const [containerHeight, setContainerHeight] = useState('400px');
   const modelContainerRef = useRef<HTMLDivElement>(null);
+  const [modelVersion, setModelVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -77,10 +78,24 @@ const ArtifactDetails = () => {
     }
   }, [selectedResource?.versions]);
 
+  useEffect(() => {
+    if (isStaged) {
+      setModelVersion('stage');
+    }
+    else{
+      setModelVersion(null);
+    }
+  }, [isStaged, selectedResource]);
+
   const handleDownload = () => {
     const id = selectedResource?.id.split('/').pop();
     if (id) {
-      window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+      if(isStaged){
+        window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file?version=stage`, '_blank');
+      }
+      else{
+        window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+      }
     }
   };
 
@@ -229,6 +244,7 @@ const ArtifactDetails = () => {
             <>
               <ModelTester 
                 artifactId={selectedResource.id}
+                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${modelVersion ? `?version=${modelVersion}` : ''}`}
                 isDisabled={false}
               />
               <ModelRunner
