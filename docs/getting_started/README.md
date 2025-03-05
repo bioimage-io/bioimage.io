@@ -18,7 +18,7 @@ api.showDialog({src: "https://slides.imjoy.io/?slides=https://raw.githubusercont
 ```
 
 Learn how to browse the BioImage Model Zoo website through this tutorial:
-<iframe width="480" height="360" src="https://www.youtube.com/watch?v=hBB-zeMey08" title="Browsing the BioImage Model Zoo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen="1"> </iframe>
+<iframe width="480" height="360" src="https://youtu.be/hBB-zeMey08?si=jYMMF1-znjtI9vUQ" title="Browsing the BioImage Model Zoo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen="1"> </iframe>
 
 
 ## How to participate in the BioImage Model Zoo
