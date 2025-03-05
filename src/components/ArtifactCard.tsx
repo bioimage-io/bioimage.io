@@ -34,7 +34,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     // Only navigate if the click target is the card itself, not children
     // if (e.target === e.currentTarget) {
       const id = artifact.id.split('/').pop();
-      navigate(`/resources/${id}`);
+      navigate(`/artifacts/${id}`);
     // }
   };
 

@@ -70,6 +70,10 @@ const AppContent: React.FC = () => {
             element={<ArtifactDetails />} 
           />
           <Route 
+            path="/artifacts/:id" 
+            element={<ArtifactDetails />} 
+          />
+          <Route 
             path="/about" 
             element={<About />} 
           />
