@@ -59,7 +59,12 @@ const ArtifactDetails = () => {
           setDocumentation(text);
         } catch (error) {
           console.error('Failed to fetch documentation:', error);
+          setDocumentation("Failed to fetch documentation.");
         }
+      }
+      else {
+        // No documentation found
+        setDocumentation("No documentation found.");
       }
     };
 
