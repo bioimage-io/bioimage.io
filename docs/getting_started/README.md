@@ -17,6 +17,10 @@ Here there are some slides to ilustrate how the BioImage Model Zoo works. Press 
 api.showDialog({src: "https://slides.imjoy.io/?slides=https://raw.githubusercontent.com/esgomezm/bioimage.io/main/docs/user_guide/welcome_slides.md"})
 ```
 
+Learn how to browse the BioImage Model Zoo website through this tutorial:
+<iframe width="480" height="360" src="https://www.youtube.com/watch?v=hBB-zeMey08" title="Browsing the BioImage Model Zoo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen="1"> </iframe>
+
+
 ## How to participate in the BioImage Model Zoo
 Participation into the BioImage Model Zoo is opened to many different profiles. None of them exclude any other. Here are the options in which you can intereact with the BioImage Model Zoo:
 
