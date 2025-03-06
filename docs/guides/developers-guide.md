@@ -117,6 +117,8 @@ Once you have created a model in the BioImage.IO format, you can upload it to th
 
 All models and resources in the BioImage Model Zoo undergo testing and validation before being accepted for publication. Some modifications may be required to meet the publication specifications after uploading.
 
+In this video, you can see a short tutorial on how to upload a model to the BioImage Model Zoo:
+<iframe width="560" height="315" src="https://www.youtube.com/embed/qNIWi_LfEXk?si=5vcFUQn-zDb0eNKh" title="Uploading a model to the BioImage Model Zoo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen="1"></iframe>
 
 ###  Model Documentation
 #### Model naming

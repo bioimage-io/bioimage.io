@@ -25,6 +25,8 @@ See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a mode
 
 
 ## Using BioImage Model Zoo models in different software (Community Partners)
+The BioImage Model Zoo ensures cross-compatibility across community partner software, enabling seamless interoperability. The same AI model can be used across different platforms without modification, fostering a standardized and collaborative ecosystem. Watch the tutorial to learn more:
+<iframe width="560" height="315" src="https://www.youtube.com/embed/blbULNRoDjA?si=BM20TO2YSP5VeYpG" title="Cross Compatibility of tools in BioImage.IO" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen="1"></iframe>
 
 ### BiaPy
 **Note: BiaPy empowers users to train custom models or fine-tune existing ones for bioimaging tasks and upload them to the BioImage Model Zoo. BiaPy supports models exported with PyTorch.**
