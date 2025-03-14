@@ -5,7 +5,8 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
 
 const ApiDocs: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'python' | 'javascript'>('python');
+  const [activeMainTab, setActiveMainTab] = useState<'hypha-rpc' | 'http'>('hypha-rpc');
+  const [activeLanguageTab, setActiveLanguageTab] = useState<'python' | 'javascript'>('python');
   const [token, setToken] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const { server, user } = useHyphaStore();
@@ -313,136 +314,329 @@ async function interactWithModelZoo() {
         <h1 className="text-3xl font-bold text-gray-900 mb-4">
           BioImage Model Zoo API
         </h1>
-        <p className="text-gray-600">
-          Interact with the BioImage Model Zoo programmatically using our API. 
-          Choose your preferred language below to see example code and documentation.
-        </p>
+        <div className="prose max-w-none">
+          <p className="text-gray-600 mb-4">
+            The BioImage Model Zoo backend is powered by <a href="https://docs.amun.ai" className="text-blue-600 hover:text-blue-800">Hypha</a>, 
+            a modern RPC framework designed for building distributed applications. Hypha provides a flexible and efficient way to handle 
+            service registration, remote procedure calls, and real-time communication.
+          </p>
+
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+            <div className="flex">
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-blue-800">Two Ways to Interact with the API</h3>
+                <div className="mt-2 text-blue-700">
+                  <p className="mb-2">
+                    <strong>1. Hypha RPC (Recommended)</strong>: A powerful programmatic interface that provides:
+                  </p>
+                  <ul className="list-disc list-inside ml-4 mb-4">
+                    <li>Native Python and JavaScript support</li>
+                    <li>Real-time communication via WebSocket</li>
+                    <li>Type safety and better error handling</li>
+                    <li>Automatic reconnection and state management</li>
+                  </ul>
+                  
+                  <p className="mb-2">
+                    <strong>2. HTTP REST API</strong>: A traditional REST interface that offers:
+                  </p>
+                  <ul className="list-disc list-inside ml-4">
+                    <li>Standard HTTP endpoints for basic operations</li>
+                    <li>Language-agnostic access to resources</li>
+                    <li>Familiar REST patterns and conventions</li>
+                    <li>Easy integration with existing tools and scripts</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-gray-600 mb-4">
+            Choose the method that best suits your needs. For building applications or scripts that require real-time updates 
+            or complex interactions, we recommend using Hypha RPC. For simple operations or when working with tools that 
+            expect REST APIs, use the HTTP endpoints.
+          </p>
+        </div>
       </div>
 
-      {/* Add Token Section before the language tabs */}
+      {/* Add Token Section before the main tabs */}
       <TokenSection />
 
-      {/* Language tabs */}
+      {/* Main API Type tabs */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="-mb-px flex space-x-8">
           <button
-            onClick={() => setActiveTab('python')}
+            onClick={() => setActiveMainTab('hypha-rpc')}
             className={`${
-              activeTab === 'python'
+              activeMainTab === 'hypha-rpc'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            Python
+            Hypha RPC (Recommended)
           </button>
           <button
-            onClick={() => setActiveTab('javascript')}
+            onClick={() => setActiveMainTab('http')}
             className={`${
-              activeTab === 'javascript'
+              activeMainTab === 'http'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            JavaScript
+            HTTP Endpoints
           </button>
         </nav>
       </div>
 
-      {/* Installation instructions */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Installation</h2>
-        <div className="bg-gray-50 rounded-lg p-4">
-          {activeTab === 'python' ? (
-            <SyntaxHighlighter 
-              language="bash" 
-              style={vs}
-              customStyle={{
-                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                fontWeight: 600,
-                fontSize: '14px',
-                background: '#f9fafb'
-              }}
-            >
-              pip install hypha-rpc
-            </SyntaxHighlighter>
-          ) : (
-            <SyntaxHighlighter 
-              language="bash" 
-              style={vs}
-              customStyle={{
-                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                fontWeight: 600,
-                fontSize: '14px',
-                background: '#f9fafb'
-              }}
-            >
-              npm install hypha-rpc
-            </SyntaxHighlighter>
-          )}
-        </div>
-      </div>
+      {activeMainTab === 'hypha-rpc' ? (
+        <>
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">About Hypha RPC</h2>
+            <div className="prose max-w-none">
+              <p className="text-gray-600 mb-4">
+                Hypha RPC provides a modern, efficient way to interact with the BioImage Model Zoo programmatically. 
+                It offers several advantages over traditional HTTP APIs:
+              </p>
+              <ul className="list-disc list-inside text-gray-600 mb-4">
+                <li>Bi-directional communication through WebSocket connections</li>
+                <li>Automatic reconnection and session management</li>
+                <li>Type-safe interactions with built-in TypeScript support</li>
+                <li>Efficient binary data transfer with WebRTC support</li>
+                <li>Real-time updates and event notifications</li>
+                <li>Built-in authentication and token management</li>
+              </ul>
+              <p className="text-gray-600 mb-4">
+                This API is ideal for building applications that require real-time updates, 
+                handling large data transfers, or creating interactive tools that need 
+                persistent connections to the server.
+              </p>
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                <p className="text-sm text-yellow-700">
+                  <strong>Pro Tip:</strong> For the best development experience, we recommend using 
+                  TypeScript with the Hypha RPC client to get full type checking and autocompletion support.
+                </p>
+              </div>
+            </div>
+          </div>
+          {/* Language tabs */}
+          <div className="border-b border-gray-200 mb-6">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveLanguageTab('python')}
+                className={`${
+                  activeLanguageTab === 'python'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+              >
+                Python
+              </button>
+              <button
+                onClick={() => setActiveLanguageTab('javascript')}
+                className={`${
+                  activeLanguageTab === 'javascript'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+              >
+                JavaScript
+              </button>
+            </nav>
+          </div>
 
-      {/* Code examples */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Example Usage</h2>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <SyntaxHighlighter 
-            language={activeTab} 
-            style={vs}
-            showLineNumbers={true}
-            customStyle={{
-              fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-              fontWeight: 600,
-              fontSize: '14px',
-              background: '#f9fafb'
-            }}
-          >
-            {activeTab === 'python' ? pythonCode : javascriptCode}
-          </SyntaxHighlighter>
-        </div>
-      </div>
+          {/* Installation instructions */}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Installation</h2>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {activeLanguageTab === 'python' ? 'pip install hypha-rpc' : '<script src="https://cdn.jsdelivr.net/npm/hypha-rpc@0.20.47/dist/hypha-rpc-websocket.min.js"></script>'}
+              </SyntaxHighlighter>
+            </div>
+          </div>
 
-      {/* API Reference */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">API Reference</h2>
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Authentication</h3>
-            <p className="text-gray-600 mb-2">
-              To use the API, you need an authentication token which can be generated by clicking the "Generate New Token" button above.
+          {/* Authentication */}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Authentication</h2>
+            <p className="text-gray-600 mb-4">
+              To access protected resources, you'll need to authenticate first. There are two ways to authenticate:
             </p>
+
+            <h3 className="text-lg font-medium text-gray-900 mb-2">1. Interactive Login</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <SyntaxHighlighter 
+                language={activeLanguageTab} 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {activeLanguageTab === 'python' ? 
+                  `from hypha_rpc import login, connect_to_server
+
+# This will display a login URL in the console
+token = await login({"server_url": "https://ai.imjoy.io"})
+
+# Connect using the token
+server = await connect_to_server({
+    "server_url": "https://ai.imjoy.io",
+    "token": token
+})` :
+                  `const token = await hyphaWebsocketClient.login({
+    server_url: "https://ai.imjoy.io"
+});
+
+const server = await hyphaWebsocketClient.connectToServer({
+    server_url: "https://ai.imjoy.io",
+    token: token
+});`}
+              </SyntaxHighlighter>
+            </div>
+
+            <h3 className="text-lg font-medium text-gray-900 mb-2">2. Using API Token</h3>
+            <p className="text-gray-600 mb-4">
+              You can generate an API token using the button above and use it directly:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <SyntaxHighlighter 
+                language={activeLanguageTab} 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {activeLanguageTab === 'python' ? 
+                  `from hypha_rpc import connect_to_server
+
+server = await connect_to_server({
+    "server_url": "https://ai.imjoy.io",
+    "token": "your-api-token-here"
+})` :
+                  `const server = await hyphaWebsocketClient.connectToServer({
+    server_url: "https://ai.imjoy.io",
+    token: "your-api-token-here"
+});`}
+              </SyntaxHighlighter>
+            </div>
           </div>
 
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Common Operations</h3>
-            <ul className="list-disc list-inside text-gray-600 space-y-2">
-              <li>List models: Get a list of all available models</li>
-              <li>Read model: Get details about a specific model</li>
-              <li>Download files: Get URLs for downloading model files</li>
-              <li>Upload model: Create a new model entry</li>
-              <li>Upload files: Add files to an existing model</li>
-            </ul>
+          {/* Code examples */}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Example Usage</h2>
+            <p className="text-gray-600 mb-4">
+              Here's a complete example showing how to interact with the BioImage Model Zoo API:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <SyntaxHighlighter 
+                language={activeLanguageTab} 
+                style={vs}
+                showLineNumbers={true}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {activeLanguageTab === 'python' ? pythonCode : javascriptCode}
+              </SyntaxHighlighter>
+            </div>
           </div>
 
-          <div>
+          {/* Additional Features */}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Additional Features</h2>
+            
+            <h3 className="text-lg font-medium text-gray-900 mb-2">WebRTC Support</h3>
+            <p className="text-gray-600 mb-4">
+              For large data transfers or real-time communication, Hypha supports peer-to-peer connections via WebRTC. 
+              This is particularly useful when transferring large model files or performing real-time inference.
+            </p>
+
             <h3 className="text-lg font-medium text-gray-900 mb-2">Error Handling</h3>
-            <p className="text-gray-600">
-              All API calls should be wrapped in try-catch blocks to handle potential errors.
-              The API will return appropriate error messages and status codes.
+            <p className="text-gray-600 mb-4">
+              All API calls should be wrapped in try-catch blocks to handle potential errors properly:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <SyntaxHighlighter 
+                language={activeLanguageTab} 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {activeLanguageTab === 'python' ? 
+                  `try:
+    model = await artifact_manager.read(
+        artifact_id="bioimage-io/affable-shark"
+    )
+except Exception as e:
+    print(f"Error reading model: {e}")` :
+                  `try {
+    const model = await artifactManager.read({
+        artifact_id: "bioimage-io/affable-shark",
+        _rkwargs: true
+    });
+} catch (error) {
+    console.error("Error reading model:", error);
+}`}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="space-y-6">
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">About HTTP REST API</h2>
+            <div className="prose max-w-none">
+              <p className="text-gray-600 mb-4">
+                The HTTP REST API provides a traditional, stateless interface to interact with the BioImage Model Zoo. 
+                This API is designed for:
+              </p>
+              <ul className="list-disc list-inside text-gray-600 mb-4">
+                <li>Simple, direct access to model artifacts and metadata</li>
+                <li>Integration with tools and scripts in any programming language</li>
+                <li>Stateless operations that don't require persistent connections</li>
+                <li>Browser-based direct downloads and file access</li>
+                <li>Compatibility with standard HTTP tools and libraries</li>
+              </ul>
+              <p className="text-gray-600 mb-4">
+                All endpoints follow REST conventions and return JSON responses (except for file downloads). 
+                The API uses standard HTTP methods (GET, POST, PUT, DELETE) and status codes.
+              </p>
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+                <p className="text-sm text-blue-700">
+                  <strong>Authentication:</strong> For endpoints requiring authentication, 
+                  include your API token in the Authorization header: 
+                  <code className="ml-2 px-2 py-1 bg-blue-100 rounded">Authorization: Bearer your-token-here</code>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <p className="text-gray-600 mb-4">
+              <strong>Note:</strong> <code>&lt;artifact_alias&gt;</code> is the last part of the artifact ID (e.g., "affable-shark"), while the full <code>&lt;artifact_id&gt;</code> includes the workspace (e.g., "bioimage-io/affable-shark").
             </p>
           </div>
-        </div>
-      </div>
 
-      {/* HTTP Endpoints */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">HTTP Endpoints</h2>
-        <p className="text-gray-600 mb-4">
-          In addition to the programmatic API, you can also access artifacts directly via HTTP endpoints.
-          These endpoints are useful for direct access to models and their files without using the client libraries.
-        </p>
-
-        <div className="space-y-6">
+          {/* HTTP Endpoints */}
           <div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">Get Artifact Metadata</h3>
             <div className="bg-gray-50 rounded-lg p-4 mb-2">
@@ -456,12 +650,29 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}
+                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>`}
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600">
               Retrieves metadata, manifest, and configuration for a specific artifact.
             </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong>
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark
+              </SyntaxHighlighter>
+            </div>
             <p className="text-gray-600 mt-2">
               <strong>Query Parameters:</strong>
             </p>
@@ -484,12 +695,29 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/children
+                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/children`}
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600">
               Lists all child artifacts of a specified parent artifact.
             </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong>
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/children
+              </SyntaxHighlighter>
+            </div>
             <p className="text-gray-600 mt-2">
               <strong>Query Parameters:</strong>
             </p>
@@ -516,7 +744,7 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/files/{"<path>"}
+                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/files/<path>`}
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600">
@@ -536,7 +764,7 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                https://hypha.aicell.io/bioimage-io/artifacts/trustworthy-llama/files/rdf.yaml?use_proxy=true
+                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600 mt-2">
@@ -545,7 +773,7 @@ async function interactWithModelZoo() {
             <ul className="list-disc list-inside text-gray-600 ml-4">
               <li><code>version</code> (optional): Specific version to retrieve</li>
               <li><code>silent</code> (optional): If true, doesn't increment download count</li>
-              <li><code>use_proxy</code> (optional): If true, serves file through API proxy instead of redirecting</li>
+              <li><code>use_proxy</code> (optional): If true, serves file through API proxy instead of redirecting (to s3)</li>
               <li><code>token</code> (optional): Authentication token for private artifacts</li>
             </ul>
           </div>
@@ -563,12 +791,29 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/create-zip-file
+                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/create-zip-file`}
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600">
               Creates and downloads a ZIP file containing all or selected files from an artifact.
             </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong>
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file
+              </SyntaxHighlighter>
+            </div>
             <p className="text-gray-600 mt-2">
               <strong>Query Parameters:</strong>
             </p>
@@ -592,12 +837,29 @@ async function interactWithModelZoo() {
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/{"<workspace>"}/artifacts/{"<artifact_alias>"}/zip-files/{"<zip_file_path>"}
+                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/zip-files/<zip_file_path>`}
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600">
               Extracts and serves content from a ZIP file stored in an artifact without downloading the entire archive.
             </p>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong>
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/zip-files/model.zip
+              </SyntaxHighlighter>
+            </div>
             <p className="text-gray-600 mt-2">
               <strong>Query Parameters:</strong>
             </p>
@@ -608,7 +870,7 @@ async function interactWithModelZoo() {
             </ul>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
