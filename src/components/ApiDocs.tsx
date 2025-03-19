@@ -880,6 +880,413 @@ except Exception as e:
               <li><code>token</code> (optional): Authentication token for private artifacts</li>
             </ul>
           </div>
+
+          {/* Add new section for HTTP Service Endpoints */}
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">HTTP Service Endpoints</h3>
+            <p className="text-gray-600 mb-4">
+              Every Hypha service method is also accessible via HTTP endpoints. You can convert any Hypha RPC method call to an HTTP request using the following pattern:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="bash" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {`GET https://hypha.aicell.io/<service_path>/<method_name>?param1=value1&param2=value2
+# OR for complex parameters
+POST https://hypha.aicell.io/<service_path>/<method_name>
+Content-Type: application/json
+
+{
+    "param1": "value1",
+    "param2": "value2"
+}`}
+              </SyntaxHighlighter>
+            </div>
+            <p className="text-gray-600 mt-2">
+              <strong>Example:</strong> Converting Hypha RPC calls to HTTP endpoints
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-2">
+              <SyntaxHighlighter 
+                language="python" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {`# Hypha RPC call:
+models = await artifact_manager.list(
+    parent_id="bioimage-io/bioimage.io",
+    limit=10
+)
+
+# Equivalent HTTP GET request:
+GET https://hypha.aicell.io/public/artifact-manager/list?parent_id=bioimage-io/bioimage.io&limit=10
+
+# OR HTTP POST request:
+POST https://hypha.aicell.io/public/artifact-manager/list
+Content-Type: application/json
+
+{
+    "parent_id": "bioimage-io/bioimage.io",
+    "limit": 10
+}`}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+
+          {/* Add Available Service Endpoints section */}
+          <div className="mt-8">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Available Service Endpoints</h3>
+            <p className="text-gray-600 mb-4">
+              The following endpoints are available through the artifact-manager service at <code>/public/artifact-manager/</code>:
+            </p>
+
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-md font-medium text-gray-900 mb-2">Artifact Management</h4>
+                <ul className="list-disc list-inside text-gray-600 space-y-4">
+                  <li>
+                    <code>create</code>
+                    <p className="ml-6 mt-1">Creates a new artifact. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>alias (optional): Custom identifier for the artifact</li>
+                      <li>workspace: Target workspace</li>
+                      <li>parent_id (optional): ID of the parent artifact</li>
+                      <li>manifest: Artifact metadata and configuration</li>
+                      <li>type: Artifact type (e.g., "model", "generic")</li>
+                      <li>config (optional): Additional configuration</li>
+                      <li>version (optional): Version identifier</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Artifact object containing ID, manifest, config, and other metadata</p>
+                  </li>
+                  <li>
+                    <code>read</code>
+                    <p className="ml-6 mt-1">Retrieves artifact details. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: ID of the artifact to read</li>
+                      <li>silent (optional): Don't increment view count</li>
+                      <li>version (optional): Specific version to retrieve</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Complete artifact object including manifest, config, and version history</p>
+                  </li>
+                  <li>
+                    <code>edit</code>
+                    <p className="ml-6 mt-1">Updates an existing artifact. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: ID of the artifact to edit</li>
+                      <li>manifest (optional): Updated metadata</li>
+                      <li>type (optional): New artifact type</li>
+                      <li>config (optional): Updated configuration</li>
+                      <li>version (optional): Version to update</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Updated artifact object with new values</p>
+                  </li>
+                  <li>
+                    <code>delete</code>
+                    <p className="ml-6 mt-1">Removes an artifact. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: ID of the artifact to delete</li>
+                      <li>delete_files (optional): Whether to delete associated files</li>
+                      <li>recursive (optional): Delete child artifacts</li>
+                      <li>version (optional): Specific version to delete</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-md font-medium text-gray-900 mb-2">File Operations</h4>
+                <ul className="list-disc list-inside text-gray-600 space-y-4">
+                  <li>
+                    <code>put_file</code>
+                    <p className="ml-6 mt-1">Generates upload URL for a file. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                      <li>file_path: Path for the file</li>
+                      <li>download_weight (optional): Weight for download count</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Pre-signed URL for uploading the file</p>
+                  </li>
+                  <li>
+                    <code>get_file</code>
+                    <p className="ml-6 mt-1">Generates download URL for a file. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Source artifact ID</li>
+                      <li>file_path: Path to the file</li>
+                      <li>silent (optional): Don't increment download count</li>
+                      <li>version (optional): Specific version to retrieve</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Pre-signed URL for downloading the file</p>
+                  </li>
+                  <li>
+                    <code>list_files</code>
+                    <p className="ml-6 mt-1">Lists files in an artifact. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                      <li>dir_path (optional): Directory to list</li>
+                      <li>limit (optional): Maximum number of files to list</li>
+                      <li>version (optional): Specific version to list</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of file objects containing name, type (file/directory), size, and last modified date</p>
+                  </li>
+                  <li>
+                    <code>remove_file</code>
+                    <p className="ml-6 mt-1">Removes a file from an artifact. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                      <li>file_path: Path to the file to remove</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-md font-medium text-gray-900 mb-2">Vector Operations</h4>
+                <ul className="list-disc list-inside text-gray-600 space-y-4">
+                  <li>
+                    <code>add_vectors</code>
+                    <p className="ml-6 mt-1">Adds vectors to a collection. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target vector collection ID</li>
+                      <li>vectors: List of vectors to add</li>
+                      <li>update (optional): Whether to update existing vectors</li>
+                      <li>embedding_models (optional): Models for embedding</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
+                  </li>
+                  <li>
+                    <code>search_vectors</code>
+                    <p className="ml-6 mt-1">Searches vectors in a collection. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Vector collection ID</li>
+                      <li>query: Search query</li>
+                      <li>filters (optional): Search filters</li>
+                      <li>limit (optional): Maximum results</li>
+                      <li>offset (optional): Results offset</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of matching vectors with similarity scores</p>
+                  </li>
+                  <li>
+                    <code>list_vectors</code>
+                    <p className="ml-6 mt-1">Lists vectors in a collection. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Vector collection ID</li>
+                      <li>offset (optional): Starting offset</li>
+                      <li>limit (optional): Maximum results</li>
+                      <li>return_fields (optional): Fields to return</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of vectors with specified fields</p>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-md font-medium text-gray-900 mb-2">Other Operations</h4>
+                <ul className="list-disc list-inside text-gray-600 space-y-4">
+                  <li>
+                    <code>list</code>
+                    <p className="ml-6 mt-1">Lists child artifacts. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>parent_id (optional): Parent artifact ID</li>
+                      <li>keywords (optional): Search keywords</li>
+                      <li>filters (optional): Filter criteria</li>
+                      <li>limit (optional): Maximum results</li>
+                      <li>offset (optional): Results offset</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of artifact objects, or if pagination=true, an object containing items array, total count, offset, and limit</p>
+                  </li>
+                  <li>
+                    <code>commit</code>
+                    <p className="ml-6 mt-1">Commits staged changes. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                      <li>version (optional): Version to commit</li>
+                      <li>comment (optional): Commit message</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Updated artifact object with committed changes</p>
+                  </li>
+                  <li>
+                    <code>publish</code>
+                    <p className="ml-6 mt-1">Publishes artifact to external service. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                      <li>to (optional): Target service (e.g., "zenodo")</li>
+                      <li>metadata (optional): Additional metadata</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: Publication record from the external service (e.g., Zenodo record)</p>
+                  </li>
+                  <li>
+                    <code>reset_stats</code>
+                    <p className="ml-6 mt-1">Resets artifact statistics. Parameters:</p>
+                    <ul className="list-disc list-inside ml-8">
+                      <li>artifact_id: Target artifact ID</li>
+                    </ul>
+                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-6 bg-yellow-50 border-l-4 border-yellow-400 p-4">
+              <p className="text-sm text-yellow-700">
+                <strong>Note:</strong> All endpoints require authentication via the <code>Authorization</code> header. 
+                Some endpoints may have additional parameters not listed here. Refer to the API response messages for 
+                detailed error information and requirements.
+              </p>
+            </div>
+          </div>
+
+          {/* Python Examples section continues... */}
+          <div className="mt-8">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Python Examples Using Requests</h3>
+            <p className="text-gray-600 mb-4">
+              Here are complete examples showing how to interact with the API using Python's requests library:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <SyntaxHighlighter 
+                language="python" 
+                style={vs}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  background: '#f9fafb'
+                }}
+              >
+                {`import requests
+import json
+
+# Base URL for the API
+BASE_URL = "https://hypha.aicell.io"
+API_TOKEN = "your-api-token-here"
+
+# Headers for authentication
+headers = {
+    "Authorization": f"Bearer {API_TOKEN}",
+    "Content-Type": "application/json"
+}
+
+def download_model_files():
+    """Example: Download model files"""
+    # List available models
+    response = requests.get(
+        f"{BASE_URL}/public/artifact-manager/list",
+        params={
+            "parent_id": "bioimage-io/bioimage.io",
+            "limit": 10
+        },
+        headers=headers
+    )
+    models = response.json()
+    print("Available models:", json.dumps(models, indent=2))
+
+    # Get model details
+    model_id = "bioimage-io/affable-shark"
+    response = requests.get(
+        f"{BASE_URL}/public/artifact-manager/read",
+        params={"artifact_id": model_id},
+        headers=headers
+    )
+    model = response.json()
+    print("Model details:", json.dumps(model, indent=2))
+
+    # Download a specific file
+    file_path = "weights.pt"
+    response = requests.get(
+        f"{BASE_URL}/public/artifact-manager/get_file",
+        params={
+            "artifact_id": model_id,
+            "file_path": file_path
+        },
+        headers=headers
+    )
+    download_url = response.json()
+    
+    # Download the file
+    response = requests.get(download_url)
+    with open(file_path, "wb") as f:
+        f.write(response.content)
+    print(f"Downloaded {file_path}")
+
+def upload_model():
+    """Example: Upload a new model"""
+    # Create model manifest
+    model_manifest = {
+        "type": "model",
+        "name": "My test model",
+        "description": "This is a test model",
+        "tags": ["test", "model"],
+        "status": "request-review"
+    }
+
+    # Create new model
+    response = requests.post(
+        f"{BASE_URL}/public/artifact-manager/create",
+        json={
+            "parent_id": "bioimage-io/bioimage.io",
+            "alias": "{animal_adjective}-{animal}",
+            "type": "model",
+            "manifest": model_manifest,
+            "config": {"publish_to": "sandbox_zenodo"},
+            "version": "stage"
+        },
+        headers=headers
+    )
+    new_model = response.json()
+    model_id = new_model["id"]
+    print(f"Created model with ID: {model_id}")
+
+    # Get upload URL for a file
+    response = requests.post(
+        f"{BASE_URL}/public/artifact-manager/put_file",
+        json={
+            "artifact_id": model_id,
+            "file_path": "weights.pt"
+        },
+        headers=headers
+    )
+    upload_url = response.json()
+
+    # Upload file to the provided URL
+    with open("path/to/your/weights.pt", "rb") as f:
+        response = requests.put(
+            upload_url,
+            data=f,
+            headers={"Content-Type": ""}  # Important for S3 uploads
+        )
+    print("File uploaded successfully")
+
+    # Update model status
+    model_manifest["status"] = "request-review"
+    response = requests.post(
+        f"{BASE_URL}/public/artifact-manager/edit",
+        json={
+            "artifact_id": model_id,
+            "version": "stage",
+            "manifest": model_manifest
+        },
+        headers=headers
+    )
+    print("Model status updated to request-review")
+
+if __name__ == "__main__":
+    download_model_files()
+    upload_model()`}
+              </SyntaxHighlighter>
+            </div>
+          </div>
         </div>
       )}
     </div>
