@@ -612,6 +612,14 @@ const Edit: React.FC = () => {
           }
 
           try {
+            // Get the existing manifest to preserve fields like status
+            const existingManifest = artifactInfo?.manifest || {};
+            // Merge the existing manifest with the new one from the editor
+            const mergedManifest = {
+              ...existingManifest,
+              ...manifest
+            };
+
             // Get the presigned URL for uploading
             const presignedUrl = await artifactManager.put_file({
               artifact_id: artifactId || '',
@@ -635,14 +643,14 @@ const Edit: React.FC = () => {
             // Update the manifest
             await artifactManager.edit({
               artifact_id: artifactId || '',
-              manifest: manifest,
+              manifest: mergedManifest, // Use the merged manifest
               version: 'stage',
               _rkwargs: true
             });
 
             // Update local state
-            if ('type' in manifest) {
-              setArtifactType(manifest.type as string);
+            if ('type' in mergedManifest) { // Use mergedManifest here
+              setArtifactType(mergedManifest.type as string);
             }
             
             // Update artifactInfo with new manifest
@@ -650,7 +658,7 @@ const Edit: React.FC = () => {
               ...prev,
               manifest: {
                 ...prev.manifest,
-                ...manifest
+                ...mergedManifest // Use mergedManifest here
               }
             } : null);
 

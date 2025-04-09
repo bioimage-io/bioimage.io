@@ -9,6 +9,12 @@ interface ValidationResult {
   details: string;
 }
 
+// Define an interface for the expected RDF structure
+interface RdfWithUploader {
+  uploader?: { [key: string]: any; email?: string };
+  [key: string]: any; // Allow other properties
+}
+
 interface ModelValidatorProps {
   rdfContent?: string;
   isDisabled?: boolean;
@@ -22,7 +28,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
   className = '',
   onValidationComplete 
 }) => {
-  const { server, isLoggedIn } = useHyphaStore();
+  const { server, isLoggedIn, user } = useHyphaStore();
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -53,15 +59,40 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
   }, []);
 
   const handleValidate = async () => {
-    if (!rdfContent || !server) return;
+    if (!rdfContent || !server || !user?.email) return;
 
     setIsLoading(true);
     setIsMenuOpen(false);
     
     try {
       const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const rdfDict = yaml.load(rdfContent);
-      const result = await runner.validate(rdfDict);
+      
+      // Parse the RDF content and assert its type
+      let rdfDict = yaml.load(rdfContent) as RdfWithUploader | null;
+      
+      // Ensure rdfDict is an object before modifying
+      if (typeof rdfDict === 'object' && rdfDict !== null) {
+        // Automatically set the uploader email
+        rdfDict.uploader = {
+          ...(rdfDict.uploader || {}), // Preserve existing uploader fields if any
+          email: user.email 
+        };
+      } else {
+        // Handle cases where rdfContent might not parse to an object
+        console.warn("RDF content did not parse to an object or is null, cannot set uploader email.");
+        // Set a default error or throw, depending on desired behavior
+        const errorResult = {
+          success: false,
+          details: 'Invalid RDF format: Could not parse content.'
+        };
+        setValidationResult(errorResult);
+        setIsMenuOpen(true);
+        onValidationComplete?.(errorResult);
+        setIsLoading(false);
+        return; // Stop validation if RDF is invalid
+      }
+
+      const result = await runner.validate(rdfDict); // Pass the modified dictionary
       console.log("Validation result:", result);
       
       setValidationResult(result);
