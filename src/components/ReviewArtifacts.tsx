@@ -79,9 +79,7 @@ const ReviewArtifacts: React.FC = () => {
 
     try {
       setLoading(true);
-      const filters: any = {
-        version: viewMode === 'published' ? "latest" : "stage",
-      };
+      const filters: any = {};
       
       if (viewMode === 'pending') {
         filters.manifest = { status: 'request-review' };
@@ -90,6 +88,7 @@ const ReviewArtifacts: React.FC = () => {
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
+        stage: viewMode === 'published' ? true : (viewMode === 'staging' ? false : undefined),
         limit: itemsPerPage,
         offset: (reviewArtifactsPage - 1) * itemsPerPage,
         pagination: true,
