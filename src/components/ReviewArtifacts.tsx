@@ -88,7 +88,7 @@ const ReviewArtifacts: React.FC = () => {
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
-        stage: viewMode === 'published' ? true : (viewMode === 'staging' ? false : undefined),
+        stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined),
         limit: itemsPerPage,
         offset: (reviewArtifactsPage - 1) * itemsPerPage,
         pagination: true,
