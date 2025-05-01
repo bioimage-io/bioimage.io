@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link as RouterLink } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
-import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
@@ -24,8 +24,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
-const ArtifactDetails = (isStaged: Boolean = false) => {
-  const { id } = useParams();
+const ArtifactDetails = () => {
+  const { id, version } = useParams<{ id: string; version?: string }>();
   const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -41,13 +41,12 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
   const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
   const [containerHeight, setContainerHeight] = useState('400px');
   const modelContainerRef = useRef<HTMLDivElement>(null);
-  const [modelVersion, setModelVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
-      fetchResource(`bioimage-io/${id}`);
+      fetchResource(`bioimage-io/${id}`, version);
     }
-  }, [id, fetchResource]);
+  }, [id, fetchResource, version]);
 
   useEffect(() => {
     const fetchDocumentation = async () => {
@@ -78,24 +77,15 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
     }
   }, [selectedResource?.versions]);
 
-  useEffect(() => {
-    if (isStaged) {
-      setModelVersion('stage');
-    }
-    else{
-      setModelVersion(null);
-    }
-  }, [isStaged, selectedResource]);
 
   const handleDownload = () => {
-    const id = selectedResource?.id.split('/').pop();
-    if (id) {
-      if(isStaged){
-        window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file?version=stage`, '_blank');
+    const artifactId = selectedResource?.id.split('/').pop();
+    if (artifactId) {
+      let downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId}/create-zip-file`;
+      if (version && version !== 'latest') {
+        downloadUrl += `?version=${version}`;
       }
-      else{
-        window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
-      }
+      window.open(downloadUrl, '_blank');
     }
   };
 
@@ -171,7 +161,21 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    // Centered loading indicator
+    return (
+      <Box 
+        sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          minHeight: 'calc(100vh - 200px)', // Adjust height as needed
+          width: '100%' 
+        }}
+      >
+        <CircularProgress />
+        <Typography variant="h6" gutterBottom>Loading Artifact Details...</Typography>
+      </Box>
+    );
   }
 
   if (error) {
@@ -181,6 +185,7 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
   if (!selectedResource) {
     return <div>Artifact not found</div>;
   }
+  console.log(`Current artifact: ${selectedResource}, version: ${version}`);
 
   const { manifest } = selectedResource as ArtifactInfo;
 
@@ -242,10 +247,9 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
           </Button>
           {selectedResource?.manifest?.type === 'model' && (
             <>
-              <ModelTester 
+              <ModelTester
                 artifactId={selectedResource.id}
-                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${modelVersion ? `?version=${modelVersion}` : ''}`}
-                isDisabled={false}
+                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
               />
               <ModelRunner
                 artifactId={selectedResource.id}
@@ -399,9 +403,23 @@ const ArtifactDetails = (isStaged: Boolean = false) => {
                   {[...selectedResource.versions].reverse().map((version, index) => (
                     <Box key={version.version}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                          v{version.version}
-                        </Typography>
+                        <RouterLink 
+                          to={`/artifacts/${selectedResource.id.split('/').pop()}/${version.version}`}
+                          style={{ textDecoration: 'none', color: 'inherit' }}
+                        >
+                          <Typography 
+                            variant="subtitle2" 
+                            sx={{ 
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              '&:hover': {
+                                textDecoration: 'underline'
+                              }
+                            }}
+                          >
+                            {version.version}
+                          </Typography>
+                        </RouterLink>
                         {version.version === latestVersion?.version && (
                           <Chip label="Latest" color="primary" size="small" />
                         )}

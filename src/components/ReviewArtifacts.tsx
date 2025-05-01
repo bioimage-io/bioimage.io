@@ -583,7 +583,7 @@ const ReviewArtifacts: React.FC = () => {
                         </div>
                         <div className="flex gap-2 items-center">
                           <button
-                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}?tab=review`)}
+                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/${viewMode === 'published' ? '' : 'stage'}?tab=review`)}
                             className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
                             {viewMode === 'published' ? "Edit" : "Review"}

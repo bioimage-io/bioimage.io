@@ -43,6 +43,7 @@ export interface HyphaState {
   setTotalItems: (total: number) => void;
   artifactManager: any;
   isConnected: boolean;
+  isConnecting: boolean;
   connect: (config: ConnectionConfig) => Promise<any>;
   isLoggingIn: boolean;
   isAuthenticated: boolean;
@@ -51,7 +52,7 @@ export interface HyphaState {
   setLoggedIn: (status: boolean) => void;
   selectedResource: ArtifactInfo | null;
   setSelectedResource: (artifact: ArtifactInfo | null) => void;
-  fetchResource: (id: string) => Promise<void>;
+  fetchResource: (id: string, version?: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
   myArtifactsPage: number;
@@ -77,6 +78,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   totalItems: 0,
   artifactManager: null,
   isConnected: false,
+  isConnecting: false,
   isLoggingIn: false,
   isAuthenticated: false,
   isLoggedIn: false,
@@ -106,6 +108,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
   setSelectedResource: (artifact) => set({ selectedResource: artifact }),
   connect: async (config: ConnectionConfig) => {
+    set({ isConnecting: true, error: null });
     try {
       const client = hyphaWebsocketClient;
       const server = await client.connectToServer(config);
@@ -126,7 +129,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         isAuthenticated,
         isLoggedIn: isAuthenticated,
         user: server.config.user,
-        isInitialized: true
+        isInitialized: true,
+        isConnecting: false
       });
 
       return server;
@@ -140,12 +144,15 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         isAuthenticated: false,
         isLoggedIn: false,
         user: null,
-        isInitialized: false
+        isInitialized: false,
+        isConnecting: false,
+        error: (error instanceof Error) ? error.message : 'Connection failed'
       });
       throw error;
     }
   },
   fetchResources: async (page: number, searchQuery?: string, filterOptions?: FilterOptions) => {
+    set({ isLoading: true });
     try {
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
@@ -193,28 +200,29 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       
       set({ 
         resources: data.items || [],
-        totalItems: data.total || 0
+        totalItems: data.total || 0,
+        isLoading: false
       });
     } catch (error) {
       console.error('Error fetching resources:', error);
       set({ 
-        resources: [],
-        totalItems: 0
+        isLoading: false,
+        error: (error instanceof Error) ? error.message : 'Failed to fetch resources'
       });
     }
   },
-  fetchResource: async (id: string) => {
+  fetchResource: async (id: string, version?: string) => {
+    set({ isLoading: true, selectedResource: null, error: null });
     try {
-      set({ isLoading: true, error: null });
-      
       const [workspace, artifactName] = id.includes('/') 
         ? id.split('/')
         : ['bioimage-io', id];
-      const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}`;
+
+      const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
       
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to fetch artifact: ${response.statusText}`);
+        throw new Error(`Failed to fetch artifact: ${artifactName} ${version ? `version: ${version}` : ''}`);
       }
       
       const data = await response.json();

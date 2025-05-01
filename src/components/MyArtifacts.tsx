@@ -312,7 +312,7 @@ const MyArtifacts: React.FC = () => {
                   ]}
                   image={artifact.manifest?.cover || undefined}
                   downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
-                  onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}`)}
+                  onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
                   onDelete={() => {
                     setArtifactToDelete(artifact);
                     setIsDeleteDialogOpen(true);

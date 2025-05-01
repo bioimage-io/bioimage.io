@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { RiLoginBoxLine } from 'react-icons/ri';
-import { Link } from 'react-router-dom';
-import { useHyphaContext } from '../HyphaContext';
+import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 
@@ -23,6 +22,9 @@ interface LoginConfig {
 
 const serverUrl = "https://hypha.aicell.io";
 
+// Define key for sessionStorage
+const REDIRECT_PATH_KEY = 'redirectPath';
+
 // Move token logic outside of component
 const getSavedToken = () => {
   const token = localStorage.getItem("token");
@@ -38,9 +40,9 @@ const getSavedToken = () => {
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { client, user, connect, setUser, server } = useHyphaStore();
-  const { hyphaClient, setHyphaClient } = useHyphaContext();
+  const { client, user, connect, setUser, server, isConnecting, isConnected } = useHyphaStore();
   const navigate = useNavigate();
+  const location = useLocation(); // Get location
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -58,18 +60,22 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // Add logout handler
   const handleLogout = async () => {
     try {
-      // Disconnect from Hypha server if connected
-      if (hyphaClient) {
-        await hyphaClient.disconnect();
-        setHyphaClient(null);
+      // Disconnect from Hypha server if connected (using client directly from store)
+      if (client && isConnected) {
+        // Note: Hypha client might not have a dedicated disconnect.
+        // Assuming store handles disconnection logic when setUser(null) or similar.
+        // If explicit disconnect is needed, use client.disconnect() if available.
+        console.log("Disconnecting client (handled by store state change)");
       }
 
-      // Clear any auth tokens or user data from localStorage
+      // Clear any auth tokens or user data from localStorage and sessionStorage
       localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('tokenExpiry'); // Ensure expiry is also removed
+      localStorage.removeItem('user'); // Keep if used elsewhere, otherwise remove
+      sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear redirect path on logout
       
       // Perform existing logout logic
-      setUser(null);
+      setUser(null); // This might trigger disconnection in the store/client
       setIsDropdownOpen(false);
       
       // Optionally redirect to home page
@@ -83,13 +89,17 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     window.open(context.login_url);
   };
 
-  const login = async () => {    
+  const login = async () => {
     const config: LoginConfig = {
       server_url: serverUrl,
       login_callback: loginCallback,
     };
 
     try {
+      // Add check for client nullability (fixes linter error)
+      if (!client) {
+        throw new Error('Hypha client is not initialized');
+      }
       const token = await client.login(config);
       localStorage.setItem("token", token);
       localStorage.setItem("tokenExpiry", new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString());
@@ -101,37 +111,92 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   };
 
   const handleLogin = useCallback(async () => {
+    // Store the intended path BEFORE initiating login
+    // Use location.pathname for BrowserRouter or location.hash for HashRouter
+    // Assuming HashRouter based on snippet's use of location.hash
+    const currentPath = location.pathname !== '/' ? location.pathname + location.search + location.hash : null;
+    if (currentPath) {
+      sessionStorage.setItem(REDIRECT_PATH_KEY, currentPath);
+      console.log(`[LoginButton] Stored redirect path: ${currentPath}`);
+    }
+
     setIsLoggingIn(true);
-    
+
     try {
       let token = getSavedToken();
-      
+
       if (!token) {
         token = await login();
         if (!token) {
           throw new Error('Failed to obtain token');
         }
       }
+      // Remove method_timeout, let store handle defaults or configuration
       await connect({
         server_url: serverUrl,
         token: token,
-        method_timeout: 100, // 100 seconds
       });
+
+      // Redirect after successful connect (check server/user state from store)
+      // The useEffect hook below handles redirection based on `server` state change.
+
     } catch (error) {
       console.error("Error during login:", error);
       localStorage.removeItem("token");
       localStorage.removeItem("tokenExpiry");
+      sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear on error too
     } finally {
       setIsLoggingIn(false);
     }
-  }, [setUser, server]);
+    // Update dependencies: include location and connect
+  }, [connect, location.pathname, location.search, location.hash, navigate, login]);
 
+
+  // Auto-login on component mount if token exists and not connected/connecting
   useEffect(() => {
-    if (server) {
+    const autoLogin = async () => {
+      const token = getSavedToken();
+      // Only attempt auto-login if we have a token and are not already connected or connecting
+      if (token && !isConnected && !isConnecting) {
+        setIsLoggingIn(true); // Show visual feedback
+        try {
+          await connect({
+            server_url: serverUrl,
+            token: token,
+          });
+          // Redirection is handled by the effect watching `server` state below.
+        } catch (error) {
+          console.error("Auto-login failed:", error);
+          // Clear invalid token
+          localStorage.removeItem("token");
+          localStorage.removeItem("tokenExpiry");
+          sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear redirect path on error
+        } finally {
+          setIsLoggingIn(false);
+        }
+      }
+    };
+
+    autoLogin();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connect, isConnected, isConnecting]); // Dependencies for auto-login trigger
+
+  // Effect to set user when server connection is established and handle redirection
+  useEffect(() => {
+    if (server && server.config.user) {
       setUser(server.config.user);
       console.log("Logged in as:", server.config.user);
+
+      // Redirect after successful login/connect (both manual and auto)
+      const redirectPath = sessionStorage.getItem(REDIRECT_PATH_KEY);
+      if (redirectPath) {
+        console.log(`[LoginButton] Redirecting to stored path: ${redirectPath}`);
+        sessionStorage.removeItem(REDIRECT_PATH_KEY);
+        navigate(redirectPath); // Use the stored full path
+      }
     }
-  }, [server]);
+  }, [server, setUser, navigate]); // Dependencies: server determines user state and triggers redirection check
+
 
   return (
     <div className={className}>
@@ -140,13 +205,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
             className="text-gray-700 hover:text-gray-900 focus:outline-none"
+            aria-label="User profile menu" // Add aria-label (fixes linter error)
           >
             <UserCircleIcon className="h-6 w-6" />
           </button>
           
           {/* Dropdown Menu */}
           {isDropdownOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200">
+            <div id="user-dropdown" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200">
               <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
                 {user.email}
               </div>

@@ -70,12 +70,8 @@ const AppContent: React.FC = () => {
             element={<ArtifactDetails />} 
           />
           <Route 
-            path="/artifacts/:id" 
+            path="/artifacts/:id/:version?"
             element={<ArtifactDetails />} 
-          />
-          <Route 
-            path="/artifacts/:id/stage" 
-            element={<ArtifactDetails isStaged={true} />} 
           />
           <Route 
             path="/about" 
@@ -87,7 +83,7 @@ const AppContent: React.FC = () => {
           <Route path="/datasets" element={<ArtifactGrid type="dataset" />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/my-artifacts" element={<MyArtifacts />} />
-          <Route path="/edit/:artifactId" element={<Edit />} />
+          <Route path="/edit/:artifactId/:version?" element={<Edit />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/review" element={<ReviewArtifacts />} />
           <Route path="/api" element={<ApiDocs />} />

@@ -78,6 +78,8 @@ interface ValidationResult {
 }
 
 const Edit: React.FC = () => {
+  // get edit version from url
+  const { version:editVersion } = useParams<{ version: string }>();
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -104,7 +106,7 @@ const Edit: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isStaged, setIsStaged] = useState<boolean>(false);
+  const [isStaged, setIsStaged] = useState<boolean>(editVersion === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [newVersionData, setNewVersionData] = useState({
     copyFiles: true
@@ -210,16 +212,22 @@ const Edit: React.FC = () => {
 
   const loadArtifactFiles = async () => {
     if (!artifactManager || !artifactId || !server) return;
-    
     try {
       setUploadStatus({
         message: 'Loading files...',
         severity: 'info'
       });
-
+      if (!artifactId) {
+        setUploadStatus({
+          message: 'No artifact ID',
+          severity: 'error'
+        });
+        return;
+      }
       // Get artifact info
       const artifact = await artifactManager.read({
-        artifact_id: artifactId || '',
+        artifact_id: artifactId,
+        version: editVersion,
         _rkwargs: true
       });
       
@@ -243,16 +251,13 @@ const Edit: React.FC = () => {
         console.error('Error checking collection admin status:', error);
         setIsCollectionAdmin(false);
       }
-      
-      // Set isStaged based on artifact staging status
-      const staged = artifact.staging !== null;
-      setIsStaged(staged);
+    
       setArtifactInfo(artifact);
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
         artifact_id: artifactId || '',
-        version: staged ? 'stage' : 'latest',
+        version: isStaged ? 'stage' : 'latest', 
         _rkwargs: true
       });
 
@@ -310,7 +315,7 @@ const Edit: React.FC = () => {
       const url = await artifactManager.get_file({
         artifact_id: artifactId || '',
         file_path: file.path,
-        version: isStaged ? 'stage' : null,
+        version: editVersion,
         _rkwargs: true
       });
       
@@ -554,8 +559,9 @@ const Edit: React.FC = () => {
         try {
           // Create temporary stage
           await artifactManager.edit({
-            artifact_id: artifactId || '',
-            version: "stage",
+            artifact_id: artifactId,
+            stage: true,
+            version: editVersion,
             _rkwargs: true
           });
           needsStageCleanup = true;
@@ -622,7 +628,7 @@ const Edit: React.FC = () => {
 
             // Get the presigned URL for uploading
             const presignedUrl = await artifactManager.put_file({
-              artifact_id: artifactId || '',
+              artifact_id: artifactId,
               file_path: file.path,
               _rkwargs: true
             });
@@ -642,9 +648,9 @@ const Edit: React.FC = () => {
 
             // Update the manifest
             await artifactManager.edit({
-              artifact_id: artifactId || '',
+              artifact_id: artifactId,
               manifest: mergedManifest, // Use the merged manifest
-              version: 'stage',
+              version: editVersion,
               _rkwargs: true
             });
 
@@ -673,7 +679,7 @@ const Edit: React.FC = () => {
         } else {
           // Handle non-rdf.yaml files
           const presignedUrl = await artifactManager.put_file({
-            artifact_id: artifactId || '',
+            artifact_id: artifactId,
             file_path: file.path,
             _rkwargs: true
           });
@@ -695,8 +701,7 @@ const Edit: React.FC = () => {
         if (needsStageCleanup) {
           try {
             await artifactManager.commit({
-              artifact_id: artifactId || '',
-              version: null, // This will update the current version
+              artifact_id: artifactId,
               comment: `Updated ${file.path}`,
               _rkwargs: true
             });
@@ -756,8 +761,7 @@ const Edit: React.FC = () => {
       });
       
       const artifact = await artifactManager?.commit({
-        artifact_id: artifactId || '',
-        version: publishData.version?.trim() || null,
+        artifact_id: artifactId,
         comment: publishData.comment || 'Published to Model Zoo',
         _rkwargs: true
       });
@@ -1181,8 +1185,8 @@ const Edit: React.FC = () => {
     if (isCollectionAdmin && !isStaged) {
       try {
         await artifactManager.edit({
-          artifact_id: artifactId || '',
-          version: "stage",
+          artifact_id: artifactId,
+          stage: true,
           _rkwargs: true
         });
         needsStageCleanup = true;
@@ -1249,7 +1253,7 @@ const Edit: React.FC = () => {
           download_weight?: number;
           _rkwargs: boolean;
         } = {
-          artifact_id: artifactId || '',
+          artifact_id: artifactId,
           file_path: file.name,
           _rkwargs: true
         };
@@ -1277,8 +1281,7 @@ const Edit: React.FC = () => {
         if (isCollectionAdmin && !isStaged) {
           try {
             await artifactManager.commit({
-              artifact_id: artifactId || '',
-              version: null, // This will update the current version
+              artifact_id: artifactId,
               comment: `Added ${file.name}`,
               _rkwargs: true
             });
@@ -1344,8 +1347,8 @@ const Edit: React.FC = () => {
       if (isCollectionAdmin && !isStaged) {
         try {
           await artifactManager.edit({
-            artifact_id: artifactId || '',
-            version: "stage",
+            artifact_id: artifactId,
+            stage: true,
             _rkwargs: true
           });
           needsStageCleanup = true;
@@ -1360,7 +1363,7 @@ const Edit: React.FC = () => {
       }
 
       await artifactManager.remove_file({
-        artifact_id: artifactId || '',
+        artifact_id: artifactId,
         file_path: file.path,
         _rkwargs: true
       });
@@ -1369,8 +1372,7 @@ const Edit: React.FC = () => {
       if (isCollectionAdmin && !isStaged) {
         try {
           await artifactManager.commit({
-            artifact_id: artifactId || '',
-            version: null, // This will update the current version
+            artifact_id: artifactId,
             comment: `Deleted ${file.name}`,
             _rkwargs: true
           });
@@ -1958,7 +1960,7 @@ const Edit: React.FC = () => {
                     {artifactInfo.manifest.name}
                   </p>
                   <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                    {artifactInfo.staging !== null ? 'stage' : (lastVersion ? `v${lastVersion}` : '')}
+                    {isStaged ? 'stage' : (lastVersion || '')}
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-2">
