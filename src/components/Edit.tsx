@@ -79,7 +79,7 @@ interface ValidationResult {
 
 const Edit: React.FC = () => {
   // get edit version from url
-  const { version:editVersion } = useParams<{ version: string }>();
+  const { version } = useParams<{ version: string }>();
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -106,7 +106,8 @@ const Edit: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isStaged, setIsStaged] = useState<boolean>(editVersion === 'stage');
+  const [showDeleteVersionDialog, setShowDeleteVersionDialog] = useState(false);
+  const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [newVersionData, setNewVersionData] = useState({
     copyFiles: true
@@ -130,6 +131,10 @@ const Edit: React.FC = () => {
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [editVersion, setEditVersion] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setEditVersion(version);
+  }, [version]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -230,6 +235,10 @@ const Edit: React.FC = () => {
         version: editVersion,
         _rkwargs: true
       });
+      if(!editVersion) {
+        // get the last value of .versions
+        setEditVersion(artifact.versions[artifact.versions.length - 1].version);
+      }
       
       // Set artifact type from manifest
       setArtifactType(artifact.manifest?.type || null);
@@ -1013,18 +1022,27 @@ const Edit: React.FC = () => {
       {/* Only show New Version button if not in staging mode */}
       {!isStaged && (
         <div className="p-4 border-b bg-white space-y-2">
-        <button
-          onClick={() => setShowNewVersionDialog(true)}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          New Version
-        </button>
+          <button
+            onClick={() => setShowNewVersionDialog(true)}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            New Version
+          </button>
+          <button
+            onClick={() => setShowDeleteVersionDialog(true)}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete This Version
+          </button>
         </div>
       )}
-   </>
+    </>
   );
 
   // Update the publish confirmation dialog
@@ -1910,6 +1928,87 @@ const Edit: React.FC = () => {
     img.src = url;
   };
 
+  // Add handler for deleting a version
+  const handleDeleteVersion = async () => {
+    if (!artifactManager || !artifactId || !editVersion) return;
+
+    try {
+      setUploadStatus({
+        message: 'Deleting version...',
+        severity: 'info'
+      });
+
+      debugger;
+      await artifactManager.delete({
+        artifact_id: artifactId,
+        version: editVersion,
+        delete_files: true,
+        recursive: true,
+        _rkwargs: true
+      });
+
+      setUploadStatus({
+        message: 'Version deleted successfully',
+        severity: 'success'
+      });
+
+      // Close the dialog
+      setShowDeleteVersionDialog(false);
+
+      // Navigate back to My Artifacts
+      navigate('/my-artifacts');
+    } catch (error) {
+      console.error('Error deleting version:', error);
+      setUploadStatus({
+        message: 'Error deleting version',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Add this function before renderFileContent
+  const renderDeleteVersionDialog = () => (
+    <MuiDialog 
+      open={showDeleteVersionDialog} 
+      onClose={() => setShowDeleteVersionDialog(false)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Delete Version
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 text-red-800 mb-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h4 className="font-medium">Warning: This action cannot be undone</h4>
+            </div>
+            <p className="text-sm text-red-700">
+              You are about to permanently delete version {editVersion} of this artifact. This will remove all files and metadata associated with this version.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => setShowDeleteVersionDialog(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDeleteVersion}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+          >
+            Delete Version
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
   return (
     <div className="flex flex-col">
       {/* Header - make it fixed for small screens */}
@@ -2085,6 +2184,9 @@ const Edit: React.FC = () => {
       {renderDeleteConfirmDialog()}
 
       {renderNewVersionDialog()}
+
+      {/* Add Delete Version Dialog */}
+      {renderDeleteVersionDialog()}
 
       {/* Add ValidationErrorDialog */}
       <ValidationErrorDialog
