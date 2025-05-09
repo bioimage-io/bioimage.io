@@ -131,7 +131,7 @@ const Edit: React.FC = () => {
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [editVersion, setEditVersion] = useState<string | undefined>(undefined);
+  const [editVersion, setEditVersion] = useState<string | undefined>(version);
   useEffect(() => {
     setEditVersion(version);
   }, [version]);
