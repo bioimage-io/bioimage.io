@@ -66,13 +66,13 @@ const MyArtifacts: React.FC = () => {
       setLoading(true);
       const filters = {
         created_by: user.id,
-        version: showStagedOnly ? "stage" : "*",
       };
       
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
         limit: itemsPerPage,
+        stage: showStagedOnly ? "stage" : "all",
         offset: (myArtifactsPage - 1) * itemsPerPage,
         pagination: true,
         _rkwargs: true
