@@ -7,6 +7,7 @@ import { Grid, Chip, Divider } from '@mui/material';
 
 interface TagSelectionProps {
   onTagSelect: (tag: string) => void;
+  selectedTags?: string[];
 }
 
 export const tagCategories = {
@@ -50,7 +51,7 @@ export const tagCategories = {
   ]
 };
 
-const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect }) => {
+const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect, selectedTags = [] }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
 
@@ -131,22 +132,26 @@ const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect }) => {
                   {category.replace(/-/g, ' ')}
                 </ListSubheader>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {tags.map((tag) => (
-                    <Chip
-                      key={tag}
-                      label={tag}
-                      size="small"
-                      clickable
-                      onClick={() => handleTagClick(tag)}
-                      sx={{
-                        borderRadius: 1,
-                        bgcolor: 'action.selected',
-                        '&:hover': {
-                          bgcolor: 'action.hover'
-                        }
-                      }}
-                    />
-                  ))}
+                  {tags.map((tag) => {
+                    const isSelected = selectedTags.includes(tag);
+                    return (
+                      <Chip
+                        key={tag}
+                        label={tag}
+                        size="small"
+                        clickable
+                        onClick={() => handleTagClick(tag)}
+                        sx={{
+                          borderRadius: 1,
+                          bgcolor: isSelected ? 'primary.main' : 'action.selected',
+                          color: isSelected ? 'primary.contrastText' : 'inherit',
+                          '&:hover': {
+                            bgcolor: isSelected ? 'primary.dark' : 'action.hover'
+                          }
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             ))}

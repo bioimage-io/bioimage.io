@@ -73,7 +73,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   resources: [],
   resourceType: 'model',
   resourceTypes: [],
-  page: 0,
+  page: 1,
   itemsPerPage: 12,
   totalItems: 0,
   artifactManager: null,
@@ -101,7 +101,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setResourceTypes: (types) => {
     set((state) => ({
       resourceTypes: types,
-      page: 0  // Reset page when filter changes
+      page: 1  // Reset page to 1 when filter changes
     }));
   },
   setTotalItems: (total) => set({ totalItems: total }),
