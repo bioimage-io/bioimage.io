@@ -1938,7 +1938,6 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
 
-      debugger;
       await artifactManager.delete({
         artifact_id: artifactId,
         version: editVersion,
