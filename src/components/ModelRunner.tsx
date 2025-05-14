@@ -510,7 +510,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           
           {/* Button text */}
           <span className="hidden sm:inline">
-            {!isLoggedIn ? "Login to Run" : isRunning ? "Reload App" : "Initialize Model"}
+            {!isLoggedIn ? "Login to Run" : isRunning ? "Reload App" : "Run Model"}
           </span>
         </button>
         
