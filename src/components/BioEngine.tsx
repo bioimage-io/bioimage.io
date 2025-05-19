@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import { Card, CardContent, CardMedia, Button, IconButton, Box, Typography, Chip, Grid, Dialog, DialogTitle, DialogContent } from '@mui/material';
 
@@ -38,8 +38,15 @@ type ServiceStatus = {
   };
 };
 
+type BioEngineService = {
+  id: string;
+  name: string;
+  description: string;
+};
+
 const BioEngine: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const serviceId = searchParams.get('service_id');
   
@@ -48,6 +55,7 @@ const BioEngine: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
   
   // Placeholder for available artifacts
   const [availableArtifacts] = useState([
@@ -57,27 +65,52 @@ const BioEngine: React.FC = () => {
   ]);
 
   useEffect(() => {
-    const fetchStatus = async () => {
-      if (!serviceId || !isLoggedIn) {
-        setError(serviceId ? 'Please log in to view BioEngine status' : 'No service ID provided');
-        setLoading(false);
-        return;
-      }
+    if (!isLoggedIn) {
+      setError('Please log in to view BioEngine instances');
+      setLoading(false);
+      return;
+    }
 
-      try {
-        const bioengineWorker = await server.getService(serviceId);
-        const statusData = await bioengineWorker.get_status();
-        setError(null);
-        setStatus(statusData);
-        setLoading(false);
-      } catch (err) {
-        setError(`Failed to fetch BioEngine status: ${err instanceof Error ? err.message : String(err)}`);
-        setLoading(false);
-      }
-    };
-
-    fetchStatus();
+    if (serviceId) {
+      fetchStatus();
+    } else {
+      fetchBioEngineServices();
+    }
   }, [serviceId, server, isLoggedIn]);
+
+  const fetchBioEngineServices = async () => {
+    if (!isLoggedIn) return;
+
+    try {
+      setLoading(true);
+      const services = await server.listServices({"type": "bioengine-worker"});
+      setBioEngineServices(services);
+      setLoading(false);
+      setError(null);
+    } catch (err) {
+      setError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
+    }
+  };
+
+  const fetchStatus = async () => {
+    if (!serviceId || !isLoggedIn) {
+      setError(serviceId ? 'Please log in to view BioEngine status' : 'No service ID provided');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const bioengineWorker = await server.getService(serviceId);
+      const statusData = await bioengineWorker.get_status();
+      setError(null);
+      setStatus(statusData);
+      setLoading(false);
+    } catch (err) {
+      setError(`Failed to fetch BioEngine status: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
+    }
+  };
 
   const handleDeployArtifact = (artifactId: string) => {
     // Placeholder for deploy function
@@ -85,12 +118,58 @@ const BioEngine: React.FC = () => {
     setIsDialogOpen(false);
   };
 
+  const navigateToDashboard = (serviceId: string) => {
+    navigate(`/bioengine?service_id=${serviceId}`);
+  };
+
   if (loading) {
-    return <div className="flex justify-center items-center h-96">Loading BioEngine status...</div>;
+    return <div className="flex justify-center items-center h-96">Loading...</div>;
   }
 
   if (error) {
     return <div className="flex justify-center items-center h-96 text-red-500">{error}</div>;
+  }
+
+  // If no service_id is provided, show the list of BioEngine instances
+  if (!serviceId) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">BioEngine Instances</h1>
+        
+        {bioEngineServices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+            <p className="mb-4">No BioEngine instances available</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {bioEngineServices.map((service) => (
+              <Card key={service.id} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography variant="h5" component="div" gutterBottom>
+                    {service.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {service.description || 'No description available'}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 1 }}>
+                    ID: {service.id}
+                  </Typography>
+                </CardContent>
+                <Box sx={{ p: 2, pt: 0 }}>
+                  <Button 
+                    variant="contained" 
+                    fullWidth
+                    onClick={() => navigateToDashboard(service.id)}
+                  >
+                    View Dashboard
+                  </Button>
+                </Box>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (!status) {
