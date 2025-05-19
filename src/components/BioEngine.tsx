@@ -41,7 +41,7 @@ type ServiceStatus = {
 const BioEngine: React.FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  const serviceId = searchParams.get('service-id');
+  const serviceId = searchParams.get('service_id');
   
   const { server, isLoggedIn } = useHyphaStore();
   const [status, setStatus] = useState<ServiceStatus | null>(null);
