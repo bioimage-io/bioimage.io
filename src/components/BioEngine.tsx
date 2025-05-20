@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Card, CardContent, CardMedia, Button, IconButton, Box, Typography, Chip, Grid, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { Card, CardContent, CardMedia, Button, IconButton, Box, Typography, Chip, Grid, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 type ServiceStatus = {
   service: {
@@ -42,6 +43,17 @@ type BioEngineService = {
   id: string;
   name: string;
   description: string;
+  service?: any; // The actual service object
+};
+
+type ArtifactType = {
+  id: string;
+  name: string;
+  type: string;
+  workspace: string;
+  parent_id: string;
+  alias: string;
+  description?: string;
 };
 
 const BioEngine: React.FC = () => {
@@ -56,13 +68,11 @@ const BioEngine: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
-  
-  // Placeholder for available artifacts
-  const [availableArtifacts] = useState([
-    { id: 'artifact1', name: 'Example Artifact 1' },
-    { id: 'artifact2', name: 'Example Artifact 2' },
-    { id: 'artifact3', name: 'Example Artifact 3' },
-  ]);
+  const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
+  const [deploymentLoading, setDeploymentLoading] = useState(false);
+  const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
+  const [deploymentMode, setDeploymentMode] = useState<string | null>(null);
+  const [undeployingArtifactId, setUndeployingArtifactId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -112,10 +122,116 @@ const BioEngine: React.FC = () => {
     }
   };
 
-  const handleDeployArtifact = (artifactId: string) => {
-    // Placeholder for deploy function
-    console.log(`Deploying artifact: ${artifactId} to BioEngine ${serviceId}`);
-    setIsDialogOpen(false);
+  const fetchAvailableArtifacts = async () => {
+    if (!isLoggedIn || !serviceId) return;
+    
+    try {
+      setDeploymentLoading(true);
+      
+      // Get the artifact manager
+      const artifactManager = await server.getService('public/artifact-manager');
+      let allArtifacts: ArtifactType[] = [];
+      
+      // Get artifacts from bioimage.io workspace
+      try {
+        const collectionId = 'bioimage-io/ray-deployments';
+        const publicArtifacts = await artifactManager.list(collectionId);
+        allArtifacts = [...publicArtifacts];
+      } catch (err) {
+        console.warn(`Could not fetch public artifacts: ${err}`);
+      }
+      
+      // Check if user collection exists before fetching
+      try {
+        const userWorkspace = server.config.workspace;
+        if (userWorkspace) {
+          // First check if the collection exists by trying to get it
+          const userCollectionId = `${userWorkspace}/ray-deployments`;
+          
+          try {
+            // Try to access the collection first to see if it exists
+            await artifactManager.get(userCollectionId);
+            // If it exists, try to list its children
+            const userArtifacts = await artifactManager.list(userCollectionId);
+            allArtifacts = [...allArtifacts, ...userArtifacts];
+          } catch (collectionErr) {
+            // Collection doesn't exist, which is okay
+            console.log(`User collection ${userCollectionId} does not exist, skipping`);
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not access user artifacts: ${err}`);
+      }
+      
+      // Set the state with all artifacts found
+      setAvailableArtifacts(allArtifacts);
+      setDeploymentLoading(false);
+    } catch (err) {
+      console.error('Error fetching artifacts:', err);
+      setDeploymentLoading(false);
+    }
+  };
+
+  const handleOpenDeployDialog = async () => {
+    setIsDialogOpen(true);
+    await fetchAvailableArtifacts();
+  };
+  
+  const handleDeployArtifact = async (artifactId: string, mode: string | null = null) => {
+    if (!serviceId || !isLoggedIn) return;
+    
+    try {
+      setDeployingArtifactId(artifactId);
+      setDeploymentLoading(true);
+      
+      const bioengineWorker = await server.getService(serviceId);
+      
+      // Only pass mode if it's not null
+      let deploymentName;
+      if (mode) {
+        deploymentName = await bioengineWorker.deploy_artifact(artifactId, mode);
+      } else {
+        deploymentName = await bioengineWorker.deploy_artifact(artifactId);
+      }
+      
+      // Close dialog and refresh status
+      setIsDialogOpen(false);
+      await fetchStatus();
+      
+      setDeploymentLoading(false);
+      setDeployingArtifactId(null);
+      
+      // Success notification could be added here
+      console.log(`Successfully deployed ${artifactId} as ${deploymentName}`);
+    } catch (err) {
+      console.error('Deployment failed:', err);
+      setDeploymentLoading(false);
+      setDeployingArtifactId(null);
+      // Error notification could be added here
+    }
+  };
+
+  const handleUndeployArtifact = async (artifactId: string) => {
+    if (!serviceId || !isLoggedIn) return;
+    
+    try {
+      setUndeployingArtifactId(artifactId);
+      
+      const bioengineWorker = await server.getService(serviceId);
+      await bioengineWorker.undeploy_artifact(artifactId);
+      
+      // Refresh status
+      await fetchStatus();
+      
+      setUndeployingArtifactId(null);
+      
+      // Success notification could be added here
+      console.log(`Successfully undeployed ${artifactId}`);
+    } catch (err) {
+      console.error('Undeployment failed:', err);
+      setUndeployingArtifactId(null);
+      // Error notification could be added here
+    }
   };
 
   const navigateToDashboard = (serviceId: string) => {
@@ -259,15 +375,15 @@ const BioEngine: React.FC = () => {
                       {node.NodeID.substring(0, 8)}...
                     </td>
                     <td className="px-4 py-2">
-                      {node["Available CPU"]}/{node["Total CPU"]} ({node["CPU Utilization"]}%)
+                      {node["Available CPU"]}/{node["Total CPU"]} ({Math.round((node["Available CPU"] / node["Total CPU"]) * 100)}% available)
                     </td>
                     <td className="px-4 py-2">
-                      {node["Available GPU"]}/{node["Total GPU"]} ({node["GPU Utilization"]}%)
+                      {node["Available GPU"]}/{node["Total GPU"]} ({Math.round((node["Available GPU"] / node["Total GPU"]) * 100)}% available)
                     </td>
                     <td className="px-4 py-2">
                       {(node["Available Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB/
                       {(node["Total Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB
-                      ({node["Memory Utilization"]}%)
+                      ({Math.round((node["Available Memory"] / node["Total Memory"]) * 100)}% available)
                     </td>
                     <td className="px-4 py-2">
                       <Chip label="Alive" color="success" size="small" />
@@ -303,7 +419,7 @@ const BioEngine: React.FC = () => {
             <Typography variant="h6">Deployed Artifacts</Typography>
             <Button 
               variant="outlined"
-              onClick={() => setIsDialogOpen(true)}
+              onClick={handleOpenDeployDialog}
             >
               Add Deployment
             </Button>
@@ -315,11 +431,26 @@ const BioEngine: React.FC = () => {
                 <Box key={index} p={2} border={1} borderRadius={1} borderColor="divider">
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                     <Typography variant="subtitle1" fontWeight="medium">{deployment.name}</Typography>
-                    <Chip
-                      label={deployment.status}
-                      color={deployment.status === "RUNNING" ? "success" : "default"}
-                      size="small"
-                    />
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Chip
+                        label={deployment.status}
+                        color={deployment.status === "RUNNING" ? "success" : "default"}
+                        size="small"
+                      />
+                      {undeployingArtifactId === deployment.artifact_id ? (
+                        <CircularProgress size={24} />
+                      ) : (
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          onClick={() => handleUndeployArtifact(deployment.artifact_id)}
+                          disabled={!!undeployingArtifactId}
+                        >
+                          Undeploy
+                        </Button>
+                      )}
+                    </Box>
                   </Box>
                   <Grid container spacing={1}>
                     <Grid item xs={12} md={6}>
@@ -369,9 +500,35 @@ const BioEngine: React.FC = () => {
         onClose={() => setIsDialogOpen(false)}
         aria-labelledby="artifacts-dialog-title"
       >
-        <DialogTitle id="artifacts-dialog-title">Available Artifacts</DialogTitle>
+        <DialogTitle id="artifacts-dialog-title">
+          Available Artifacts
+          <IconButton
+            aria-label="close"
+            onClick={() => setIsDialogOpen(false)}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 1, pb: 2 }}>
+            {deploymentLoading && !deployingArtifactId && (
+              <Box display="flex" justifyContent="center" p={3}>
+                <Typography>Loading artifacts...</Typography>
+              </Box>
+            )}
+            
+            {!deploymentLoading && availableArtifacts.length === 0 && (
+              <Box display="flex" justifyContent="center" p={3}>
+                <Typography>No deployable artifacts found</Typography>
+              </Box>
+            )}
+            
             {availableArtifacts.map((artifact) => (
               <Box 
                 key={artifact.id} 
@@ -384,14 +541,22 @@ const BioEngine: React.FC = () => {
                 borderRadius={1}
                 borderColor="divider"
               >
-                <Typography>{artifact.name}</Typography>
-                <Button
-                  variant="contained"
-                  size="small"
-                  onClick={() => handleDeployArtifact(artifact.id)}
-                >
-                  Deploy
-                </Button>
+                <Box>
+                  <Typography variant="body1">{artifact.name || artifact.alias}</Typography>
+                  <Typography variant="caption" color="text.secondary">{artifact.id}</Typography>
+                </Box>
+                {deployingArtifactId === artifact.id ? (
+                  <CircularProgress size={24} />
+                ) : (
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={() => handleDeployArtifact(artifact.id)}
+                    disabled={deploymentLoading}
+                  >
+                    Deploy
+                  </Button>
+                )}
               </Box>
             ))}
           </Box>
@@ -401,4 +566,4 @@ const BioEngine: React.FC = () => {
   );
 };
 
-export default BioEngine; 
+export default BioEngine;
