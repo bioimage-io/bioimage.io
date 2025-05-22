@@ -27,14 +27,14 @@ type ServiceStatus = {
         "Memory Utilization": number;
       }>;
       Dead: Array<any>;
-    };
+    } | "N/A";
     start_time: string;
     uptime: string;
     autoscaler: any;
     note: string;
   };
   deployments: {
-    service_id: string;
+    service_id: string | null;
     [key: string]: any;
   };
 };
@@ -294,8 +294,11 @@ const BioEngine: React.FC = () => {
 
   // Extract deployment information
   const deployments = Object.entries(status.deployments)
-    .filter(([key]) => key !== 'service_id')
+    .filter(([key]) => key !== 'service_id' && key !== 'note')
     .map(([key, value]) => ({ name: key, ...value }));
+  
+  const hasDeployments = deployments.length > 0;
+  const deploymentServiceId = status.deployments.service_id;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -308,6 +311,10 @@ const BioEngine: React.FC = () => {
             <CardContent>
               <Typography variant="h6" gutterBottom>Service Information</Typography>
               <Box sx={{ mt: 2 }}>
+                <Box display="flex" justifyContent="space-between" mb={1}>
+                  <Typography variant="body1" fontWeight="medium">Service ID:</Typography>
+                  <Typography variant="body1">{serviceId}</Typography>
+                </Box>
                 <Box display="flex" justifyContent="space-between" mb={1}>
                   <Typography variant="body1" fontWeight="medium">Start Time:</Typography>
                   <Typography variant="body1">{status.service.start_time}</Typography>
@@ -349,68 +356,71 @@ const BioEngine: React.FC = () => {
         </Grid>
       </Grid>
       
-      {/* Worker Nodes */}
-      <Card className="mb-6">
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Worker Nodes</Typography>
-          </Box>
-          <div className="overflow-x-auto">
-            <table className="w-full table-auto">
-              <thead>
-                <tr className="border-b">
-                  <th className="px-4 py-2 text-left">Node IP</th>
-                  <th className="px-4 py-2 text-left">Node ID</th>
-                  <th className="px-4 py-2 text-left">CPU</th>
-                  <th className="px-4 py-2 text-left">GPU</th>
-                  <th className="px-4 py-2 text-left">Memory</th>
-                  <th className="px-4 py-2 text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {status.cluster.worker_nodes.Alive.map((node, index) => (
-                  <tr key={index} className="border-b">
-                    <td className="px-4 py-2">{node.NodeIP}</td>
-                    <td className="px-4 py-2 truncate max-w-[150px]" title={node.NodeID}>
-                      {node.NodeID.substring(0, 8)}...
-                    </td>
-                    <td className="px-4 py-2">
-                      {node["Available CPU"]}/{node["Total CPU"]} ({Math.round((node["Available CPU"] / node["Total CPU"]) * 100)}% available)
-                    </td>
-                    <td className="px-4 py-2">
-                      {node["Available GPU"]}/{node["Total GPU"]} ({Math.round((node["Available GPU"] / node["Total GPU"]) * 100)}% available)
-                    </td>
-                    <td className="px-4 py-2">
-                      {(node["Available Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB/
-                      {(node["Total Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB
-                      ({Math.round((node["Available Memory"] / node["Total Memory"]) * 100)}% available)
-                    </td>
-                    <td className="px-4 py-2">
-                      <Chip label="Alive" color="success" size="small" />
-                    </td>
+      {/* Worker Nodes - Only display if worker nodes information is available */}
+      {status.cluster.worker_nodes !== "N/A" && (
+        <Card className="mb-6">
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h6">Worker Nodes</Typography>
+            </Box>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full table-auto">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-4 py-2 text-left">Node IP</th>
+                    <th className="px-4 py-2 text-left">Node ID</th>
+                    <th className="px-4 py-2 text-left">CPU</th>
+                    <th className="px-4 py-2 text-left">GPU</th>
+                    <th className="px-4 py-2 text-left">Memory</th>
+                    <th className="px-4 py-2 text-left">Status</th>
                   </tr>
-                ))}
-                {status.cluster.worker_nodes.Dead.map((node, index) => (
-                  <tr key={`dead-${index}`} className="border-b">
-                    <td className="px-4 py-2" colSpan={5}>
-                      {JSON.stringify(node)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <Chip label="Dead" color="error" size="small" />
-                    </td>
-                  </tr>
-                ))}
-                {status.cluster.worker_nodes.Alive.length === 0 && 
-                 status.cluster.worker_nodes.Dead.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-2 text-center">No worker nodes available</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {status.cluster.worker_nodes.Alive.map((node, index) => (
+                    <tr key={index} className="border-b">
+                      <td className="px-4 py-2">{node.NodeIP}</td>
+                      <td className="px-4 py-2 truncate max-w-[150px]" title={node.NodeID}>
+                        {node.NodeID.substring(0, 8)}...
+                      </td>
+                      <td className="px-4 py-2">
+                        {node["Available CPU"]}/{node["Total CPU"]} ({Math.round((node["Available CPU"] / node["Total CPU"]) * 100)}% available)
+                      </td>
+                      <td className="px-4 py-2">
+                        {node["Available GPU"]}/{node["Total GPU"]} ({Math.round((node["Available GPU"] / node["Total GPU"]) * 100)}% available)
+                      </td>
+                      <td className="px-4 py-2">
+                        {(node["Available Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB/
+                        {(node["Total Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB
+                        ({Math.round((node["Available Memory"] / node["Total Memory"]) * 100)}% available)
+                      </td>
+                      <td className="px-4 py-2">
+                        <Chip label="Alive" color="success" size="small" />
+                      </td>
+                    </tr>
+                  ))}
+                  {status.cluster.worker_nodes.Dead.map((node, index) => (
+                    <tr key={`dead-${index}`} className="border-b">
+                      <td className="px-4 py-2" colSpan={5}>
+                        {JSON.stringify(node)}
+                      </td>
+                      <td className="px-4 py-2">
+                        <Chip label="Dead" color="error" size="small" />
+                      </td>
+                    </tr>
+                  ))}
+                  {status.cluster.worker_nodes.Alive.length === 0 && 
+                   status.cluster.worker_nodes.Dead.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-2 text-center">No worker nodes available</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       
       {/* Deployments */}
       <Card>
@@ -425,8 +435,21 @@ const BioEngine: React.FC = () => {
             </Button>
           </Box>
           
-          {deployments.length > 0 ? (
+          {hasDeployments ? (
             <div className="space-y-4">
+              {/* Display Deployment Service ID */}
+              {deploymentServiceId && (
+                <Box mb={3}>
+                  <Typography variant="body2" fontWeight="medium" gutterBottom>
+                    Deployment Service ID:
+                  </Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+                    {deploymentServiceId}
+                  </Typography>
+                </Box>
+              )}
+              
+              {/* List all deployed artifacts */}
               {deployments.map((deployment, index) => (
                 <Box key={index} p={2} border={1} borderRadius={1} borderColor="divider">
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
@@ -468,6 +491,20 @@ const BioEngine: React.FC = () => {
                         <span style={{ fontWeight: 500 }}>Duration:</span> {deployment.duration_since}
                       </Typography>
                     </Grid>
+                    {deployment.ModelRunner && (
+                      <Grid item xs={12} md={6}>
+                        <Box display="flex" alignItems="center">
+                          <Typography variant="body2" style={{ fontWeight: 500 }} mr={1}>
+                            ModelRunner Status:
+                          </Typography>
+                          <Chip
+                            label={deployment.ModelRunner.status}
+                            color={deployment.ModelRunner.status === "HEALTHY" ? "success" : "warning"}
+                            size="small"
+                          />
+                        </Box>
+                      </Grid>
+                    )}
                     {deployment.ChironModel && (
                       <Grid item xs={12} md={6}>
                         <Box display="flex" alignItems="center">
@@ -488,7 +525,9 @@ const BioEngine: React.FC = () => {
             </div>
           ) : (
             <Box textAlign="center" py={4}>
-              <Typography variant="body1" color="text.secondary">No deployments found</Typography>
+              <Typography variant="body1" color="text.secondary">
+                {status.deployments.note || "No deployments found. Deploy an artifact to get started."}
+              </Typography>
             </Box>
           )}
         </CardContent>
