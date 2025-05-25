@@ -235,6 +235,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                 My Artifacts
               </Link>
               
+              <Link
+                to="/bioengine"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                onClick={() => setIsDropdownOpen(false)}
+              >
+                BioEngine
+              </Link>
+              
               {/* Add API Documentation link */}
               <Link
                 to="/api"
@@ -274,4 +282,4 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       )}
     </div>
   );
-} 
+}
