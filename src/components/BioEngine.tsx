@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Card, CardContent, CardMedia, Button, IconButton, Box, Typography, Chip, Grid, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, Switch, FormControlLabel, List, ListItem, ListItemText, Divider, TextField } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import SearchIcon from '@mui/icons-material/Search';
+import Editor from '@monaco-editor/react';
+import yaml from 'js-yaml';
 
 type ServiceStatus = {
   service: {
@@ -122,18 +121,28 @@ const BioEngine: React.FC = () => {
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
-  const [deploymentMode, setDeploymentMode] = useState<string | null>(null);
   const [undeployingArtifactId, setUndeployingArtifactId] = useState<string | null>(null);
   const [artifactModes, setArtifactModes] = useState<Record<string, string>>({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
-  const [timeUpdater, setTimeUpdater] = useState<number>(0);
   const [artifactManager, setArtifactManager] = useState<any>(null);
   const [customServiceId, setCustomServiceId] = useState('');
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [customToken, setCustomToken] = useState('');
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  
+  // Create/Edit App Dialog state
+  const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
+  const [editingArtifact, setEditingArtifact] = useState<ArtifactType | null>(null);
+  const [activeEditorTab, setActiveEditorTab] = useState(0);
+  const [createAppLoading, setCreateAppLoading] = useState(false);
+  const [createAppError, setCreateAppError] = useState<string | null>(null);
+  
+  // File management state
+  const [files, setFiles] = useState<Array<{name: string, content: string, language: string}>>([]);
+  const [editingFileName, setEditingFileName] = useState<string | null>(null);
+  const [newFileName, setNewFileName] = useState('');
   
   useEffect(() => {
     if (!isLoggedIn) {
@@ -156,6 +165,9 @@ const BioEngine: React.FC = () => {
 
     if (serviceId) {
       fetchStatus();
+      
+      // Load available artifacts when component mounts with serviceId
+      fetchAvailableArtifacts();
       
       // Set up auto-refresh if enabled
       if (autoRefreshEnabled) {
@@ -209,14 +221,7 @@ const BioEngine: React.FC = () => {
     return { formattedTime, uptime };
   };
   
-  // Add a useEffect for real-time uptime updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeUpdater(prev => prev + 1);
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  // Real-time uptime updates are handled by the auto-refresh mechanism
 
   const fetchBioEngineServices = async () => {
     if (!isLoggedIn) return;
@@ -224,7 +229,21 @@ const BioEngine: React.FC = () => {
     try {
       setLoading(true);
       const services = await server.listServices({"type": "bioengine-worker"});
-      setBioEngineServices(services);
+      
+      // Add default BioEngine instance
+      const defaultService: BioEngineService = {
+        id: "bioimage-io/bioengine-worker",
+        name: "BioImage.IO BioEngine Worker",
+        description: "Default BioEngine worker instance for the BioImage.IO community"
+      };
+      
+      // Check if the default service is already in the list
+      const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);
+      
+      // Add default service to the beginning of the list if not already present
+      const allServices = hasDefaultService ? services : [defaultService, ...services];
+      
+      setBioEngineServices(allServices);
       setLoading(false);
       setError(null);
     } catch (err) {
@@ -259,9 +278,9 @@ const BioEngine: React.FC = () => {
             if (artifactId) {
               try {
                 // Always use the full artifact ID (workspace/alias format)
-                const manifest = await artifactManager.read(artifactId);
-                if (manifest) {
-                  (deployment as any).manifest = manifest.manifest;
+                const artifact = await artifactManager.read(artifactId);
+                if (artifact) {
+                  (deployment as any).manifest = artifact.manifest;
                 }
               } catch (err) {
                 console.warn(`Failed to fetch manifest for deployed artifact ${artifactId}:`, err);
@@ -359,35 +378,35 @@ const BioEngine: React.FC = () => {
         const combinedArtifacts = [...publicArtifacts, ...userArtifacts];
         
         // Process all artifacts in a single loop
-        for (const artifact of combinedArtifacts) {
+        for (const art of combinedArtifacts) {
           try {
-            console.log(`Processing artifact: ${artifact.id}, alias: ${artifact.alias}, workspace: ${artifact.workspace}`);
+            console.log(`Processing artifact: ${art.id}, alias: ${art.alias}, workspace: ${art.workspace}`);
             
             // Use the full artifact ID to fetch the manifest
-            const manifest = await artifactManager.read(artifact.id);
+            const artifactData = await artifactManager.read(art.id);
             
-            if (manifest) {
-              artifact.manifest = manifest.manifest;
+            if (artifactData) {
+              art.manifest = artifactData.manifest;
               
               // Debug the deployment_config.modes structure
-              if (artifact.manifest?.deployment_config?.modes) {
-                console.log(`${artifact.id} has modes:`, 
-                  JSON.stringify(artifact.manifest.deployment_config.modes));
+              if (art.manifest?.deployment_config?.modes) {
+                console.log(`${art.id} has modes:`, 
+                  JSON.stringify(art.manifest.deployment_config.modes));
               } else {
-                console.log(`${artifact.id} does not have deployment_config.modes`);
+                console.log(`${art.id} does not have deployment_config.modes`);
               }
               
-              const { supportedModes, defaultMode } = determineArtifactSupportedModes(artifact);
-              console.log(`${artifact.id} supported modes:`, supportedModes, `Default: ${defaultMode}`);
+              const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
+              console.log(`${art.id} supported modes:`, supportedModes, `Default: ${defaultMode}`);
               
-              artifact.supportedModes = supportedModes;
-              artifact.defaultMode = defaultMode;
-              modeSettings[artifact.id] = defaultMode;
+              art.supportedModes = supportedModes;
+              art.defaultMode = defaultMode;
+              modeSettings[art.id] = defaultMode;
             } else {
-              console.log(`No manifest found for ${artifact.id}`);
+              console.log(`No manifest found for ${art.id}`);
             }
           } catch (err) {
-            console.warn(`Failed to fetch manifest for ${artifact.id}:`, err);
+            console.warn(`Failed to fetch manifest for ${art.id}:`, err);
           }
         }
         
@@ -498,7 +517,7 @@ const BioEngine: React.FC = () => {
     
     try {
       // Try to connect to the service
-      const service = await server.getService(customServiceId);
+      await server.getService(customServiceId);
       
       // If successful, navigate to the dashboard
       navigateToDashboard(customServiceId);
@@ -525,7 +544,7 @@ const BioEngine: React.FC = () => {
     
     try {
       // Try to connect with token
-      const service = await server.getService(customServiceId, { token: customToken });
+      await server.getService(customServiceId, { token: customToken });
       
       // If successful, navigate to the dashboard
       setTokenDialogOpen(false);
@@ -542,6 +561,273 @@ const BioEngine: React.FC = () => {
     setTokenDialogOpen(false);
     setCustomToken('');
     setConnectionError(null);
+  };
+
+  // Default templates for new apps
+  const getDefaultManifest = () => `id: my-new-app
+name: My New App
+description: A new BioEngine application
+id_emoji: 🚀
+type: application
+deployment_config:
+  name: MyNewApp
+  num_replicas: 1
+  ray_actor_options:
+    num_cpus: 1
+    num_gpus: 0
+  modes:
+    cpu:
+      ray_actor_options:
+        num_cpus: 1
+        num_gpus: 0
+    gpu:
+      ray_actor_options:
+        num_cpus: 1
+        num_gpus: 1
+deployment_class:
+  class_name: MyNewApp
+  python_file: main.py
+  exposed_methods:
+    ping:
+      authorized_users: "*"
+    process:
+      authorized_users: "*"
+  kwargs: {}
+`;
+
+  const getDefaultMainPy = () => `import time
+from datetime import datetime
+
+class MyNewApp:
+    """A simple BioEngine application example."""
+    
+    def __init__(self):
+        """Initialize the application."""
+        self.start_time = time.time()
+        print("MyNewApp initialized successfully!")
+    
+    def ping(self):
+        """Simple ping method to test connectivity."""
+        return {
+            "status": "ok",
+            "message": "Hello from MyNewApp!",
+            "timestamp": datetime.now().isoformat(),
+            "uptime": time.time() - self.start_time
+        }
+    
+    def process(self, data=None):
+        """Process some data - customize this for your use case."""
+        if data is None:
+            data = "No data provided"
+        
+        return {
+            "status": "processed",
+            "input": data,
+            "output": f"Processed: {data}",
+            "timestamp": datetime.now().isoformat()
+        }
+`;
+
+  // Helper functions for file management
+  const getFileLanguage = (fileName: string): string => {
+    const extension = fileName.toLowerCase().split('.').pop() || '';
+    const languageMap: Record<string, string> = {
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'py': 'python',
+      'js': 'javascript',
+      'ts': 'typescript',
+      'json': 'json',
+      'md': 'markdown',
+      'txt': 'plaintext',
+      'sh': 'shell',
+      'dockerfile': 'dockerfile'
+    };
+    return languageMap[extension] || 'plaintext';
+  };
+
+  const updateFileContent = (fileName: string, content: string) => {
+    setFiles(prevFiles => 
+      prevFiles.map(file => 
+        file.name === fileName ? { ...file, content } : file
+      )
+    );
+  };
+
+  const addNewFile = (fileName: string, content: string = '') => {
+    const language = getFileLanguage(fileName);
+    setFiles(prevFiles => [...prevFiles, { name: fileName, content, language }]);
+  };
+
+  const removeFile = (fileName: string) => {
+    setFiles(prevFiles => prevFiles.filter(file => file.name !== fileName));
+    // If we're removing the active tab, switch to the first tab
+    const fileIndex = files.findIndex(file => file.name === fileName);
+    if (fileIndex === activeEditorTab && files.length > 1) {
+      setActiveEditorTab(0);
+    }
+  };
+
+  const renameFile = (oldName: string, newName: string) => {
+    if (oldName === newName || files.some(file => file.name === newName)) return;
+    
+    setFiles(prevFiles => 
+      prevFiles.map(file => 
+        file.name === oldName 
+          ? { ...file, name: newName, language: getFileLanguage(newName) }
+          : file
+      )
+    );
+  };
+
+  // Create App Dialog handlers
+  const handleOpenCreateAppDialog = () => {
+    setEditingArtifact(null);
+    setFiles([
+      { name: 'manifest.yaml', content: getDefaultManifest(), language: 'yaml' },
+      { name: 'main.py', content: getDefaultMainPy(), language: 'python' }
+    ]);
+    setActiveEditorTab(0);
+    setCreateAppError(null);
+    setCreateAppDialogOpen(true);
+  };
+
+  const handleOpenEditAppDialog = async (artifact: ArtifactType) => {
+    setEditingArtifact(artifact);
+    setActiveEditorTab(0);
+    setCreateAppError(null);
+    setCreateAppLoading(true);
+    
+    try {
+      // Try to fetch the actual files first
+      let manifestText = '';
+      let mainPyText = '';
+      
+      try {
+        // Fetch the artifact files
+        const manifestUrl = await artifactManager.get_file(artifact.id, 'manifest.yaml');
+        const mainPyUrl = await artifactManager.get_file(artifact.id, 'main.py');
+        
+        // Download the files
+        const [manifestResponse, mainPyResponse] = await Promise.all([
+          fetch(manifestUrl),
+          fetch(mainPyUrl)
+        ]);
+        
+        manifestText = await manifestResponse.text();
+        mainPyText = await mainPyResponse.text();
+      } catch (fileErr) {
+        console.warn('Could not fetch original files, using manifest data:', fileErr);
+        
+        // Fallback: use the manifest object and convert to YAML
+        if (artifact.manifest) {
+          manifestText = yaml.dump(artifact.manifest, {
+            indent: 2,
+            lineWidth: 120,
+            noRefs: true
+          });
+        } else {
+          manifestText = getDefaultManifest();
+        }
+        
+        // For main.py, use default template if we can't fetch the original
+        mainPyText = getDefaultMainPy();
+      }
+      
+      setFiles([
+        { name: 'manifest.yaml', content: manifestText, language: 'yaml' },
+        { name: 'main.py', content: mainPyText, language: 'python' }
+      ]);
+      setCreateAppDialogOpen(true);
+    } catch (err) {
+      console.error('Failed to load artifact files for editing:', err);
+      setCreateAppError(`Failed to load artifact files: ${err}`);
+    } finally {
+      setCreateAppLoading(false);
+    }
+  };
+
+  const handleCloseCreateAppDialog = () => {
+    setCreateAppDialogOpen(false);
+    setEditingArtifact(null);
+    setFiles([]);
+    setCreateAppError(null);
+    setEditingFileName(null);
+    setNewFileName('');
+  };
+
+  const handleCreateOrUpdateApp = async () => {
+    if (!serviceId || !isLoggedIn) return;
+    
+    setCreateAppLoading(true);
+    setCreateAppError(null);
+    
+    try {
+      const bioengineWorker = await server.getService(serviceId);
+      
+      // Prepare files for create_artifact
+      const filesToUpload = files.map(file => ({
+        name: file.name,
+        content: file.content,
+        type: 'text'
+      }));
+      
+      // Call create_artifact (this handles both create and update)
+      const artifactId = editingArtifact ? editingArtifact.id : undefined;
+      await bioengineWorker.create_artifact(filesToUpload, artifactId);
+      
+      // Close dialog and refresh artifacts list
+      handleCloseCreateAppDialog();
+      await fetchAvailableArtifacts();
+      
+      console.log(`Successfully ${editingArtifact ? 'updated' : 'created'} artifact`);
+    } catch (err) {
+      console.error('Failed to create/update artifact:', err);
+      setCreateAppError(`Failed to ${editingArtifact ? 'update' : 'create'} artifact: ${err}`);
+    } finally {
+      setCreateAppLoading(false);
+    }
+  };
+
+  // File management handlers
+  const handleAddNewFile = () => {
+    if (!newFileName.trim()) return;
+    
+    // Check if file already exists
+    if (files.some(file => file.name === newFileName.trim())) {
+      setCreateAppError(`File "${newFileName.trim()}" already exists`);
+      return;
+    }
+    
+    addNewFile(newFileName.trim());
+    setActiveEditorTab(files.length); // Switch to the new file
+    setNewFileName('');
+    setCreateAppError(null);
+  };
+
+  const handleFileNameEdit = (fileName: string) => {
+    setEditingFileName(fileName);
+    setNewFileName(fileName);
+  };
+
+  const handleFileNameSave = () => {
+    if (!editingFileName || !newFileName.trim()) return;
+    
+    // Check if new name already exists
+    if (newFileName.trim() !== editingFileName && files.some(file => file.name === newFileName.trim())) {
+      setCreateAppError(`File "${newFileName.trim()}" already exists`);
+      return;
+    }
+    
+    renameFile(editingFileName, newFileName.trim());
+    setEditingFileName(null);
+    setNewFileName('');
+    setCreateAppError(null);
+  };
+
+  const handleFileNameCancel = () => {
+    setEditingFileName(null);
+    setNewFileName('');
   };
 
   if (loading) {
@@ -842,16 +1128,17 @@ const BioEngine: React.FC = () => {
         </Card>
       )}
       
+      
       {/* Deployments */}
       <Card>
         <CardContent>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Deployed Artifacts</Typography>
+            <Typography variant="h6">Deployed BioEngine Apps</Typography>
             <Button 
               variant="outlined"
               onClick={handleOpenDeployDialog}
             >
-              Add Deployment
+              + Deploy App
             </Button>
           </Box>
           
@@ -1018,6 +1305,337 @@ const BioEngine: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <Divider />
+
+      {/* Available Apps Section */}
+      <Card className="mb-6">
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6">Available Apps</Typography>
+            <Box display="flex" gap={1}>
+              <Button 
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleOpenCreateAppDialog}
+                disabled={deploymentLoading}
+              >
+                Create App
+              </Button>
+              <Button 
+                variant="outlined"
+                onClick={fetchAvailableArtifacts}
+                disabled={deploymentLoading}
+              >
+                {deploymentLoading ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                {availableArtifacts.length > 0 ? 'Refresh' : 'Load Artifacts'}
+              </Button>
+            </Box>
+          </Box>
+          
+          {deploymentLoading && availableArtifacts.length === 0 && (
+            <Box display="flex" justifyContent="center" p={3}>
+              <Typography>Loading artifacts...</Typography>
+            </Box>
+          )}
+          
+          {!deploymentLoading && availableArtifacts.length === 0 && (
+            <Box display="flex" justifyContent="center" p={3}>
+              <Typography color="text.secondary">No deployable artifacts found. Click "Load Artifacts" to fetch available artifacts.</Typography>
+            </Box>
+          )}
+          
+          {availableArtifacts.length > 0 && (
+            <div className="space-y-3">
+              {availableArtifacts.map((artifact) => (
+                <Box 
+                  key={artifact.id} 
+                  p={2}
+                  border={1}
+                  borderRadius={1}
+                  borderColor="divider"
+                  sx={{ backgroundColor: 'background.paper' }}
+                >
+                  <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                    <Box sx={{ flex: 1, mr: 2 }}>
+                      <Typography variant="h6" gutterBottom>
+                        {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                        {artifact.id}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        {artifact.manifest?.description || artifact.description || "No description available"}
+                      </Typography>
+                      
+                      {/* Show supported modes */}
+                      <Box display="flex" alignItems="center" gap={1} mt={1}>
+                        <Typography variant="body2" fontWeight="medium">
+                          Modes:
+                        </Typography>
+                        {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
+                          <>
+                            <Chip label="CPU" size="small" variant="outlined" color="primary" />
+                            <Chip label="GPU" size="small" variant="outlined" color="secondary" />
+                          </>
+                        ) : (
+                          <Chip 
+                            label={artifact.defaultMode === 'gpu' ? "GPU Only" : "CPU Only"} 
+                            size="small" 
+                            variant="outlined" 
+                            color={artifact.defaultMode === 'gpu' ? "secondary" : "primary"}
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                    
+                    <Box display="flex" flexDirection="column" alignItems="flex-end" gap={1}>
+                      {/* Mode selector for artifacts that support both CPU and GPU */}
+                      {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) && (
+                        <FormControlLabel
+                          control={
+                            <Switch 
+                              checked={artifactModes[artifact.id] === 'gpu'}
+                              onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
+                              size="small"
+                            />
+                          }
+                          label={artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
+                          sx={{ m: 0 }}
+                        />
+                      )}
+                      
+                      {/* Action buttons */}
+                      <Box display="flex" gap={1}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<EditIcon />}
+                          onClick={() => handleOpenEditAppDialog(artifact)}
+                          disabled={deploymentLoading || createAppLoading}
+                        >
+                          Edit
+                        </Button>
+                        
+                        {/* Deploy button */}
+                        {deployingArtifactId === artifact.id ? (
+                          <CircularProgress size={24} />
+                        ) : (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
+                            disabled={deploymentLoading}
+                          >
+                            Deploy
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  </Box>
+                </Box>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+
+      {/* Create/Edit App Dialog */}
+      <Dialog
+        open={createAppDialogOpen}
+        onClose={handleCloseCreateAppDialog}
+        aria-labelledby="create-app-dialog-title"
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: { height: '90vh', borderRadius: 2 }
+        }}
+      >
+        <DialogTitle 
+          id="create-app-dialog-title"
+          sx={{ 
+            pb: 1, 
+            borderBottom: 1, 
+            borderColor: 'divider',
+            backgroundColor: 'background.paper'
+          }}
+        >
+          <Typography variant="h6" component="div">
+            {editingArtifact ? `Edit app: ${editingArtifact.manifest?.name || editingArtifact.alias}` : 'Create new app'}
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseCreateAppDialog}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          {/* Tab Navigation with Add Button */}
+          <Box sx={{ 
+            borderBottom: 1, 
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+            display: 'flex',
+            alignItems: 'center'
+          }}>
+            <Tabs 
+              value={activeEditorTab} 
+              onChange={(_, newValue) => setActiveEditorTab(newValue)}
+              sx={{ flex: 1 }}
+              variant="scrollable"
+              scrollButtons="auto"
+            >
+              {files.map((file, index) => (
+                <Tab 
+                  key={file.name}
+                  label={
+                    editingFileName === file.name ? (
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <TextField
+                          size="small"
+                          value={newFileName}
+                          onChange={(e) => setNewFileName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleFileNameSave();
+                            if (e.key === 'Escape') handleFileNameCancel();
+                          }}
+                          onBlur={handleFileNameSave}
+                          autoFocus
+                          sx={{ 
+                            '& .MuiInputBase-input': { 
+                              fontSize: '0.875rem',
+                              py: 0.5,
+                              px: 1
+                            }
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <Box 
+                        display="flex" 
+                        alignItems="center" 
+                        gap={1}
+                        onDoubleClick={() => handleFileNameEdit(file.name)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <Typography variant="body2">{file.name}</Typography>
+                        {files.length > 2 && (
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFile(file.name);
+                            }}
+                            sx={{ ml: 0.5, p: 0.25 }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+                    )
+                  }
+                />
+              ))}
+            </Tabs>
+            
+            {/* Add New File Button */}
+            <Box sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TextField
+                size="small"
+                placeholder="filename.ext"
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddNewFile();
+                }}
+                sx={{ 
+                  width: 120,
+                  '& .MuiInputBase-input': { 
+                    fontSize: '0.75rem',
+                    py: 0.5
+                  }
+                }}
+              />
+              <IconButton
+                size="small"
+                onClick={handleAddNewFile}
+                disabled={!newFileName.trim()}
+                color="primary"
+              >
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+          
+          {/* Error Display */}
+          {createAppError && (
+            <Box sx={{ 
+              p: 2, 
+              backgroundColor: 'error.light', 
+              color: 'error.contrastText',
+              borderBottom: 1,
+              borderColor: 'divider'
+            }}>
+              <Typography variant="body2">{createAppError}</Typography>
+            </Box>
+          )}
+          
+          {/* Editor Content */}
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            {files.length > 0 && files[activeEditorTab] && (
+              <Editor
+                height="100%"
+                language={files[activeEditorTab].language}
+                value={files[activeEditorTab].content}
+                onChange={(value) => updateFileContent(files[activeEditorTab].name, value || '')}
+                options={{
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 14,
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  tabSize: 2,
+                  insertSpaces: true,
+                }}
+                theme="vs-dark"
+              />
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: 1, 
+          borderColor: 'divider',
+          backgroundColor: 'background.paper'
+        }}>
+          <Button onClick={handleCloseCreateAppDialog} disabled={createAppLoading}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleCreateOrUpdateApp}
+            disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
+          >
+            {createAppLoading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                {editingArtifact ? 'Updating...' : 'Creating...'}
+              </>
+            ) : (
+              editingArtifact ? 'Update app' : 'Create app'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Dialog for available artifacts */}
       <Dialog
