@@ -145,31 +145,29 @@ const BioEngine: React.FC = () => {
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
-    if (!isLoggedIn) {
-      // Clear any existing timeout
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-      }
-      
-      // Set a delay before showing the login error to allow time for login process
-      const timeout = setTimeout(() => {
-        if (!isLoggedIn) {  
-          setError('Please log in to view BioEngine instances');
-          setLoading(false);
-        }
-      }, 4000); // 2 second delay
-      
-      setLoginErrorTimeout(timeout);
-      return;
-    }
-    
-    // Clear the login error timeout if user is logged in
+    // Clear any existing timeout first
     if (loginErrorTimeout) {
       clearTimeout(loginErrorTimeout);
       setLoginErrorTimeout(null);
     }
+
+    if (!isLoggedIn) {
+      // Set a delay before showing the login error to allow time for login process
+      const timeout = setTimeout(() => {
+        // Double-check login status when timeout fires
+        if (!isLoggedIn) {  
+          setError('Please log in to view BioEngine instances');
+          setLoading(false);
+        }
+      }, 3000); // 3 second delay
+      
+      setLoginErrorTimeout(timeout);
+      return () => {
+        clearTimeout(timeout);
+      };
+    }
     
-    // Clear any existing error when user is logged in
+    // User is logged in - clear any existing error
     setError(null);
 
     const initArtifactManager = async () => {
@@ -193,11 +191,18 @@ const BioEngine: React.FC = () => {
         }, 5000);
         
         setRefreshInterval(interval);
+        
+        return () => {
+          clearInterval(interval);
+        };
       }
     } else {
       fetchBioEngineServices();
     }
+  }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
 
+  // Separate cleanup effect for component unmount
+  useEffect(() => {
     return () => {
       if (refreshInterval) {
         clearInterval(refreshInterval);
@@ -206,7 +211,7 @@ const BioEngine: React.FC = () => {
         clearTimeout(loginErrorTimeout);
       }
     };
-  }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
+  }, []);
 
   const formatTimeInfo = (timestamp: number): { formattedTime: string, uptime: string } => {
     const now = new Date();
@@ -1447,6 +1452,8 @@ class MyNewApp:
               <button
                 onClick={handleCloseCreateAppDialog}
                 className="text-gray-400 hover:text-gray-600"
+                aria-label="Close dialog"
+                title="Close dialog"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1481,6 +1488,7 @@ class MyNewApp:
                             onBlur={handleFileNameSave}
                             autoFocus
                             className="px-2 py-1 text-xs border border-gray-300 rounded"
+                            aria-label="Edit filename"
                           />
                         ) : (
                           <span 
@@ -1497,6 +1505,8 @@ class MyNewApp:
                               removeFile(file.name);
                             }}
                             className="ml-1 text-gray-400 hover:text-red-500"
+                            aria-label={`Remove file ${file.name}`}
+                            title={`Remove file ${file.name}`}
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1519,11 +1529,14 @@ class MyNewApp:
                       if (e.key === 'Enter') handleAddNewFile();
                     }}
                     className="px-2 py-1 text-xs border border-gray-300 rounded w-24"
+                    aria-label="New filename"
                   />
                   <button
                     onClick={handleAddNewFile}
                     disabled={!newFileName.trim()}
                     className="p-1 text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+                    aria-label="Add new file"
+                    title="Add new file"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1599,6 +1612,8 @@ class MyNewApp:
               <button
                 onClick={() => setIsDialogOpen(false)}
                 className="text-gray-400 hover:text-gray-600"
+                aria-label="Close dialog"
+                title="Close dialog"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
