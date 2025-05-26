@@ -115,7 +115,7 @@ const BioEngine: React.FC = () => {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
@@ -426,10 +426,7 @@ const BioEngine: React.FC = () => {
     }
   };
 
-  const handleOpenDeployDialog = async () => {
-    setIsDialogOpen(true);
-    await fetchAvailableArtifacts();
-  };
+
   
   const handleDeployArtifact = async (artifactId: string, mode: string | null = null) => {
     if (!serviceId || !isLoggedIn) return;
@@ -437,7 +434,6 @@ const BioEngine: React.FC = () => {
     const deployMode = mode || artifactModes[artifactId] || null;
     
     try {
-      setIsDialogOpen(false);
       setDeploymentError(null); // Clear any previous errors
       
       setDeployingArtifactId(artifactId);
@@ -1195,12 +1191,6 @@ class MyNewApp:
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Deployed BioEngine Apps</h3>
-            <button 
-              onClick={handleOpenDeployDialog}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              + Deploy App
-            </button>
           </div>
           
           {/* Undeployment Error Display */}
@@ -1232,7 +1222,14 @@ class MyNewApp:
           {deploymentServiceId && (
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-1">Deployments Service ID:</p>
-              <p className="text-sm text-gray-600 break-all">{deploymentServiceId}</p>
+              <a 
+                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-600 hover:text-blue-800 underline break-all"
+              >
+                {deploymentServiceId}
+              </a>
             </div>
           )}
           
@@ -1358,9 +1355,15 @@ class MyNewApp:
                           <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
                           <div className="flex flex-wrap gap-1">
                             {deployment.available_methods.map((method) => (
-                              <span key={method} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200">
+                              <a
+                                key={method}
+                                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}/${method}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors"
+                              >
                                 {method}
-                              </span>
+                              </a>
                             ))}
                           </div>
                         </div>
@@ -1675,88 +1678,7 @@ class MyNewApp:
         </div>
       )}
 
-      {/* Deploy Dialog */}
-      {isDialogOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-5/6 flex flex-col">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold">Available Artifacts</h3>
-              <button
-                onClick={() => setIsDialogOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-                aria-label="Close dialog"
-                title="Close dialog"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6">
-              {deploymentLoading && !deployingArtifactId && (
-                <div className="flex justify-center p-8">
-                  <p className="text-gray-500">Loading artifacts...</p>
-                </div>
-              )}
-              {!deploymentLoading && availableArtifacts.length === 0 && (
-                <div className="flex justify-center p-8">
-                  <p className="text-gray-500">No deployable artifacts found</p>
-                </div>
-              )}
-              {availableArtifacts.map((artifact) => (
-                <div 
-                  key={artifact.id} 
-                  className="p-4 mb-4 border border-gray-200 rounded-lg"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="text-lg font-semibold">
-                        {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
-                      </h4>
-                      <p className="text-sm text-gray-500 mb-2">{artifact.id}</p>
-                      <p className="text-gray-600">{artifact.manifest?.description || artifact.description || "No description available"}</p>
-                    </div>
-                    
-                    <div className="flex flex-col items-end">
-                      {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
-                        <label className="flex items-center space-x-2 mb-2">
-                          <input
-                            type="checkbox"
-                            checked={artifactModes[artifact.id] === 'gpu'}
-                            onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
-                            className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
-                          />
-                          <span className="text-sm font-medium text-gray-700">
-                            {artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
-                          </span>
-                        </label>
-                      ) : null}
-                      
-                      {deployingArtifactId === artifact.id ? (
-                        <button
-                          disabled={true}
-                          className="px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed flex items-center"
-                        >
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                          Deploy
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                          disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
-                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
-                        >
-                          Deploy
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
