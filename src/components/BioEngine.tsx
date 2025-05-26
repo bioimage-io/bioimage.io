@@ -1465,17 +1465,30 @@ class MyNewApp:
                     
                     <div className="flex flex-col items-end">
                       {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
-                        <label className="flex items-center space-x-2 mb-2">
-                          <input
-                            type="checkbox"
-                            checked={artifactModes[artifact.id] === 'gpu'}
-                            onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
-                            className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
-                          />
-                          <span className="text-sm font-medium text-gray-700">
-                            {artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
-                          </span>
-                        </label>
+                        <div className="mb-2">
+                          <div className="flex items-center bg-gray-100 rounded-lg p-1">
+                            <button
+                              onClick={() => handleModeChange(artifact.id, false)}
+                              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                                artifactModes[artifact.id] === 'cpu'
+                                  ? 'bg-white text-blue-600 shadow-sm'
+                                  : 'text-gray-600 hover:text-gray-800'
+                              }`}
+                            >
+                              CPU
+                            </button>
+                            <button
+                              onClick={() => handleModeChange(artifact.id, true)}
+                              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                                artifactModes[artifact.id] === 'gpu'
+                                  ? 'bg-white text-purple-600 shadow-sm'
+                                  : 'text-gray-600 hover:text-gray-800'
+                              }`}
+                            >
+                              GPU
+                            </button>
+                          </div>
+                        </div>
                       ) : null}
                       
                       <div className="flex gap-2">
