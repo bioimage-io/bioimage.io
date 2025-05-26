@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
+import BioEngineGuide from './BioEngineGuide';
 
 // Add custom animations
 const styles = `
@@ -130,6 +131,77 @@ type DeploymentType = {
     num_gpus?: number;
   };
   [key: string]: any;
+};
+
+// ServiceCard component for fancy instance cards
+const ServiceCard: React.FC<{
+  service: BioEngineService;
+  onNavigate: (serviceId: string) => void;
+}> = ({ service, onNavigate }) => {
+  const [copied, setCopied] = useState(false);
+
+  const copyServiceId = async () => {
+    try {
+      await navigator.clipboard.writeText(service.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 flex flex-col h-full hover:shadow-md transition-all duration-200 hover:border-blue-200">
+      <div className="p-6 flex-grow">
+        <div className="flex items-center mb-4">
+          <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center mr-3">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-semibold text-gray-800">{service.name}</h3>
+          </div>
+        </div>
+        
+        <p className="text-gray-600 mb-4 leading-relaxed">{service.description || 'No description available'}</p>
+        
+        {/* Copyable Service ID */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Service ID</label>
+          <div className="relative">
+            <code className="block w-full px-3 py-2 bg-gray-900 text-green-400 text-sm font-mono rounded-lg border border-gray-300 pr-10 break-all">
+              {service.id}
+            </code>
+            <button
+              onClick={copyServiceId}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-green-400 transition-colors duration-200"
+              title="Copy service ID"
+            >
+              {copied ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-6 pt-0">
+        <button 
+          onClick={() => onNavigate(service.id)}
+          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
+        >
+          View Dashboard
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const BioEngine: React.FC = () => {
@@ -966,41 +1038,73 @@ class MyNewApp:
   if (!serviceId) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-6">BioEngine Instances</h1>
+        {/* Fancy Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4">
+            BioEngine
+          </h1>
+          <p className="text-xl text-gray-600 font-medium">
+            Unveiling cloud-powered AI for simplified Bioimage Analysis
+          </p>
+          <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-4 rounded-full"></div>
+        </div>
+        
+
         
         {/* Custom Service ID Input */}
-        <div className="max-w-2xl mx-auto mb-6">
-          <form onSubmit={handleCustomServiceIdSubmit}>
-            <div className="relative flex items-center">
-              <svg className="absolute left-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Connect to a BioEngine Worker by ID"
-                value={customServiceId}
-                onChange={(e) => setCustomServiceId(e.target.value)}
-                disabled={connectionLoading}
-                className={`w-full pl-10 pr-4 py-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  connectionError ? 'border-red-500' : 'border-gray-300'
-                } ${connectionLoading ? 'bg-gray-100' : 'bg-white'}`}
-              />
-              <button 
-                type="submit" 
-                disabled={!customServiceId.trim() || connectionLoading}
-                className="px-8 py-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center min-w-[120px]"
-              >
-                {connectionLoading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  "Connect"
-                )}
-              </button>
+        <div className="max-w-3xl mx-auto mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
+            <div className="flex items-center mb-4">
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mr-3">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Connect to BioEngine Worker</h3>
+                <p className="text-sm text-gray-600">Enter a service ID to connect to an existing BioEngine worker</p>
+              </div>
             </div>
-            {connectionError && (
-              <p className="text-red-500 text-sm mt-2 ml-2">{connectionError}</p>
-            )}
-          </form>
+            
+            <form onSubmit={handleCustomServiceIdSubmit}>
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  placeholder="Enter BioEngine Worker Service ID (e.g., workspace/service-name)"
+                  value={customServiceId}
+                  onChange={(e) => setCustomServiceId(e.target.value)}
+                  disabled={connectionLoading}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${
+                    connectionError ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'
+                  } ${connectionLoading ? 'bg-gray-100' : ''}`}
+                />
+                <button 
+                  type="submit" 
+                  disabled={!customServiceId.trim() || connectionLoading}
+                  className="absolute right-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center min-w-[100px] shadow-sm hover:shadow-md transition-all duration-200"
+                >
+                  {connectionLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    "Connect"
+                  )}
+                </button>
+              </div>
+              {connectionError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm flex items-center">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {connectionError}
+                  </p>
+                </div>
+              )}
+            </form>
+            
+            {/* BioEngine Guide - Compact Version */}
+            <BioEngineGuide />
+          </div>
         </div>
         
         {bioEngineServices.length === 0 ? (
@@ -1010,21 +1114,7 @@ class MyNewApp:
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {bioEngineServices.map((service) => (
-              <div key={service.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-col h-full">
-                <div className="p-6 flex-grow">
-                  <h3 className="text-xl font-semibold mb-2">{service.name}</h3>
-                  <p className="text-gray-600 mb-4">{service.description || 'No description available'}</p>
-                  <p className="text-sm text-gray-500">ID: {service.id}</p>
-                </div>
-                <div className="p-6 pt-0">
-                  <button 
-                    onClick={() => navigateToDashboard(service.id)}
-                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    View Dashboard
-                  </button>
-                </div>
-              </div>
+              <ServiceCard key={service.id} service={service} onNavigate={navigateToDashboard} />
             ))}
           </div>
         )}
