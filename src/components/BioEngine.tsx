@@ -203,6 +203,13 @@ const BioEngine: React.FC = () => {
     }
   }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
 
+  // Separate effect to handle artifact manager initialization and fetch artifacts when it becomes available
+  useEffect(() => {
+    if (isLoggedIn && artifactManager && serviceId) {
+      fetchAvailableArtifacts();
+    }
+  }, [artifactManager, isLoggedIn, serviceId]);
+
   // Separate cleanup effect for component unmount
   useEffect(() => {
     return () => {
@@ -1223,7 +1230,7 @@ class MyNewApp:
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-1">Deployments Service ID:</p>
               <a 
-                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}`}
+                href={deploymentServiceId ? `https://hypha.aicell.io/${deploymentServiceId.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}` : '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-blue-600 hover:text-blue-800 underline break-all"
@@ -1357,7 +1364,7 @@ class MyNewApp:
                             {deployment.available_methods.map((method) => (
                               <a
                                 key={method}
-                                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}/${deployment.deployment_name}.${method}`}
+                                href={deploymentServiceId ? `https://hypha.aicell.io/${deploymentServiceId.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}/${deployment.deployment_name}.${method}` : '#'}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors"
