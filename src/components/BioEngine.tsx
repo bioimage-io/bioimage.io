@@ -132,6 +132,8 @@ const BioEngine: React.FC = () => {
   const [customToken, setCustomToken] = useState('');
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   
   // Create/Edit App Dialog state
   const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
@@ -493,6 +495,45 @@ const BioEngine: React.FC = () => {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setUndeploymentError(`Failed to undeploy ${artifactId}: ${errorMessage}`);
       setUndeployingArtifactId(null);
+    }
+  };
+
+  const isUserOwnedArtifact = (artifactId: string): boolean => {
+    const userWorkspace = server.config.workspace;
+    return userWorkspace && artifactId.startsWith(userWorkspace);
+  };
+
+  const handleDeleteArtifact = async (artifactId: string) => {
+    if (!artifactManager || !isLoggedIn) return;
+    
+    // Confirm deletion
+    const artifactName = availableArtifacts.find(a => a.id === artifactId)?.manifest?.name || artifactId;
+    if (!window.confirm(`Are you sure you want to delete "${artifactName}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      setDeleteError(null);
+      setDeletingArtifactId(artifactId);
+      
+      await artifactManager.delete({
+        artifact_id: artifactId, 
+        delete_files: true, 
+        recursive: true, 
+        _rkwargs: true
+      });
+      
+      // Refresh the available artifacts list
+      await fetchAvailableArtifacts();
+      
+      setDeletingArtifactId(null);
+      
+      console.log(`Successfully deleted ${artifactId}`);
+    } catch (err) {
+      console.error('Deletion failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setDeleteError(`Failed to delete ${artifactId}: ${errorMessage}`);
+      setDeletingArtifactId(null);
     }
   };
 
@@ -1434,6 +1475,32 @@ class MyNewApp:
               </div>
             </div>
           )}
+
+          {/* Delete Error Display */}
+          {deleteError && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex justify-between items-start">
+                <div className="flex">
+                  <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h4 className="text-sm font-medium text-red-800">Delete Error</h4>
+                    <p className="text-sm text-red-700 mt-1">{deleteError}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeleteError(null)}
+                  className="text-red-400 hover:text-red-600"
+                  aria-label="Dismiss error"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
           
           {deploymentLoading && availableArtifacts.length === 0 && (
             <div className="flex justify-center p-8">
@@ -1502,6 +1569,29 @@ class MyNewApp:
                           </svg>
                           Edit
                         </button>
+                        
+                        {isUserOwnedArtifact(artifact.id) && (
+                          deletingArtifactId === artifact.id ? (
+                            <button
+                              disabled={true}
+                              className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded opacity-50 cursor-not-allowed flex items-center"
+                            >
+                              <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-1"></div>
+                              Delete
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleDeleteArtifact(artifact.id)}
+                              disabled={deletingArtifactId !== null || deploymentLoading || createAppLoading}
+                              className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 flex items-center"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Delete
+                            </button>
+                          )
+                        )}
                         
                         {deployingArtifactId === artifact.id ? (
                           <button
