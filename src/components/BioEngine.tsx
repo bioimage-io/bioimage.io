@@ -153,9 +153,11 @@ const BioEngine: React.FC = () => {
       
       // Set a delay before showing the login error to allow time for login process
       const timeout = setTimeout(() => {
-        setError('Please log in to view BioEngine instances');
-        setLoading(false);
-      }, 2000); // 2 second delay
+        if (!isLoggedIn) {  
+          setError('Please log in to view BioEngine instances');
+          setLoading(false);
+        }
+      }, 4000); // 2 second delay
       
       setLoginErrorTimeout(timeout);
       return;
@@ -166,6 +168,9 @@ const BioEngine: React.FC = () => {
       clearTimeout(loginErrorTimeout);
       setLoginErrorTimeout(null);
     }
+    
+    // Clear any existing error when user is logged in
+    setError(null);
 
     const initArtifactManager = async () => {
       try {
@@ -280,7 +285,7 @@ const BioEngine: React.FC = () => {
             const artifactId = key;
             if (artifactId) {
               try {
-                const artifact = await artifactManager.read(artifactId);
+                const artifact = await artifactManager.read({artifact_id: artifactId, _rkwargs: true});
                 if (artifact) {
                   (deployment as any).manifest = artifact.manifest;
                 }
@@ -336,7 +341,7 @@ const BioEngine: React.FC = () => {
   };
 
   const fetchAvailableArtifacts = async () => {
-    if (!isLoggedIn || !serviceId || !artifactManager) return;
+    if (!serviceId || !artifactManager) return;
     
     try {
       setDeploymentLoading(true);
@@ -349,7 +354,7 @@ const BioEngine: React.FC = () => {
         let publicArtifacts: ArtifactType[] = [];
         
         try {
-          publicArtifacts = await artifactManager.list(publicCollectionId);
+          publicArtifacts = await artifactManager.list({parent_id: publicCollectionId, _rkwargs: true});
           console.log(`Public artifacts found in ${publicCollectionId}:`, publicArtifacts.map(a => a.id));
         } catch (err) {
           console.warn(`Could not fetch public artifacts: ${err}`);
@@ -361,7 +366,7 @@ const BioEngine: React.FC = () => {
         if (userWorkspace) {
           const userCollectionId = `${userWorkspace}/bioengine-apps`;
           try {
-            userArtifacts = await artifactManager.list(userCollectionId);
+            userArtifacts = await artifactManager.list({parent_id: userCollectionId, _rkwargs: true});
             console.log(`User artifacts found in ${userCollectionId}:`, userArtifacts.map(a => a.id));
           } catch (collectionErr) {
             console.log(`User collection ${userCollectionId} does not exist, skipping`);
@@ -724,7 +729,7 @@ class MyNewApp:
         }
         
         // Try to fetch main.py file
-        const mainPyUrl = await artifactManager.get_file(artifact.id, 'main.py');
+        const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
         const mainPyResponse = await fetch(mainPyUrl);
         mainPyText = await mainPyResponse.text();
         
@@ -757,7 +762,7 @@ class MyNewApp:
   };
 
   const handleCreateOrUpdateApp = async () => {
-    if (!serviceId || !isLoggedIn) return;
+    if (!serviceId || !isLoggedIn || !artifactManager) return;
     
     setCreateAppLoading(true);
     setCreateAppError(null);
@@ -765,14 +770,49 @@ class MyNewApp:
     try {
       const bioengineWorker = await server.getService(serviceId);
       
+      // Find the manifest.yaml file
+      const manifestFile = files.find(file => file.name === 'manifest.yaml');
+      if (!manifestFile) {
+        setCreateAppError('manifest.yaml file is required');
+        return;
+      }
+      
+      // Parse the manifest YAML to get the manifest object
+      let manifestObj;
+      try {
+        manifestObj = yaml.load(manifestFile.content);
+        console.log('Parsed manifest object:', manifestObj);
+      } catch (yamlErr) {
+        setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
+        return;
+      }
+      
       const filesToUpload = files.map(file => ({
         name: file.name,
         content: file.content,
         type: 'text'
       }));
       
-      const artifactId = editingArtifact ? editingArtifact.id : undefined;
-      await bioengineWorker.create_artifact(filesToUpload, artifactId);
+      if (editingArtifact) {
+        // For editing existing artifacts:
+        // 1. Update the artifact's manifest metadata using artifactManager.edit
+        // 2. Upload all files including the manifest.yaml
+        
+        console.log('Updating existing artifact:', editingArtifact.id);
+        
+        // Update the manifest metadata
+        await artifactManager.edit({artifact_id: editingArtifact.id, manifest: manifestObj, _rkwargs: true});
+        console.log('Updated artifact manifest metadata');
+        
+        // Upload all files including manifest.yaml
+        await bioengineWorker.create_artifact({files: filesToUpload, artifact_id: editingArtifact.id, _rkwargs: true});
+        console.log('Uploaded files to artifact');
+        
+      } else {
+        // For creating new artifacts, just use create_artifact with files
+        console.log('Creating new artifact');
+        await bioengineWorker.create_artifact({files: filesToUpload, _rkwargs: true});
+      }
       
       handleCloseCreateAppDialog();
       await fetchAvailableArtifacts();
