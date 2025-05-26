@@ -121,6 +121,8 @@ const BioEngine: React.FC = () => {
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
   const [undeployingArtifactId, setUndeployingArtifactId] = useState<string | null>(null);
+  const [deploymentError, setDeploymentError] = useState<string | null>(null);
+  const [undeploymentError, setUndeploymentError] = useState<string | null>(null);
   const [artifactModes, setArtifactModes] = useState<Record<string, string>>({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
@@ -436,6 +438,7 @@ const BioEngine: React.FC = () => {
     
     try {
       setIsDialogOpen(false);
+      setDeploymentError(null); // Clear any previous errors
       
       setDeployingArtifactId(artifactId);
       setDeploymentLoading(true);
@@ -459,6 +462,8 @@ const BioEngine: React.FC = () => {
       console.log(`Successfully deployed ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
     } catch (err) {
       console.error('Deployment failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
       setDeploymentLoading(false);
       setDeployingArtifactId(null);
     }
@@ -475,6 +480,7 @@ const BioEngine: React.FC = () => {
     if (!serviceId || !isLoggedIn) return;
     
     try {
+      setUndeploymentError(null); // Clear any previous errors
       setUndeployingArtifactId(artifactId);
       
       const bioengineWorker = await server.getService(serviceId);
@@ -487,6 +493,8 @@ const BioEngine: React.FC = () => {
       console.log(`Successfully undeployed ${artifactId}`);
     } catch (err) {
       console.error('Undeployment failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setUndeploymentError(`Failed to undeploy ${artifactId}: ${errorMessage}`);
       setUndeployingArtifactId(null);
     }
   };
@@ -900,7 +908,7 @@ class MyNewApp:
           <form onSubmit={handleCustomServiceIdSubmit}>
             <div className="relative flex items-center">
               <svg className="absolute left-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
               </svg>
               <input
                 type="text"
@@ -915,10 +923,10 @@ class MyNewApp:
               <button 
                 type="submit" 
                 disabled={!customServiceId.trim() || connectionLoading}
-                className="px-6 py-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                className="px-8 py-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center min-w-[120px]"
               >
                 {connectionLoading ? (
-                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
                   "Connect"
                 )}
@@ -1195,6 +1203,32 @@ class MyNewApp:
             </button>
           </div>
           
+          {/* Undeployment Error Display */}
+          {undeploymentError && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex justify-between items-start">
+                <div className="flex">
+                  <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h4 className="text-sm font-medium text-red-800">Undeployment Error</h4>
+                    <p className="text-sm text-red-700 mt-1">{undeploymentError}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setUndeploymentError(null)}
+                  className="text-red-400 hover:text-red-600"
+                  aria-label="Dismiss error"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+          
           {deploymentServiceId && (
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-1">Deployments Service ID:</p>
@@ -1241,12 +1275,18 @@ class MyNewApp:
                     
                     <div>
                       {undeployingArtifactId === deployment.artifact_id ? (
-                        <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+                        <button
+                          disabled={true}
+                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded opacity-50 cursor-not-allowed flex items-center"
+                        >
+                          <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-2"></div>
+                          Undeploy
+                        </button>
                       ) : (
                         <button
                           onClick={() => handleUndeployArtifact(deployment.artifact_id)}
-                          disabled={!!undeployingArtifactId}
-                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+                          disabled={false}
+                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
                         >
                           Undeploy
                         </button>
@@ -1365,6 +1405,32 @@ class MyNewApp:
             </div>
           </div>
           
+          {/* Deployment Error Display */}
+          {deploymentError && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex justify-between items-start">
+                <div className="flex">
+                  <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
+                    <p className="text-sm text-red-700 mt-1">{deploymentError}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeploymentError(null)}
+                  className="text-red-400 hover:text-red-600"
+                  aria-label="Dismiss error"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+          
           {deploymentLoading && availableArtifacts.length === 0 && (
             <div className="flex justify-center p-8">
               <p className="text-gray-500">Loading artifacts...</p>
@@ -1421,11 +1487,17 @@ class MyNewApp:
                         </button>
                         
                         {deployingArtifactId === artifact.id ? (
-                          <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+                          <button
+                            disabled={true}
+                            className="px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed flex items-center"
+                          >
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                            Deploy
+                          </button>
                         ) : (
                           <button
                             onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                            disabled={deploymentLoading}
+                            disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
                             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
                           >
                             Deploy
@@ -1661,11 +1733,17 @@ class MyNewApp:
                       ) : null}
                       
                       {deployingArtifactId === artifact.id ? (
-                        <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+                        <button
+                          disabled={true}
+                          className="px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed flex items-center"
+                        >
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Deploy
+                        </button>
                       ) : (
                         <button
                           onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                          disabled={deploymentLoading}
+                          disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
                           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
                         >
                           Deploy
