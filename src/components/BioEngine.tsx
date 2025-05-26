@@ -326,29 +326,23 @@ const BioEngine: React.FC = () => {
 
   const determineArtifactSupportedModes = (artifact: any) => {
     const supportedModes = { cpu: false, gpu: false };
-    let defaultMode = 'cpu';
+    let defaultMode = 'cpu'; // Always default to CPU
     
     if (artifact.manifest?.deployment_config?.modes) {
       const modes = artifact.manifest.deployment_config.modes;
       
       if (modes.cpu) supportedModes.cpu = true;
       if (modes.gpu) supportedModes.gpu = true;
-      
-      if (supportedModes.gpu) {
-        defaultMode = 'gpu';
-      }
     } 
     else if (artifact.manifest?.deployment_config?.ray_actor_options) {
       const numGpus = artifact.manifest.deployment_config.ray_actor_options.num_gpus || 0;
       supportedModes.gpu = numGpus > 0;
       supportedModes.cpu = !supportedModes.gpu;
-      defaultMode = supportedModes.gpu ? 'gpu' : 'cpu';
     }
     else if (artifact.manifest?.ray_actor_options) {
       const numGpus = artifact.manifest.ray_actor_options.num_gpus || 0;
       supportedModes.gpu = numGpus > 0;
       supportedModes.cpu = !supportedModes.gpu;
-      defaultMode = supportedModes.gpu ? 'gpu' : 'cpu';
     }
 
     return { supportedModes, defaultMode };
@@ -1284,7 +1278,7 @@ class MyNewApp:
                           className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded opacity-50 cursor-not-allowed flex items-center"
                         >
                           <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-2"></div>
-                          Undeploy
+                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
                         </button>
                       ) : (
                         <button
@@ -1292,7 +1286,7 @@ class MyNewApp:
                           disabled={false}
                           className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
                         >
-                          Undeploy
+                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
                         </button>
                       )}
                     </div>
@@ -1357,7 +1351,7 @@ class MyNewApp:
                         </div>
                       )}
                       
-                      {deployment.available_methods && deployment.available_methods.length > 0 && (
+                      {deployment.available_methods && deployment.available_methods.length > 0 && deployment.status !== "DEPLOYING" && (
                         <div>
                           <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
                           <div className="flex flex-wrap gap-1">
