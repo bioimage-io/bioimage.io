@@ -1570,7 +1570,7 @@ class MyNewApp:
                       tabSize: 2,
                       insertSpaces: true,
                     }}
-                    theme="vs-dark"
+                    theme="light"
                   />
                 )}
               </div>
