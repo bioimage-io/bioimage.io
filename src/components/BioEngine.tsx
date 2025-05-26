@@ -49,7 +49,7 @@ type BioEngineService = {
   id: string;
   name: string;
   description: string;
-  service?: any; // The actual service object
+  service?: any;
 };
 
 type ArtifactType = {
@@ -84,7 +84,6 @@ type ArtifactType = {
   defaultMode?: string;
 };
 
-// Update the DeploymentType to include the new fields
 type DeploymentType = {
   deployment_name: string;
   artifact_id: string;
@@ -143,15 +142,31 @@ const BioEngine: React.FC = () => {
   const [files, setFiles] = useState<Array<{name: string, content: string, language: string}>>([]);
   const [editingFileName, setEditingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
+  const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
     if (!isLoggedIn) {
-      setError('Please log in to view BioEngine instances');
-      setLoading(false);
+      // Clear any existing timeout
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+      }
+      
+      // Set a delay before showing the login error to allow time for login process
+      const timeout = setTimeout(() => {
+        setError('Please log in to view BioEngine instances');
+        setLoading(false);
+      }, 2000); // 2 second delay
+      
+      setLoginErrorTimeout(timeout);
       return;
     }
+    
+    // Clear the login error timeout if user is logged in
+    if (loginErrorTimeout) {
+      clearTimeout(loginErrorTimeout);
+      setLoginErrorTimeout(null);
+    }
 
-    // Get the artifact manager when the component mounts
     const initArtifactManager = async () => {
       try {
         const manager = await server.getService('public/artifact-manager');
@@ -165,14 +180,11 @@ const BioEngine: React.FC = () => {
 
     if (serviceId) {
       fetchStatus();
-      
-      // Load available artifacts when component mounts with serviceId
       fetchAvailableArtifacts();
       
-      // Set up auto-refresh if enabled
       if (autoRefreshEnabled) {
         const interval = setInterval(() => {
-          fetchStatus(false); // Pass false to avoid showing loading state during refresh
+          fetchStatus(false);
         }, 5000);
         
         setRefreshInterval(interval);
@@ -181,23 +193,22 @@ const BioEngine: React.FC = () => {
       fetchBioEngineServices();
     }
 
-    // Clean up interval on unmount or when dependencies change
     return () => {
       if (refreshInterval) {
         clearInterval(refreshInterval);
       }
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+      }
     };
   }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
 
-  // Add this function to format timestamps and calculate uptime
   const formatTimeInfo = (timestamp: number): { formattedTime: string, uptime: string } => {
     const now = new Date();
     const startTime = new Date(timestamp * 1000);
     
-    // Format the start time in local timezone
     const formattedTime = startTime.toLocaleString();
     
-    // Calculate uptime
     const diffMs = now.getTime() - startTime.getTime();
     const diffSec = Math.floor(diffMs / 1000);
     
@@ -220,8 +231,6 @@ const BioEngine: React.FC = () => {
     
     return { formattedTime, uptime };
   };
-  
-  // Real-time uptime updates are handled by the auto-refresh mechanism
 
   const fetchBioEngineServices = async () => {
     if (!isLoggedIn) return;
@@ -230,17 +239,13 @@ const BioEngine: React.FC = () => {
       setLoading(true);
       const services = await server.listServices({"type": "bioengine-worker"});
       
-      // Add default BioEngine instance
       const defaultService: BioEngineService = {
         id: "bioimage-io/bioengine-worker",
         name: "BioImage.IO BioEngine Worker",
         description: "Default BioEngine worker instance for the BioImage.IO community"
       };
       
-      // Check if the default service is already in the list
       const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);
-      
-      // Add default service to the beginning of the list if not already present
       const allServices = hasDefaultService ? services : [defaultService, ...services];
       
       setBioEngineServices(allServices);
@@ -267,17 +272,14 @@ const BioEngine: React.FC = () => {
       const bioengineWorker = await server.getService(serviceId);
       const statusData = await bioengineWorker.get_status();
       
-      // Fetch artifact manifests for deployed artifacts to get name and icon
       if (statusData && statusData.deployments && artifactManager) {
         for (const [key, deployment] of Object.entries(statusData.deployments)) {
           if (key !== 'service_id' && typeof deployment === 'object' && deployment !== null) {
-            // Set the artifact_id since it's now the key
             (deployment as any).artifact_id = key;
             
             const artifactId = key;
             if (artifactId) {
               try {
-                // Always use the full artifact ID (workspace/alias format)
                 const artifact = await artifactManager.read(artifactId);
                 if (artifact) {
                   (deployment as any).manifest = artifact.manifest;
@@ -307,27 +309,22 @@ const BioEngine: React.FC = () => {
     const supportedModes = { cpu: false, gpu: false };
     let defaultMode = 'cpu';
     
-    // First check deployment_config.modes
     if (artifact.manifest?.deployment_config?.modes) {
       const modes = artifact.manifest.deployment_config.modes;
       
-      // Check specifically for modes.cpu and modes.gpu
       if (modes.cpu) supportedModes.cpu = true;
       if (modes.gpu) supportedModes.gpu = true;
       
-      // Set default mode preference to GPU if available
       if (supportedModes.gpu) {
         defaultMode = 'gpu';
       }
     } 
-    // Then check direct ray_actor_options in deployment_config
     else if (artifact.manifest?.deployment_config?.ray_actor_options) {
       const numGpus = artifact.manifest.deployment_config.ray_actor_options.num_gpus || 0;
       supportedModes.gpu = numGpus > 0;
-      supportedModes.cpu = !supportedModes.gpu; // Only allow CPU if GPU is not required
+      supportedModes.cpu = !supportedModes.gpu;
       defaultMode = supportedModes.gpu ? 'gpu' : 'cpu';
     }
-    // Fallback to root level ray_actor_options
     else if (artifact.manifest?.ray_actor_options) {
       const numGpus = artifact.manifest.ray_actor_options.num_gpus || 0;
       supportedModes.gpu = numGpus > 0;
@@ -347,9 +344,7 @@ const BioEngine: React.FC = () => {
       let allArtifacts: ArtifactType[] = [];
       const modeSettings: Record<string, string> = {};
       
-      // Get artifacts from both public and user collections
       try {
-        // Collect artifacts from public collection
         const publicCollectionId = 'bioimage-io/bioengine-apps';
         let publicArtifacts: ArtifactType[] = [];
         
@@ -360,7 +355,6 @@ const BioEngine: React.FC = () => {
           console.warn(`Could not fetch public artifacts: ${err}`);
         }
         
-        // Collect artifacts from user collection if it exists
         let userArtifacts: ArtifactType[] = [];
         const userWorkspace = server.config.workspace;
         
@@ -374,21 +368,17 @@ const BioEngine: React.FC = () => {
           }
         }
         
-        // Combine artifacts from both sources
         const combinedArtifacts = [...publicArtifacts, ...userArtifacts];
         
-        // Process all artifacts in a single loop
         for (const art of combinedArtifacts) {
           try {
             console.log(`Processing artifact: ${art.id}, alias: ${art.alias}, workspace: ${art.workspace}`);
             
-            // Use the full artifact ID to fetch the manifest
             const artifactData = await artifactManager.read(art.id);
             
             if (artifactData) {
               art.manifest = artifactData.manifest;
               
-              // Debug the deployment_config.modes structure
               if (art.manifest?.deployment_config?.modes) {
                 console.log(`${art.id} has modes:`, 
                   JSON.stringify(art.manifest.deployment_config.modes));
@@ -415,7 +405,6 @@ const BioEngine: React.FC = () => {
         console.warn(`Error processing artifacts: ${err}`);
       }
       
-      // Set the state with all artifacts found
       setAvailableArtifacts(allArtifacts);
       setArtifactModes(modeSettings);
       setDeploymentLoading(false);
@@ -433,22 +422,18 @@ const BioEngine: React.FC = () => {
   const handleDeployArtifact = async (artifactId: string, mode: string | null = null) => {
     if (!serviceId || !isLoggedIn) return;
     
-    // Use the selected mode from state if none provided
     const deployMode = mode || artifactModes[artifactId] || null;
     
     try {
-      // Close dialog immediately when deploy button is clicked
       setIsDialogOpen(false);
       
       setDeployingArtifactId(artifactId);
       setDeploymentLoading(true);
       
-      // Start refreshing status immediately to show the deployment in progress
       fetchStatus(false);
       
       const bioengineWorker = await server.getService(serviceId);
       
-      // Only pass mode if it's not null
       let deploymentName;
       if (deployMode) {
         deploymentName = await bioengineWorker.deploy_artifact(artifactId, deployMode);
@@ -456,19 +441,16 @@ const BioEngine: React.FC = () => {
         deploymentName = await bioengineWorker.deploy_artifact(artifactId);
       }
       
-      // Refresh status after deployment is complete
       await fetchStatus();
       
       setDeploymentLoading(false);
       setDeployingArtifactId(null);
       
-      // Success notification could be added here
       console.log(`Successfully deployed ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
     } catch (err) {
       console.error('Deployment failed:', err);
       setDeploymentLoading(false);
       setDeployingArtifactId(null);
-      // Error notification could be added here
     }
   };
   
@@ -488,17 +470,14 @@ const BioEngine: React.FC = () => {
       const bioengineWorker = await server.getService(serviceId);
       await bioengineWorker.undeploy_artifact(artifactId);
       
-      // Refresh status
       await fetchStatus();
       
       setUndeployingArtifactId(null);
       
-      // Success notification could be added here
       console.log(`Successfully undeployed ${artifactId}`);
     } catch (err) {
       console.error('Undeployment failed:', err);
       setUndeployingArtifactId(null);
-      // Error notification could be added here
     }
   };
 
@@ -516,19 +495,13 @@ const BioEngine: React.FC = () => {
     setConnectionError(null);
     
     try {
-      // Try to connect to the service
       await server.getService(customServiceId);
-      
-      // If successful, navigate to the dashboard
       navigateToDashboard(customServiceId);
     } catch (err) {
-      // Check if it's an access denied error
       const errorMessage = String(err);
       if (errorMessage.includes('denied') || errorMessage.includes('unauthorized') || errorMessage.includes('permission')) {
-        // Open token dialog
         setTokenDialogOpen(true);
       } else {
-        // Show other errors
         setConnectionError(`Could not connect: ${errorMessage}`);
       }
     } finally {
@@ -543,14 +516,10 @@ const BioEngine: React.FC = () => {
     setConnectionLoading(true);
     
     try {
-      // Try to connect with token
       await server.getService(customServiceId, { token: customToken });
-      
-      // If successful, navigate to the dashboard
       setTokenDialogOpen(false);
       navigateToDashboard(customServiceId);
     } catch (err) {
-      // Show token error
       setConnectionError(`Invalid token: ${String(err)}`);
     } finally {
       setConnectionLoading(false);
@@ -661,7 +630,6 @@ class MyNewApp:
 
   const removeFile = (fileName: string) => {
     setFiles(prevFiles => prevFiles.filter(file => file.name !== fileName));
-    // If we're removing the active tab, switch to the first tab
     const fileIndex = files.findIndex(file => file.name === fileName);
     if (fileIndex === activeEditorTab && files.length > 1) {
       setActiveEditorTab(0);
@@ -699,38 +667,70 @@ class MyNewApp:
     setCreateAppLoading(true);
     
     try {
-      // Try to fetch the actual files first
       let manifestText = '';
       let mainPyText = '';
       
       try {
-        // Fetch the artifact files
-        const manifestUrl = await artifactManager.get_file(artifact.id, 'manifest.yaml');
-        const mainPyUrl = await artifactManager.get_file(artifact.id, 'main.py');
-        
-        // Download the files
-        const [manifestResponse, mainPyResponse] = await Promise.all([
-          fetch(manifestUrl),
-          fetch(mainPyUrl)
-        ]);
-        
-        manifestText = await manifestResponse.text();
-        mainPyText = await mainPyResponse.text();
-      } catch (fileErr) {
-        console.warn('Could not fetch original files, using manifest data:', fileErr);
-        
-        // Fallback: use the manifest object and convert to YAML
+        // Always generate manifest.yaml from artifact.manifest metadata
         if (artifact.manifest) {
-          manifestText = yaml.dump(artifact.manifest, {
+          let manifestObj: any = artifact.manifest;
+          
+          // Check if the manifest is URL-encoded string data
+          if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
+            console.log('Detected URL-encoded manifest, decoding...');
+            try {
+              // Decode URL-encoded string and parse as query parameters
+              const decoded = decodeURIComponent(manifestObj);
+              console.log('Decoded manifest string:', decoded);
+              
+              // Parse query string format into object
+              const params = new URLSearchParams(decoded);
+              const parsedObj: any = {};
+              params.forEach((value, key) => {
+                try {
+                  // Try to parse values that look like JSON objects/arrays
+                  if (value.startsWith('{') || value.startsWith('[')) {
+                    parsedObj[key] = JSON.parse(value.replace(/'/g, '"'));
+                  } else {
+                    parsedObj[key] = value;
+                  }
+                } catch {
+                  parsedObj[key] = value;
+                }
+              });
+              manifestObj = parsedObj;
+              console.log('Parsed manifest object from URL params:', manifestObj);
+            } catch (parseErr) {
+              console.warn('Failed to parse URL-encoded manifest:', parseErr);
+              manifestObj = artifact.manifest;
+            }
+          }
+          
+          // Clean the manifest object to remove any non-serializable properties
+          const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
+          console.log('Original manifest object:', artifact.manifest);
+          console.log('Cleaned manifest object:', cleanManifest);
+          
+          manifestText = yaml.dump(cleanManifest, {
             indent: 2,
             lineWidth: 120,
-            noRefs: true
+            noRefs: true,
+            skipInvalid: true,
+            flowLevel: -1
           });
+          console.log('Generated YAML from manifest:', manifestText);
         } else {
           manifestText = getDefaultManifest();
         }
         
-        // For main.py, use default template if we can't fetch the original
+        // Try to fetch main.py file
+        const mainPyUrl = await artifactManager.get_file(artifact.id, 'main.py');
+        const mainPyResponse = await fetch(mainPyUrl);
+        mainPyText = await mainPyResponse.text();
+        
+        console.log('Successfully fetched main.py:', mainPyText.substring(0, 200) + '...');
+      } catch (fileErr) {
+        console.warn('Could not fetch main.py file, using default:', fileErr);
         mainPyText = getDefaultMainPy();
       }
       
@@ -765,18 +765,15 @@ class MyNewApp:
     try {
       const bioengineWorker = await server.getService(serviceId);
       
-      // Prepare files for create_artifact
       const filesToUpload = files.map(file => ({
         name: file.name,
         content: file.content,
         type: 'text'
       }));
       
-      // Call create_artifact (this handles both create and update)
       const artifactId = editingArtifact ? editingArtifact.id : undefined;
       await bioengineWorker.create_artifact(filesToUpload, artifactId);
       
-      // Close dialog and refresh artifacts list
       handleCloseCreateAppDialog();
       await fetchAvailableArtifacts();
       
@@ -793,14 +790,13 @@ class MyNewApp:
   const handleAddNewFile = () => {
     if (!newFileName.trim()) return;
     
-    // Check if file already exists
     if (files.some(file => file.name === newFileName.trim())) {
       setCreateAppError(`File "${newFileName.trim()}" already exists`);
       return;
     }
     
     addNewFile(newFileName.trim());
-    setActiveEditorTab(files.length); // Switch to the new file
+    setActiveEditorTab(files.length);
     setNewFileName('');
     setCreateAppError(null);
   };
@@ -813,7 +809,6 @@ class MyNewApp:
   const handleFileNameSave = () => {
     if (!editingFileName || !newFileName.trim()) return;
     
-    // Check if new name already exists
     if (newFileName.trim() !== editingFileName && files.some(file => file.name === newFileName.trim())) {
       setCreateAppError(`File "${newFileName.trim()}" already exists`);
       return;
@@ -831,11 +826,22 @@ class MyNewApp:
   };
 
   if (loading) {
-    return <div className="flex justify-center items-center h-96">Loading...</div>;
+    return (
+      <div className="flex justify-center items-center h-96">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="flex justify-center items-center h-96 text-red-500">{error}</div>;
+    return (
+      <div className="flex justify-center items-center h-96">
+        <div className="text-red-500 text-center">
+          <p className="text-xl font-semibold mb-2">Error</p>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
   }
 
   // If no service_id is provided, show the list of BioEngine instances
@@ -844,45 +850,37 @@ class MyNewApp:
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-6">BioEngine Instances</h1>
         
-        {/* Custom Service ID Input - Redesigned to be more compact */}
+        {/* Custom Service ID Input */}
         <div className="max-w-2xl mx-auto mb-6">
           <form onSubmit={handleCustomServiceIdSubmit}>
             <div className="relative flex items-center">
-              <SearchIcon className="absolute left-3 text-gray-400" />
-              <TextField
-                fullWidth
+              <svg className="absolute left-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
                 placeholder="Connect to a BioEngine Worker by ID"
-                variant="outlined"
                 value={customServiceId}
                 onChange={(e) => setCustomServiceId(e.target.value)}
                 disabled={connectionLoading}
-                error={!!connectionError}
-                InputProps={{
-                  sx: { 
-                    paddingLeft: '2.5rem',
-                    borderTopRightRadius: 0,
-                    borderBottomRightRadius: 0
-                  }
-                }}
+                className={`w-full pl-10 pr-4 py-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  connectionError ? 'border-red-500' : 'border-gray-300'
+                } ${connectionLoading ? 'bg-gray-100' : 'bg-white'}`}
               />
-              <Button 
+              <button 
                 type="submit" 
-                variant="contained" 
                 disabled={!customServiceId.trim() || connectionLoading}
-                sx={{ 
-                  height: '56px',
-                  borderTopLeftRadius: 0,
-                  borderBottomLeftRadius: 0,
-                  boxShadow: 'none'
-                }}
+                className="px-6 py-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
               >
-                {connectionLoading ? <CircularProgress size={24} /> : "Connect"}
-              </Button>
+                {connectionLoading ? (
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  "Connect"
+                )}
+              </button>
             </div>
             {connectionError && (
-              <Typography variant="caption" color="error" sx={{ ml: 2, mt: 0.5 }}>
-                {connectionError}
-              </Typography>
+              <p className="text-red-500 text-sm mt-2 ml-2">{connectionError}</p>
             )}
           </form>
         </div>
@@ -894,77 +892,88 @@ class MyNewApp:
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {bioEngineServices.map((service) => (
-              <Card key={service.id} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Typography variant="h5" component="div" gutterBottom>
-                    {service.name}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    {service.description || 'No description available'}
-                  </Typography>
-                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 1 }}>
-                    ID: {service.id}
-                  </Typography>
-                </CardContent>
-                <Box sx={{ p: 2, pt: 0 }}>
-                  <Button 
-                    variant="contained" 
-                    fullWidth
+              <div key={service.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-col h-full">
+                <div className="p-6 flex-grow">
+                  <h3 className="text-xl font-semibold mb-2">{service.name}</h3>
+                  <p className="text-gray-600 mb-4">{service.description || 'No description available'}</p>
+                  <p className="text-sm text-gray-500">ID: {service.id}</p>
+                </div>
+                <div className="p-6 pt-0">
+                  <button 
                     onClick={() => navigateToDashboard(service.id)}
+                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     View Dashboard
-                  </Button>
-                </Box>
-              </Card>
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         )}
         
         {/* Token Dialog */}
-        <Dialog open={tokenDialogOpen} onClose={handleTokenDialogClose}>
-          <DialogTitle>Authentication Required</DialogTitle>
-          <form onSubmit={handleTokenSubmit}>
-            <DialogContent>
-              <Typography variant="body2" paragraph>
-                Access to this BioEngine service requires authentication. Please enter a token:
-              </Typography>
-              <TextField
-                autoFocus
-                margin="dense"
-                label="Token"
-                type="password"
-                fullWidth
-                variant="outlined"
-                value={customToken}
-                onChange={(e) => setCustomToken(e.target.value)}
-                error={!!connectionError}
-                helperText={connectionError}
-                disabled={connectionLoading}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleTokenDialogClose} disabled={connectionLoading}>
-                Cancel
-              </Button>
-              <Button 
-                type="submit" 
-                variant="contained" 
-                disabled={!customToken.trim() || connectionLoading}
-              >
-                {connectionLoading ? <CircularProgress size={20} /> : "Connect"}
-              </Button>
-            </DialogActions>
-          </form>
-        </Dialog>
+        {tokenDialogOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div className="p-6 border-b border-gray-200">
+                <h3 className="text-lg font-semibold">Authentication Required</h3>
+              </div>
+              <form onSubmit={handleTokenSubmit}>
+                <div className="p-6">
+                  <p className="text-gray-600 mb-4">
+                    Access to this BioEngine service requires authentication. Please enter a token:
+                  </p>
+                  <input
+                    type="password"
+                    placeholder="Token"
+                    value={customToken}
+                    onChange={(e) => setCustomToken(e.target.value)}
+                    disabled={connectionLoading}
+                    autoFocus
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      connectionError ? 'border-red-500' : 'border-gray-300'
+                    } ${connectionLoading ? 'bg-gray-100' : 'bg-white'}`}
+                  />
+                  {connectionError && (
+                    <p className="text-red-500 text-sm mt-2">{connectionError}</p>
+                  )}
+                </div>
+                <div className="p-6 pt-0 border-t border-gray-200 flex justify-end space-x-3">
+                  <button 
+                    type="button"
+                    onClick={handleTokenDialogClose} 
+                    disabled={connectionLoading}
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={!customToken.trim() || connectionLoading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {connectionLoading ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    ) : null}
+                    Connect
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   if (!status) {
-    return <div className="flex justify-center items-center h-96">No status data available</div>;
+    return (
+      <div className="flex justify-center items-center h-96">
+        <p className="text-gray-500">No status data available</p>
+      </div>
+    );
   }
 
-  // Modified code to extract deployments with the new structure
   const deployments = Object.entries(status?.deployments || {})
     .filter(([key]) => key !== 'service_id' && key !== 'note')
     .map(([key, value]) => ({ 
@@ -978,97 +987,93 @@ class MyNewApp:
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">BioEngine Dashboard</h1>
         
         {serviceId && (
-          <FormControlLabel
-            control={
-              <Switch 
-                checked={autoRefreshEnabled}
-                onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
-              />
-            }
-            label="Auto-refresh"
-          />
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled}
+              onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-gray-700">Auto-refresh</span>
+          </label>
         )}
-      </Box>
+      </div>
       
       {/* Service Status */}
-      <Grid container spacing={3} className="mb-6">
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Service Information</Typography>
-              <Box sx={{ mt: 2 }}>
-                <Box display="flex" justifyContent="space-between" mb={1}>
-                  <Typography variant="body1" fontWeight="medium">Service ID:</Typography>
-                  <Typography variant="body1">{serviceId}</Typography>
-                </Box>
-                {status?.service?.start_time_s && (
-                  <>
-                    <Box display="flex" justifyContent="space-between" mb={1}>
-                      <Typography variant="body1" fontWeight="medium">Start Time:</Typography>
-                      <Typography variant="body1">
-                        {formatTimeInfo(status.service.start_time_s).formattedTime}
-                      </Typography>
-                    </Box>
-                    <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body1" fontWeight="medium">Uptime:</Typography>
-                      <Typography variant="body1">
-                        {formatTimeInfo(status.service.start_time_s).uptime}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="bg-white rounded-lg shadow-md border border-gray-200">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4">Service Information</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">Service ID:</span>
+                <span className="text-gray-900">{serviceId}</span>
+              </div>
+              {status?.service?.start_time_s && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.service.start_time_s).formattedTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.service.start_time_s).uptime}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
         
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Cluster Information</Typography>
-              <Box sx={{ mt: 2 }}>
-                <Box display="flex" justifyContent="space-between" mb={1}>
-                  <Typography variant="body1" fontWeight="medium">Head Address:</Typography>
-                  <Typography variant="body1">{status?.cluster?.head_address}</Typography>
-                </Box>
-                {status?.cluster?.start_time_s && (
-                  <>
-                    <Box display="flex" justifyContent="space-between" mb={1}>
-                      <Typography variant="body1" fontWeight="medium">Start Time:</Typography>
-                      <Typography variant="body1">
-                        {formatTimeInfo(status.cluster.start_time_s).formattedTime}
-                      </Typography>
-                    </Box>
-                    <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body1" fontWeight="medium">Uptime:</Typography>
-                      <Typography variant="body1">
-                        {formatTimeInfo(status.cluster.start_time_s).uptime}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-                {status?.cluster?.note && (
-                  <Box mt={2}>
-                    <Typography variant="body2" color="text.secondary">Note: {status.cluster.note}</Typography>
-                  </Box>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        <div className="bg-white rounded-lg shadow-md border border-gray-200">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4">Cluster Information</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">Head Address:</span>
+                <span className="text-gray-900">{status?.cluster?.head_address}</span>
+              </div>
+              {status?.cluster?.start_time_s && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.cluster.start_time_s).formattedTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.cluster.start_time_s).uptime}
+                    </span>
+                  </div>
+                </>
+              )}
+              {status?.cluster?.note && (
+                <div className="mt-4">
+                  <p className="text-sm text-gray-600">Note: {status.cluster.note}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
       
-      {/* Worker Nodes - Only display if worker nodes information is available */}
+      {/* Worker Nodes */}
       {status.cluster.worker_nodes !== "N/A" && (
-        <Card className="mb-6">
-          <CardContent>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6">Worker Nodes</Typography>
-            </Box>
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Worker Nodes</h3>
+            </div>
             
             <div className="overflow-x-auto">
               <table className="w-full table-auto">
@@ -1101,7 +1106,9 @@ class MyNewApp:
                         ({Math.round((node["Available Memory"] / node["Total Memory"]) * 100)}% available)
                       </td>
                       <td className="px-4 py-2">
-                        <Chip label="Alive" color="success" size="small" />
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          Alive
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1111,7 +1118,9 @@ class MyNewApp:
                         {JSON.stringify(node)}
                       </td>
                       <td className="px-4 py-2">
-                        <Chip label="Dead" color="error" size="small" />
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          Dead
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1124,617 +1133,497 @@ class MyNewApp:
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
       
-      
       {/* Deployments */}
-      <Card>
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Deployed BioEngine Apps</Typography>
-            <Button 
-              variant="outlined"
+      <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Deployed BioEngine Apps</h3>
+            <button 
               onClick={handleOpenDeployDialog}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               + Deploy App
-            </Button>
-          </Box>
+            </button>
+          </div>
           
-          {/* Display Deployments Service ID if it exists */}
           {deploymentServiceId && (
-            <Box mb={3}>
-              <Typography variant="body2" fontWeight="medium" gutterBottom>
-                Deployments Service ID:
-              </Typography>
-              <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
-                {deploymentServiceId}
-              </Typography>
-            </Box>
+            <div className="mb-6">
+              <p className="font-medium text-gray-700 mb-1">Deployments Service ID:</p>
+              <p className="text-sm text-gray-600 break-all">{deploymentServiceId}</p>
+            </div>
           )}
           
-          {/* Show deployment note when no deployments exist */}
           {!hasDeployments && deploymentNote && (
-            <Box textAlign="center" py={4}>
-              <Typography variant="body1" color="text.secondary">
-                {deploymentNote}
-              </Typography>
-            </Box>
+            <div className="text-center py-8">
+              <p className="text-gray-500">{deploymentNote}</p>
+            </div>
           )}
           
-          {/* List all deployed artifacts */}
           {hasDeployments && (
             <div className="space-y-4">
               {deployments.map((deployment, index) => (
-                <Box key={index} p={2} border={1} borderRadius={1} borderColor="divider">
-                  {/* First row: artifact name, status, and undeploy button */}
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                    <Box>
-                      <Typography variant="h6" display="flex" alignItems="center" gutterBottom>
+                <div key={index} className="p-4 border border-gray-200 rounded-lg">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="flex items-center mb-2">
                         {deployment.manifest?.id_emoji && (
-                          <span style={{ marginRight: '8px' }}>{deployment.manifest.id_emoji}</span>
+                          <span className="mr-2">{deployment.manifest.id_emoji}</span>
                         )}
-                        {deployment.manifest?.name || deployment.artifact_id.split('/').pop()}
+                        <h4 className="text-lg font-semibold">
+                          {deployment.manifest?.name || deployment.artifact_id.split('/').pop()}
+                        </h4>
                         
-                        <Box display="flex" alignItems="center" ml={1}>
-                          <Chip
-                            label={deployment.status}
-                            color={deployment.status === "HEALTHY" || deployment.status === "RUNNING" ? "success" : "default"}
-                            size="small"
-                          />
+                        <div className="flex items-center ml-3">
+                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                            deployment.status === "HEALTHY" || deployment.status === "RUNNING" 
+                              ? "bg-green-100 text-green-700 border border-green-200" 
+                              : "bg-gray-100 text-gray-700 border border-gray-200"
+                          }`}>
+                            {deployment.status}
+                          </span>
                           {deployment.status === "UPDATING" && (
-                            <CircularProgress size={16} sx={{ ml: 1 }} />
+                            <div className="ml-2 w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
                           )}
-                        </Box>
-                      </Typography>
+                        </div>
+                      </div>
                       
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        {deployment.artifact_id}
-                      </Typography>
-                    </Box>
+                      <p className="text-sm text-gray-500">{deployment.artifact_id}</p>
+                    </div>
                     
-                    {/* Undeploy button */}
-                    <Box>
+                    <div>
                       {undeployingArtifactId === deployment.artifact_id ? (
-                        <CircularProgress size={24} />
+                        <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
                       ) : (
-                        <Button
-                          variant="outlined"
-                          color="error"
-                          size="small"
+                        <button
                           onClick={() => handleUndeployArtifact(deployment.artifact_id)}
                           disabled={!!undeployingArtifactId}
+                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
                         >
                           Undeploy
-                        </Button>
+                        </button>
                       )}
-                    </Box>
-                  </Box>
+                    </div>
+                  </div>
                   
-                  {/* Second row: split into two columns */}
-                  <Grid container spacing={2}>
-                    {/* Left column: Start time, uptime, and replica states */}
-                    <Grid item xs={12} sm={6}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
                       {deployment.start_time_s && (
-                        <Box mb={1}>
-                          <Typography variant="body2" gutterBottom>
-                            <span style={{ fontWeight: 500 }}>Start Time:</span> {formatTimeInfo(deployment.start_time_s).formattedTime}
-                          </Typography>
-                          <Typography variant="body2" gutterBottom>
-                            <span style={{ fontWeight: 500 }}>Uptime:</span> {formatTimeInfo(deployment.start_time_s).uptime}
-                          </Typography>
-                        </Box>
+                        <div className="mb-3">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Start Time:</span> {formatTimeInfo(deployment.start_time_s).formattedTime}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Uptime:</span> {formatTimeInfo(deployment.start_time_s).uptime}
+                          </p>
+                        </div>
                       )}
                       
-                      {/* Replica states */}
                       {deployment.replica_states && Object.keys(deployment.replica_states).length > 0 && (
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium" gutterBottom>
-                            Replica States:
-                          </Typography>
-                          <Box display="flex" flexWrap="wrap" gap={1}>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">Replica States:</p>
+                          <div className="flex flex-wrap gap-2">
                             {Object.entries(deployment.replica_states).map(([state, count]) => (
-                              <Chip
+                              <span
                                 key={state}
-                                label={`${state}: ${count}`}
-                                color={state === "RUNNING" ? "success" : "default"}
-                                size="small"
-                                variant="outlined"
-                              />
+                                className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${
+                                  state === "RUNNING" 
+                                    ? "bg-green-50 text-green-700 border-green-200" 
+                                    : "bg-gray-50 text-gray-700 border-gray-200"
+                                }`}
+                              >
+                                {state}: {count}
+                              </span>
                             ))}
-                          </Box>
-                        </Box>
+                          </div>
+                        </div>
                       )}
-                    </Grid>
+                    </div>
                     
-                    {/* Right column: Deployment name and available methods */}
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" gutterBottom>
-                        <span style={{ fontWeight: 500 }}>Deployment name:</span> {deployment.deployment_name}
-                      </Typography>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-3">
+                        <span className="font-medium">Deployment name:</span> {deployment.deployment_name}
+                      </p>
                       
-                      {/* Resources information */}
                       {deployment.resources && (
-                        <Box mt={1} mb={1}>
-                          <Typography variant="body2" fontWeight="medium" gutterBottom>
-                            Resources:
-                          </Typography>
-                          <Box display="flex" flexWrap="wrap" gap={2}>
+                        <div className="mb-3">
+                          <p className="text-sm font-medium text-gray-700 mb-2">Resources:</p>
+                          <div className="flex flex-wrap gap-2">
                             {deployment.resources.num_cpus && deployment.resources.num_cpus > 0 && (
-                              <Chip 
-                                label={`CPUs: ${deployment.resources.num_cpus}`} 
-                                size="small" 
-                                variant="outlined" 
-                                color="primary"
-                              />
+                              <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                CPUs: {deployment.resources.num_cpus}
+                              </span>
                             )}
-                            {/* Only show GPUs if they exist AND are greater than 0 */}
                             {deployment.resources.num_gpus !== undefined && 
                              deployment.resources.num_gpus !== null && 
                              deployment.resources.num_gpus > 0 && (
-                              <Chip 
-                                label={`GPUs: ${deployment.resources.num_gpus}`} 
-                                size="small" 
-                                variant="outlined" 
-                                color="secondary"
-                              />
+                              <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                GPUs: {deployment.resources.num_gpus}
+                              </span>
                             )}
-                          </Box>
-                        </Box>
+                          </div>
+                        </div>
                       )}
                       
-                      {/* Available methods */}
                       {deployment.available_methods && deployment.available_methods.length > 0 && (
-                        <Box mt={1}>
-                          <Typography variant="body2" fontWeight="medium" gutterBottom>
-                            Available Methods:
-                          </Typography>
-                          <Box display="flex" flexWrap="wrap" gap={1}>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
+                          <div className="flex flex-wrap gap-1">
                             {deployment.available_methods.map((method) => (
-                              <Chip key={method} label={method} size="small" variant="outlined" />
+                              <span key={method} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200">
+                                {method}
+                              </span>
                             ))}
-                          </Box>
-                        </Box>
+                          </div>
+                        </div>
                       )}
-                    </Grid>
-                  </Grid>
-                </Box>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Divider />
+      <div className="border-t border-gray-200 my-6"></div>
 
       {/* Available Apps Section */}
-      <Card className="mb-6">
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Available Apps</Typography>
-            <Box display="flex" gap={1}>
-              <Button 
-                variant="contained"
-                startIcon={<AddIcon />}
+      <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Available Apps</h3>
+            <div className="flex gap-2">
+              <button 
                 onClick={handleOpenCreateAppDialog}
                 disabled={deploymentLoading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
               >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
                 Create App
-              </Button>
-              <Button 
-                variant="outlined"
+              </button>
+              <button 
                 onClick={fetchAvailableArtifacts}
                 disabled={deploymentLoading}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed flex items-center"
               >
-                {deploymentLoading ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                {deploymentLoading ? (
+                  <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin mr-2"></div>
+                ) : null}
                 {availableArtifacts.length > 0 ? 'Refresh' : 'Load Artifacts'}
-              </Button>
-            </Box>
-          </Box>
+              </button>
+            </div>
+          </div>
           
           {deploymentLoading && availableArtifacts.length === 0 && (
-            <Box display="flex" justifyContent="center" p={3}>
-              <Typography>Loading artifacts...</Typography>
-            </Box>
+            <div className="flex justify-center p-8">
+              <p className="text-gray-500">Loading artifacts...</p>
+            </div>
           )}
           
           {!deploymentLoading && availableArtifacts.length === 0 && (
-            <Box display="flex" justifyContent="center" p={3}>
-              <Typography color="text.secondary">No deployable artifacts found. Click "Load Artifacts" to fetch available artifacts.</Typography>
-            </Box>
+            <div className="flex justify-center p-8">
+              <p className="text-gray-500">No deployable artifacts found. Click "Load Artifacts" to fetch available artifacts.</p>
+            </div>
           )}
           
           {availableArtifacts.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {availableArtifacts.map((artifact) => (
-                <Box 
+                <div 
                   key={artifact.id} 
-                  p={2}
-                  border={1}
-                  borderRadius={1}
-                  borderColor="divider"
-                  sx={{ backgroundColor: 'background.paper' }}
+                  className="p-4 border border-gray-200 rounded-lg bg-gray-50"
                 >
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                    <Box sx={{ flex: 1, mr: 2 }}>
-                      <Typography variant="h6" gutterBottom>
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 mr-4">
+                      <h4 className="text-lg font-semibold mb-1">
                         {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-                        {artifact.id}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {artifact.manifest?.description || artifact.description || "No description available"}
-                      </Typography>
-                      
-                      {/* Show supported modes */}
-                      <Box display="flex" alignItems="center" gap={1} mt={1}>
-                        <Typography variant="body2" fontWeight="medium">
-                          Modes:
-                        </Typography>
-                        {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
-                          <>
-                            <Chip label="CPU" size="small" variant="outlined" color="primary" />
-                            <Chip label="GPU" size="small" variant="outlined" color="secondary" />
-                          </>
-                        ) : (
-                          <Chip 
-                            label={artifact.defaultMode === 'gpu' ? "GPU Only" : "CPU Only"} 
-                            size="small" 
-                            variant="outlined" 
-                            color={artifact.defaultMode === 'gpu' ? "secondary" : "primary"}
-                          />
-                        )}
-                      </Box>
-                    </Box>
+                      </h4>
+                      <p className="text-sm text-gray-500 mb-2">{artifact.id}</p>
+                      <p className="text-gray-600">{artifact.manifest?.description || artifact.description || "No description available"}</p>
+                    </div>
                     
-                    <Box display="flex" flexDirection="column" alignItems="flex-end" gap={1}>
-                      {/* Mode selector for artifacts that support both CPU and GPU */}
-                      {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) && (
-                        <FormControlLabel
-                          control={
-                            <Switch 
-                              checked={artifactModes[artifact.id] === 'gpu'}
-                              onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
-                              size="small"
-                            />
-                          }
-                          label={artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
-                          sx={{ m: 0 }}
-                        />
-                      )}
+                    <div className="flex flex-col items-end">
+                      {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
+                        <label className="flex items-center space-x-2 mb-2">
+                          <input
+                            type="checkbox"
+                            checked={artifactModes[artifact.id] === 'gpu'}
+                            onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
+                            className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">
+                            {artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
+                          </span>
+                        </label>
+                      ) : null}
                       
-                      {/* Action buttons */}
-                      <Box display="flex" gap={1}>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<EditIcon />}
+                      <div className="flex gap-2">
+                        <button
                           onClick={() => handleOpenEditAppDialog(artifact)}
                           disabled={deploymentLoading || createAppLoading}
+                          className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 flex items-center"
                         >
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
                           Edit
-                        </Button>
+                        </button>
                         
-                        {/* Deploy button */}
                         {deployingArtifactId === artifact.id ? (
-                          <CircularProgress size={24} />
+                          <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
                         ) : (
-                          <Button
-                            variant="contained"
-                            size="small"
+                          <button
                             onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
                             disabled={deploymentLoading}
+                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
                           >
                             Deploy
-                          </Button>
+                          </button>
                         )}
-                      </Box>
-                    </Box>
-                  </Box>
-                </Box>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
-      
+        </div>
+      </div>
 
       {/* Create/Edit App Dialog */}
-      <Dialog
-        open={createAppDialogOpen}
-        onClose={handleCloseCreateAppDialog}
-        aria-labelledby="create-app-dialog-title"
-        maxWidth="lg"
-        fullWidth
-        PaperProps={{
-          sx: { height: '90vh', borderRadius: 2 }
-        }}
-      >
-        <DialogTitle 
-          id="create-app-dialog-title"
-          sx={{ 
-            pb: 1, 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            backgroundColor: 'background.paper'
-          }}
-        >
-          <Typography variant="h6" component="div">
-            {editingArtifact ? `Edit app: ${editingArtifact.manifest?.name || editingArtifact.alias}` : 'Create new app'}
-          </Typography>
-          <IconButton
-            aria-label="close"
-            onClick={handleCloseCreateAppDialog}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
-          {/* Tab Navigation with Add Button */}
-          <Box sx={{ 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            backgroundColor: 'background.default',
-            display: 'flex',
-            alignItems: 'center'
-          }}>
-            <Tabs 
-              value={activeEditorTab} 
-              onChange={(_, newValue) => setActiveEditorTab(newValue)}
-              sx={{ flex: 1 }}
-              variant="scrollable"
-              scrollButtons="auto"
-            >
-              {files.map((file, index) => (
-                <Tab 
-                  key={file.name}
-                  label={
-                    editingFileName === file.name ? (
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <TextField
-                          size="small"
-                          value={newFileName}
-                          onChange={(e) => setNewFileName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleFileNameSave();
-                            if (e.key === 'Escape') handleFileNameCancel();
-                          }}
-                          onBlur={handleFileNameSave}
-                          autoFocus
-                          sx={{ 
-                            '& .MuiInputBase-input': { 
-                              fontSize: '0.875rem',
-                              py: 0.5,
-                              px: 1
-                            }
-                          }}
-                        />
-                      </Box>
-                    ) : (
-                      <Box 
-                        display="flex" 
-                        alignItems="center" 
-                        gap={1}
-                        onDoubleClick={() => handleFileNameEdit(file.name)}
-                        sx={{ cursor: 'pointer' }}
-                      >
-                        <Typography variant="body2">{file.name}</Typography>
+      {createAppDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl mx-4 h-5/6 flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold">
+                {editingArtifact ? `Edit app: ${editingArtifact.manifest?.name || editingArtifact.alias}` : 'Create new app'}
+              </h3>
+              <button
+                onClick={handleCloseCreateAppDialog}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Tab Navigation with Add Button */}
+              <div className="border-b border-gray-200 bg-gray-50 flex items-center">
+                <div className="flex-1 flex overflow-x-auto">
+                  {files.map((file, index) => (
+                    <button
+                      key={file.name}
+                      onClick={() => setActiveEditorTab(index)}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
+                        activeEditorTab === index
+                          ? 'border-blue-500 text-blue-600 bg-white'
+                          : 'border-transparent text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {editingFileName === file.name ? (
+                          <input
+                            type="text"
+                            value={newFileName}
+                            onChange={(e) => setNewFileName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleFileNameSave();
+                              if (e.key === 'Escape') handleFileNameCancel();
+                            }}
+                            onBlur={handleFileNameSave}
+                            autoFocus
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                        ) : (
+                          <span 
+                            onDoubleClick={() => handleFileNameEdit(file.name)}
+                            className="cursor-pointer"
+                          >
+                            {file.name}
+                          </span>
+                        )}
                         {files.length > 2 && (
-                          <IconButton
-                            size="small"
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               removeFile(file.name);
                             }}
-                            sx={{ ml: 0.5, p: 0.25 }}
+                            className="ml-1 text-gray-400 hover:text-red-500"
                           >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
                         )}
-                      </Box>
-                    )
-                  }
-                />
-              ))}
-            </Tabs>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Add New File */}
+                <div className="p-2 flex items-center gap-2 border-l border-gray-200">
+                  <input
+                    type="text"
+                    placeholder="filename.ext"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddNewFile();
+                    }}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded w-24"
+                  />
+                  <button
+                    onClick={handleAddNewFile}
+                    disabled={!newFileName.trim()}
+                    className="p-1 text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Error Display */}
+              {createAppError && (
+                <div className="p-3 bg-red-50 border-b border-red-200">
+                  <p className="text-sm text-red-600">{createAppError}</p>
+                </div>
+              )}
+              
+              {/* Editor Content */}
+              <div className="flex-1 min-h-0">
+                {files.length > 0 && files[activeEditorTab] && (
+                  <Editor
+                    height="100%"
+                    language={files[activeEditorTab].language}
+                    value={files[activeEditorTab].content}
+                    onChange={(value) => updateFileContent(files[activeEditorTab].name, value || '')}
+                    options={{
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      lineNumbers: 'on',
+                      wordWrap: 'on',
+                      automaticLayout: true,
+                      tabSize: 2,
+                      insertSpaces: true,
+                    }}
+                    theme="vs-dark"
+                  />
+                )}
+              </div>
+            </div>
             
-            {/* Add New File Button */}
-            <Box sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <TextField
-                size="small"
-                placeholder="filename.ext"
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddNewFile();
-                }}
-                sx={{ 
-                  width: 120,
-                  '& .MuiInputBase-input': { 
-                    fontSize: '0.75rem',
-                    py: 0.5
-                  }
-                }}
-              />
-              <IconButton
-                size="small"
-                onClick={handleAddNewFile}
-                disabled={!newFileName.trim()}
-                color="primary"
+            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+              <button 
+                onClick={handleCloseCreateAppDialog} 
+                disabled={createAppLoading}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          </Box>
-          
-          {/* Error Display */}
-          {createAppError && (
-            <Box sx={{ 
-              p: 2, 
-              backgroundColor: 'error.light', 
-              color: 'error.contrastText',
-              borderBottom: 1,
-              borderColor: 'divider'
-            }}>
-              <Typography variant="body2">{createAppError}</Typography>
-            </Box>
-          )}
-          
-          {/* Editor Content */}
-          <Box sx={{ flex: 1, minHeight: 0 }}>
-            {files.length > 0 && files[activeEditorTab] && (
-              <Editor
-                height="100%"
-                language={files[activeEditorTab].language}
-                value={files[activeEditorTab].content}
-                onChange={(value) => updateFileContent(files[activeEditorTab].name, value || '')}
-                options={{
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  fontSize: 14,
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  tabSize: 2,
-                  insertSpaces: true,
-                }}
-                theme="vs-dark"
-              />
-            )}
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ 
-          p: 2, 
-          borderTop: 1, 
-          borderColor: 'divider',
-          backgroundColor: 'background.paper'
-        }}>
-          <Button onClick={handleCloseCreateAppDialog} disabled={createAppLoading}>
-            Cancel
-          </Button>
-          <Button 
-            variant="contained" 
-            onClick={handleCreateOrUpdateApp}
-            disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
-          >
-            {createAppLoading ? (
-              <>
-                <CircularProgress size={20} sx={{ mr: 1 }} />
-                {editingArtifact ? 'Updating...' : 'Creating...'}
-              </>
-            ) : (
-              editingArtifact ? 'Update app' : 'Create app'
-            )}
-          </Button>
-        </DialogActions>
-      </Dialog>
+                Cancel
+              </button>
+              <button 
+                onClick={handleCreateOrUpdateApp}
+                disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+              >
+                {createAppLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    {editingArtifact ? 'Updating...' : 'Creating...'}
+                  </>
+                ) : (
+                  editingArtifact ? 'Update app' : 'Create app'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Dialog for available artifacts */}
-      <Dialog
-        open={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        aria-labelledby="artifacts-dialog-title"
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle id="artifacts-dialog-title">
-          Available Artifacts
-          <IconButton
-            aria-label="close"
-            onClick={() => setIsDialogOpen(false)}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1, pb: 2 }}>
-            {deploymentLoading && !deployingArtifactId && (
-              <Box display="flex" justifyContent="center" p={3}>
-                <Typography>Loading artifacts...</Typography>
-              </Box>
-            )}
-            {!deploymentLoading && availableArtifacts.length === 0 && (
-              <Box display="flex" justifyContent="center" p={3}>
-                <Typography>No deployable artifacts found</Typography>
-              </Box>
-            )}
-            {availableArtifacts.map((artifact) => (
-              <Box 
-                key={artifact.id} 
-                p={2}
-                mb={2}
-                border={1}
-                borderRadius={1}
-                borderColor="divider"
+      {/* Deploy Dialog */}
+      {isDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-5/6 flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold">Available Artifacts</h3>
+              <button
+                onClick={() => setIsDialogOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
               >
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                  <Box>
-                    <Typography variant="h6">
-                      {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {artifact.id}
-                    </Typography>
-                    <Typography variant="body2" sx={{ mt: 1 }}>
-                      {artifact.manifest?.description || artifact.description || "No description available"}
-                    </Typography>
-                  </Box>
-                  
-                  <Box display="flex" flexDirection="column" alignItems="flex-end">
-                    {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
-                      <FormControlLabel
-                        control={
-                          <Switch 
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {deploymentLoading && !deployingArtifactId && (
+                <div className="flex justify-center p-8">
+                  <p className="text-gray-500">Loading artifacts...</p>
+                </div>
+              )}
+              {!deploymentLoading && availableArtifacts.length === 0 && (
+                <div className="flex justify-center p-8">
+                  <p className="text-gray-500">No deployable artifacts found</p>
+                </div>
+              )}
+              {availableArtifacts.map((artifact) => (
+                <div 
+                  key={artifact.id} 
+                  className="p-4 mb-4 border border-gray-200 rounded-lg"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="text-lg font-semibold">
+                        {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
+                      </h4>
+                      <p className="text-sm text-gray-500 mb-2">{artifact.id}</p>
+                      <p className="text-gray-600">{artifact.manifest?.description || artifact.description || "No description available"}</p>
+                    </div>
+                    
+                    <div className="flex flex-col items-end">
+                      {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) ? (
+                        <label className="flex items-center space-x-2 mb-2">
+                          <input
+                            type="checkbox"
                             checked={artifactModes[artifact.id] === 'gpu'}
                             onChange={(e) => handleModeChange(artifact.id, e.target.checked)}
+                            className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
                           />
-                        }
-                        label={artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
-                        sx={{ mb: 1 }}
-                      />
-                    ) : (
-                      <Chip 
-                        label={artifact.defaultMode === 'gpu' ? "GPU Only" : "CPU Only"} 
-                        variant="outlined" 
-                        size="small" 
-                        color={artifact.defaultMode === 'gpu' ? "secondary" : "primary"}
-                        sx={{ mb: 1 }}
-                      />
-                    )}
-                    
-                    {deployingArtifactId === artifact.id ? (
-                      <CircularProgress size={24} />
-                    ) : (
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                        disabled={deploymentLoading}
-                      >
-                        Deploy
-                      </Button>
-                    )}
-                  </Box>
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        </DialogContent>
-      </Dialog>
+                          <span className="text-sm font-medium text-gray-700">
+                            {artifactModes[artifact.id] === 'gpu' ? "GPU" : "CPU"}
+                          </span>
+                        </label>
+                      ) : null}
+                      
+                      {deployingArtifactId === artifact.id ? (
+                        <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+                      ) : (
+                        <button
+                          onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
+                          disabled={deploymentLoading}
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+                        >
+                          Deploy
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
