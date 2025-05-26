@@ -1357,7 +1357,7 @@ class MyNewApp:
                             {deployment.available_methods.map((method) => (
                               <a
                                 key={method}
-                                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}/${method}`}
+                                href={`https://hypha.aicell.io/${deploymentServiceId?.split('/')[0]}/services/${deploymentServiceId.split('/')[1]}/${deployment.deployment_name}.${method}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors"
