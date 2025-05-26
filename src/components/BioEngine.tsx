@@ -4,6 +4,33 @@ import { useHyphaStore } from '../store/hyphaStore';
 import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
 
+// Add custom animations
+const styles = `
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes slideUp {
+    from { 
+      opacity: 0;
+      transform: translateY(20px) scale(0.95);
+    }
+    to { 
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  
+  .animate-fadeIn {
+    animation: fadeIn 0.2s ease-out;
+  }
+  
+  .animate-slideUp {
+    animation: slideUp 0.3s ease-out;
+  }
+`;
+
 type ServiceStatus = {
   service: {
     start_time_s: number;
@@ -1004,10 +1031,17 @@ class MyNewApp:
         
         {/* Token Dialog */}
         {tokenDialogOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-lg font-semibold">Authentication Required</h3>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+            <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-md w-full mx-4 border border-white/20 animate-slideUp">
+              <div className="p-6 border-b border-gray-200/50">
+                <div className="flex items-center">
+                  <div className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl flex items-center justify-center mr-3">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">Authentication Required</h3>
+                </div>
               </div>
               <form onSubmit={handleTokenSubmit}>
                 <div className="p-6">
@@ -1029,19 +1063,19 @@ class MyNewApp:
                     <p className="text-red-500 text-sm mt-2">{connectionError}</p>
                   )}
                 </div>
-                <div className="p-6 pt-0 border-t border-gray-200 flex justify-end space-x-3">
+                <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3">
                   <button 
                     type="button"
                     onClick={handleTokenDialogClose} 
                     disabled={connectionLoading}
-                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    className="px-6 py-3 text-gray-600 bg-white border-2 border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
                   >
                     Cancel
                   </button>
                   <button 
                     type="submit" 
                     disabled={!customToken.trim() || connectionLoading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
                   >
                     {connectionLoading ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
@@ -1077,28 +1111,44 @@ class MyNewApp:
   const deploymentNote = status?.deployments?.note;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">BioEngine Dashboard</h1>
-        
-        {serviceId && (
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={autoRefreshEnabled}
-              onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
-              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <span className="text-sm font-medium text-gray-700">Auto-refresh</span>
-          </label>
-        )}
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <style>{styles}</style>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              BioEngine Dashboard
+            </h1>
+            <p className="text-gray-600 mt-2">Manage and deploy your bioimage analysis applications</p>
+          </div>
+          
+          {serviceId && (
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl px-4 py-2 shadow-sm border border-white/20">
+              <label className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={autoRefreshEnabled}
+                  onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                />
+                <span className="text-sm font-medium text-gray-700">Auto-refresh</span>
+              </label>
+            </div>
+          )}
+        </div>
       
       {/* Service Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow-md border border-gray-200">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 hover:shadow-md transition-all duration-200">
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Service Information</h3>
+            <div className="flex items-center mb-4">
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mr-3">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Service Information</h3>
+            </div>
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="font-medium text-gray-700">Service ID:</span>
@@ -1124,9 +1174,16 @@ class MyNewApp:
           </div>
         </div>
         
-        <div className="bg-white rounded-lg shadow-md border border-gray-200">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 hover:shadow-md transition-all duration-200">
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Cluster Information</h3>
+            <div className="flex items-center mb-4">
+              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
+            </div>
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="font-medium text-gray-700">Head Address:</span>
@@ -1160,10 +1217,17 @@ class MyNewApp:
       
       {/* Worker Nodes */}
       {status.cluster.worker_nodes !== "N/A" && (
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
           <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Worker Nodes</h3>
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 rounded-xl flex items-center justify-center mr-3">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">Worker Nodes</h3>
+              </div>
             </div>
             
             <div className="overflow-x-auto">
@@ -1229,10 +1293,17 @@ class MyNewApp:
       )}
       
       {/* Deployments */}
-      <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
         <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Deployed BioEngine Apps</h3>
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center mr-3">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Deployed BioEngine Apps</h3>
+            </div>
           </div>
           
           {/* Undeployment Error Display */}
@@ -1282,9 +1353,9 @@ class MyNewApp:
           )}
           
           {hasDeployments && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {deployments.map((deployment, index) => (
-                <div key={index} className="p-4 border border-gray-200 rounded-lg">
+                <div key={index} className="p-6 bg-gradient-to-r from-white to-gray-50 border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <div className="flex items-center mb-2">
@@ -1316,16 +1387,16 @@ class MyNewApp:
                       {undeployingArtifactId === deployment.artifact_id ? (
                         <button
                           disabled={true}
-                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded opacity-50 cursor-not-allowed flex items-center"
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-400 to-red-500 text-white rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
                         >
-                          <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-2"></div>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                           {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
                         </button>
                       ) : (
                         <button
                           onClick={() => handleUndeployArtifact(deployment.artifact_id)}
                           disabled={false}
-                          className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 shadow-sm hover:shadow-md transition-all duration-200"
                         >
                           {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
                         </button>
@@ -1422,15 +1493,22 @@ class MyNewApp:
       <div className="border-t border-gray-200 my-6"></div>
 
       {/* Available Apps Section */}
-      <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
         <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Available Apps</h3>
-            <div className="flex gap-2">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center mr-3">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Available Apps</h3>
+            </div>
+            <div className="flex gap-3">
               <button 
                 onClick={handleOpenCreateAppDialog}
                 disabled={deploymentLoading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1440,7 +1518,7 @@ class MyNewApp:
               <button 
                 onClick={fetchAvailableArtifacts}
                 disabled={deploymentLoading}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed flex items-center"
+                className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
               >
                 {deploymentLoading ? (
                   <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin mr-2"></div>
@@ -1515,11 +1593,11 @@ class MyNewApp:
           )}
           
           {availableArtifacts.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {availableArtifacts.map((artifact) => (
                 <div 
                   key={artifact.id} 
-                  className="p-4 border border-gray-200 rounded-lg bg-gray-50"
+                  className="p-6 bg-gradient-to-r from-white to-blue-50 border border-blue-100 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-200"
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1 mr-4">
@@ -1562,7 +1640,7 @@ class MyNewApp:
                         <button
                           onClick={() => handleOpenEditAppDialog(artifact)}
                           disabled={deploymentLoading || createAppLoading}
-                          className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 flex items-center"
+                          className="px-4 py-2 text-sm bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 flex items-center shadow-sm hover:shadow-md transition-all duration-200"
                         >
                           <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1574,7 +1652,7 @@ class MyNewApp:
                           deletingArtifactId === artifact.id ? (
                             <button
                               disabled={true}
-                              className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded opacity-50 cursor-not-allowed flex items-center"
+                              className="px-4 py-2 text-sm bg-red-50 border-2 border-red-300 text-red-600 rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
                             >
                               <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-1"></div>
                               Delete
@@ -1583,7 +1661,7 @@ class MyNewApp:
                             <button
                               onClick={() => handleDeleteArtifact(artifact.id)}
                               disabled={deletingArtifactId !== null || deploymentLoading || createAppLoading}
-                              className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 flex items-center"
+                              className="px-4 py-2 text-sm bg-red-50 border-2 border-red-300 text-red-600 rounded-xl hover:bg-red-100 hover:border-red-400 disabled:opacity-50 flex items-center shadow-sm hover:shadow-md transition-all duration-200"
                             >
                               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1596,7 +1674,7 @@ class MyNewApp:
                         {deployingArtifactId === artifact.id ? (
                           <button
                             disabled={true}
-                            className="px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed flex items-center"
+                            className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
                           >
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                             Deploy
@@ -1605,7 +1683,7 @@ class MyNewApp:
                           <button
                             onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
                             disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
-                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+                            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 shadow-sm hover:shadow-md transition-all duration-200"
                           >
                             Deploy
                           </button>
@@ -1622,15 +1700,22 @@ class MyNewApp:
 
       {/* Create/Edit App Dialog */}
       {createAppDialogOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl mx-4 h-5/6 flex flex-col">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold">
-                {editingArtifact ? `Edit app: ${editingArtifact.manifest?.name || editingArtifact.alias}` : 'Create new app'}
-              </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg w-full max-w-6xl mx-4 h-5/6 flex flex-col border border-white/20 animate-slideUp">
+            <div className="p-6 border-b border-gray-200/50 flex justify-between items-center">
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-gradient-to-r from-violet-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {editingArtifact ? `Edit app: ${editingArtifact.manifest?.name || editingArtifact.alias}` : 'Create new app'}
+                </h3>
+              </div>
               <button
                 onClick={handleCloseCreateAppDialog}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 p-2 rounded-xl hover:bg-gray-100 transition-all duration-200"
                 aria-label="Close dialog"
                 title="Close dialog"
               >
@@ -1783,6 +1868,7 @@ class MyNewApp:
       )}
 
 
+      </div>
     </div>
   );
 };
