@@ -18,7 +18,7 @@ import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/BioEngineHome';
-import BioEngineWorker from './components/BioEngine';
+import BioEngineWorker from './components/BioEngineWorker';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
