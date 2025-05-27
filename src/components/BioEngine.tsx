@@ -188,7 +188,7 @@ const BioEngineWorker: React.FC = () => {
   const [createAppError, setCreateAppError] = useState<string | null>(null);
   
   // File management state
-  const [files, setFiles] = useState<Array<{name: string, content: string, language: string}>>([]);
+  const [files, setFiles] = useState<Array<{name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean}>>([]);
   const [editingFileName, setEditingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -650,9 +650,30 @@ class MyNewApp:
       'md': 'markdown',
       'txt': 'plaintext',
       'sh': 'shell',
-      'dockerfile': 'dockerfile'
+      'dockerfile': 'dockerfile',
+      'ijm': 'plaintext',
+      'cfg': 'plaintext',
+      'conf': 'plaintext',
+      'ini': 'plaintext'
     };
     return languageMap[extension] || 'plaintext';
+  };
+
+  const isEditableFile = (fileName: string): boolean => {
+    const extension = fileName.toLowerCase().split('.').pop() || '';
+    const editableExtensions = [
+      'yaml', 'yml', 'py', 'js', 'ts', 'json', 'md', 'txt', 'sh', 'ijm',
+      'cfg', 'conf', 'ini', 'dockerfile', 'requirements', 'gitignore'
+    ];
+    return editableExtensions.includes(extension) || fileName === 'Dockerfile' || fileName === 'requirements.txt';
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
   const updateFileContent = (fileName: string, content: string) => {
@@ -665,7 +686,8 @@ class MyNewApp:
 
   const addNewFile = (fileName: string, content: string = '') => {
     const language = getFileLanguage(fileName);
-    setFiles(prevFiles => [...prevFiles, { name: fileName, content, language }]);
+    const isEditable = isEditableFile(fileName);
+    setFiles(prevFiles => [...prevFiles, { name: fileName, content, language, isEditable }]);
   };
 
   const removeFile = (fileName: string) => {
@@ -682,7 +704,7 @@ class MyNewApp:
     setFiles(prevFiles => 
       prevFiles.map(file => 
         file.name === oldName 
-          ? { ...file, name: newName, language: getFileLanguage(newName) }
+          ? { ...file, name: newName, language: getFileLanguage(newName), isEditable: isEditableFile(newName) }
           : file
       )
     );
@@ -692,8 +714,8 @@ class MyNewApp:
   const handleOpenCreateAppDialog = () => {
     setEditingArtifact(null);
     setFiles([
-      { name: 'manifest.yaml', content: getDefaultManifest(), language: 'yaml' },
-      { name: 'main.py', content: getDefaultMainPy(), language: 'python' }
+      { name: 'manifest.yaml', content: getDefaultManifest(), language: 'yaml', isEditable: true },
+      { name: 'main.py', content: getDefaultMainPy(), language: 'python', isEditable: true }
     ]);
     setActiveEditorTab(0);
     setCreateAppError(null);
@@ -707,7 +729,7 @@ class MyNewApp:
     setCreateAppLoading(true);
     
     try {
-      const loadedFiles: Array<{name: string, content: string, language: string}> = [];
+      const loadedFiles: Array<{name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean}> = [];
       
       // Always generate manifest.yaml from artifact.manifest metadata
       let manifestText = '';
@@ -766,7 +788,8 @@ class MyNewApp:
       loadedFiles.push({
         name: 'manifest.yaml',
         content: manifestText,
-        language: 'yaml'
+        language: 'yaml',
+        isEditable: true
       });
       
       // Get list of all files in the artifact
@@ -784,33 +807,65 @@ class MyNewApp:
         // Load content for each file
         for (const fileInfo of filesToLoad) {
           try {
-            // skip non-text files
-            if (!fileInfo.name.endsWith('.txt') && !fileInfo.name.endsWith('.md') && !fileInfo.name.endsWith('.py') && !fileInfo.name.endsWith('.yaml') && !fileInfo.name.endsWith('.yml') && !fileInfo.name.endsWith('.json') && !fileInfo.name.endsWith('.sh') && !fileInfo.name.endsWith('.ijm')) {
-              console.log(`Skipping load non-text file: ${fileInfo.name}`);
-              continue;
-            }
+            const isEditable = isEditableFile(fileInfo.name);
+            const lastModified = fileInfo.last_modified ? new Date(fileInfo.last_modified).toLocaleString() : undefined;
+            const size = fileInfo.size || 0;
 
-            console.log(`Loading file: ${fileInfo.name}`);
-            const fileUrl = await artifactManager.get_file({
-              artifact_id: artifact.id, 
-              file_path: fileInfo.name, 
-              _rkwargs: true
-            });
-            const response = await fetch(fileUrl);
-            
-            if (response.ok) {
-              const content = await response.text();
+            if (isEditable) {
+              console.log(`Loading editable file: ${fileInfo.name}`);
+              const fileUrl = await artifactManager.get_file({
+                artifact_id: artifact.id, 
+                file_path: fileInfo.name, 
+                _rkwargs: true
+              });
+              const response = await fetch(fileUrl);
+              
+              if (response.ok) {
+                const content = await response.text();
+                loadedFiles.push({
+                  name: fileInfo.name,
+                  content: content,
+                  language: getFileLanguage(fileInfo.name),
+                  lastModified,
+                  size,
+                  isEditable: true
+                });
+                console.log(`Successfully loaded ${fileInfo.name} (${content.length} chars)`);
+              } else {
+                console.warn(`Failed to fetch ${fileInfo.name}: ${response.status} ${response.statusText}`);
+                // Add as non-editable if fetch failed
+                loadedFiles.push({
+                  name: fileInfo.name,
+                  content: `// Failed to load file: ${response.status} ${response.statusText}`,
+                  language: 'plaintext',
+                  lastModified,
+                  size,
+                  isEditable: false
+                });
+              }
+            } else {
+              // Add binary/non-editable files to the list but don't load content
+              console.log(`Adding non-editable file to list: ${fileInfo.name}`);
               loadedFiles.push({
                 name: fileInfo.name,
-                content: content,
-                language: getFileLanguage(fileInfo.name)
+                content: `// Binary file - not editable\n// Size: ${formatFileSize(size)}\n// Last modified: ${lastModified || 'Unknown'}`,
+                language: 'plaintext',
+                lastModified,
+                size,
+                isEditable: false
               });
-              console.log(`Successfully loaded ${fileInfo.name} (${content.length} chars)`);
-            } else {
-              console.warn(`Failed to fetch ${fileInfo.name}: ${response.status} ${response.statusText}`);
             }
           } catch (fileErr) {
-            console.warn(`Error loading file ${fileInfo.name}:`, fileErr);
+            console.warn(`Error processing file ${fileInfo.name}:`, fileErr);
+            // Add as error file
+            loadedFiles.push({
+              name: fileInfo.name,
+              content: `// Error loading file: ${fileErr}`,
+              language: 'plaintext',
+              lastModified: fileInfo.last_modified ? new Date(fileInfo.last_modified).toLocaleString() : undefined,
+              size: fileInfo.size || 0,
+              isEditable: false
+            });
           }
         }
         
@@ -820,7 +875,8 @@ class MyNewApp:
           loadedFiles.push({
             name: 'main.py',
             content: getDefaultMainPy(),
-            language: 'python'
+            language: 'python',
+            isEditable: true
           });
         }
         
@@ -835,7 +891,8 @@ class MyNewApp:
           loadedFiles.push({
             name: 'main.py',
             content: mainPyText,
-            language: 'python'
+            language: 'python',
+            isEditable: true
           });
           console.log('Successfully fetched main.py via fallback');
         } catch (fileErr) {
@@ -843,7 +900,8 @@ class MyNewApp:
           loadedFiles.push({
             name: 'main.py',
             content: getDefaultMainPy(),
-            language: 'python'
+            language: 'python',
+            isEditable: true
           });
         }
       }
@@ -1783,7 +1841,11 @@ class MyNewApp:
                         activeEditorTab === index
                           ? 'border-blue-500 text-blue-600 bg-white'
                           : 'border-transparent text-gray-500 hover:text-gray-700'
-                      }`}
+                      } ${!file.isEditable ? 'opacity-60' : ''}`}
+                      title={file.isEditable ? 
+                        `${file.name}${file.size ? ` (${formatFileSize(file.size)})` : ''}${file.lastModified ? ` - Modified: ${file.lastModified}` : ''}` :
+                        `${file.name} - Read-only${file.size ? ` (${formatFileSize(file.size)})` : ''}`
+                      }
                     >
                       <div className="flex items-center gap-2">
                         {editingFileName === file.name ? (
@@ -1801,12 +1863,19 @@ class MyNewApp:
                             aria-label="Edit filename"
                           />
                         ) : (
-                          <span 
-                            onDoubleClick={() => handleFileNameEdit(file.name)}
-                            className="cursor-pointer"
-                          >
-                            {file.name}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            {!file.isEditable && (
+                              <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                            )}
+                            <span 
+                              onDoubleClick={() => file.isEditable && handleFileNameEdit(file.name)}
+                              className={file.isEditable ? "cursor-pointer" : "cursor-default"}
+                            >
+                              {file.name}
+                            </span>
+                          </div>
                         )}
                         {files.length > 2 && (
                           <button
@@ -1865,23 +1934,50 @@ class MyNewApp:
               {/* Editor Content */}
               <div className="flex-1 min-h-0">
                 {files.length > 0 && files[activeEditorTab] && (
-                  <Editor
-                    height="100%"
-                    language={files[activeEditorTab].language}
-                    value={files[activeEditorTab].content}
-                    onChange={(value) => updateFileContent(files[activeEditorTab].name, value || '')}
-                    options={{
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                      fontSize: 14,
-                      lineNumbers: 'on',
-                      wordWrap: 'on',
-                      automaticLayout: true,
-                      tabSize: 2,
-                      insertSpaces: true,
-                    }}
-                    theme="light"
-                  />
+                  <div className="h-full flex flex-col">
+                    {/* File info bar for non-editable files */}
+                    {!files[activeEditorTab].isEditable && (
+                      <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                          </svg>
+                          <span className="font-medium">Read-only file</span>
+                          {files[activeEditorTab].size && (
+                            <span>• Size: {formatFileSize(files[activeEditorTab].size!)}</span>
+                          )}
+                          {files[activeEditorTab].lastModified && (
+                            <span>• Modified: {files[activeEditorTab].lastModified}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex-1">
+                      <Editor
+                        height="100%"
+                        language={files[activeEditorTab].language}
+                        value={files[activeEditorTab].content}
+                        onChange={(value) => {
+                          if (files[activeEditorTab].isEditable) {
+                            updateFileContent(files[activeEditorTab].name, value || '');
+                          }
+                        }}
+                        options={{
+                          minimap: { enabled: false },
+                          scrollBeyondLastLine: false,
+                          fontSize: 14,
+                          lineNumbers: 'on',
+                          wordWrap: 'on',
+                          automaticLayout: true,
+                          tabSize: 2,
+                          insertSpaces: true,
+                          readOnly: !files[activeEditorTab].isEditable,
+                        }}
+                        theme="light"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

@@ -51,27 +51,13 @@ const BioEngineGuide: React.FC = () => {
   };
 
   const getCommand = () => {
-    const platform = getPlatform();
-    const userFlag = getUserFlag();
-    const gpuFlag = getGpuFlag();
+    // Base arguments - exclude --mode for SLURM since the script handles it automatically
+    let args: string[] = [];
     
-    // Determine mount directory and cache directory
-    let mountDir = '/tmp';
-    let hostMountPath = '';
-    
-    if (os === 'windows') {
-      hostMountPath = runAsRoot ? 'C:\\temp' : '%TEMP%';
-    } else {
-      hostMountPath = '$(mktemp -d)';
+    // Add mode argument only for non-SLURM modes
+    if (mode !== 'slurm') {
+      args.push(`--mode ${mode}`);
     }
-    
-    // If user specified a custom cache directory, use it as the mount point
-    if (cacheDir) {
-      mountDir = cacheDir;
-    }
-    
-    // Base arguments
-    let args = [`--mode ${mode}`];
     
     // Mode-specific arguments
     if (mode === 'single-machine') {
@@ -99,7 +85,39 @@ const BioEngineGuide: React.FC = () => {
     if (logDir) args.push(`--log_dir ${logDir}`);
     if (cacheDir) args.push(`--cache_dir ${cacheDir}`);
     
-    const argsString = args.join(' ');
+    const argsString = args.length > 0 ? args.join(' ') : '';
+    
+    // SLURM mode uses the bash script instead of Docker
+    if (mode === 'slurm') {
+      if (interactiveMode) {
+        return {
+          dockerCmd: `# Download and inspect the script first (optional)`,
+          pythonCmd: `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/bioengine-worker/scripts/start_worker.sh)${argsString ? ` ${argsString}` : ''}`
+        };
+      } else {
+        return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/bioengine-worker/scripts/start_worker.sh)${argsString ? ` ${argsString}` : ''}`;
+      }
+    }
+    
+    // For single-machine and connect modes, use Docker
+    const platform = getPlatform();
+    const userFlag = getUserFlag();
+    const gpuFlag = getGpuFlag();
+    
+    // Determine mount directory and cache directory
+    let mountDir = '/tmp';
+    let hostMountPath = '';
+    
+    if (os === 'windows') {
+      hostMountPath = runAsRoot ? 'C:\\temp' : '%TEMP%';
+    } else {
+      hostMountPath = '$(mktemp -d)';
+    }
+    
+    // If user specified a custom cache directory, use it as the mount point
+    if (cacheDir) {
+      mountDir = cacheDir;
+    }
     
     if (interactiveMode) {
       // Interactive mode - separate docker run and python command
@@ -156,12 +174,12 @@ I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is 
 ### My Current Setup
 - **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}
 - **Architecture**: ${arch === 'arm64' ? 'ARM64 (Apple Silicon)' : 'AMD64 (x86_64)'}
-- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local Ray cluster)' : mode === 'slurm' ? 'SLURM (HPC cluster)' : 'Connect to existing Ray cluster'}
+- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local Ray cluster)' : mode === 'slurm' ? 'SLURM (HPC cluster with bash script)' : 'Connect to existing Ray cluster'}
 ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
 ${mode === 'connect' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
-- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
-- **Interactive Mode**: ${interactiveMode ? 'Yes (separate Docker and Python commands)' : 'No (single command)'}
+${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}` : ''}
+- **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : 'Yes (separate Docker and Python commands)') : 'No (single command)'}
 
 ### Advanced Configuration
 ${workspace ? `- **Workspace**: ${workspace}` : ''}
@@ -335,23 +353,32 @@ Ray Connection Options:
 
 When helping me troubleshoot, please consider:
 
-1. **Docker Issues**: Container startup, platform compatibility, volume mounting
-2. **Network Issues**: Port conflicts, firewall settings, connectivity
-3. **Resource Issues**: CPU/GPU allocation, memory constraints
-4. **Permission Issues**: User permissions, file access, Docker daemon access
-5. **Ray Cluster Issues**: Ray startup, cluster connectivity, node communication
-6. **Hypha Integration**: Workspace access, authentication, service registration
-7. **Configuration Issues**: Invalid arguments, missing dependencies, environment setup
+1. **Docker Issues** (single-machine/connect modes): Container startup, platform compatibility, volume mounting
+2. **SLURM Issues** (SLURM mode): Job submission, resource allocation, container runtime, shared filesystem
+3. **Network Issues**: Port conflicts, firewall settings, connectivity
+4. **Resource Issues**: CPU/GPU allocation, memory constraints
+5. **Permission Issues**: User permissions, file access, Docker daemon access, SLURM account permissions
+6. **Ray Cluster Issues**: Ray startup, cluster connectivity, node communication
+7. **Hypha Integration**: Workspace access, authentication, service registration
+8. **Configuration Issues**: Invalid arguments, missing dependencies, environment setup
 
 ## Common Issues to Check
 
-- Docker is installed and running
+${mode === 'slurm' ? `### SLURM Mode Specific:
+- SLURM commands (sbatch, squeue, scancel) are available and working
+- Sufficient SLURM allocation and account permissions
+- Singularity/Apptainer is installed on compute nodes
+- Shared filesystem is accessible from all nodes
+- Network connectivity from compute nodes to download container images
+- Proper SLURM partition and QOS settings
+- Container image can be pulled and cached successfully
+
+### General:` : '- Docker is installed and running (for single-machine/connect modes)'}
 - Sufficient system resources (CPU, memory, disk space)
 - Network ports are available (especially for Ray cluster communication)
-- Volume mount paths exist and are accessible
-- For GPU mode: NVIDIA Docker runtime is installed
-- For SLURM mode: Proper SLURM cluster access and configuration
-- For connect mode: Target Ray cluster is running and accessible
+${mode !== 'slurm' ? '- Volume mount paths exist and are accessible' : ''}
+${mode === 'single-machine' && hasGpu ? '- For GPU mode: NVIDIA Docker runtime is installed' : ''}
+${mode === 'connect' ? '- For connect mode: Target Ray cluster is running and accessible' : ''}
 
 ## My Question
 
@@ -666,7 +693,12 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             <div className="bg-gray-900 rounded-xl p-4 relative">
               <div className="flex justify-between items-start mb-2">
                 <h4 className="text-sm font-medium text-gray-300">
-                  {os === 'windows' ? 'PowerShell Command:' : 'Terminal Command:'}
+                  {mode === 'slurm' 
+                    ? 'SLURM Cluster Command:' 
+                    : os === 'windows' 
+                      ? 'PowerShell Command:' 
+                      : 'Terminal Command:'
+                  }
                 </h4>
                 <button
                   onClick={copyToClipboard}
@@ -700,6 +732,39 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 })()}
               </code>
             </div>
+
+            {/* SLURM-specific information */}
+            {mode === 'slurm' && (
+              <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+                <div className="flex items-start">
+                  <svg className="w-5 h-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                  <div className="text-sm text-purple-800">
+                    <p className="font-medium mb-2">🖥️ SLURM Cluster Mode</p>
+                    <div className="text-purple-700 space-y-2">
+                      <p>The start_worker.sh script will automatically:</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>Download and set up the BioEngine worker container using Singularity/Apptainer</li>
+                        <li>Submit SLURM jobs to manage Ray cluster nodes</li>
+                        <li>Handle container image caching and shared filesystem setup</li>
+                        <li>Configure network communication between cluster nodes</li>
+                        <li>Monitor and manage worker node lifecycle</li>
+                      </ul>
+                      <div className="mt-3 p-3 bg-purple-100 rounded-lg">
+                        <p className="font-medium text-purple-900 mb-1">💡 Pro Tips:</p>
+                        <ul className="list-disc list-inside space-y-1 text-purple-800 text-xs">
+                          <li>Run this command from a login node with SLURM access</li>
+                          <li>Ensure your SLURM account has sufficient allocation</li>
+                          <li>The script supports additional SLURM-specific arguments (check the script source for details)</li>
+                          <li>Monitor your jobs with <code className="bg-purple-200 px-1 rounded">squeue -u $USER</code></li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Login Instructions */}
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
@@ -740,15 +805,28 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 <div className="text-sm text-blue-800">
                   <p className="font-medium mb-1">Prerequisites & Notes:</p>
                   <ul className="list-disc list-inside space-y-1 text-blue-700">
-                    <li>Docker must be installed and running</li>
-                    {mode === 'single-machine' && hasGpu && <li>NVIDIA Docker runtime required for GPU support</li>}
-                    {mode === 'slurm' && <li>SLURM cluster access and proper configuration required</li>}
-                    {mode === 'connect' && <li>Existing Ray cluster must be running and accessible</li>}
-                    {interactiveMode && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
+                    {mode === 'slurm' ? (
+                      <>
+                        <li>Access to a SLURM cluster with proper permissions</li>
+                        <li>SLURM commands (sbatch, squeue, scancel) available in your PATH</li>
+                        <li>Singularity/Apptainer container runtime on the cluster</li>
+                        <li>Network access from compute nodes to download the container image</li>
+                        <li>Shared filesystem accessible from all compute nodes</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Docker must be installed and running</li>
+                        {mode === 'single-machine' && hasGpu && <li>NVIDIA Docker runtime required for GPU support</li>}
+                        {mode === 'connect' && <li>Existing Ray cluster must be running and accessible</li>}
+                      </>
+                    )}
+                    {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
+                    {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
                     <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                     <li>After running, the worker will be available at the service ID shown in the terminal</li>
                     <li>Use the service ID to connect to your BioEngine worker from this interface</li>
                     {mode === 'connect' && <li>Make sure the Ray address is accessible from your network</li>}
+                    {mode === 'slurm' && <li>The script will automatically handle SLURM job submission and container management</li>}
                   </ul>
                 </div>
               </div>
