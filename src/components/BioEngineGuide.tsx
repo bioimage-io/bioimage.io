@@ -843,11 +843,17 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <input
                     type="text"
                     value={logDir}
-                    onChange={(e) => setLogDir(e.target.value)}
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      if (value && !value.startsWith('/')) {
+                        value = '/' + value;
+                      }
+                      setLogDir(value);
+                    }}
                     placeholder="/logs"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Container path for log files. Will auto-mount ~/bioengine-logs to this path</p>
+                  <p className="text-xs text-gray-500 mt-1">Container path for log files. Must start with /. Will auto-mount ~/bioengine-logs to this path</p>
                 </div>
                 
                 <div>
@@ -855,11 +861,17 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <input
                     type="text"
                     value={cacheDir}
-                    onChange={(e) => setCacheDir(e.target.value)}
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      if (value && !value.startsWith('/')) {
+                        value = '/' + value;
+                      }
+                      setCacheDir(value);
+                    }}
                     placeholder="/path/to/cache"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Container path for cache data - will update volume mount automatically</p>
+                  <p className="text-xs text-gray-500 mt-1">Container path for cache data. Must start with /. Will update volume mount automatically</p>
                 </div>
               </div>
             )}
