@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
-import BioEngineGuide from './BioEngineGuide';
+
 
 // Add custom animations
 const styles = `
@@ -73,12 +73,7 @@ type ServiceStatus = {
   };
 };
 
-type BioEngineService = {
-  id: string;
-  name: string;
-  description: string;
-  service?: any;
-};
+
 
 type ArtifactType = {
   id: string;
@@ -92,6 +87,19 @@ type ArtifactType = {
     id_emoji?: string;
     name?: string;
     description?: string;
+    documentation?: string | {
+      url?: string;
+      text?: string;
+    };
+    tutorial?: string | {
+      url?: string;
+      text?: string;
+    };
+    links?: {
+      url: string;
+      icon?: string;
+      label: string;
+    }[];
     deployment_config?: {
       modes?: {
         cpu?: any;
@@ -125,6 +133,19 @@ type DeploymentType = {
     id_emoji?: string;
     name?: string;
     description?: string;
+    documentation?: string | {
+      url?: string;
+      text?: string;
+    };
+    tutorial?: string | {
+      url?: string;
+      text?: string;
+    };
+    links?: {
+      url: string;
+      icon?: string;
+      label: string;
+    }[];
   };
   resources?: {
     num_cpus?: number;
@@ -133,78 +154,9 @@ type DeploymentType = {
   [key: string]: any;
 };
 
-// ServiceCard component for fancy instance cards
-const ServiceCard: React.FC<{
-  service: BioEngineService;
-  onNavigate: (serviceId: string) => void;
-}> = ({ service, onNavigate }) => {
-  const [copied, setCopied] = useState(false);
 
-  const copyServiceId = async () => {
-    try {
-      await navigator.clipboard.writeText(service.id);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
 
-  return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 flex flex-col h-full hover:shadow-md transition-all duration-200 hover:border-blue-200">
-      <div className="p-6 flex-grow">
-        <div className="flex items-center mb-4">
-          <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center mr-3">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-            </svg>
-          </div>
-          <div className="flex-1">
-            <h3 className="text-xl font-semibold text-gray-800">{service.name}</h3>
-          </div>
-        </div>
-        
-        <p className="text-gray-600 mb-4 leading-relaxed">{service.description || 'No description available'}</p>
-        
-        {/* Copyable Service ID */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Service ID</label>
-          <div className="relative">
-            <code className="block w-full px-3 py-2 bg-gray-900 text-green-400 text-sm font-mono rounded-lg border border-gray-300 pr-10 break-all">
-              {service.id}
-            </code>
-            <button
-              onClick={copyServiceId}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-green-400 transition-colors duration-200"
-              title="Copy service ID"
-            >
-              {copied ? (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      <div className="p-6 pt-0">
-        <button 
-          onClick={() => onNavigate(service.id)}
-          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
-        >
-          View Dashboard
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const BioEngine: React.FC = () => {
+const BioEngineWorker: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
@@ -215,7 +167,6 @@ const BioEngine: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
@@ -226,11 +177,6 @@ const BioEngine: React.FC = () => {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [artifactManager, setArtifactManager] = useState<any>(null);
-  const [customServiceId, setCustomServiceId] = useState('');
-  const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
-  const [customToken, setCustomToken] = useState('');
-  const [connectionLoading, setConnectionLoading] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   
@@ -300,7 +246,8 @@ const BioEngine: React.FC = () => {
         };
       }
     } else {
-      fetchBioEngineServices();
+      // If no service ID, redirect to home
+      navigate('/bioengine');
     }
   }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
 
@@ -352,30 +299,7 @@ const BioEngine: React.FC = () => {
     return { formattedTime, uptime };
   };
 
-  const fetchBioEngineServices = async () => {
-    if (!isLoggedIn) return;
 
-    try {
-      setLoading(true);
-      const services = await server.listServices({"type": "bioengine-worker"});
-      
-      const defaultService: BioEngineService = {
-        id: "bioimage-io/bioengine-worker",
-        name: "BioImage.IO BioEngine Worker",
-        description: "Default BioEngine worker instance for the BioImage.IO community"
-      };
-      
-      const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);
-      const allServices = hasDefaultService ? services : [defaultService, ...services];
-      
-      setBioEngineServices(allServices);
-      setLoading(false);
-      setError(null);
-    } catch (err) {
-      setError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
-      setLoading(false);
-    }
-  };
 
   const fetchStatus = async (showLoading = true) => {
     if (!serviceId || !isLoggedIn) {
@@ -636,56 +560,7 @@ const BioEngine: React.FC = () => {
     }
   };
 
-  const navigateToDashboard = (serviceId: string) => {
-    navigate(`/bioengine?service_id=${serviceId}`);
-  };
-  
-  const handleCustomServiceIdSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!customServiceId.trim()) return;
 
-    console.log(`Connecting to custom BioEngine service: '${customServiceId}'`);
-    
-    setConnectionLoading(true);
-    setConnectionError(null);
-    
-    try {
-      await server.getService(customServiceId);
-      navigateToDashboard(customServiceId);
-    } catch (err) {
-      const errorMessage = String(err);
-      if (errorMessage.includes('denied') || errorMessage.includes('unauthorized') || errorMessage.includes('permission')) {
-        setTokenDialogOpen(true);
-      } else {
-        setConnectionError(`Could not connect: ${errorMessage}`);
-      }
-    } finally {
-      setConnectionLoading(false);
-    }
-  };
-  
-  const handleTokenSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!customToken.trim()) return;
-    
-    setConnectionLoading(true);
-    
-    try {
-      await server.getService(customServiceId, { token: customToken });
-      setTokenDialogOpen(false);
-      navigateToDashboard(customServiceId);
-    } catch (err) {
-      setConnectionError(`Invalid token: ${String(err)}`);
-    } finally {
-      setConnectionLoading(false);
-    }
-  };
-  
-  const handleTokenDialogClose = () => {
-    setTokenDialogOpen(false);
-    setCustomToken('');
-    setConnectionError(null);
-  };
 
   // Default templates for new apps
   const getDefaultManifest = () => `id: my-new-app
@@ -693,6 +568,16 @@ name: My New App
 description: A new BioEngine application
 id_emoji: 🚀
 type: application
+# Optional: Add documentation and tutorial links
+# documentation: https://example.com/docs
+# tutorial: https://example.com/tutorial
+# links:
+#   - url: https://github.com/example/repo
+#     label: Source Code
+#     icon: 📦
+#   - url: https://example.com/guide
+#     label: User Guide
+#     icon: 📖
 deployment_config:
   name: MyNewApp
   num_replicas: 1
@@ -1015,6 +900,131 @@ class MyNewApp:
     setNewFileName('');
   };
 
+  // Helper function to transform documentation URLs
+  const transformDocumentationUrl = (docPath: string, artifactId: string) => {
+    // If it's already a full URL, return as is
+    if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
+      return docPath;
+    }
+    
+    // Extract workspace and alias from artifact ID
+    const parts = artifactId.split('/');
+    if (parts.length >= 2) {
+      const workspace = parts[0];
+      const alias = parts[1];
+      const baseUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+      return `${baseUrl}/${workspace}/artifacts/${alias}/files/${docPath}`;
+    }
+    
+    return docPath;
+  };
+
+  // Helper function to extract documentation and tutorial links from manifest
+  const getDocumentationLinks = (manifest?: any, artifactId?: string) => {
+    const links: Array<{ url: string; label: string; icon?: string; type: 'documentation' | 'tutorial' | 'link' }> = [];
+    
+    // Add documentation link
+    if (manifest?.documentation) {
+      let docUrl = '';
+      if (typeof manifest.documentation === 'string') {
+        docUrl = artifactId ? transformDocumentationUrl(manifest.documentation, artifactId) : manifest.documentation;
+      } else if (manifest.documentation.url) {
+        docUrl = artifactId ? transformDocumentationUrl(manifest.documentation.url, artifactId) : manifest.documentation.url;
+      }
+      
+      if (docUrl) {
+        links.push({
+          url: docUrl,
+          label: 'Documentation',
+          icon: '📚',
+          type: 'documentation'
+        });
+      }
+    }
+    
+    // Add tutorial link if it exists
+    if (manifest?.tutorial) {
+      let tutorialUrl = '';
+      if (typeof manifest.tutorial === 'string') {
+        tutorialUrl = artifactId ? transformDocumentationUrl(manifest.tutorial, artifactId) : manifest.tutorial;
+      } else if (manifest.tutorial.url) {
+        tutorialUrl = artifactId ? transformDocumentationUrl(manifest.tutorial.url, artifactId) : manifest.tutorial.url;
+      }
+      
+      if (tutorialUrl) {
+        links.push({
+          url: tutorialUrl,
+          label: 'Tutorial',
+          icon: '🎓',
+          type: 'tutorial'
+        });
+      }
+    }
+    
+    // Add links from the links array
+    if (manifest?.links && Array.isArray(manifest.links)) {
+      manifest.links.forEach((link: any) => {
+        if (link.url && link.label) {
+          // Check if it's a tutorial link
+          const isTutorial = link.label.toLowerCase().includes('tutorial') || 
+                           link.label.toLowerCase().includes('guide') ||
+                           link.label.toLowerCase().includes('example');
+          
+          links.push({
+            url: link.url,
+            label: link.label,
+            icon: link.icon || (isTutorial ? '🎓' : '🔗'),
+            type: isTutorial ? 'tutorial' : 'link'
+          });
+        }
+      });
+    }
+    
+    return links;
+  };
+
+  // Component to render documentation and tutorial links
+  const DocumentationLinks: React.FC<{ manifest?: any; artifactId?: string; className?: string }> = ({ manifest, artifactId, className = "" }) => {
+    const links = getDocumentationLinks(manifest, artifactId);
+    
+    if (links.length === 0) return null;
+    
+    return (
+      <div className={className}>
+        <div className="flex items-center mb-2">
+          <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+          <span className="text-sm font-medium text-gray-700">Resources</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {links.map((link, index) => (
+            <a
+              key={index}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 hover:shadow-sm hover:scale-105 ${
+                link.type === 'documentation' 
+                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300'
+                  : link.type === 'tutorial'
+                  ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300'
+                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+              }`}
+              title={`Open ${link.label}`}
+            >
+              <span className="mr-1.5">{link.icon}</span>
+              {link.label}
+              <svg className="w-3 h-3 ml-1.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96">
@@ -1034,151 +1044,9 @@ class MyNewApp:
     );
   }
 
-  // If no service_id is provided, show the list of BioEngine instances
+  // If no service_id is provided, redirect to home
   if (!serviceId) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        {/* Fancy Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4">
-            BioEngine
-          </h1>
-          <p className="text-xl text-gray-600 font-medium">
-            Unveiling cloud-powered AI for simplified Bioimage Analysis
-          </p>
-          <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-4 rounded-full"></div>
-        </div>
-        
-
-        
-        {/* Custom Service ID Input */}
-        <div className="max-w-3xl mx-auto mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
-            <div className="flex items-center mb-4">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mr-3">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">Connect to BioEngine Worker</h3>
-                <p className="text-sm text-gray-600">Enter a service ID to connect to an existing BioEngine worker</p>
-              </div>
-            </div>
-            
-            <form onSubmit={handleCustomServiceIdSubmit}>
-              <div className="relative flex items-center">
-                <input
-                  type="text"
-                  placeholder="Enter BioEngine Worker Service ID (e.g., workspace/service-name)"
-                  value={customServiceId}
-                  onChange={(e) => setCustomServiceId(e.target.value)}
-                  disabled={connectionLoading}
-                  className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${
-                    connectionError ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'
-                  } ${connectionLoading ? 'bg-gray-100' : ''}`}
-                />
-                <button 
-                  type="submit" 
-                  disabled={!customServiceId.trim() || connectionLoading}
-                  className="absolute right-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center min-w-[100px] shadow-sm hover:shadow-md transition-all duration-200"
-                >
-                  {connectionLoading ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    "Connect"
-                  )}
-                </button>
-              </div>
-              {connectionError && (
-                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-600 text-sm flex items-center">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {connectionError}
-                  </p>
-                </div>
-              )}
-            </form>
-            
-            {/* BioEngine Guide - Compact Version */}
-            <BioEngineGuide />
-          </div>
-        </div>
-        
-        {bioEngineServices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-            <p className="mb-4">No BioEngine instances available in workspace '{server.config.workspace}'</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {bioEngineServices.map((service) => (
-              <ServiceCard key={service.id} service={service} onNavigate={navigateToDashboard} />
-            ))}
-          </div>
-        )}
-        
-        {/* Token Dialog */}
-        {tokenDialogOpen && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-            <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-md w-full mx-4 border border-white/20 animate-slideUp">
-              <div className="p-6 border-b border-gray-200/50">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl flex items-center justify-center mr-3">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-800">Authentication Required</h3>
-                </div>
-              </div>
-              <form onSubmit={handleTokenSubmit}>
-                <div className="p-6">
-                  <p className="text-gray-600 mb-4">
-                    Access to this BioEngine service requires authentication. Please enter a token:
-                  </p>
-                  <input
-                    type="password"
-                    placeholder="Token"
-                    value={customToken}
-                    onChange={(e) => setCustomToken(e.target.value)}
-                    disabled={connectionLoading}
-                    autoFocus
-                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      connectionError ? 'border-red-500' : 'border-gray-300'
-                    } ${connectionLoading ? 'bg-gray-100' : 'bg-white'}`}
-                  />
-                  {connectionError && (
-                    <p className="text-red-500 text-sm mt-2">{connectionError}</p>
-                  )}
-                </div>
-                <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3">
-                  <button 
-                    type="button"
-                    onClick={handleTokenDialogClose} 
-                    disabled={connectionLoading}
-                    className="px-6 py-3 text-gray-600 bg-white border-2 border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    disabled={!customToken.trim() || connectionLoading}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
-                  >
-                    {connectionLoading ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    ) : null}
-                    Connect
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    return null; // This will be handled by the useEffect redirect
   }
 
   if (!status) {
@@ -1206,9 +1074,21 @@ class MyNewApp:
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              BioEngine Dashboard
-            </h1>
+            <div className="flex items-center mb-2">
+              <button
+                onClick={() => navigate('/bioengine')}
+                className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4"
+                title="Back to BioEngine Home"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                <span className="text-sm font-medium">Back</span>
+              </button>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent cursor-pointer" onClick={() => navigate('/bioengine')}>
+                BioEngine Dashboard
+              </h1>
+            </div>
             <p className="text-gray-600 mt-2">Manage and deploy your bioimage analysis applications</p>
           </div>
           
@@ -1471,6 +1351,10 @@ class MyNewApp:
                       </div>
                       
                       <p className="text-sm text-gray-500">{deployment.artifact_id}</p>
+                      {deployment.manifest?.description && (
+                        <p className="text-sm text-gray-600 mt-2">{deployment.manifest.description}</p>
+                      )}
+                      <DocumentationLinks manifest={deployment.manifest} artifactId={deployment.artifact_id} className="mt-3" />
                     </div>
                     
                     <div>
@@ -1695,7 +1579,8 @@ class MyNewApp:
                         {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
                       </h4>
                       <p className="text-sm text-gray-500 mb-2">{artifact.id}</p>
-                      <p className="text-gray-600">{artifact.manifest?.description || artifact.description || "No description available"}</p>
+                      <p className="text-gray-600 mb-3">{artifact.manifest?.description || artifact.description || "No description available"}</p>
+                      <DocumentationLinks manifest={artifact.manifest} artifactId={artifact.id} className="mb-3" />
                     </div>
                     
                     <div className="flex flex-col items-end">
@@ -1963,4 +1848,4 @@ class MyNewApp:
   );
 };
 
-export default BioEngine;
+export default BioEngineWorker;

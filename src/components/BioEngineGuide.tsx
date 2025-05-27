@@ -26,6 +26,7 @@ const BioEngineGuide: React.FC = () => {
   const [cacheDir, setCacheDir] = useState('');
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  const [interactiveMode, setInteractiveMode] = useState(false);
 
   const getPlatform = () => {
     if (os === 'windows') {
@@ -100,16 +101,33 @@ const BioEngineGuide: React.FC = () => {
     
     const argsString = args.join(' ');
     
-    if (os === 'windows') {
-      return `docker run ${gpuFlag}--platform ${platform} -it --rm -v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+    if (interactiveMode) {
+      // Interactive mode - separate docker run and python command
+      const dockerCmd = os === 'windows' 
+        ? `docker run ${gpuFlag}--platform ${platform} -it --rm -v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 bash`
+        : `docker run ${gpuFlag}--platform ${platform} -it --rm ${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 bash`;
+      
+      const pythonCmd = `python -m bioengine_worker ${argsString}`;
+      
+      return { dockerCmd, pythonCmd };
+    } else {
+      // Single command mode
+      if (os === 'windows') {
+        return `docker run ${gpuFlag}--platform ${platform} -it --rm -v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      }
+      
+      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
     }
-    
-    return `docker run ${gpuFlag}--platform ${platform} -it --rm ${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
   };
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(getCommand());
+      const command = getCommand();
+      const textToCopy = typeof command === 'string' 
+        ? command 
+        : `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+      
+      await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -119,6 +137,9 @@ const BioEngineGuide: React.FC = () => {
 
   const getTroubleshootingPrompt = () => {
     const currentCommand = getCommand();
+    const commandText = typeof currentCommand === 'string' 
+      ? currentCommand 
+      : `# Step 1: Start Docker container\n${currentCommand.dockerCmd}\n\n# Step 2: Inside the container, run:\n${currentCommand.pythonCmd}`;
     
     return `# BioEngine Worker Troubleshooting Assistant
 
@@ -140,6 +161,7 @@ ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
 ${mode === 'connect' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
 - **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
+- **Interactive Mode**: ${interactiveMode ? 'Yes (separate Docker and Python commands)' : 'No (single command)'}
 
 ### Advanced Configuration
 ${workspace ? `- **Workspace**: ${workspace}` : ''}
@@ -151,7 +173,7 @@ ${cacheDir ? `- **Cache Directory**: ${cacheDir}` : ''}
 
 ### Generated Docker Command
 \`\`\`bash
-${currentCommand}
+${commandText}
 \`\`\`
 
 ## Complete BioEngine Worker Help Reference
@@ -526,6 +548,23 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   {runAsRoot ? "Root privileges - may be needed for some Docker setups" : "User permissions - recommended for security"}
                 </p>
               </div>
+
+              {/* Interactive Mode */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={interactiveMode}
+                    onChange={(e) => setInteractiveMode(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">Interactive mode</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  {interactiveMode ? "Start Docker container first, then run BioEngine command inside" : "Run everything in a single command"}
+                </p>
+              </div>
             </div>
 
             {/* Advanced Options Toggle */}
@@ -651,8 +690,45 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </button>
               </div>
               <code className="text-green-400 text-sm font-mono break-all whitespace-pre-wrap">
-                {getCommand()}
+                {(() => {
+                  const command = getCommand();
+                  if (typeof command === 'string') {
+                    return command;
+                  } else {
+                    return `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+                  }
+                })()}
               </code>
+            </div>
+
+            {/* Login Instructions */}
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-2">🔐 Important: Authentication Required</p>
+                  <div className="text-amber-700 space-y-2">
+                    <p>After running the command above, you'll see output in your terminal. Look for a line that says:</p>
+                    <div className="bg-amber-100 border border-amber-300 rounded p-2 font-mono text-xs">
+                      Please open your browser and login at https://hypha.aicell.io/public/apps/hypha-login/?key=...
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-medium">Follow these steps:</p>
+                      <ol className="list-decimal list-inside space-y-1 ml-2">
+                        <li>Copy the complete URL from your terminal output</li>
+                        <li>Open the URL in your web browser</li>
+                        <li>Login using Google, GitHub, or another supported provider</li>
+                        <li>Return to your terminal - the BioEngine worker will continue automatically</li>
+                      </ol>
+                    </div>
+                    <p className="text-xs italic">
+                      💡 This one-time login creates your workspace and authenticates your BioEngine worker.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Additional Info */}
@@ -668,6 +744,8 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     {mode === 'single-machine' && hasGpu && <li>NVIDIA Docker runtime required for GPU support</li>}
                     {mode === 'slurm' && <li>SLURM cluster access and proper configuration required</li>}
                     {mode === 'connect' && <li>Existing Ray cluster must be running and accessible</li>}
+                    {interactiveMode && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
+                    <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                     <li>After running, the worker will be available at the service ID shown in the terminal</li>
                     <li>Use the service ID to connect to your BioEngine worker from this interface</li>
                     {mode === 'connect' && <li>Make sure the Ray address is accessible from your network</li>}

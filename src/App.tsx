@@ -17,7 +17,8 @@ import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
-import BioEngine from './components/BioEngine';
+import BioEngineHome from './components/BioEngineHome';
+import BioEngineWorker from './components/BioEngine';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -89,7 +90,8 @@ const AppContent: React.FC = () => {
           <Route path="/review" element={<ReviewArtifacts />} />
           <Route path="/api" element={<ApiDocs />} />
           <Route path="/toc" element={<TermsOfService />} />
-          <Route path="/bioengine" element={<BioEngine />} />
+          <Route path="/bioengine" element={<BioEngineHome />} />
+          <Route path="/bioengine/worker" element={<BioEngineWorker />} />
         </Routes>
       </main>
       <Footer />
