@@ -92,6 +92,27 @@ const BioEngineHome: React.FC = () => {
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [defaultServiceOnline, setDefaultServiceOnline] = useState<boolean | null>(null);
+
+  // Function to check if default service is online
+  const checkDefaultServiceStatus = async () => {
+    try {
+      const response = await fetch('https://hypha.aicell.io/bioimage-io/services/bioengine-worker/get_status?_mode=first');
+      if (response.ok) {
+        setDefaultServiceOnline(true);
+      } else {
+        setDefaultServiceOnline(false);
+      }
+    } catch (err) {
+      console.warn('Default BioEngine service is offline:', err);
+      setDefaultServiceOnline(false);
+    }
+  };
+
+  useEffect(() => {
+    // Check default service status regardless of login state
+    checkDefaultServiceStatus();
+  }, []);
 
   useEffect(() => {
     // Clear any existing timeout first
@@ -119,7 +140,7 @@ const BioEngineHome: React.FC = () => {
     // User is logged in - clear any existing error
     setError(null);
     fetchBioEngineServices();
-  }, [server, isLoggedIn]);
+  }, [server, isLoggedIn, defaultServiceOnline]);
 
   // Separate cleanup effect for component unmount
   useEffect(() => {
@@ -144,7 +165,12 @@ const BioEngineHome: React.FC = () => {
       };
       
       const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);
-      const allServices = hasDefaultService ? services : [defaultService, ...services];
+      
+      // Only include default service if it's online and not already in the list
+      let allServices = [...services];
+      if (!hasDefaultService && defaultServiceOnline === true) {
+        allServices = [defaultService, ...services];
+      }
       
       setBioEngineServices(allServices);
       setLoading(false);
@@ -295,6 +321,16 @@ const BioEngineHome: React.FC = () => {
       {bioEngineServices.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-64 text-gray-500">
           <p className="mb-4">No BioEngine instances available in workspace '{server.config.workspace}'</p>
+          {defaultServiceOnline === false && (
+            <p className="text-sm text-gray-400">
+              Note: Default BioEngine service is currently offline
+            </p>
+          )}
+          {defaultServiceOnline === null && (
+            <p className="text-sm text-gray-400">
+              Checking default BioEngine service status...
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
