@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
@@ -69,6 +69,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const location = useLocation();
+  const navigate = useNavigate();
   const { 
     resources,
     resourceType,
@@ -191,6 +192,40 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           </div>
         </div>
       </div>
+
+      {/* BioEngine Button - Only show for applications */}
+      {resourceType === 'application' && (
+        <div className="max-w-3xl mx-auto mb-8">
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center mr-4 shadow-md">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                    Deploy Applications with BioEngine
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Run bioimage analysis applications in the cloud with powerful computing resources
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate('/bioengine')}
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center"
+              >
+                <span className="mr-2">Launch BioEngine</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
         {resources.map((artifact) => (

@@ -106,9 +106,10 @@ const BioEngineGuide: React.FC = () => {
     const gpuFlag = getGpuFlag();
     const shmFlag = `--shm-size=${shmSize} `;
     
-    // Determine mount directory and cache directory
+    // Determine mount directories and host paths
     let mountDir = '/tmp';
     let hostMountPath = '';
+    let volumeMounts = '';
     
     if (os === 'windows') {
       hostMountPath = runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp';
@@ -124,11 +125,24 @@ const BioEngineGuide: React.FC = () => {
       mountDir = cacheDir;
     }
     
+    // Build volume mounts string
+    volumeMounts = `-v ${hostMountPath}:${mountDir}`;
+    
+    // Add log directory mount if specified
+    if (logDir) {
+      if (os === 'windows') {
+        const hostLogPath = runAsRoot ? 'C:\\bioengine-logs' : '%USERPROFILE%\\bioengine-logs';
+        volumeMounts += ` -v ${hostLogPath}:${logDir}`;
+      } else {
+        volumeMounts += ` -v $HOME/bioengine-logs:${logDir}`;
+      }
+    }
+    
     if (interactiveMode) {
       // Interactive mode - separate docker run and python command with --entrypoint bash
       const dockerCmd = os === 'windows' 
-        ? `docker run --platform ${platform} --rm -it ${shmFlag}--entrypoint bash ${gpuFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17`
-        : `docker run --platform ${platform} --rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17`;
+        ? `docker run --platform ${platform} --rm -it ${shmFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`
+        : `docker run --platform ${platform} --rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`;
       
       const pythonCmd = `python -m bioengine_worker ${argsString}`;
       
@@ -136,10 +150,10 @@ const BioEngineGuide: React.FC = () => {
     } else {
       // Single command mode
       if (os === 'windows') {
-        return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+        return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
       }
       
-      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
     }
   };
 
@@ -815,10 +829,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     type="text"
                     value={logDir}
                     onChange={(e) => setLogDir(e.target.value)}
-                    placeholder="/path/to/logs"
+                    placeholder="/logs"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Container path for log files (should be mounted)</p>
+                  <p className="text-xs text-gray-500 mt-1">Container path for log files. Will auto-mount ~/bioengine-logs to this path</p>
                 </div>
                 
                 <div>
@@ -870,11 +884,28 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               <code className="text-green-400 text-sm font-mono break-all whitespace-pre-wrap">
                 {(() => {
                   const command = getCommand();
+                  let commandText = '';
+                  
                   if (typeof command === 'string') {
-                    return command;
+                    commandText = command;
                   } else {
-                    return `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+                    commandText = `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
                   }
+                  
+                  // Add volume mount information if log directory is specified
+                  if (logDir && mode !== 'slurm') {
+                    const mountInfo = os === 'windows' 
+                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp'} → ${cacheDir || '/tmp'} (cache/data)\n# - ${runAsRoot ? 'C:\\bioengine-logs' : '%USERPROFILE%\\bioengine-logs'} → ${logDir} (logs)`
+                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-tmp → ${cacheDir || '/tmp'} (cache/data)\n# - $HOME/bioengine-logs → ${logDir} (logs)`;
+                    commandText += mountInfo;
+                  } else if (mode !== 'slurm') {
+                    const mountInfo = os === 'windows' 
+                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp'} → ${cacheDir || '/tmp'} (cache/data)`
+                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-tmp → ${cacheDir || '/tmp'} (cache/data)`;
+                    commandText += mountInfo;
+                  }
+                  
+                  return commandText;
                 })()}
               </code>
             </div>
@@ -969,6 +1000,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
                     {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
                     <li>A 'bioengine-tmp' directory will be created in your home directory for data storage and caching</li>
+                    {logDir && mode !== 'slurm' && <li>A 'bioengine-logs' directory will be created in your home directory and mounted to {logDir} in the container</li>}
                     <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                     <li>After running, the worker will be available at the service ID shown in the terminal</li>
                     <li>Use the service ID to connect to your BioEngine worker from this interface</li>
