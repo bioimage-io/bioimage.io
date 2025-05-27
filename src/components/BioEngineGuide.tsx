@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 type OSType = 'macos' | 'linux' | 'windows';
 type ModeType = 'single-machine' | 'slurm' | 'connect';
@@ -28,6 +28,23 @@ const BioEngineGuide: React.FC = () => {
   const [promptCopied, setPromptCopied] = useState(false);
   const [interactiveMode, setInteractiveMode] = useState(false);
   const [shmSize, setShmSize] = useState('1g');
+
+  // Ref for the troubleshooting dialog
+  const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
+
+  // Effect to scroll to dialog when troubleshooting opens
+  useEffect(() => {
+    if (showTroubleshooting && troubleshootingDialogRef.current) {
+      // Small delay to ensure the dialog is rendered
+      setTimeout(() => {
+        troubleshootingDialogRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'center'
+        });
+      }, 100);
+    }
+  }, [showTroubleshooting]);
 
   const getPlatform = () => {
     if (os === 'windows') {
@@ -1027,7 +1044,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
         {/* Troubleshooting Dialog */}
         {showTroubleshooting && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div ref={troubleshootingDialogRef} className="bg-white rounded-2xl shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
               <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                 <div className="flex items-center">
                   <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center mr-3">

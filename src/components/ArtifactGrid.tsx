@@ -204,16 +204,16 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                    Deploy Applications with BioEngine
+                    Run BioImage Models with BioEngine
                   </h3>
-                  <p className="text-sm text-gray-600">
-                    Run bioimage analysis applications in the cloud with powerful computing resources
+                  <p className="text-sm text-gray-600 max-w-md">
+                    Bring bioimage models locally, on-premise or in the cloud. We support laptops, workstations, HPC clusters, and cloud platforms.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => navigate('/bioengine')}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center"
+                className="ml-2.5 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center"
               >
                 <span className="mr-2">Launch BioEngine</span>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
