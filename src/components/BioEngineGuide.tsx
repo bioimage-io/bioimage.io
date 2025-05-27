@@ -405,23 +405,47 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
     <div className="mt-6 border-t border-gray-200 pt-4">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between text-left hover:bg-gray-50 rounded-lg p-3 transition-colors duration-200"
+        className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${
+          isExpanded 
+            ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200' 
+            : 'bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-2 border-blue-200 hover:border-blue-300 shadow-sm hover:shadow-md'
+        }`}
       >
         <div className="flex items-center">
-          <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center mr-3">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className={`rounded-xl flex items-center justify-center mr-4 transition-all duration-200 ${
+            isExpanded 
+              ? 'w-8 h-8 bg-gradient-to-r from-gray-400 to-gray-500' 
+              : 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-md'
+          }`}>
+            <svg className={`text-white transition-all duration-200 ${isExpanded ? 'w-4 h-4' : 'w-6 h-6'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <h4 className="text-sm font-medium text-gray-800">Need to start BioEngine locally?</h4>
-            <p className="text-xs text-gray-500">Click to configure your local setup</p>
+            <h4 className={`font-semibold transition-all duration-200 ${
+              isExpanded 
+                ? 'text-sm text-gray-700' 
+                : 'text-lg text-gray-800'
+            }`}>Launch Your Own BioEngine Instance</h4>
+            <p className={`text-gray-500 transition-all duration-200 ${
+              isExpanded 
+                ? 'text-xs' 
+                : 'text-sm font-medium'
+            }`}>Access our powerful deployment configurator</p>
           </div>
         </div>
         <div className="flex items-center">
-          <span className="text-xs text-gray-500 mr-2">{isExpanded ? 'Hide' : 'Show'}</span>
+          <span className={`text-gray-500 mr-3 transition-all duration-200 ${
+            isExpanded 
+              ? 'text-xs' 
+              : 'text-sm font-medium'
+          }`}>{isExpanded ? 'Hide' : 'Show'}</span>
           <svg 
-            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
+            className={`text-gray-400 transition-all duration-200 ${
+              isExpanded 
+                ? 'w-4 h-4 rotate-180' 
+                : 'w-5 h-5'
+            }`} 
             fill="none" 
             stroke="currentColor" 
             viewBox="0 0 24 24"
