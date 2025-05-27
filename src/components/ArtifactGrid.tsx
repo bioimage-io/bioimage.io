@@ -199,10 +199,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center mr-4 shadow-md">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mr-4 shadow-md p-1">
+                  <img src="/bioengine-icon.svg" alt="BioEngine" className="w-10 h-10" />
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-800 mb-1">
