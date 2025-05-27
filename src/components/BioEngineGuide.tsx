@@ -47,9 +47,6 @@ const BioEngineGuide: React.FC = () => {
   }, [showTroubleshooting]);
 
   const getPlatform = () => {
-    if (os === 'windows') {
-      return `windows/${arch}`;
-    }
     return `linux/${arch}`;
   };
 
