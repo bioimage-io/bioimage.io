@@ -570,7 +570,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                       className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 focus:ring-orange-500"
                       aria-label="Connect to existing cluster deployment mode"
                     />
-                    <span className="ml-2 font-medium text-gray-800">🔗 Connect to Existing</span>
+                    <span className="ml-2 font-medium text-gray-800">🔗 Connect to Ray Cluster</span>
                   </div>
                   <p className="text-sm text-gray-600 ml-6">
                     Connect to an existing Ray cluster that's already running. 
@@ -605,154 +605,152 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               )}
             </div>
 
-            {/* System Configuration */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Operating System */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Operating System</label>
-                <select
-                  value={os}
-                  onChange={(e) => setOS(e.target.value as OSType)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  aria-label="Select operating system"
-                >
-                  <option value="macos">macOS</option>
-                  <option value="linux">Linux</option>
-                  <option value="windows">Windows</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {os === 'windows' ? 'PowerShell/Command Prompt commands' : 'Bash/Terminal commands'}
-                </p>
-              </div>
-
-              {/* Architecture */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Architecture</label>
-                <select
-                  value={arch}
-                  onChange={(e) => setArch(e.target.value as ArchType)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  aria-label="Select architecture"
-                >
-                  <option value="amd64">AMD64 (x86_64)</option>
-                  <option value="arm64">ARM64 (Apple Silicon)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {arch === 'arm64' ? 'Apple M1/M2/M3 or ARM processors' : 'Intel/AMD x86_64 processors'}
-                </p>
-              </div>
-
-              {/* CPU Count - only for single-machine mode */}
-              {mode === 'single-machine' && (
+            {/* System Configuration - only show for non-SLURM modes */}
+            {mode !== 'slurm' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Operating System */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">CPU Cores</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="32"
-                    value={cpus}
-                    onChange={(e) => setCpus(parseInt(e.target.value) || 1)}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Operating System</label>
+                  <select
+                    value={os}
+                    onChange={(e) => setOS(e.target.value as OSType)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    aria-label="Number of CPU cores"
-                  />
+                    aria-label="Select operating system"
+                  >
+                    <option value="macos">macOS</option>
+                    <option value="linux">Linux</option>
+                    <option value="windows">Windows</option>
+                  </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    Number of CPU cores for the Ray head node
+                    {os === 'windows' ? 'PowerShell/Command Prompt commands' : 'Bash/Terminal commands'}
                   </p>
                 </div>
-              )}
 
-              {/* GPU Options - only for single-machine mode */}
-              {mode === 'single-machine' && (
+                {/* Architecture */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">GPU Support</label>
-                  <div className="flex items-center space-x-4">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={hasGpu}
-                        onChange={(e) => setHasGpu(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700">Enable GPU</span>
-                    </label>
-                  </div>
-                  {hasGpu && (
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Architecture</label>
+                  <select
+                    value={arch}
+                    onChange={(e) => setArch(e.target.value as ArchType)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    aria-label="Select architecture"
+                  >
+                    <option value="amd64">AMD64 (x86_64)</option>
+                    <option value="arm64">ARM64 (Apple Silicon)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {arch === 'arm64' ? 'Apple M1/M2/M3 or ARM processors' : 'Intel/AMD x86_64 processors'}
+                  </p>
+                </div>
+
+                {/* CPU Count - only for single-machine mode */}
+                {mode === 'single-machine' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">CPU Cores</label>
                     <input
                       type="number"
                       min="1"
-                      max="8"
-                      value={gpus}
-                      onChange={(e) => setGpus(parseInt(e.target.value) || 1)}
-                      placeholder="GPU count"
-                      className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      max="32"
+                      value={cpus}
+                      onChange={(e) => setCpus(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      aria-label="Number of CPU cores"
                     />
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    {hasGpu ? 'Requires NVIDIA Docker runtime' : 'CPU-only mode, no GPU acceleration'}
-                  </p>
-                </div>
-              )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Number of CPU cores for the Ray head node
+                    </p>
+                  </div>
+                )}
 
+                {/* GPU Options - only for single-machine mode */}
+                {mode === 'single-machine' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">GPU Support</label>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={hasGpu}
+                          onChange={(e) => setHasGpu(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">Enable GPU</span>
+                      </label>
+                    </div>
+                    {hasGpu && (
+                      <input
+                        type="number"
+                        min="1"
+                        max="8"
+                        value={gpus}
+                        onChange={(e) => setGpus(parseInt(e.target.value) || 1)}
+                        placeholder="GPU count"
+                        className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      {hasGpu ? 'Requires NVIDIA Docker runtime' : 'CPU-only mode, no GPU acceleration'}
+                    </p>
+                  </div>
+                )}
 
-
-              {/* Run as Root */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={runAsRoot}
-                    onChange={(e) => setRunAsRoot(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Run as root</span>
-                </label>
-                <p className="text-xs text-gray-500 mt-1">
-                  {runAsRoot ? "Root privileges - may be needed for some Docker setups" : "User permissions - recommended for security"}
-                </p>
-              </div>
-
-              {/* Shared Memory Size - only for single-machine and connect modes */}
-              {mode !== 'slurm' && (
+                {/* Run as Root */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Shared Memory Size</label>
-                  <select
-                    value={shmSize}
-                    onChange={(e) => setShmSize(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    aria-label="Select shared memory size"
-                  >
-                    <option value="512m">512 MB</option>
-                    <option value="1g">1 GB</option>
-                    <option value="2g">2 GB</option>
-                    <option value="4g">4 GB</option>
-                    <option value="5g">5 GB</option>
-                    <option value="8g">8 GB</option>
-                    <option value="16g">16 GB</option>
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={runAsRoot}
+                      onChange={(e) => setRunAsRoot(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Run as root</span>
+                  </label>
                   <p className="text-xs text-gray-500 mt-1">
-                    Docker shared memory size for Ray operations and data processing
+                    {runAsRoot ? "Root privileges - may be needed for some Docker setups" : "User permissions - recommended for security"}
                   </p>
                 </div>
-              )}
 
-              {/* Interactive Mode */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={interactiveMode}
-                    onChange={(e) => setInteractiveMode(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Interactive mode</span>
-                </label>
-                <p className="text-xs text-gray-500 mt-1">
-                  {interactiveMode ? "Start Docker container first, then run BioEngine command inside" : "Run everything in a single command"}
-                </p>
+                                 {/* Shared Memory Size */}
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-2">Shared Memory Size</label>
+                   <select
+                     value={shmSize}
+                     onChange={(e) => setShmSize(e.target.value)}
+                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                     aria-label="Select shared memory size"
+                   >
+                     <option value="512m">512 MB</option>
+                     <option value="1g">1 GB</option>
+                     <option value="2g">2 GB</option>
+                     <option value="4g">4 GB</option>
+                     <option value="5g">5 GB</option>
+                     <option value="8g">8 GB</option>
+                     <option value="16g">16 GB</option>
+                   </select>
+                   <p className="text-xs text-gray-500 mt-1">
+                     Docker shared memory size for Ray operations and data processing
+                   </p>
+                 </div>
+
+                {/* Interactive Mode */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={interactiveMode}
+                      onChange={(e) => setInteractiveMode(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Interactive mode</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {interactiveMode ? "Start Docker container first, then run BioEngine command inside" : "Run everything in a single command"}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Advanced Options Toggle */}
             <div className="border-t border-gray-200 pt-4">
