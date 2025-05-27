@@ -707,77 +707,142 @@ class MyNewApp:
     setCreateAppLoading(true);
     
     try {
-      let manifestText = '';
-      let mainPyText = '';
+      const loadedFiles: Array<{name: string, content: string, language: string}> = [];
       
-      try {
-        // Always generate manifest.yaml from artifact.manifest metadata
-        if (artifact.manifest) {
-          let manifestObj: any = artifact.manifest;
-          
-          // Check if the manifest is URL-encoded string data
-          if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
-            console.log('Detected URL-encoded manifest, decoding...');
-            try {
-              // Decode URL-encoded string and parse as query parameters
-              const decoded = decodeURIComponent(manifestObj);
-              console.log('Decoded manifest string:', decoded);
-              
-              // Parse query string format into object
-              const params = new URLSearchParams(decoded);
-              const parsedObj: any = {};
-              params.forEach((value, key) => {
-                try {
-                  // Try to parse values that look like JSON objects/arrays
-                  if (value.startsWith('{') || value.startsWith('[')) {
-                    parsedObj[key] = JSON.parse(value.replace(/'/g, '"'));
-                  } else {
-                    parsedObj[key] = value;
-                  }
-                } catch {
+      // Always generate manifest.yaml from artifact.manifest metadata
+      let manifestText = '';
+      if (artifact.manifest) {
+        let manifestObj: any = artifact.manifest;
+        
+        // Check if the manifest is URL-encoded string data
+        if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
+          console.log('Detected URL-encoded manifest, decoding...');
+          try {
+            // Decode URL-encoded string and parse as query parameters
+            const decoded = decodeURIComponent(manifestObj);
+            console.log('Decoded manifest string:', decoded);
+            
+            // Parse query string format into object
+            const params = new URLSearchParams(decoded);
+            const parsedObj: any = {};
+            params.forEach((value, key) => {
+              try {
+                // Try to parse values that look like JSON objects/arrays
+                if (value.startsWith('{') || value.startsWith('[')) {
+                  parsedObj[key] = JSON.parse(value.replace(/'/g, '"'));
+                } else {
                   parsedObj[key] = value;
                 }
-              });
-              manifestObj = parsedObj;
-              console.log('Parsed manifest object from URL params:', manifestObj);
-            } catch (parseErr) {
-              console.warn('Failed to parse URL-encoded manifest:', parseErr);
-              manifestObj = artifact.manifest;
-            }
+              } catch {
+                parsedObj[key] = value;
+              }
+            });
+            manifestObj = parsedObj;
+            console.log('Parsed manifest object from URL params:', manifestObj);
+          } catch (parseErr) {
+            console.warn('Failed to parse URL-encoded manifest:', parseErr);
+            manifestObj = artifact.manifest;
           }
-          
-          // Clean the manifest object to remove any non-serializable properties
-          const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
-          console.log('Original manifest object:', artifact.manifest);
-          console.log('Cleaned manifest object:', cleanManifest);
-          
-          manifestText = yaml.dump(cleanManifest, {
-            indent: 2,
-            lineWidth: 120,
-            noRefs: true,
-            skipInvalid: true,
-            flowLevel: -1
-          });
-          console.log('Generated YAML from manifest:', manifestText);
-        } else {
-          manifestText = getDefaultManifest();
         }
         
-        // Try to fetch main.py file
-        const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
-        const mainPyResponse = await fetch(mainPyUrl);
-        mainPyText = await mainPyResponse.text();
+        // Clean the manifest object to remove any non-serializable properties
+        const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
+        console.log('Original manifest object:', artifact.manifest);
+        console.log('Cleaned manifest object:', cleanManifest);
         
-        console.log('Successfully fetched main.py:', mainPyText.substring(0, 200) + '...');
-      } catch (fileErr) {
-        console.warn('Could not fetch main.py file, using default:', fileErr);
-        mainPyText = getDefaultMainPy();
+        manifestText = yaml.dump(cleanManifest, {
+          indent: 2,
+          lineWidth: 120,
+          noRefs: true,
+          skipInvalid: true,
+          flowLevel: -1
+        });
+        console.log('Generated YAML from manifest:', manifestText);
+      } else {
+        manifestText = getDefaultManifest();
       }
       
-      setFiles([
-        { name: 'manifest.yaml', content: manifestText, language: 'yaml' },
-        { name: 'main.py', content: mainPyText, language: 'python' }
-      ]);
+      // Add manifest.yaml as the first file
+      loadedFiles.push({
+        name: 'manifest.yaml',
+        content: manifestText,
+        language: 'yaml'
+      });
+      
+      // Get list of all files in the artifact
+      try {
+        const fileList = await artifactManager.list_files({artifact_id: artifact.id, _rkwargs: true});
+        console.log('Files found in artifact:', fileList);
+        
+        // Filter out manifest.yaml since we already have it, and load other files
+        const filesToLoad = fileList.filter((file: any) => 
+          file.name !== 'manifest.yaml' && 
+          !file.name.endsWith('/') && // Skip directories
+          file.name.length > 0
+        );
+        
+        // Load content for each file
+        for (const fileInfo of filesToLoad) {
+          try {
+            console.log(`Loading file: ${fileInfo.name}`);
+            const fileUrl = await artifactManager.get_file({
+              artifact_id: artifact.id, 
+              file_path: fileInfo.name, 
+              _rkwargs: true
+            });
+            const response = await fetch(fileUrl);
+            
+            if (response.ok) {
+              const content = await response.text();
+              loadedFiles.push({
+                name: fileInfo.name,
+                content: content,
+                language: getFileLanguage(fileInfo.name)
+              });
+              console.log(`Successfully loaded ${fileInfo.name} (${content.length} chars)`);
+            } else {
+              console.warn(`Failed to fetch ${fileInfo.name}: ${response.status} ${response.statusText}`);
+            }
+          } catch (fileErr) {
+            console.warn(`Error loading file ${fileInfo.name}:`, fileErr);
+          }
+        }
+        
+        // If no main.py was found in the files, add a default one
+        if (!loadedFiles.some(f => f.name === 'main.py')) {
+          console.log('No main.py found, adding default');
+          loadedFiles.push({
+            name: 'main.py',
+            content: getDefaultMainPy(),
+            language: 'python'
+          });
+        }
+        
+      } catch (listErr) {
+        console.warn('Could not list files, falling back to default files:', listErr);
+        // Fallback: try to load main.py individually
+        try {
+          const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
+          const mainPyResponse = await fetch(mainPyUrl);
+          const mainPyText = await mainPyResponse.text();
+          
+          loadedFiles.push({
+            name: 'main.py',
+            content: mainPyText,
+            language: 'python'
+          });
+          console.log('Successfully fetched main.py via fallback');
+        } catch (fileErr) {
+          console.warn('Could not fetch main.py file, using default:', fileErr);
+          loadedFiles.push({
+            name: 'main.py',
+            content: getDefaultMainPy(),
+            language: 'python'
+          });
+        }
+      }
+      
+      setFiles(loadedFiles);
       setCreateAppDialogOpen(true);
     } catch (err) {
       console.error('Failed to load artifact files for editing:', err);
