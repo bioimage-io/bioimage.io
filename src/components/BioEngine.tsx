@@ -784,6 +784,12 @@ class MyNewApp:
         // Load content for each file
         for (const fileInfo of filesToLoad) {
           try {
+            // skip non-text files
+            if (!fileInfo.name.endsWith('.txt') && !fileInfo.name.endsWith('.md') && !fileInfo.name.endsWith('.py') && !fileInfo.name.endsWith('.yaml') && !fileInfo.name.endsWith('.yml') && !fileInfo.name.endsWith('.json') && !fileInfo.name.endsWith('.sh') && !fileInfo.name.endsWith('.ijm')) {
+              console.log(`Skipping load non-text file: ${fileInfo.name}`);
+              continue;
+            }
+
             console.log(`Loading file: ${fileInfo.name}`);
             const fileUrl = await artifactManager.get_file({
               artifact_id: artifact.id, 
