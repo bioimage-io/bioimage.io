@@ -27,6 +27,7 @@ const BioEngineGuide: React.FC = () => {
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
   const [interactiveMode, setInteractiveMode] = useState(false);
+  const [shmSize, setShmSize] = useState('1g');
 
   const getPlatform = () => {
     if (os === 'windows') {
@@ -103,15 +104,19 @@ const BioEngineGuide: React.FC = () => {
     const platform = getPlatform();
     const userFlag = getUserFlag();
     const gpuFlag = getGpuFlag();
+    const shmFlag = `--shm-size=${shmSize} `;
     
     // Determine mount directory and cache directory
     let mountDir = '/tmp';
     let hostMountPath = '';
     
     if (os === 'windows') {
-      hostMountPath = runAsRoot ? 'C:\\temp' : '%TEMP%';
+      hostMountPath = runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp';
+    } else if (os === 'macos') {
+      hostMountPath = '$HOME/bioengine-tmp';
     } else {
-      hostMountPath = '$(mktemp -d)';
+      // Linux
+      hostMountPath = '$HOME/bioengine-tmp';
     }
     
     // If user specified a custom cache directory, use it as the mount point
@@ -120,10 +125,10 @@ const BioEngineGuide: React.FC = () => {
     }
     
     if (interactiveMode) {
-      // Interactive mode - separate docker run and python command
+      // Interactive mode - separate docker run and python command with --entrypoint bash
       const dockerCmd = os === 'windows' 
-        ? `docker run ${gpuFlag}--platform ${platform} -it --rm -v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 bash`
-        : `docker run ${gpuFlag}--platform ${platform} -it --rm ${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 bash`;
+        ? `docker run --platform ${platform} --rm -it ${shmFlag}--entrypoint bash ${gpuFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17`
+        : `docker run --platform ${platform} --rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17`;
       
       const pythonCmd = `python -m bioengine_worker ${argsString}`;
       
@@ -131,10 +136,10 @@ const BioEngineGuide: React.FC = () => {
     } else {
       // Single command mode
       if (os === 'windows') {
-        return `docker run ${gpuFlag}--platform ${platform} -it --rm -v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+        return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
       }
       
-      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}-v ${hostMountPath}:${mountDir} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
     }
   };
 
@@ -178,8 +183,9 @@ I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is 
 ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
 ${mode === 'connect' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
-${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}` : ''}
-- **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : 'Yes (separate Docker and Python commands)') : 'No (single command)'}
+${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
+- **Shared Memory Size**: ${shmSize}` : ''}
+- **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : 'Yes (separate Docker and Python commands with --entrypoint bash)') : 'No (single command)'}
 
 ### Advanced Configuration
 ${workspace ? `- **Workspace**: ${workspace}` : ''}
@@ -376,7 +382,7 @@ ${mode === 'slurm' ? `### SLURM Mode Specific:
 ### General:` : '- Docker is installed and running (for single-machine/connect modes)'}
 - Sufficient system resources (CPU, memory, disk space)
 - Network ports are available (especially for Ray cluster communication)
-${mode !== 'slurm' ? '- Volume mount paths exist and are accessible' : ''}
+${mode !== 'slurm' ? '- A bioengine-tmp directory will be created in your home directory for data mounting' : ''}
 ${mode === 'single-machine' && hasGpu ? '- For GPU mode: NVIDIA Docker runtime is installed' : ''}
 ${mode === 'connect' ? '- For connect mode: Target Ray cluster is running and accessible' : ''}
 
@@ -692,6 +698,30 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </p>
               </div>
 
+              {/* Shared Memory Size - only for single-machine and connect modes */}
+              {mode !== 'slurm' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Shared Memory Size</label>
+                  <select
+                    value={shmSize}
+                    onChange={(e) => setShmSize(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    aria-label="Select shared memory size"
+                  >
+                    <option value="512m">512 MB</option>
+                    <option value="1g">1 GB</option>
+                    <option value="2g">2 GB</option>
+                    <option value="4g">4 GB</option>
+                    <option value="5g">5 GB</option>
+                    <option value="8g">8 GB</option>
+                    <option value="16g">16 GB</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Docker shared memory size for Ray operations and data processing
+                  </p>
+                </div>
+              )}
+
               {/* Interactive Mode */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
@@ -938,6 +968,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     )}
                     {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
                     {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
+                    <li>A 'bioengine-tmp' directory will be created in your home directory for data storage and caching</li>
                     <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                     <li>After running, the worker will be available at the service ID shown in the terminal</li>
                     <li>Use the service ID to connect to your BioEngine worker from this interface</li>
