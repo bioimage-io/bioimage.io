@@ -241,7 +241,7 @@ const BioEngineHome: React.FC = () => {
       </div>
       
       {/* Custom Service ID Input */}
-      <div className="max-w-3xl mx-auto mb-8">
+      <div className="max-w-6xl mx-auto mb-8">
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center mb-4">
             <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mr-3">

@@ -731,59 +731,59 @@ class MyNewApp:
     try {
       const loadedFiles: Array<{name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean}> = [];
       
-      // Always generate manifest.yaml from artifact.manifest metadata
+        // Always generate manifest.yaml from artifact.manifest metadata
       let manifestText = '';
-      if (artifact.manifest) {
-        let manifestObj: any = artifact.manifest;
-        
-        // Check if the manifest is URL-encoded string data
-        if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
-          console.log('Detected URL-encoded manifest, decoding...');
-          try {
-            // Decode URL-encoded string and parse as query parameters
-            const decoded = decodeURIComponent(manifestObj);
-            console.log('Decoded manifest string:', decoded);
-            
-            // Parse query string format into object
-            const params = new URLSearchParams(decoded);
-            const parsedObj: any = {};
-            params.forEach((value, key) => {
-              try {
-                // Try to parse values that look like JSON objects/arrays
-                if (value.startsWith('{') || value.startsWith('[')) {
-                  parsedObj[key] = JSON.parse(value.replace(/'/g, '"'));
-                } else {
+        if (artifact.manifest) {
+          let manifestObj: any = artifact.manifest;
+          
+          // Check if the manifest is URL-encoded string data
+          if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
+            console.log('Detected URL-encoded manifest, decoding...');
+            try {
+              // Decode URL-encoded string and parse as query parameters
+              const decoded = decodeURIComponent(manifestObj);
+              console.log('Decoded manifest string:', decoded);
+              
+              // Parse query string format into object
+              const params = new URLSearchParams(decoded);
+              const parsedObj: any = {};
+              params.forEach((value, key) => {
+                try {
+                  // Try to parse values that look like JSON objects/arrays
+                  if (value.startsWith('{') || value.startsWith('[')) {
+                    parsedObj[key] = JSON.parse(value.replace(/'/g, '"'));
+                  } else {
+                    parsedObj[key] = value;
+                  }
+                } catch {
                   parsedObj[key] = value;
                 }
-              } catch {
-                parsedObj[key] = value;
-              }
-            });
-            manifestObj = parsedObj;
-            console.log('Parsed manifest object from URL params:', manifestObj);
-          } catch (parseErr) {
-            console.warn('Failed to parse URL-encoded manifest:', parseErr);
-            manifestObj = artifact.manifest;
+              });
+              manifestObj = parsedObj;
+              console.log('Parsed manifest object from URL params:', manifestObj);
+            } catch (parseErr) {
+              console.warn('Failed to parse URL-encoded manifest:', parseErr);
+              manifestObj = artifact.manifest;
+            }
           }
+          
+          // Clean the manifest object to remove any non-serializable properties
+          const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
+          console.log('Original manifest object:', artifact.manifest);
+          console.log('Cleaned manifest object:', cleanManifest);
+          
+          manifestText = yaml.dump(cleanManifest, {
+            indent: 2,
+            lineWidth: 120,
+            noRefs: true,
+            skipInvalid: true,
+            flowLevel: -1
+          });
+          console.log('Generated YAML from manifest:', manifestText);
+        } else {
+          manifestText = getDefaultManifest();
         }
         
-        // Clean the manifest object to remove any non-serializable properties
-        const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
-        console.log('Original manifest object:', artifact.manifest);
-        console.log('Cleaned manifest object:', cleanManifest);
-        
-        manifestText = yaml.dump(cleanManifest, {
-          indent: 2,
-          lineWidth: 120,
-          noRefs: true,
-          skipInvalid: true,
-          flowLevel: -1
-        });
-        console.log('Generated YAML from manifest:', manifestText);
-      } else {
-        manifestText = getDefaultManifest();
-      }
-      
       // Add manifest.yaml as the first file
       loadedFiles.push({
         name: 'manifest.yaml',
@@ -884,8 +884,8 @@ class MyNewApp:
         console.warn('Could not list files, falling back to default files:', listErr);
         // Fallback: try to load main.py individually
         try {
-          const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
-          const mainPyResponse = await fetch(mainPyUrl);
+        const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
+        const mainPyResponse = await fetch(mainPyUrl);
           const mainPyText = await mainPyResponse.text();
           
           loadedFiles.push({
@@ -895,8 +895,8 @@ class MyNewApp:
             isEditable: true
           });
           console.log('Successfully fetched main.py via fallback');
-        } catch (fileErr) {
-          console.warn('Could not fetch main.py file, using default:', fileErr);
+      } catch (fileErr) {
+        console.warn('Could not fetch main.py file, using default:', fileErr);
           loadedFiles.push({
             name: 'main.py',
             content: getDefaultMainPy(),
@@ -1122,10 +1122,10 @@ class MyNewApp:
       <div className={className}>
         <div className="flex items-center mb-2">
           <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
           <span className="text-sm font-medium text-gray-700">Resources</span>
-        </div>
+              </div>
         <div className="flex flex-wrap gap-2">
           {links.map((link, index) => (
             <a
@@ -1146,11 +1146,11 @@ class MyNewApp:
               {link.label}
               <svg className="w-3 h-3 ml-1.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
+                    </svg>
             </a>
           ))}
-        </div>
-      </div>
+                </div>
+          </div>
     );
   };
 
@@ -1158,7 +1158,7 @@ class MyNewApp:
     return (
       <div className="flex justify-center items-center h-96">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
+          </div>
     );
   }
 
@@ -1168,7 +1168,7 @@ class MyNewApp:
         <div className="text-red-500 text-center">
           <p className="text-xl font-semibold mb-2">Error</p>
           <p>{error}</p>
-        </div>
+                  </div>
       </div>
     );
   }
@@ -1215,8 +1215,8 @@ class MyNewApp:
                 <span className="text-sm font-medium">Back</span>
               </button>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent cursor-pointer" onClick={() => navigate('/bioengine')}>
-                BioEngine Dashboard
-              </h1>
+              BioEngine Dashboard
+            </h1>
             </div>
             <p className="text-gray-600 mt-2">Manage and deploy your bioimage analysis applications</p>
           </div>
@@ -1869,12 +1869,12 @@ class MyNewApp:
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                               </svg>
                             )}
-                            <span 
+                          <span 
                               onDoubleClick={() => file.isEditable && handleFileNameEdit(file.name)}
                               className={file.isEditable ? "cursor-pointer" : "cursor-default"}
-                            >
-                              {file.name}
-                            </span>
+                          >
+                            {file.name}
+                          </span>
                           </div>
                         )}
                         {files.length > 2 && (
@@ -1954,28 +1954,28 @@ class MyNewApp:
                     )}
                     
                     <div className="flex-1">
-                      <Editor
-                        height="100%"
-                        language={files[activeEditorTab].language}
-                        value={files[activeEditorTab].content}
+                  <Editor
+                    height="100%"
+                    language={files[activeEditorTab].language}
+                    value={files[activeEditorTab].content}
                         onChange={(value) => {
                           if (files[activeEditorTab].isEditable) {
                             updateFileContent(files[activeEditorTab].name, value || '');
                           }
                         }}
-                        options={{
-                          minimap: { enabled: false },
-                          scrollBeyondLastLine: false,
-                          fontSize: 14,
-                          lineNumbers: 'on',
-                          wordWrap: 'on',
-                          automaticLayout: true,
-                          tabSize: 2,
-                          insertSpaces: true,
+                    options={{
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      lineNumbers: 'on',
+                      wordWrap: 'on',
+                      automaticLayout: true,
+                      tabSize: 2,
+                      insertSpaces: true,
                           readOnly: !files[activeEditorTab].isEditable,
-                        }}
-                        theme="light"
-                      />
+                    }}
+                    theme="light"
+                  />
                     </div>
                   </div>
                 )}

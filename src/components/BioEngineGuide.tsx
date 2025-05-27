@@ -433,8 +433,136 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
 
         {isExpanded && (
           <div className="mt-4 space-y-6">
-            {/* Basic Configuration */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Primary Mode Selection - More Prominent */}
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
+              <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                Where do you want to run BioEngine?
+              </h4>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Desktop/Workstation Option */}
+                <div 
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
+                    mode === 'single-machine' 
+                      ? 'border-blue-500 bg-blue-50 shadow-md' 
+                      : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
+                  }`}
+                  onClick={() => setMode('single-machine')}
+                >
+                  <div className="flex items-center mb-2">
+                    <input
+                      type="radio"
+                      name="deployment-mode"
+                      value="single-machine"
+                      checked={mode === 'single-machine'}
+                      onChange={(e) => setMode(e.target.value as ModeType)}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500"
+                      aria-label="Desktop/Workstation deployment mode"
+                    />
+                    <span className="ml-2 font-medium text-gray-800">💻 Desktop/Workstation</span>
+                  </div>
+                  <p className="text-sm text-gray-600 ml-6">
+                    Run locally on your personal computer or workstation using Docker. 
+                    Perfect for development, testing, or small-scale analysis.
+                  </p>
+                  <div className="mt-2 ml-6">
+                    <span className="inline-block px-2 py-1 text-xs bg-green-100 text-green-700 rounded">
+                      Easy Setup
+                    </span>
+                  </div>
+                </div>
+
+                {/* HPC Cluster Option */}
+                <div 
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
+                    mode === 'slurm' 
+                      ? 'border-purple-500 bg-purple-50 shadow-md' 
+                      : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-sm'
+                  }`}
+                  onClick={() => setMode('slurm')}
+                >
+                  <div className="flex items-center mb-2">
+                    <input
+                      type="radio"
+                      name="deployment-mode"
+                      value="slurm"
+                      checked={mode === 'slurm'}
+                      onChange={(e) => setMode(e.target.value as ModeType)}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 focus:ring-purple-500"
+                      aria-label="HPC Cluster deployment mode"
+                    />
+                    <span className="ml-2 font-medium text-gray-800">🖥️ HPC Cluster</span>
+                  </div>
+                  <p className="text-sm text-gray-600 ml-6">
+                    Deploy on a high-performance computing cluster with SLURM job scheduler. 
+                    Ideal for large-scale processing and production workloads.
+                  </p>
+                  <div className="mt-2 ml-6">
+                    <span className="inline-block px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
+                      High Performance
+                    </span>
+                  </div>
+                </div>
+
+                {/* Connect to Existing Option */}
+                <div 
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
+                    mode === 'connect' 
+                      ? 'border-orange-500 bg-orange-50 shadow-md' 
+                      : 'border-gray-200 bg-white hover:border-orange-300 hover:shadow-sm'
+                  }`}
+                  onClick={() => setMode('connect')}
+                >
+                  <div className="flex items-center mb-2">
+                    <input
+                      type="radio"
+                      name="deployment-mode"
+                      value="connect"
+                      checked={mode === 'connect'}
+                      onChange={(e) => setMode(e.target.value as ModeType)}
+                      className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 focus:ring-orange-500"
+                      aria-label="Connect to existing cluster deployment mode"
+                    />
+                    <span className="ml-2 font-medium text-gray-800">🔗 Connect to Existing</span>
+                  </div>
+                  <p className="text-sm text-gray-600 ml-6">
+                    Connect to an existing Ray cluster that's already running. 
+                    BioEngine won't manage the cluster - you provide the Ray address.
+                  </p>
+                  <div className="mt-2 ml-6">
+                    <span className="inline-block px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded">
+                      External Cluster
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ray Address Input for Connect Mode */}
+              {mode === 'connect' && (
+                <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
+                  <label className="block text-sm font-medium text-orange-800 mb-2">
+                    Ray Cluster Address (Required)
+                  </label>
+                  <input
+                    type="text"
+                    value={rayAddress}
+                    onChange={(e) => setRayAddress(e.target.value)}
+                    placeholder="ray://head-node-ip:10001"
+                    className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    aria-label="Ray cluster address"
+                  />
+                  <p className="text-xs text-orange-700 mt-1">
+                    Enter the address of your existing Ray cluster. The cluster must be running and accessible from your network.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* System Configuration */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Operating System */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Operating System</label>
@@ -467,26 +595,6 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   {arch === 'arm64' ? 'Apple M1/M2/M3 or ARM processors' : 'Intel/AMD x86_64 processors'}
-                </p>
-              </div>
-
-              {/* Mode */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mode</label>
-                <select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as ModeType)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  aria-label="Select mode"
-                >
-                  <option value="single-machine">Single Machine</option>
-                  <option value="slurm">SLURM (HPC)</option>
-                  <option value="connect">Connect to Existing</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {mode === 'single-machine' && 'Local Ray cluster on this machine'}
-                  {mode === 'slurm' && 'High-performance computing cluster'}
-                  {mode === 'connect' && 'Connect to existing Ray cluster'}
                 </p>
               </div>
 
@@ -541,23 +649,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </div>
               )}
 
-              {/* Ray Address - only for connect mode */}
-              {mode === 'connect' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Ray Address</label>
-                  <input
-                    type="text"
-                    value={rayAddress}
-                    onChange={(e) => setRayAddress(e.target.value)}
-                    placeholder="ray://head-node-ip:10001"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    aria-label="Ray cluster address"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Address of existing Ray cluster to connect to
-                  </p>
-                </div>
-              )}
+
 
               {/* Run as Root */}
               <div>
