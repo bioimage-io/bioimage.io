@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import BioEngineGuide from './BioEngineGuide';
@@ -86,6 +86,7 @@ const BioEngineHome: React.FC = () => {
   const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showContent, setShowContent] = useState(false);
   const [customServiceId, setCustomServiceId] = useState('');
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [customToken, setCustomToken] = useState('');
@@ -93,6 +94,7 @@ const BioEngineHome: React.FC = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [defaultServiceOnline, setDefaultServiceOnline] = useState<boolean | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
   // Function to check if default service is online
   const checkDefaultServiceStatus = async () => {
@@ -109,49 +111,7 @@ const BioEngineHome: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    // Check default service status regardless of login state
-    checkDefaultServiceStatus();
-  }, []);
-
-  useEffect(() => {
-    // Clear any existing timeout first
-    if (loginErrorTimeout) {
-      clearTimeout(loginErrorTimeout);
-      setLoginErrorTimeout(null);
-    }
-
-    if (!isLoggedIn) {
-      // Set a delay before showing the login error to allow time for login process
-      const timeout = setTimeout(() => {
-        // Double-check login status when timeout fires
-        if (!isLoggedIn) {  
-          setError('Please log in to view BioEngine instances');
-          setLoading(false);
-        }
-      }, 3000); // 3 second delay
-      
-      setLoginErrorTimeout(timeout);
-      return () => {
-        clearTimeout(timeout);
-      };
-    }
-    
-    // User is logged in - clear any existing error
-    setError(null);
-    fetchBioEngineServices();
-  }, [server, isLoggedIn, defaultServiceOnline]);
-
-  // Separate cleanup effect for component unmount
-  useEffect(() => {
-    return () => {
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-      }
-    };
-  }, []);
-
-  const fetchBioEngineServices = async () => {
+  const fetchBioEngineServices = useCallback(async () => {
     if (!isLoggedIn) return;
 
     try {
@@ -179,7 +139,103 @@ const BioEngineHome: React.FC = () => {
       setError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
       setLoading(false);
     }
-  };
+  }, [isLoggedIn, server, defaultServiceOnline]);
+
+  // Single initialization effect
+  useEffect(() => {
+    let mounted = true;
+    
+    const initialize = async () => {
+      // Small delay to prevent initial flash
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!mounted) return;
+      
+      // Show content after brief delay
+      setShowContent(true);
+      
+      // Check default service status first
+      await checkDefaultServiceStatus();
+      
+      if (!mounted) return;
+      
+      // Clear any existing timeout
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+        setLoginErrorTimeout(null);
+      }
+
+      if (!isLoggedIn) {
+        // Set a delay before showing the login error to allow time for login process
+        const timeout = setTimeout(() => {
+          if (mounted && !isLoggedIn) {  
+            setError('Please log in to view BioEngine instances');
+            setLoading(false);
+            setInitialized(true);
+          }
+        }, 3000); // 3 second delay
+        
+        setLoginErrorTimeout(timeout);
+      } else {
+        // User is logged in - clear any existing error and fetch services
+        setError(null);
+        await fetchBioEngineServices();
+        if (mounted) {
+          setInitialized(true);
+        }
+      }
+    };
+
+    initialize();
+
+    return () => {
+      mounted = false;
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+      }
+    };
+  }, [fetchBioEngineServices]);
+
+  // Handle login state changes after initialization
+  useEffect(() => {
+    if (!initialized) return;
+    
+    let mounted = true;
+    
+    const handleLoginChange = async () => {
+      // Clear any existing timeout
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+        setLoginErrorTimeout(null);
+      }
+
+      if (!isLoggedIn) {
+        // Set a delay before showing the login error
+        const timeout = setTimeout(() => {
+          if (mounted && !isLoggedIn) {  
+            setError('Please log in to view BioEngine instances');
+            setLoading(false);
+          }
+        }, 1000); // Shorter delay for subsequent changes
+        
+        setLoginErrorTimeout(timeout);
+      } else {
+        // User is logged in - clear any existing error and fetch services
+        setError(null);
+        setLoading(true);
+        await fetchBioEngineServices();
+      }
+    };
+
+    handleLoginChange();
+
+    return () => {
+      mounted = false;
+      if (loginErrorTimeout) {
+        clearTimeout(loginErrorTimeout);
+      }
+    };
+  }, [isLoggedIn, initialized]);
 
   const navigateToDashboard = (serviceId: string) => {
     navigate(`/bioengine/worker?service_id=${serviceId}`);
@@ -232,10 +288,17 @@ const BioEngineHome: React.FC = () => {
     setConnectionError(null);
   };
 
-  if (loading) {
+  if (!showContent || loading) {
     return (
       <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+        <div className="flex flex-col items-center">
+          <img 
+            src="/img/bioengine-logo-black.svg" 
+            alt="BioEngine Loading" 
+            className="w-48 h-auto opacity-60 animate-pulse"
+          />
+          <p className="text-gray-500 text-sm mt-4 animate-pulse">Loading BioEngine...</p>
+        </div>
       </div>
     );
   }

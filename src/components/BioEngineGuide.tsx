@@ -27,7 +27,7 @@ const BioEngineGuide: React.FC = () => {
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
   const [interactiveMode, setInteractiveMode] = useState(false);
-  const [shmSize, setShmSize] = useState('1g');
+  const [shmSize, setShmSize] = useState('2g');
 
   // Ref for the troubleshooting dialog
   const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
@@ -743,7 +743,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                      <option value="16g">16 GB</option>
                    </select>
                    <p className="text-xs text-gray-500 mt-1">
-                     Docker shared memory size for Ray operations and data processing
+                     Docker shared memory size for Ray operations and data processing, you will likely need to increase this for large models.
                    </p>
                  </div>
 
