@@ -288,6 +288,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       setFiles(fileNodes);
       setShowDragDrop(false);
+      setUploadStatus({
+        message: `Successfully loaded ${totalFiles} files`,
+        severity: 'info',
+        progress: 100
+      });
       
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
@@ -379,6 +384,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       setFiles(fileNodes);
       setShowDragDrop(false);
+      setUploadStatus({
+        message: `Successfully loaded ${totalFiles} files`,
+        severity: 'info',
+        progress: 100
+      });
       
       const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
