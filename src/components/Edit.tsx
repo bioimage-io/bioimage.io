@@ -446,7 +446,7 @@ const Edit: React.FC = () => {
   };
 
   // Update the validateRdfContent function
-  const validateRdfContent = (content: string, artifactId: string, artifactEmoji: string, userEmail: string): ValidationResult => {
+  const validateRdfContent = (content: string, artifactId: string, artifactEmoji: string | null, userEmail: string): ValidationResult => {
     try {
       const manifest = yaml.load(content) as any;
       const errors: string[] = [];
@@ -536,8 +536,8 @@ const Edit: React.FC = () => {
       // Validate the content
       const validation = validateRdfContent(
         content,
-        artifactInfo?.id || '',
-        artifactInfo?.manifest?.id_emoji || '',
+        artifactInfo?.id || "",
+        artifactInfo?.manifest?.id_emoji || null,
         user.email
       );
 
@@ -617,7 +617,7 @@ const Edit: React.FC = () => {
           const validation = validateRdfContent(
             content,
             artifactInfo?.id || '',
-            artifactInfo?.manifest?.id_emoji || '',
+            artifactInfo?.manifest?.id_emoji || null,
             user.email
           );
 

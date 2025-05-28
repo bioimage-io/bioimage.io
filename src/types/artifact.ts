@@ -36,7 +36,7 @@ export interface ArtifactInfo {
     name: string;
     description: string;
     icon?: string;
-    id_emoji?: string;
+    id_emoji?: string | null;
     tags?: string[];
     badges?: Badge[];
     covers?: string[];
@@ -96,7 +96,7 @@ export interface Manifest {
   name: string;
   description: string;
   icon?: string;
-  id_emoji?: string;
+  id_emoji?: string | null;
   tags?: string[];
   badges?: Badge[];
   covers?: string[];
