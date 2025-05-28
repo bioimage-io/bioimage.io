@@ -3,11 +3,13 @@ import React, { useState, useRef, useEffect } from 'react';
 type OSType = 'macos' | 'linux' | 'windows';
 type ModeType = 'single-machine' | 'slurm' | 'connect';
 type ArchType = 'amd64' | 'arm64';
+type ContainerRuntimeType = 'docker' | 'podman';
 
 const BioEngineGuide: React.FC = () => {
   const [os, setOS] = useState<OSType>('macos');
   const [arch, setArch] = useState<ArchType>('arm64');
   const [mode, setMode] = useState<ModeType>('single-machine');
+  const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
   const [cpus, setCpus] = useState(2);
   const [hasGpu, setHasGpu] = useState(false);
   const [gpus, setGpus] = useState(1);
@@ -62,7 +64,15 @@ const BioEngineGuide: React.FC = () => {
   };
 
   const getGpuFlag = () => {
-    return hasGpu ? '--gpus=all ' : '';
+    if (!hasGpu) return '';
+    
+    if (containerRuntime === 'podman') {
+      // Podman uses --device for GPU access
+      return '--device nvidia.com/gpu=all ';
+    } else {
+      // Docker uses --gpus
+      return '--gpus=all ';
+    }
   };
 
   const getCommand = () => {
@@ -153,30 +163,31 @@ const BioEngineGuide: React.FC = () => {
     }
     
     if (interactiveMode) {
-      // Interactive mode - separate docker run and python command with --entrypoint bash
-      const dockerCmd = os === 'windows' 
-        ? `docker run --platform ${platform} --rm -it ${shmFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`
-        : `docker run --platform ${platform} --rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`;
+      // Interactive mode - separate container run and python command with --entrypoint bash
+      const containerCmd = os === 'windows' 
+        ? `${containerRuntime} run --platform ${platform} --rm -it ${shmFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`
+        : `${containerRuntime} run --platform ${platform} --rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17`;
       
       const pythonCmd = `python -m bioengine_worker ${argsString}`;
       
-      return { dockerCmd, pythonCmd };
+      return { dockerCmd: containerCmd, pythonCmd };
     } else {
       // Single command mode
       if (os === 'windows') {
-        return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+        return `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
       }
       
-      return `docker run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      return `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
     }
   };
 
   const copyToClipboard = async () => {
     try {
       const command = getCommand();
+      const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
       const textToCopy = typeof command === 'string' 
         ? command 
-        : `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+        : `# Step 1: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
       
       await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -188,9 +199,10 @@ const BioEngineGuide: React.FC = () => {
 
   const getTroubleshootingPrompt = () => {
     const currentCommand = getCommand();
+    const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
     const commandText = typeof currentCommand === 'string' 
       ? currentCommand 
-      : `# Step 1: Start Docker container\n${currentCommand.dockerCmd}\n\n# Step 2: Inside the container, run:\n${currentCommand.pythonCmd}`;
+      : `# Step 1: Start ${containerName} container\n${currentCommand.dockerCmd}\n\n# Step 2: Inside the container, run:\n${currentCommand.pythonCmd}`;
     
     return `# BioEngine Worker Troubleshooting Assistant
 
@@ -207,13 +219,14 @@ I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is 
 ### My Current Setup
 - **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}
 - **Architecture**: ${arch === 'arm64' ? 'ARM64 (Apple Silicon)' : 'AMD64 (x86_64)'}
+- **Container Runtime**: ${containerName}${mode !== 'slurm' ? ` (${containerRuntime === 'docker' ? 'traditional container runtime' : 'daemonless, rootless alternative to Docker'})` : ''}
 - **Mode**: ${mode === 'single-machine' ? 'Single Machine (local Ray cluster)' : mode === 'slurm' ? 'SLURM (HPC cluster with bash script)' : 'Connect to existing Ray cluster'}
 ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
 ${mode === 'connect' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
 ${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
 - **Shared Memory Size**: ${shmSize}` : ''}
-- **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : 'Yes (separate Docker and Python commands with --entrypoint bash)') : 'No (single command)'}
+- **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : `Yes (separate ${containerName} and Python commands with --entrypoint bash)`) : 'No (single command)'}
 
 ### Advanced Configuration
 ${workspace ? `- **Workspace**: ${workspace}` : ''}
@@ -223,7 +236,7 @@ ${adminUsers ? `- **Admin Users**: ${adminUsers}` : ''}
 ${logDir ? `- **Log Directory**: ${logDir}` : ''}
 ${cacheDir ? `- **Cache Directory**: ${cacheDir}` : ''}
 
-### Generated Docker Command
+### Generated ${containerName} Command
 \`\`\`bash
 ${commandText}
 \`\`\`
@@ -387,11 +400,11 @@ Ray Connection Options:
 
 When helping me troubleshoot, please consider:
 
-1. **Docker Issues** (single-machine/connect modes): Container startup, platform compatibility, volume mounting
+1. **${containerName} Issues** (single-machine/connect modes): Container startup, platform compatibility, volume mounting
 2. **SLURM Issues** (SLURM mode): Job submission, resource allocation, container runtime, shared filesystem
 3. **Network Issues**: Port conflicts, firewall settings, connectivity
 4. **Resource Issues**: CPU/GPU allocation, memory constraints
-5. **Permission Issues**: User permissions, file access, Docker daemon access, SLURM account permissions
+5. **Permission Issues**: User permissions, file access, ${containerRuntime} daemon access, SLURM account permissions
 6. **Ray Cluster Issues**: Ray startup, cluster connectivity, node communication
 7. **Hypha Integration**: Workspace access, authentication, service registration
 8. **Configuration Issues**: Invalid arguments, missing dependencies, environment setup
@@ -407,11 +420,11 @@ ${mode === 'slurm' ? `### SLURM Mode Specific:
 - Proper SLURM partition and QOS settings
 - Container image can be pulled and cached successfully
 
-### General:` : '- Docker is installed and running (for single-machine/connect modes)'}
+### General:` : `- ${containerName} is installed and running (for single-machine/connect modes)`}
 - Sufficient system resources (CPU, memory, disk space)
 - Network ports are available (especially for Ray cluster communication)
 ${mode !== 'slurm' ? '- A bioengine-tmp directory will be created in your home directory for data mounting' : ''}
-${mode === 'single-machine' && hasGpu ? '- For GPU mode: NVIDIA Docker runtime is installed' : ''}
+${mode === 'single-machine' && hasGpu ? `- For GPU mode: NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : 'container toolkit'} is installed` : ''}
 ${mode === 'connect' ? '- For connect mode: Target Ray cluster is running and accessible' : ''}
 
 ## My Question
@@ -657,6 +670,25 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   </p>
                 </div>
 
+                {/* Container Runtime */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Container Runtime</label>
+                  <select
+                    value={containerRuntime}
+                    onChange={(e) => setContainerRuntime(e.target.value as ContainerRuntimeType)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    aria-label="Select container runtime"
+                  >
+                    <option value="docker">Docker</option>
+                    <option value="podman">Podman</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {containerRuntime === 'docker' 
+                      ? 'Docker - Most common container runtime' 
+                      : 'Podman - Daemonless, rootless alternative to Docker'}
+                  </p>
+                </div>
+
                 {/* CPU Count - only for single-machine mode */}
                 {mode === 'single-machine' && (
                   <div>
@@ -703,7 +735,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                       />
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      {hasGpu ? 'Requires NVIDIA Docker runtime' : 'CPU-only mode, no GPU acceleration'}
+                      {hasGpu ? `Requires NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : 'container toolkit for Podman'}` : 'CPU-only mode, no GPU acceleration'}
                     </p>
                   </div>
                 )}
@@ -743,7 +775,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                      <option value="16g">16 GB</option>
                    </select>
                    <p className="text-xs text-gray-500 mt-1">
-                     Docker shared memory size for Ray operations and data processing, you will likely need to increase this for large models.
+                     {containerRuntime} shared memory size for Ray operations and data processing, you will likely need to increase this for large models.
                    </p>
                  </div>
 
@@ -760,7 +792,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     <span className="ml-2 text-sm text-gray-700">Interactive mode</span>
                   </label>
                   <p className="text-xs text-gray-500 mt-1">
-                    {interactiveMode ? "Start Docker container first, then run BioEngine command inside" : "Run everything in a single command"}
+                    {interactiveMode ? `Start ${containerRuntime} container first, then run BioEngine command inside` : "Run everything in a single command"}
                   </p>
                 </div>
               </div>
@@ -913,7 +945,8 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   if (typeof command === 'string') {
                     commandText = command;
                   } else {
-                    commandText = `# Step 1: Start Docker container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+                    const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
+                    commandText = `# Step 1: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
                   }
                   
                   // Add volume mount information if log directory is specified
@@ -1016,12 +1049,12 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                       </>
                     ) : (
                       <>
-                        <li>Docker must be installed and running</li>
-                        {mode === 'single-machine' && hasGpu && <li>NVIDIA Docker runtime required for GPU support</li>}
+                        <li>{containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1)} must be installed and running</li>
+                        {mode === 'single-machine' && hasGpu && <li>NVIDIA {containerRuntime === 'docker' ? 'Docker runtime' : 'container toolkit'} required for GPU support</li>}
                         {mode === 'connect' && <li>Existing Ray cluster must be running and accessible</li>}
                       </>
                     )}
-                    {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the Docker command first, then execute the Python command inside the container</li>}
+                    {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
                     {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
                     <li>A 'bioengine-tmp' directory will be created in your home directory for data storage and caching</li>
                     {logDir && mode !== 'slurm' && <li>A 'bioengine-logs' directory will be created in your home directory and mounted to {logDir} in the container</li>}
