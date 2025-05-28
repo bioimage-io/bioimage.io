@@ -934,7 +934,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       }
 
       // After successful upload, redirect to edit page
-      navigate(`/edit/${encodeURIComponent(artifact.id)}`);
+      navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`);
 
     } catch (error) {
       console.error('Upload failed:', error);
