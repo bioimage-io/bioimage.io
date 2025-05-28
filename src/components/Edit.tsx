@@ -533,23 +533,23 @@ const Edit: React.FC = () => {
       // Get the latest content
       const content = unsavedChanges[file.path];
       
-      // FIXME:Disable Validation for now
       // Validate the content
-      // const validation = validateRdfContent(
-      //   content,
-      //   artifactInfo?.id || "",
-      //   artifactInfo?.manifest?.id_emoji || null,
-      //   user.email
-      // );
-      // if (!validation.success) {
-      //   // Show validation errors
-      //   setValidationErrors(validation.errors);
-      //   setUploadStatus({
-      //     message: 'Validation failed. Please fix the errors before saving.',
-      //     severity: 'error'
-      //   });
-      //   return;
-      // }
+      const validation = validateRdfContent(
+        content,
+        artifactInfo?.id || "",
+        artifactInfo?.manifest?.id_emoji || null,
+        user.email
+      );
+
+      if (!validation.success) {
+        // Show validation errors
+        setValidationErrors(validation.errors);
+        setUploadStatus({
+          message: 'Validation failed. Please fix the errors before saving.',
+          severity: 'error'
+        });
+        return;
+      }
       
       // Mark content as valid if validation passes
       setIsContentValid(true);
