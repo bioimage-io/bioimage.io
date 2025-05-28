@@ -136,12 +136,12 @@ const BioEngineGuide: React.FC = () => {
     let volumeMounts = '';
     
     if (os === 'windows') {
-      hostMountPath = runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp';
+      hostMountPath = runAsRoot ? 'C:\\bioengine-workdir' : '%USERPROFILE%\\bioengine-workdir';
     } else if (os === 'macos') {
-      hostMountPath = '$HOME/bioengine-tmp';
+      hostMountPath = '$HOME/bioengine-workdir';
     } else {
       // Linux
-      hostMountPath = '$HOME/bioengine-tmp';
+      hostMountPath = '$HOME/bioengine-workdir';
     }
     
     // If user specified a custom cache directory, use it as the mount point
@@ -162,6 +162,22 @@ const BioEngineGuide: React.FC = () => {
       }
     }
     
+    // Create directory creation commands
+    let createDirCmd = '';
+    if (os === 'windows') {
+      const workdirPath = runAsRoot ? 'C:\\bioengine-workdir' : '%USERPROFILE%\\bioengine-workdir';
+      createDirCmd = `mkdir "${workdirPath}" 2>nul || echo Directory already exists`;
+      if (logDir) {
+        const logPath = runAsRoot ? 'C:\\bioengine-logs' : '%USERPROFILE%\\bioengine-logs';
+        createDirCmd += ` && mkdir "${logPath}" 2>nul || echo Log directory already exists`;
+      }
+    } else {
+      createDirCmd = `mkdir -p $HOME/bioengine-workdir`;
+      if (logDir) {
+        createDirCmd += ` && mkdir -p $HOME/bioengine-logs`;
+      }
+    }
+    
     if (interactiveMode) {
       // Interactive mode - separate container run and python command with --entrypoint bash
       const containerCmd = os === 'windows' 
@@ -170,14 +186,24 @@ const BioEngineGuide: React.FC = () => {
       
       const pythonCmd = `python -m bioengine_worker ${argsString}`;
       
-      return { dockerCmd: containerCmd, pythonCmd };
+      return { 
+        createDirCmd,
+        dockerCmd: containerCmd, 
+        pythonCmd 
+      };
     } else {
       // Single command mode
+      let dockerCmd = '';
       if (os === 'windows') {
-        return `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+        dockerCmd = `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      } else {
+        dockerCmd = `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
       }
       
-      return `${containerRuntime} run ${gpuFlag}--platform ${platform} -it --rm ${shmFlag}${userFlag}${volumeMounts} ghcr.io/aicell-lab/bioengine-worker:0.1.17 python -m bioengine_worker ${argsString}`;
+      return {
+        createDirCmd,
+        dockerCmd
+      };
     }
   };
 
@@ -185,9 +211,19 @@ const BioEngineGuide: React.FC = () => {
     try {
       const command = getCommand();
       const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-      const textToCopy = typeof command === 'string' 
-        ? command 
-        : `# Step 1: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+      
+      let textToCopy = '';
+      
+      if (typeof command === 'string') {
+        // SLURM mode - simple string
+        textToCopy = command;
+      } else if (command.pythonCmd) {
+        // Interactive mode
+        textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 3: Inside the container, run:\n${command.pythonCmd}`;
+      } else {
+        // Single command mode
+        textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
+      }
       
       await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -200,9 +236,18 @@ const BioEngineGuide: React.FC = () => {
   const getTroubleshootingPrompt = () => {
     const currentCommand = getCommand();
     const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-    const commandText = typeof currentCommand === 'string' 
-      ? currentCommand 
-      : `# Step 1: Start ${containerName} container\n${currentCommand.dockerCmd}\n\n# Step 2: Inside the container, run:\n${currentCommand.pythonCmd}`;
+    
+    let commandText = '';
+    if (typeof currentCommand === 'string') {
+      // SLURM mode - simple string
+      commandText = currentCommand;
+    } else if (currentCommand.pythonCmd) {
+      // Interactive mode
+      commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Start ${containerName} container\n${currentCommand.dockerCmd}\n\n# Step 3: Inside the container, run:\n${currentCommand.pythonCmd}`;
+    } else {
+      // Single command mode
+      commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
+    }
     
     return `# BioEngine Worker Troubleshooting Assistant
 
@@ -423,7 +468,7 @@ ${mode === 'slurm' ? `### SLURM Mode Specific:
 ### General:` : `- ${containerName} is installed and running (for single-machine/connect modes)`}
 - Sufficient system resources (CPU, memory, disk space)
 - Network ports are available (especially for Ray cluster communication)
-${mode !== 'slurm' ? '- A bioengine-tmp directory will be created in your home directory for data mounting' : ''}
+${mode !== 'slurm' ? '- A bioengine-workdir directory will be created in your home directory for data mounting' : ''}
 ${mode === 'single-machine' && hasGpu ? `- For GPU mode: NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : 'container toolkit'} is installed` : ''}
 ${mode === 'connect' ? '- For connect mode: Target Ray cluster is running and accessible' : ''}
 
@@ -943,22 +988,28 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   let commandText = '';
                   
                   if (typeof command === 'string') {
+                    // SLURM mode - simple string
                     commandText = command;
-                  } else {
+                  } else if (command.pythonCmd) {
+                    // Interactive mode
                     const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-                    commandText = `# Step 1: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 2: Inside the container, run:\n${command.pythonCmd}`;
+                    commandText = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Start ${containerName} container\n${command.dockerCmd}\n\n# Step 3: Inside the container, run:\n${command.pythonCmd}`;
+                  } else {
+                    // Single command mode
+                    const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
+                    commandText = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
                   }
                   
                   // Add volume mount information if log directory is specified
                   if (logDir && mode !== 'slurm') {
                     const mountInfo = os === 'windows' 
-                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp'} → ${cacheDir || '/tmp'} (cache/data)\n# - ${runAsRoot ? 'C:\\bioengine-logs' : '%USERPROFILE%\\bioengine-logs'} → ${logDir} (logs)`
-                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-tmp → ${cacheDir || '/tmp'} (cache/data)\n# - $HOME/bioengine-logs → ${logDir} (logs)`;
+                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-workdir' : '%USERPROFILE%\\bioengine-workdir'} → ${cacheDir || '/tmp'} (cache/data)\n# - ${runAsRoot ? 'C:\\bioengine-logs' : '%USERPROFILE%\\bioengine-logs'} → ${logDir} (logs)`
+                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-workdir → ${cacheDir || '/tmp'} (cache/data)\n# - $HOME/bioengine-logs → ${logDir} (logs)`;
                     commandText += mountInfo;
                   } else if (mode !== 'slurm') {
                     const mountInfo = os === 'windows' 
-                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-tmp' : '%USERPROFILE%\\bioengine-tmp'} → ${cacheDir || '/tmp'} (cache/data)`
-                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-tmp → ${cacheDir || '/tmp'} (cache/data)`;
+                      ? `\n\n# Volume mounts:\n# - ${runAsRoot ? 'C:\\bioengine-workdir' : '%USERPROFILE%\\bioengine-workdir'} → ${cacheDir || '/tmp'} (cache/data)`
+                      : `\n\n# Volume mounts:\n# - $HOME/bioengine-workdir → ${cacheDir || '/tmp'} (cache/data)`;
                     commandText += mountInfo;
                   }
                   
@@ -1056,7 +1107,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     )}
                     {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
                     {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
-                    <li>A 'bioengine-tmp' directory will be created in your home directory for data storage and caching</li>
+                    <li>A 'bioengine-workdir' directory will be created in your home directory for data storage and caching</li>
                     {logDir && mode !== 'slurm' && <li>A 'bioengine-logs' directory will be created in your home directory and mounted to {logDir} in the container</li>}
                     <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                     <li>After running, the worker will be available at the service ID shown in the terminal</li>
