@@ -494,7 +494,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 pt-4">
+    <div className="pt-4">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${

@@ -84,17 +84,14 @@ const BioEngineHome: React.FC = () => {
   const { server, isLoggedIn } = useHyphaStore();
   
   const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showContent, setShowContent] = useState(false);
+  const [servicesLoading, setServicesLoading] = useState(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
   const [customServiceId, setCustomServiceId] = useState('');
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [customToken, setCustomToken] = useState('');
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [defaultServiceOnline, setDefaultServiceOnline] = useState<boolean | null>(null);
-  const [initialized, setInitialized] = useState(false);
 
   // Function to check if default service is online
   const checkDefaultServiceStatus = async () => {
@@ -112,10 +109,15 @@ const BioEngineHome: React.FC = () => {
   };
 
   const fetchBioEngineServices = useCallback(async () => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn) {
+      setServicesLoading(false);
+      setServicesError('Please log in to view your BioEngine instances');
+      return;
+    }
 
     try {
-      setLoading(true);
+      setServicesLoading(true);
+      setServicesError(null);
       const services = await server.listServices({"type": "bioengine-worker"});
       
       const defaultService: BioEngineService = {
@@ -133,109 +135,29 @@ const BioEngineHome: React.FC = () => {
       }
       
       setBioEngineServices(allServices);
-      setLoading(false);
-      setError(null);
+      setServicesLoading(false);
     } catch (err) {
-      setError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
-      setLoading(false);
+      setServicesError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
+      setServicesLoading(false);
     }
   }, [isLoggedIn, server, defaultServiceOnline]);
 
-  // Single initialization effect
+  // Check default service status on mount
   useEffect(() => {
-    let mounted = true;
-    
-    const initialize = async () => {
-      // Small delay to prevent initial flash
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      if (!mounted) return;
-      
-      // Show content after brief delay
-      setShowContent(true);
-      
-      // Check default service status first
-      await checkDefaultServiceStatus();
-      
-      if (!mounted) return;
-      
-      // Clear any existing timeout
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-        setLoginErrorTimeout(null);
-      }
+    checkDefaultServiceStatus();
+  }, []);
 
-      if (!isLoggedIn) {
-        // Set a delay before showing the login error to allow time for login process
-        const timeout = setTimeout(() => {
-          if (mounted && !isLoggedIn) {  
-            setError('Please log in to view BioEngine instances');
-            setLoading(false);
-            setInitialized(true);
-          }
-        }, 3000); // 3 second delay
-        
-        setLoginErrorTimeout(timeout);
-      } else {
-        // User is logged in - clear any existing error and fetch services
-        setError(null);
-        await fetchBioEngineServices();
-        if (mounted) {
-          setInitialized(true);
-        }
-      }
-    };
-
-    initialize();
-
-    return () => {
-      mounted = false;
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-      }
-    };
-  }, [fetchBioEngineServices]);
-
-  // Handle login state changes after initialization
+  // Fetch services when login state changes or default service status changes
   useEffect(() => {
-    if (!initialized) return;
-    
-    let mounted = true;
-    
-    const handleLoginChange = async () => {
-      // Clear any existing timeout
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-        setLoginErrorTimeout(null);
-      }
-
-      if (!isLoggedIn) {
-        // Set a delay before showing the login error
-        const timeout = setTimeout(() => {
-          if (mounted && !isLoggedIn) {  
-            setError('Please log in to view BioEngine instances');
-            setLoading(false);
-          }
-        }, 1000); // Shorter delay for subsequent changes
-        
-        setLoginErrorTimeout(timeout);
-      } else {
-        // User is logged in - clear any existing error and fetch services
-        setError(null);
-        setLoading(true);
-        await fetchBioEngineServices();
-      }
-    };
-
-    handleLoginChange();
-
-    return () => {
-      mounted = false;
-      if (loginErrorTimeout) {
-        clearTimeout(loginErrorTimeout);
-      }
-    };
-  }, [isLoggedIn, initialized]);
+    if (isLoggedIn) {
+      fetchBioEngineServices();
+    } else {
+      // Reset services state when logged out
+      setBioEngineServices([]);
+      setServicesLoading(false);
+      setServicesError('Please log in to view your BioEngine instances');
+    }
+  }, [isLoggedIn, fetchBioEngineServices]);
 
   const navigateToDashboard = (serviceId: string) => {
     navigate(`/bioengine/worker?service_id=${serviceId}`);
@@ -288,35 +210,75 @@ const BioEngineHome: React.FC = () => {
     setConnectionError(null);
   };
 
-  if (!showContent || loading) {
-    return (
-      <div className="flex justify-center items-center h-96">
-        <div className="flex flex-col items-center">
-          <img 
-            src="/img/bioengine-logo-black.svg" 
-            alt="BioEngine Loading" 
-            className="w-48 h-auto opacity-60 animate-pulse"
-          />
-          <p className="text-gray-500 text-sm mt-4 animate-pulse">Loading BioEngine...</p>
+  // Services List Component
+  const ServicesList = () => {
+    if (servicesLoading) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <div className="flex flex-col items-center">
+            <img 
+              src="/img/bioengine-logo-black.svg" 
+              alt="BioEngine Loading" 
+              className="w-32 h-auto opacity-60 animate-pulse"
+            />
+            <p className="text-gray-500 text-sm mt-4 animate-pulse">Loading BioEngine instances...</p>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (error) {
-    return (
-      <div className="flex justify-center items-center h-96">
-        <div className="text-red-500 text-center">
-          <p className="text-xl font-semibold mb-2">Error</p>
-          <p>{error}</p>
+    if (servicesError) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-r from-blue-100 to-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <p className="text-gray-600 font-medium mb-2">Authentication Required</p>
+            <p className="text-gray-500 text-sm">{servicesError}</p>
+          </div>
         </div>
+      );
+    }
+
+    if (bioEngineServices.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+          <div className="w-20 h-20 bg-gradient-to-r from-blue-100 to-purple-100 rounded-2xl flex items-center justify-center mb-6">
+            <svg className="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+          </div>
+          <p className="text-gray-600 font-medium mb-2 text-center">No BioEngine instances found</p>
+          <p className="text-gray-500 text-sm text-center mb-4">No instances available in workspace <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{server?.config?.workspace || 'current'}</span></p>
+          {defaultServiceOnline === false && (
+            <p className="text-sm text-gray-400 text-center">
+              Note: Default BioEngine service is currently offline
+            </p>
+          )}
+          {defaultServiceOnline === null && (
+            <p className="text-sm text-gray-400 text-center">
+              Checking default BioEngine service status...
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {bioEngineServices.map((service) => (
+          <ServiceCard key={service.id} service={service} onNavigate={navigateToDashboard} />
+        ))}
       </div>
     );
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Fancy Header */}
+      {/* Fancy Header - Always visible */}
       <div className="text-center mb-12">
         <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4 leading-tight">
           BioEngine
@@ -327,81 +289,87 @@ const BioEngineHome: React.FC = () => {
         <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-4 rounded-full"></div>
       </div>
       
-      {/* Custom Service ID Input */}
+      {/* BioEngine Guide - Always visible */}
       <div className="max-w-6xl mx-auto mb-8">
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mr-3 p-1">
-              <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Connect to BioEngine Worker</h3>
-              <p className="text-sm text-gray-600">Enter a service ID to connect to an existing BioEngine worker</p>
-            </div>
-          </div>
-          
-          <form onSubmit={handleCustomServiceIdSubmit}>
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                placeholder="Enter BioEngine Worker Service ID (e.g., workspace/service-name)"
-                value={customServiceId}
-                onChange={(e) => setCustomServiceId(e.target.value)}
-                disabled={connectionLoading}
-                className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${
-                  connectionError ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'
-                } ${connectionLoading ? 'bg-gray-100' : ''}`}
-              />
-              <button 
-                type="submit" 
-                disabled={!customServiceId.trim() || connectionLoading}
-                className="absolute right-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center min-w-[100px] shadow-sm hover:shadow-md transition-all duration-200"
-              >
-                {connectionLoading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  "Connect"
-                )}
-              </button>
-            </div>
-            {connectionError && (
-              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-600 text-sm flex items-center">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {connectionError}
-                </p>
-              </div>
-            )}
-          </form>
-          
-          {/* BioEngine Guide - Compact Version */}
           <BioEngineGuide />
         </div>
       </div>
       
-      {bioEngineServices.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-          <p className="mb-4">No BioEngine instances available in workspace '{server.config.workspace}'</p>
-          {defaultServiceOnline === false && (
-            <p className="text-sm text-gray-400">
-              Note: Default BioEngine service is currently offline
-            </p>
-          )}
-          {defaultServiceOnline === null && (
-            <p className="text-sm text-gray-400">
-              Checking default BioEngine service status...
-            </p>
-          )}
+      {/* Services List - Shows login warning when needed */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Available BioEngine Instances</h2>
+        
+        {/* Custom Service ID Input - Disabled if not logged in */}
+        <div className="max-w-6xl mx-auto mb-6">
+          <div className={`bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200 ${
+            !isLoggedIn ? 'opacity-60' : ''
+          }`}>
+
+            <ServicesList />
+            <div className="flex items-center mb-4">
+              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mr-3 p-1">
+                <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Connect to BioEngine Worker</h3>
+                <p className="text-sm text-gray-600">Enter a service ID to connect to an existing BioEngine worker</p>
+              </div>
+            </div>
+            
+            {!isLoggedIn && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-amber-600 text-sm flex items-center">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  Please log in to connect to BioEngine workers
+                </p>
+              </div>
+            )}
+
+            
+            <form onSubmit={handleCustomServiceIdSubmit}>
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  placeholder="Enter BioEngine Worker Service ID (e.g., workspace/service-name)"
+                  value={customServiceId}
+                  onChange={(e) => setCustomServiceId(e.target.value)}
+                  disabled={connectionLoading || !isLoggedIn}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${
+                    connectionError ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'
+                  } ${connectionLoading || !isLoggedIn ? 'bg-gray-100' : ''}`}
+                />
+                <button 
+                  type="submit" 
+                  disabled={!customServiceId.trim() || connectionLoading || !isLoggedIn}
+                  className="absolute right-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center min-w-[100px] shadow-sm hover:shadow-md transition-all duration-200"
+                >
+                  {connectionLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    "Connect"
+                  )}
+                </button>
+              </div>
+              {connectionError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm flex items-center">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {connectionError}
+                  </p>
+                </div>
+              )}
+            </form>
+            
+          </div>
+          
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {bioEngineServices.map((service) => (
-            <ServiceCard key={service.id} service={service} onNavigate={navigateToDashboard} />
-          ))}
-        </div>
-      )}
+      
+      </div>
       
       {/* Token Dialog */}
       {tokenDialogOpen && (
