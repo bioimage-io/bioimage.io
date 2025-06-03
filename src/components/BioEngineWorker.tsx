@@ -38,7 +38,7 @@ type ServiceStatus = {
     start_time: string;
     uptime: string;
   };
-  cluster: {
+  ray_cluster: {
     head_address: string;
     worker_nodes: {
       Alive: Array<{
@@ -63,11 +63,11 @@ type ServiceStatus = {
     autoscaler: any;
     note: string;
   };
-  deployments: {
+  bioengine_apps: {
     service_id: string | null;
     [key: string]: any;
   };
-  datasets?: {
+  bioengine_datasets?: {
     available_datasets: Record<string, any>;
     loaded_datasets: Record<string, any>;
   };
@@ -316,8 +316,8 @@ const BioEngineWorker: React.FC = () => {
       const bioengineWorker = await server.getService(serviceId);
       const statusData = await bioengineWorker.get_status();
       
-      if (statusData && statusData.deployments && artifactManager) {
-        for (const [key, deployment] of Object.entries(statusData.deployments)) {
+      if (statusData && statusData.bioengine_apps && artifactManager) {
+        for (const [key, deployment] of Object.entries(statusData.bioengine_apps)) {
           if (key !== 'service_id' && typeof deployment === 'object' && deployment !== null) {
             (deployment as any).artifact_id = key;
             
@@ -1186,7 +1186,7 @@ class MyNewApp:
     );
   }
 
-  const deployments = Object.entries(status?.deployments || {})
+  const deployments = Object.entries(status?.bioengine_apps || {})
     .filter(([key]) => key !== 'service_id' && key !== 'note')
     .map(([key, value]) => ({ 
       artifact_id: key,
@@ -1194,8 +1194,8 @@ class MyNewApp:
     } as DeploymentType));
   
   const hasDeployments = deployments.length > 0;
-  const deploymentServiceId = status?.deployments?.service_id;
-  const deploymentNote = status?.deployments?.note;
+  const deploymentServiceId = status?.bioengine_apps?.service_id;
+  const deploymentNote = status?.bioengine_apps?.note;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -1286,27 +1286,27 @@ class MyNewApp:
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="font-medium text-gray-700">Head Address:</span>
-                <span className="text-gray-900">{status?.cluster?.head_address}</span>
+                <span className="text-gray-900">{status?.ray_cluster?.head_address}</span>
               </div>
-              {status?.cluster?.start_time_s && (
+              {status?.ray_cluster?.start_time_s && (
                 <>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Start Time:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.cluster.start_time_s).formattedTime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s).formattedTime}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Uptime:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.cluster.start_time_s).uptime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s).uptime}
                     </span>
                   </div>
                 </>
               )}
-              {status?.cluster?.note && (
+              {status?.ray_cluster?.note && (
                 <div className="mt-4">
-                  <p className="text-sm text-gray-600">Note: {status.cluster.note}</p>
+                  <p className="text-sm text-gray-600">Note: {status.ray_cluster.note}</p>
                 </div>
               )}
             </div>
@@ -1315,7 +1315,7 @@ class MyNewApp:
       </div>
       
       {/* Worker Nodes */}
-      {status.cluster.worker_nodes !== "N/A" && (
+      {status.ray_cluster.worker_nodes !== "N/A" && (
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
@@ -1342,7 +1342,7 @@ class MyNewApp:
                   </tr>
                 </thead>
                 <tbody>
-                  {status.cluster.worker_nodes.Alive.map((node, index) => (
+                  {status.ray_cluster.worker_nodes.Alive.map((node, index) => (
                     <tr key={index} className="border-b">
                       <td className="px-4 py-2">{node.NodeIP}</td>
                       <td className="px-4 py-2 truncate max-w-[150px]" title={node.NodeID}>
@@ -1366,7 +1366,7 @@ class MyNewApp:
                       </td>
                     </tr>
                   ))}
-                  {status.cluster.worker_nodes.Dead.map((node, index) => (
+                  {status.ray_cluster.worker_nodes.Dead.map((node, index) => (
                     <tr key={`dead-${index}`} className="border-b">
                       <td className="px-4 py-2" colSpan={5}>
                         {JSON.stringify(node)}
@@ -1378,8 +1378,8 @@ class MyNewApp:
                       </td>
                     </tr>
                   ))}
-                  {status.cluster.worker_nodes.Alive.length === 0 && 
-                   status.cluster.worker_nodes.Dead.length === 0 && (
+                  {status.ray_cluster.worker_nodes.Alive.length === 0 && 
+                   status.ray_cluster.worker_nodes.Dead.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-2 text-center">No worker nodes available</td>
                     </tr>
