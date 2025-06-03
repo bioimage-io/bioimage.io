@@ -35,7 +35,6 @@ const BioEngineGuide: React.FC = () => {
 
   // Ref for the troubleshooting dialog
   const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
-  const availableInstancesRef = useRef<HTMLDivElement>(null);
 
   // Effect to scroll to dialog when troubleshooting opens
   useEffect(() => {

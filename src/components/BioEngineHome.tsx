@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import BioEngineGuide from './BioEngineGuide';
@@ -82,6 +82,7 @@ const ServiceCard: React.FC<{
 const BioEngineHome: React.FC = () => {
   const navigate = useNavigate();
   const { server, isLoggedIn } = useHyphaStore();
+  const servicesRef = useRef<HTMLDivElement>(null);
   
   const [bioEngineServices, setBioEngineServices] = useState<BioEngineService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -92,6 +93,7 @@ const BioEngineHome: React.FC = () => {
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [defaultServiceOnline, setDefaultServiceOnline] = useState<boolean | null>(null);
+  const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
 
   // Function to check if default service is online
   const checkDefaultServiceStatus = async () => {
@@ -108,15 +110,19 @@ const BioEngineHome: React.FC = () => {
     }
   };
 
-  const fetchBioEngineServices = useCallback(async () => {
+  const fetchBioEngineServices = useCallback(async (isManualRefresh = false) => {
     if (!isLoggedIn) {
-      setServicesLoading(false);
+      setServicesLoading(!isManualRefresh);
       setServicesError('Please log in to view your BioEngine instances');
       return;
     }
 
     try {
-      setServicesLoading(true);
+      if (isManualRefresh) {
+        setManualRefreshLoading(true);
+      } else {
+        setServicesLoading(true);
+      }
       setServicesError(null);
       const services = await server.listServices({"type": "bioengine-worker"});
       
@@ -134,13 +140,32 @@ const BioEngineHome: React.FC = () => {
         allServices = [defaultService, ...services];
       }
       
+      // Check if we found new services and scroll to them
+      const foundNewServices = allServices.length > bioEngineServices.length;
+      
       setBioEngineServices(allServices);
-      setServicesLoading(false);
+      
+      // Scroll to services section if new services were found
+      if (foundNewServices && allServices.length > 0 && servicesRef.current) {
+        setTimeout(() => {
+          servicesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+      
+      if (isManualRefresh) {
+        setManualRefreshLoading(false);
+      } else {
+        setServicesLoading(false);
+      }
     } catch (err) {
       setServicesError(`Failed to fetch BioEngine instances: ${err instanceof Error ? err.message : String(err)}`);
-      setServicesLoading(false);
+      if (isManualRefresh) {
+        setManualRefreshLoading(false);
+      } else {
+        setServicesLoading(false);
+      }
     }
-  }, [isLoggedIn, server, defaultServiceOnline]);
+  }, [isLoggedIn, server, defaultServiceOnline, bioEngineServices.length]);
 
   // Check default service status on mount
   useEffect(() => {
@@ -158,6 +183,22 @@ const BioEngineHome: React.FC = () => {
       setServicesError('Please log in to view your BioEngine instances');
     }
   }, [isLoggedIn, fetchBioEngineServices]);
+
+  // Auto-refresh services every 5 seconds
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const interval = setInterval(() => {
+      fetchBioEngineServices();
+    }, 5000); // 5 seconds
+
+    return () => clearInterval(interval);
+  }, [isLoggedIn, fetchBioEngineServices]);
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    fetchBioEngineServices(true);
+  };
 
   const navigateToDashboard = (serviceId: string) => {
     navigate(`/bioengine/worker?service_id=${serviceId}`);
@@ -297,16 +338,31 @@ const BioEngineHome: React.FC = () => {
       </div>
       
       {/* Services List - Shows login warning when needed */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Available BioEngine Instances</h2>
+      <div className="mb-8" ref={servicesRef}>
+        <div className="flex items-center justify-center mb-6">
+          <h2 className="text-2xl font-semibold text-gray-800 mr-4">Available BioEngine Instances</h2>
+          <button
+            onClick={handleManualRefresh}
+            disabled={manualRefreshLoading || !isLoggedIn}
+            className="px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
+            title="Refresh services list"
+          >
+            {manualRefreshLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            <span className="ml-2 text-sm">Refresh</span>
+          </button>
+        </div>
         
-        {/* Custom Service ID Input - Disabled if not logged in */}
-        <div className="max-w-6xl mx-auto mb-6">
+        {/* Combined section with Connect and Services List */}
+        <div className="max-w-6xl mx-auto">
           <div className={`bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200 ${
             !isLoggedIn ? 'opacity-60' : ''
           }`}>
-
-            <ServicesList />
             <div className="flex items-center mb-4">
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mr-3 p-1">
                 <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
@@ -328,7 +384,6 @@ const BioEngineHome: React.FC = () => {
               </div>
             )}
 
-            
             <form onSubmit={handleCustomServiceIdSubmit}>
               <div className="relative flex items-center">
                 <input
@@ -364,11 +419,13 @@ const BioEngineHome: React.FC = () => {
                 </div>
               )}
             </form>
-            
+
+            {/* Services List inside the same frame */}
+            <div className="mt-8 pt-6 border-t border-gray-200/50">
+              <ServicesList />
+            </div>
           </div>
-          
         </div>
-      
       </div>
       
       {/* Token Dialog */}
@@ -433,4 +490,4 @@ const BioEngineHome: React.FC = () => {
   );
 };
 
-export default BioEngineHome; 
+export default BioEngineHome;
