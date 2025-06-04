@@ -119,21 +119,23 @@ const BioEngineGuide: React.FC = () => {
     // Add custom image if specified
     if (customImage) args.push(`--image ${customImage}`);
     
-    // Add cache and data directories for all modes (including SLURM)
-    if (cacheDir) args.push(`--cache_dir ${cacheDir}`);
-    if (dataDir) args.push(`--data_dir ${dataDir}`);
-    
     const argsString = args.length > 0 ? args.join(' ') : '';
     
     // SLURM mode uses the bash script instead of Docker
     if (mode === 'slurm') {
+      // Add cache and data directories for SLURM mode only
+      if (cacheDir) args.push(`--cache_dir ${cacheDir}`);
+      if (dataDir) args.push(`--data_dir ${dataDir}`);
+      
+      const slurmArgsString = args.length > 0 ? args.join(' ') : '';
+      
       if (interactiveMode) {
         return {
           dockerCmd: `# Download and inspect the script first (optional)`,
-          pythonCmd: `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`
+          pythonCmd: `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${slurmArgsString ? ` ${slurmArgsString}` : ''}`
         };
       } else {
-        return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`;
+        return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${slurmArgsString ? ` ${slurmArgsString}` : ''}`;
       }
     }
     
