@@ -130,10 +130,10 @@ const BioEngineGuide: React.FC = () => {
       if (interactiveMode) {
         return {
           dockerCmd: `# Download and inspect the script first (optional)`,
-          pythonCmd: `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/bioengine-worker/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`
+          pythonCmd: `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`
         };
       } else {
-        return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/bioengine-worker/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`;
+        return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${argsString ? ` ${argsString}` : ''}`;
       }
     }
     
