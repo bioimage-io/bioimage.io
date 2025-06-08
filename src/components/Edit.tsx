@@ -775,6 +775,20 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
 
+      // add create_zip_file to download_weights
+      const newConfig = {
+        ...artifact.config,
+        download_weights:{
+          ...artifact.config.download_weights,
+          create_zip_file: 1.0
+        }
+      };
+      await artifactManager?.edit({
+        artifact_id: artifactId,
+        config: newConfig,
+        _rkwargs: true
+      });
+
       setUploadStatus({
         message: 'Changes committed successfully',
         severity: 'success'

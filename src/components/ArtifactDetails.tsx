@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, Link as RouterLink } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
-import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
@@ -499,6 +499,18 @@ const ArtifactDetails = () => {
               </Stack>
             </CardContent>
           </Card>
+
+          {/* Download Count Info Box */}
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+              How Download Count is Calculated:
+            </Typography>
+            <Typography variant="body2">
+              Each file is assigned a download weight: manifest files have weight 0, model weight files have weight 1.0. 
+              The download count only increases when the entire model package is downloaded as a zip file, 
+              regardless of how many weight files are included in the package.
+            </Typography>
+          </Alert>
 
           {/* Citations Card */}
           {manifest.cite && manifest.cite.length > 0 && (
