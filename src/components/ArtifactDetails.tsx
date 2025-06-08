@@ -40,6 +40,7 @@ const ArtifactDetails = () => {
   const [showModelRunner, setShowModelRunner] = useState(false);
   const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
   const [containerHeight, setContainerHeight] = useState('400px');
+  const [showDownloadInfo, setShowDownloadInfo] = useState(false);
   const modelContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -489,7 +490,14 @@ const ArtifactDetails = () => {
                 <Chip 
                   icon={<DownloadIcon />} 
                   label={`Downloads: ${selectedResource.download_count}`}
-                  sx={{ justifyContent: 'flex-start' }}
+                  onClick={() => setShowDownloadInfo(!showDownloadInfo)}
+                  sx={{ 
+                    justifyContent: 'flex-start',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      backgroundColor: 'rgba(25, 118, 210, 0.08)'
+                    }
+                  }}
                 />
                 <Chip 
                   icon={<VisibilityIcon />} 
@@ -497,20 +505,24 @@ const ArtifactDetails = () => {
                   sx={{ justifyContent: 'flex-start' }}
                 />
               </Stack>
+              
+              {showDownloadInfo && (
+                <Box sx={{ mt: 2, p: 2, backgroundColor: 'rgba(25, 118, 210, 0.04)', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                    How Download Count is Calculated:
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Each file has a download weight: manifest files have weight 0, model weight files have weight 1.0. 
+                    When individual weight files are downloaded, the count increases by 1 per weight file. 
+                    When the complete model package is downloaded as a zip file, the count increases by 1 only when the entire zip is successfully downloaded.
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Note:</strong> Downloads with URL query parameter <code>silent=true</code> (e.g., CI scripts) do not increase the download count.
+                  </Typography>
+                </Box>
+              )}
             </CardContent>
           </Card>
-
-          {/* Download Count Info Box */}
-          <Alert severity="info" sx={{ mb: 3 }}>
-            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-              How Download Count is Calculated:
-            </Typography>
-            <Typography variant="body2">
-              Each file is assigned a download weight: manifest files have weight 0, model weight files have weight 1.0. 
-              The download count only increases when the entire model package is downloaded as a zip file, 
-              regardless of how many weight files are included in the package.
-            </Typography>
-          </Alert>
 
           {/* Citations Card */}
           {manifest.cite && manifest.cite.length > 0 && (
