@@ -31,7 +31,7 @@ const BioEngineGuide: React.FC = () => {
   const [customImage, setCustomImage] = useState('');
   const [platformOverride, setPlatformOverride] = useState('');
   const [clientId, setClientId] = useState('');
-  const [containerCacheDir, setContainerCacheDir] = useState('');
+
 
   // Ref for the troubleshooting dialog
   const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
@@ -53,6 +53,33 @@ const BioEngineGuide: React.FC = () => {
   const getPlatform = () => {
     return platformOverride || '';
   };
+
+  const getContainerCacheDir = () => {
+    if (containerRuntime !== 'apptainer' && containerRuntime !== 'singularity') {
+      return '';
+    }
+    
+    // Get the base cache directory
+    let baseCache = cacheDir;
+    if (!baseCache) {
+      if (os === 'windows') {
+        baseCache = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
+      } else {
+        baseCache = '$HOME/.bioengine';
+      }
+    }
+    
+    // Remove trailing slash if present and append /images
+    const normalizedCache = baseCache.endsWith('/') || baseCache.endsWith('\\') 
+      ? baseCache.slice(0, -1) 
+      : baseCache;
+    
+    return os === 'windows' 
+      ? `${normalizedCache}\\images`
+      : `${normalizedCache}/images`;
+  };
+
+
 
   const getUserFlag = () => {
     if (runAsRoot) return '';
@@ -145,7 +172,7 @@ const BioEngineGuide: React.FC = () => {
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
-    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.1.18';
+    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.1.19';
     
     // Build volume mounts
     let volumeMounts = '';
@@ -225,7 +252,7 @@ const BioEngineGuide: React.FC = () => {
       let containerCmd = '';
       if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
         // Both Apptainer and Singularity use 'shell' command for interactive mode
-        const cacheEnv = containerCacheDir ? `${containerRuntime.toUpperCase()}_CACHEDIR=${containerCacheDir} ` : '';
+        const cacheEnv = getContainerCacheDir() ? `${containerRuntime.toUpperCase()}_CACHEDIR=${getContainerCacheDir()} ` : '';
         if (os === 'windows') {
           containerCmd = `cmd /c "${cacheEnv}${containerRuntime} shell ${gpuFlag}${volumeMounts} docker://${imageToUse}"`;
         } else {
@@ -252,7 +279,7 @@ const BioEngineGuide: React.FC = () => {
       let dockerCmd = '';
       if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
         // Both Apptainer and Singularity use 'exec' command for single execution
-        const cacheEnv = containerCacheDir ? `${containerRuntime.toUpperCase()}_CACHEDIR=${containerCacheDir} ` : '';
+        const cacheEnv = getContainerCacheDir() ? `${containerRuntime.toUpperCase()}_CACHEDIR=${getContainerCacheDir()} ` : '';
         if (os === 'windows') {
           dockerCmd = `cmd /c "${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine_worker ${argsString}"`;
         } else {
@@ -346,7 +373,6 @@ ${cacheDir ? `- **Cache Directory**: ${cacheDir}` : ''}
 ${customImage ? `- **Custom Image**: ${customImage}` : ''}
 ${platformOverride ? `- **Platform Override**: ${platformOverride}` : ''}
 ${clientId ? `- **Client ID**: ${clientId}` : ''}
-${containerCacheDir ? `- **Container Cache Directory**: ${containerCacheDir}` : ''}
 
 ### Generated ${containerName} Command
 \`\`\`bash
@@ -1036,7 +1062,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   type="text"
                   value={customImage}
                   onChange={(e) => setCustomImage(e.target.value)}
-                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.1.18"
+                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.1.19"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom container image to use. Leave empty for default bioengine-worker image</p>
@@ -1056,45 +1082,6 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </select>
                 <p className="text-xs text-gray-500 mt-1">Override platform detection. Docker usually auto-detects correctly, so leave as default unless needed</p>
               </div>
-
-              {/* Container Cache Directory in Advanced Options - only for Apptainer/Singularity */}
-              {(mode === 'single-machine' || mode === 'connect') && (containerRuntime === 'apptainer' || containerRuntime === 'singularity') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Container Cache Directory</label>
-                  <input
-                    type="text"
-                    value={containerCacheDir}
-                    onChange={(e) => {
-                      let value = e.target.value;
-                      // Validate path format based on OS
-                      if (value) {
-                        if (os === 'windows') {
-                          // Windows: must start with C:\
-                          if (!value.startsWith('C:\\')) {
-                            if (value.startsWith('/')) {
-                              // Convert Unix-style to Windows
-                              value = 'C:' + value.replace(/\//g, '\\');
-                            } else if (!value.startsWith('C:')) {
-                              value = 'C:\\' + value;
-                            }
-                          }
-                        } else {
-                          // Unix: must start with /
-                          if (!value.startsWith('/')) {
-                            value = '/' + value;
-                          }
-                        }
-                      }
-                      setContainerCacheDir(value);
-                    }}
-                    placeholder={os === 'windows' ? 'C:\\path\\to\\container\\cache' : '/path/to/container/cache'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Directory where {containerRuntime} downloads and caches container images. Sets {containerRuntime.toUpperCase()}_CACHEDIR environment variable.
-                  </p>
-                </div>
-              )}
             </div>
           )}
 
