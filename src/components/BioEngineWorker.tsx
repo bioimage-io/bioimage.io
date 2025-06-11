@@ -40,9 +40,9 @@ type ServiceStatus = {
   };
   ray_cluster: {
     head_address: string;
-    start_time_s: number;
-    start_time: string;
-    uptime: string;
+    start_time_s: number | "N/A";
+    start_time: string | "N/A";
+    uptime: string | "N/A";
     worker_nodes: {
       [state: string]: Array<{
         node_id: string;
@@ -1312,19 +1312,31 @@ class MyNewApp:
                 <span className="font-medium text-gray-700">Head Address:</span>
                 <span className="text-gray-900">{status?.ray_cluster?.head_address}</span>
               </div>
-              {status?.ray_cluster?.start_time_s && (
+              {status?.ray_cluster?.start_time_s && status.ray_cluster.start_time_s !== "N/A" && (
                 <>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Start Time:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s).formattedTime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s as number).formattedTime}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Uptime:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s).uptime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s as number).uptime}
                     </span>
+                  </div>
+                </>
+              )}
+              {status?.ray_cluster?.start_time_s === "N/A" && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
                   </div>
                 </>
               )}
@@ -1335,7 +1347,9 @@ class MyNewApp:
       </div>
       
       {/* Worker Nodes */}
-      {typeof status.ray_cluster.worker_nodes === 'object' && Object.keys(status.ray_cluster.worker_nodes).length > 0 && (
+      {status.ray_cluster.worker_nodes && 
+       typeof status.ray_cluster.worker_nodes === 'object' && 
+       Object.keys(status.ray_cluster.worker_nodes).length > 0 && (
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
