@@ -171,6 +171,7 @@ const BioEngineWorker: React.FC = () => {
   const [artifactManager, setArtifactManager] = useState<any>(null);
   const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [manifestCache, setManifestCache] = useState<Record<string, any>>({});
   
   // Create/Edit App Dialog state
   const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
@@ -257,6 +258,8 @@ const BioEngineWorker: React.FC = () => {
   useEffect(() => {
     if (isLoggedIn && artifactManager && serviceId) {
       fetchAvailableArtifacts();
+      // Also refetch status to get manifests for deployed artifacts
+      fetchStatus(false);
     }
   }, [artifactManager, isLoggedIn, serviceId]);
 
@@ -302,6 +305,14 @@ const BioEngineWorker: React.FC = () => {
 
 
 
+  // Use a ref to store the current manifest cache to avoid stale closures
+  const manifestCacheRef = React.useRef<Record<string, any>>({});
+  
+  // Update ref whenever manifestCache state changes
+  React.useEffect(() => {
+    manifestCacheRef.current = manifestCache;
+  }, [manifestCache]);
+
   const fetchStatus = async (showLoading = true) => {
     if (!serviceId || !isLoggedIn) {
       setError(serviceId ? 'Please log in to view BioEngine status' : 'No service ID provided');
@@ -315,7 +326,7 @@ const BioEngineWorker: React.FC = () => {
       }
       
       const bioengineWorker = await server.getService(serviceId);
-      const statusData = await bioengineWorker.get_status();
+      let statusData = await bioengineWorker.get_status();
       
       // Preserve existing manifests before processing new status data
       const existingManifests: Record<string, any> = {};
@@ -330,33 +341,70 @@ const BioEngineWorker: React.FC = () => {
         }
       }
       
-      if (statusData && statusData.bioengine_apps && artifactManager) {
+      // Process deployments and fetch manifests
+      if (statusData && statusData.bioengine_apps) {
+        const manifestPromises: Promise<{key: string, manifest: any}>[] = [];
+        // Use the ref to get the most current cache state
+        const currentManifestCache = { ...manifestCacheRef.current };
+        
         for (const [key, deployment] of Object.entries(statusData.bioengine_apps)) {
           if (key !== 'service_id' && key !== 'note' && typeof deployment === 'object' && deployment !== null) {
             (deployment as any).artifact_id = key;
             
-            const artifactId = key;
-            if (artifactId) {
-              // First, try to use existing manifest if available
-              if (existingManifests[key]) {
-                (deployment as any).manifest = existingManifests[key];
-              } else {
-                // Only fetch manifest if we don't have it already
+            // First, try to use existing manifest if available
+            if (existingManifests[key]) {
+              (deployment as any).manifest = existingManifests[key];
+              console.log(`Using existing manifest for deployed artifact: ${key}`);
+            } else if (currentManifestCache[key]) {
+              // Use cached manifest from available artifacts
+              (deployment as any).manifest = currentManifestCache[key];
+              console.log(`Using cached manifest for deployed artifact: ${key}`);
+            } else if (artifactManager) {
+              // Only fetch if not in cache and not in existing manifests
+              const manifestPromise = (async (): Promise<{key: string, manifest: any}> => {
                 try {
-                  console.log(`Fetching manifest for deployed artifact: ${artifactId}`);
-                  const artifact = await artifactManager.read({artifact_id: artifactId, _rkwargs: true});
+                  console.log(`Fetching manifest for deployed artifact: ${key}`);
+                  const artifact = await artifactManager.read({artifact_id: key, _rkwargs: true});
                   if (artifact && artifact.manifest) {
-                    (deployment as any).manifest = artifact.manifest;
-                    console.log(`Successfully attached manifest for ${artifactId}:`, artifact.manifest);
+                    console.log(`Successfully fetched manifest for ${key}:`, artifact.manifest);
+                    // Add to local cache immediately
+                    currentManifestCache[key] = artifact.manifest;
+                    return { key, manifest: artifact.manifest };
                   } else {
-                    console.warn(`No manifest found for deployed artifact ${artifactId}`);
+                    console.warn(`No manifest found for deployed artifact ${key}`);
+                    return { key, manifest: null };
                   }
                 } catch (err) {
-                  console.error(`Failed to fetch manifest for deployed artifact ${artifactId}:`, err);
+                  console.error(`Failed to fetch manifest for deployed artifact ${key}:`, err);
+                  return { key, manifest: null };
                 }
-              }
+              })();
+              manifestPromises.push(manifestPromise);
             }
           }
+        }
+        
+        // Wait for all manifest fetches to complete and update the status data
+        if (manifestPromises.length > 0) {
+          console.log(`Waiting for ${manifestPromises.length} manifest fetches to complete...`);
+          const manifestResults = await Promise.all(manifestPromises);
+          
+          // Create a deep copy of statusData to ensure React detects the change
+          const updatedStatusData = JSON.parse(JSON.stringify(statusData));
+          
+          // Apply the fetched manifests and update cache
+          manifestResults.forEach(({ key, manifest }) => {
+            if (manifest && updatedStatusData.bioengine_apps[key]) {
+              updatedStatusData.bioengine_apps[key].manifest = manifest;
+            }
+          });
+          
+          // Update the cache state with all the new manifests
+          setManifestCache(currentManifestCache);
+          
+          // Use the updated status data
+          statusData = updatedStatusData;
+          console.log('All manifest fetches completed and applied to status data');
         }
       }
       
@@ -440,6 +488,12 @@ const BioEngineWorker: React.FC = () => {
             
             if (artifactData) {
               art.manifest = artifactData.manifest;
+              
+              // Add to manifest cache for reuse
+              setManifestCache(prevCache => ({
+                ...prevCache,
+                [art.id]: artifactData.manifest
+              }));
               
               if (art.manifest?.deployment_config?.modes) {
                 console.log(`${art.id} has modes:`, 
