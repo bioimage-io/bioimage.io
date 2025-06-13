@@ -1152,6 +1152,57 @@ class MyNewApp:
     }
   };
 
+  const handleSaveAsCopy = async () => {
+    if (!serviceId || !isLoggedIn || !artifactManager) return;
+    
+    setCreateAppLoading(true);
+    setCreateAppError(null);
+    
+    try {
+      const bioengineWorker = await server.getService(serviceId);
+      
+      // Find the manifest.yaml file
+      const manifestFile = files.find(file => file.name === 'manifest.yaml');
+      if (!manifestFile) {
+        setCreateAppError('manifest.yaml file is required');
+        return;
+      }
+      
+      // Parse the manifest YAML and modify it for the copy
+      let manifestObj;
+      try {
+        manifestObj = yaml.load(manifestFile.content);
+        console.log('Parsed manifest object for copy:', manifestObj);
+        
+        // The manifest will be used as-is for the copy
+        // Users can modify the ID and name in the editor if needed
+      } catch (yamlErr) {
+        setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
+        return;
+      }
+      
+      // Update the manifest.yaml file with the current content (no modifications)
+      const updatedFiles = files.map(file => ({
+        name: file.name,
+        content: file.content,
+        type: 'text'
+      }));
+      
+      console.log('Creating copy of artifact in user workspace');
+      await bioengineWorker.create_artifact({files: updatedFiles, _rkwargs: true});
+      
+      handleCloseCreateAppDialog();
+      await fetchAvailableArtifacts();
+      
+      console.log('Successfully created artifact copy');
+    } catch (err) {
+      console.error('Failed to create artifact copy:', err);
+      setCreateAppError(`Failed to create artifact copy: ${err}`);
+    } finally {
+      setCreateAppLoading(false);
+    }
+  };
+
   // File management handlers
   const handleAddNewFile = () => {
     if (!newFileName.trim()) return;
@@ -2193,6 +2244,31 @@ class MyNewApp:
               >
                 Cancel
               </button>
+              
+              {/* Show "Save as Copy" button only when editing an artifact that's not in user's workspace */}
+              {editingArtifact && !isUserOwnedArtifact(editingArtifact.id) && (
+                <button 
+                  onClick={handleSaveAsCopy}
+                  disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                  title="Create a copy of this app in your workspace"
+                >
+                  {createAppLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Creating Copy...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Save as Copy
+                    </>
+                  )}
+                </button>
+              )}
+              
               <button 
                 onClick={handleCreateOrUpdateApp}
                 disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
