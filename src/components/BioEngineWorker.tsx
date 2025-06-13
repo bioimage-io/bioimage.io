@@ -59,7 +59,21 @@ type ServiceStatus = {
   bioengine_apps: {
     service_id: string | null;
     note?: string;
-    [key: string]: any;
+    [key: string]: {
+      deployment_name: string;
+      available_methods?: string[];
+      start_time_s: number;
+      start_time: string;
+      uptime: string;
+      status: "DEPLOYING" | "RUNNING" | "DELETING" | string;
+      replica_states?: Record<string, number>;
+      resources?: {
+        num_cpus?: number;
+        num_gpus?: number;
+        memory?: number | null;
+      };
+      [key: string]: any;
+    } | string | null | undefined;
   };
   bioengine_datasets: {
     available_datasets: Record<string, any>;
@@ -173,6 +187,9 @@ const BioEngineWorker: React.FC = () => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [manifestCache, setManifestCache] = useState<Record<string, any>>({});
   
+  // Deployment cooldown tracking
+  const [deploymentCooldowns, setDeploymentCooldowns] = useState<Record<string, number>>({});
+  
   // Create/Edit App Dialog state
   const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
   const [editingArtifact, setEditingArtifact] = useState<ArtifactType | null>(null);
@@ -195,6 +212,24 @@ const BioEngineWorker: React.FC = () => {
     
     return () => clearInterval(timer);
   }, []);
+  
+  // Cleanup expired deployment cooldowns
+  useEffect(() => {
+    const now = Date.now();
+    setDeploymentCooldowns(prev => {
+      const updated = { ...prev };
+      let hasChanges = false;
+      
+      for (const [artifactId, cooldownEnd] of Object.entries(updated)) {
+        if (now > cooldownEnd) {
+          delete updated[artifactId];
+          hasChanges = true;
+        }
+      }
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [currentTime]);
   
   useEffect(() => {
     // Clear any existing timeout first
@@ -543,8 +578,6 @@ const BioEngineWorker: React.FC = () => {
       setDeployingArtifactId(artifactId);
       setDeploymentLoading(true);
       
-      fetchStatus(false);
-      
       const bioengineWorker = await server.getService(serviceId);
       
       let deploymentName;
@@ -554,12 +587,19 @@ const BioEngineWorker: React.FC = () => {
         deploymentName = await bioengineWorker.deploy_artifact(artifactId);
       }
       
-      await fetchStatus();
+      // Set deployment cooldown for 5 seconds
+      setDeploymentCooldowns(prev => ({
+        ...prev,
+        [artifactId]: Date.now() + 5000
+      }));
+      
+      // Immediately fetch status to check for deployment
+      await fetchStatus(false);
       
       setDeploymentLoading(false);
       setDeployingArtifactId(null);
       
-      console.log(`Successfully deployed ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
+      console.log(`Successfully submitted deployment for ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
     } catch (err) {
       console.error('Deployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -574,6 +614,50 @@ const BioEngineWorker: React.FC = () => {
       ...artifactModes,
       [artifactId]: checked ? 'gpu' : 'cpu'
     });
+  };
+
+  // Helper functions for deployment state
+  const isArtifactDeployed = (artifactId: string): boolean => {
+    return !!(status?.bioengine_apps && artifactId in status.bioengine_apps);
+  };
+
+  const getDeploymentStatus = (artifactId: string): string | null => {
+    if (!status?.bioengine_apps || !(artifactId in status.bioengine_apps)) return null;
+    const deployment = status.bioengine_apps[artifactId];
+    return typeof deployment === 'object' && deployment !== null ? deployment.status : null;
+  };
+
+  const isDeployButtonDisabled = (artifactId: string): boolean => {
+    // Disable if currently deploying this artifact
+    if (deployingArtifactId === artifactId) return true;
+    
+    // Disable if another artifact is being deployed
+    if (deployingArtifactId !== null && deployingArtifactId !== artifactId) return true;
+    
+    // Disable if in cooldown period
+    const cooldownEnd = deploymentCooldowns[artifactId];
+    if (cooldownEnd && Date.now() < cooldownEnd) return true;
+    
+    // Disable if artifact is in DELETING state
+    if (isArtifactDeployed(artifactId)) {
+      const status = getDeploymentStatus(artifactId);
+      if (status === 'DELETING') return true;
+      return status !== 'DEPLOYING';
+    }
+    
+    return false;
+  };
+
+  const getDeployButtonText = (artifactId: string): string => {
+    if (deployingArtifactId === artifactId) return 'Deploy';
+    
+    const cooldownEnd = deploymentCooldowns[artifactId];
+    if (cooldownEnd && Date.now() < cooldownEnd) {
+      const secondsLeft = Math.ceil((cooldownEnd - Date.now()) / 1000);
+      return `Deploy (${secondsLeft}s)`;
+    }
+    
+    return 'Deploy';
   };
 
   const handleUndeployArtifact = async (artifactId: string) => {
@@ -1265,10 +1349,10 @@ class MyNewApp:
   }
 
   const deployments = Object.entries(status?.bioengine_apps || {})
-    .filter(([key]) => key !== 'service_id' && key !== 'note')
+    .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
     .map(([key, value]) => ({ 
       artifact_id: key,
-      ...value 
+      ...(value as any)
     } as DeploymentType));
   
   const hasDeployments = deployments.length > 0;
@@ -1356,7 +1440,7 @@ class MyNewApp:
             <div className="flex items-center mb-4">
               <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2M7 7h10" />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
@@ -1574,15 +1658,30 @@ class MyNewApp:
                           className="px-4 py-2 text-sm bg-gradient-to-r from-red-400 to-red-500 text-white rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
                         >
                           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
+                          {deployment.status === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                        </button>
+                      ) : deployment.status === "DELETING" ? (
+                        <button
+                          disabled={true}
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
+                        >
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Deleting...
                         </button>
                       ) : (
                         <button
                           onClick={() => handleUndeployArtifact(deployment.artifact_id)}
-                          disabled={false}
-                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 shadow-sm hover:shadow-md transition-all duration-200"
+                          disabled={undeployingArtifactId === deployment.artifact_id}
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
                         >
-                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
+                          {undeployingArtifactId === deployment.artifact_id ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              {getDeploymentStatus(deployment.artifact_id) === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                            </>
+                          ) : (
+                            getDeploymentStatus(deployment.artifact_id) === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"
+                          )}
                         </button>
                       )}
                     </div>
@@ -1716,7 +1815,7 @@ class MyNewApp:
               <div className="flex justify-between items-start">
                 <div className="flex">
                   <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12  8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div>
                     <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
@@ -1860,15 +1959,40 @@ class MyNewApp:
                             className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
                           >
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                            Deploy
+                            Deploying...
                           </button>
+                        ) : isArtifactDeployed(artifact.id) ? (
+                          getDeploymentStatus(artifact.id) === "DELETING" ? (
+                            <button
+                              disabled={true}
+                              className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
+                            >
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Deleting...
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUndeployArtifact(artifact.id)}
+                              disabled={undeployingArtifactId === artifact.id}
+                              className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
+                            >
+                              {undeployingArtifactId === artifact.id ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                                  {getDeploymentStatus(artifact.id) === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                                </>
+                              ) : (
+                                getDeploymentStatus(artifact.id) === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"
+                              )}
+                            </button>
+                          )
                         ) : (
                           <button
                             onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                            disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
+                            disabled={isDeployButtonDisabled(artifact.id)}
                             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 shadow-sm hover:shadow-md transition-all duration-200"
                           >
-                            Deploy
+                            {getDeployButtonText(artifact.id)}
                           </button>
                         )}
                       </div>
@@ -1945,7 +2069,7 @@ class MyNewApp:
                           <div className="flex items-center gap-1">
                             {!file.isEditable && (
                               <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
                               </svg>
                             )}
                           <span 
