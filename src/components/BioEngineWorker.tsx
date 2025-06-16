@@ -40,40 +40,46 @@ type ServiceStatus = {
   };
   ray_cluster: {
     head_address: string;
+    start_time_s: number | "N/A";
+    start_time: string | "N/A";
+    uptime: string | "N/A";
     worker_nodes: {
-      Alive: Array<{
-        WorkerID: string | null;
-        NodeID: string;
-        NodeIP: string;
-        "Total GPU": number;
-        "Available GPU": number;
-        "GPU Utilization": number;
-        "Total CPU": number;
-        "Available CPU": number;
-        "CPU Utilization": number;
-        "Total Memory": number;
-        "Available Memory": number;
-        "Memory Utilization": number;
+      [state: string]: Array<{
+        node_id: string;
+        node_ip: string;
+        total_gpu: number;
+        available_gpu: number;
+        total_cpu: number;
+        available_cpu: number;
+        total_memory: number;
+        available_memory: number;
       }>;
-      Dead: Array<any>;
-    } | "N/A";
-    start_time_s: number;
-    start_time: string;
-    uptime: string;
-    autoscaler: any;
-    note: string;
+    } | {};
   };
   bioengine_apps: {
     service_id: string | null;
-    [key: string]: any;
+    note?: string;
+    [key: string]: {
+      deployment_name: string;
+      available_methods?: string[];
+      start_time_s: number;
+      start_time: string;
+      uptime: string;
+      status: "DEPLOYING" | "RUNNING" | "DELETING" | string;
+      replica_states?: Record<string, number>;
+      resources?: {
+        num_cpus?: number;
+        num_gpus?: number;
+        memory?: number | null;
+      };
+      [key: string]: any;
+    } | string | null | undefined;
   };
-  bioengine_datasets?: {
+  bioengine_datasets: {
     available_datasets: Record<string, any>;
     loaded_datasets: Record<string, any>;
   };
 };
-
-
 
 type ArtifactType = {
   id: string;
@@ -179,6 +185,10 @@ const BioEngineWorker: React.FC = () => {
   const [artifactManager, setArtifactManager] = useState<any>(null);
   const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [manifestCache, setManifestCache] = useState<Record<string, any>>({});
+  
+  // Deployment cooldown tracking
+  const [deploymentCooldowns, setDeploymentCooldowns] = useState<Record<string, number>>({});
   
   // Create/Edit App Dialog state
   const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
@@ -192,6 +202,34 @@ const BioEngineWorker: React.FC = () => {
   const [editingFileName, setEditingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  
+  // Update current time every second for live uptime calculation
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, []);
+  
+  // Cleanup expired deployment cooldowns
+  useEffect(() => {
+    const now = Date.now();
+    setDeploymentCooldowns(prev => {
+      const updated = { ...prev };
+      let hasChanges = false;
+      
+      for (const [artifactId, cooldownEnd] of Object.entries(updated)) {
+        if (now > cooldownEnd) {
+          delete updated[artifactId];
+          hasChanges = true;
+        }
+      }
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [currentTime]);
   
   useEffect(() => {
     // Clear any existing timeout first
@@ -255,6 +293,8 @@ const BioEngineWorker: React.FC = () => {
   useEffect(() => {
     if (isLoggedIn && artifactManager && serviceId) {
       fetchAvailableArtifacts();
+      // Also refetch status to get manifests for deployed artifacts
+      fetchStatus(false);
     }
   }, [artifactManager, isLoggedIn, serviceId]);
 
@@ -271,12 +311,11 @@ const BioEngineWorker: React.FC = () => {
   }, []);
 
   const formatTimeInfo = (timestamp: number): { formattedTime: string, uptime: string } => {
-    const now = new Date();
     const startTime = new Date(timestamp * 1000);
     
     const formattedTime = startTime.toLocaleString();
     
-    const diffMs = now.getTime() - startTime.getTime();
+    const diffMs = currentTime - startTime.getTime();
     const diffSec = Math.floor(diffMs / 1000);
     
     let uptime = '';
@@ -301,6 +340,14 @@ const BioEngineWorker: React.FC = () => {
 
 
 
+  // Use a ref to store the current manifest cache to avoid stale closures
+  const manifestCacheRef = React.useRef<Record<string, any>>({});
+  
+  // Update ref whenever manifestCache state changes
+  React.useEffect(() => {
+    manifestCacheRef.current = manifestCache;
+  }, [manifestCache]);
+
   const fetchStatus = async (showLoading = true) => {
     if (!serviceId || !isLoggedIn) {
       setError(serviceId ? 'Please log in to view BioEngine status' : 'No service ID provided');
@@ -314,25 +361,85 @@ const BioEngineWorker: React.FC = () => {
       }
       
       const bioengineWorker = await server.getService(serviceId);
-      const statusData = await bioengineWorker.get_status();
+      let statusData = await bioengineWorker.get_status();
       
-      if (statusData && statusData.bioengine_apps && artifactManager) {
-        for (const [key, deployment] of Object.entries(statusData.bioengine_apps)) {
-          if (key !== 'service_id' && typeof deployment === 'object' && deployment !== null) {
-            (deployment as any).artifact_id = key;
-            
-            const artifactId = key;
-            if (artifactId) {
-              try {
-                const artifact = await artifactManager.read({artifact_id: artifactId, _rkwargs: true});
-                if (artifact) {
-                  (deployment as any).manifest = artifact.manifest;
-                }
-              } catch (err) {
-                console.warn(`Failed to fetch manifest for deployed artifact ${artifactId}:`, err);
-              }
+      // Preserve existing manifests before processing new status data
+      const existingManifests: Record<string, any> = {};
+      if (status?.bioengine_apps) {
+        for (const [key, deployment] of Object.entries(status.bioengine_apps)) {
+          if (key !== 'service_id' && key !== 'note' && typeof deployment === 'object' && deployment !== null) {
+            const existingManifest = (deployment as any).manifest;
+            if (existingManifest) {
+              existingManifests[key] = existingManifest;
             }
           }
+        }
+      }
+      
+      // Process deployments and fetch manifests
+      if (statusData && statusData.bioengine_apps) {
+        const manifestPromises: Promise<{key: string, manifest: any}>[] = [];
+        // Use the ref to get the most current cache state
+        const currentManifestCache = { ...manifestCacheRef.current };
+        
+        for (const [key, deployment] of Object.entries(statusData.bioengine_apps)) {
+          if (key !== 'service_id' && key !== 'note' && typeof deployment === 'object' && deployment !== null) {
+            (deployment as any).artifact_id = key;
+            
+            // First, try to use existing manifest if available
+            if (existingManifests[key]) {
+              (deployment as any).manifest = existingManifests[key];
+              console.log(`Using existing manifest for deployed artifact: ${key}`);
+            } else if (currentManifestCache[key]) {
+              // Use cached manifest from available artifacts
+              (deployment as any).manifest = currentManifestCache[key];
+              console.log(`Using cached manifest for deployed artifact: ${key}`);
+            } else if (artifactManager) {
+              // Only fetch if not in cache and not in existing manifests
+              const manifestPromise = (async (): Promise<{key: string, manifest: any}> => {
+                try {
+                  console.log(`Fetching manifest for deployed artifact: ${key}`);
+                  const artifact = await artifactManager.read({artifact_id: key, _rkwargs: true});
+                  if (artifact && artifact.manifest) {
+                    console.log(`Successfully fetched manifest for ${key}:`, artifact.manifest);
+                    // Add to local cache immediately
+                    currentManifestCache[key] = artifact.manifest;
+                    return { key, manifest: artifact.manifest };
+                  } else {
+                    console.warn(`No manifest found for deployed artifact ${key}`);
+                    return { key, manifest: null };
+                  }
+                } catch (err) {
+                  console.error(`Failed to fetch manifest for deployed artifact ${key}:`, err);
+                  return { key, manifest: null };
+                }
+              })();
+              manifestPromises.push(manifestPromise);
+            }
+          }
+        }
+        
+        // Wait for all manifest fetches to complete and update the status data
+        if (manifestPromises.length > 0) {
+          console.log(`Waiting for ${manifestPromises.length} manifest fetches to complete...`);
+          const manifestResults = await Promise.all(manifestPromises);
+          
+          // Create a deep copy of statusData to ensure React detects the change
+          const updatedStatusData = JSON.parse(JSON.stringify(statusData));
+          
+          // Apply the fetched manifests and update cache
+          manifestResults.forEach(({ key, manifest }) => {
+            if (manifest && updatedStatusData.bioengine_apps[key]) {
+              updatedStatusData.bioengine_apps[key].manifest = manifest;
+            }
+          });
+          
+          // Update the cache state with all the new manifests
+          setManifestCache(currentManifestCache);
+          
+          // Use the updated status data
+          statusData = updatedStatusData;
+          console.log('All manifest fetches completed and applied to status data');
         }
       }
       
@@ -417,6 +524,12 @@ const BioEngineWorker: React.FC = () => {
             if (artifactData) {
               art.manifest = artifactData.manifest;
               
+              // Add to manifest cache for reuse
+              setManifestCache(prevCache => ({
+                ...prevCache,
+                [art.id]: artifactData.manifest
+              }));
+              
               if (art.manifest?.deployment_config?.modes) {
                 console.log(`${art.id} has modes:`, 
                   JSON.stringify(art.manifest.deployment_config.modes));
@@ -465,8 +578,6 @@ const BioEngineWorker: React.FC = () => {
       setDeployingArtifactId(artifactId);
       setDeploymentLoading(true);
       
-      fetchStatus(false);
-      
       const bioengineWorker = await server.getService(serviceId);
       
       let deploymentName;
@@ -476,12 +587,19 @@ const BioEngineWorker: React.FC = () => {
         deploymentName = await bioengineWorker.deploy_artifact(artifactId);
       }
       
-      await fetchStatus();
+      // Set deployment cooldown for 5 seconds
+      setDeploymentCooldowns(prev => ({
+        ...prev,
+        [artifactId]: Date.now() + 5000
+      }));
+      
+      // Immediately fetch status to check for deployment
+      await fetchStatus(false);
       
       setDeploymentLoading(false);
       setDeployingArtifactId(null);
       
-      console.log(`Successfully deployed ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
+      console.log(`Successfully submitted deployment for ${artifactId} as ${deploymentName} in ${deployMode || 'default'} mode`);
     } catch (err) {
       console.error('Deployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -496,6 +614,50 @@ const BioEngineWorker: React.FC = () => {
       ...artifactModes,
       [artifactId]: checked ? 'gpu' : 'cpu'
     });
+  };
+
+  // Helper functions for deployment state
+  const isArtifactDeployed = (artifactId: string): boolean => {
+    return !!(status?.bioengine_apps && artifactId in status.bioengine_apps);
+  };
+
+  const getDeploymentStatus = (artifactId: string): string | null => {
+    if (!status?.bioengine_apps || !(artifactId in status.bioengine_apps)) return null;
+    const deployment = status.bioengine_apps[artifactId];
+    return typeof deployment === 'object' && deployment !== null ? deployment.status : null;
+  };
+
+  const isDeployButtonDisabled = (artifactId: string): boolean => {
+    // Disable if currently deploying this artifact
+    if (deployingArtifactId === artifactId) return true;
+    
+    // Disable if another artifact is being deployed
+    if (deployingArtifactId !== null && deployingArtifactId !== artifactId) return true;
+    
+    // Disable if in cooldown period
+    const cooldownEnd = deploymentCooldowns[artifactId];
+    if (cooldownEnd && Date.now() < cooldownEnd) return true;
+    
+    // Disable if artifact is in DELETING state
+    if (isArtifactDeployed(artifactId)) {
+      const status = getDeploymentStatus(artifactId);
+      if (status === 'DELETING') return true;
+      return status !== 'DEPLOYING';
+    }
+    
+    return false;
+  };
+
+  const getDeployButtonText = (artifactId: string): string => {
+    if (deployingArtifactId === artifactId) return 'Deploy';
+    
+    const cooldownEnd = deploymentCooldowns[artifactId];
+    if (cooldownEnd && Date.now() < cooldownEnd) {
+      const secondsLeft = Math.ceil((cooldownEnd - Date.now()) / 1000);
+      return `Deploy (${secondsLeft}s)`;
+    }
+    
+    return 'Deploy';
   };
 
   const handleUndeployArtifact = async (artifactId: string) => {
@@ -990,6 +1152,57 @@ class MyNewApp:
     }
   };
 
+  const handleSaveAsCopy = async () => {
+    if (!serviceId || !isLoggedIn || !artifactManager) return;
+    
+    setCreateAppLoading(true);
+    setCreateAppError(null);
+    
+    try {
+      const bioengineWorker = await server.getService(serviceId);
+      
+      // Find the manifest.yaml file
+      const manifestFile = files.find(file => file.name === 'manifest.yaml');
+      if (!manifestFile) {
+        setCreateAppError('manifest.yaml file is required');
+        return;
+      }
+      
+      // Parse the manifest YAML and modify it for the copy
+      let manifestObj;
+      try {
+        manifestObj = yaml.load(manifestFile.content);
+        console.log('Parsed manifest object for copy:', manifestObj);
+        
+        // The manifest will be used as-is for the copy
+        // Users can modify the ID and name in the editor if needed
+      } catch (yamlErr) {
+        setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
+        return;
+      }
+      
+      // Update the manifest.yaml file with the current content (no modifications)
+      const updatedFiles = files.map(file => ({
+        name: file.name,
+        content: file.content,
+        type: 'text'
+      }));
+      
+      console.log('Creating copy of artifact in user workspace');
+      await bioengineWorker.create_artifact({files: updatedFiles, _rkwargs: true});
+      
+      handleCloseCreateAppDialog();
+      await fetchAvailableArtifacts();
+      
+      console.log('Successfully created artifact copy');
+    } catch (err) {
+      console.error('Failed to create artifact copy:', err);
+      setCreateAppError(`Failed to create artifact copy: ${err}`);
+    } finally {
+      setCreateAppLoading(false);
+    }
+  };
+
   // File management handlers
   const handleAddNewFile = () => {
     if (!newFileName.trim()) return;
@@ -1187,10 +1400,10 @@ class MyNewApp:
   }
 
   const deployments = Object.entries(status?.bioengine_apps || {})
-    .filter(([key]) => key !== 'service_id' && key !== 'note')
+    .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
     .map(([key, value]) => ({ 
       artifact_id: key,
-      ...value 
+      ...(value as any)
     } as DeploymentType));
   
   const hasDeployments = deployments.length > 0;
@@ -1278,7 +1491,7 @@ class MyNewApp:
             <div className="flex items-center mb-4">
               <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2M7 7h10" />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
@@ -1288,34 +1501,44 @@ class MyNewApp:
                 <span className="font-medium text-gray-700">Head Address:</span>
                 <span className="text-gray-900">{status?.ray_cluster?.head_address}</span>
               </div>
-              {status?.ray_cluster?.start_time_s && (
+              {status?.ray_cluster?.start_time_s && status.ray_cluster.start_time_s !== "N/A" && (
                 <>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Start Time:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s).formattedTime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s as number).formattedTime}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Uptime:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s).uptime}
+                      {formatTimeInfo(status.ray_cluster.start_time_s as number).uptime}
                     </span>
                   </div>
                 </>
               )}
-              {status?.ray_cluster?.note && (
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600">Note: {status.ray_cluster.note}</p>
-                </div>
+              {status?.ray_cluster?.start_time_s === "N/A" && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
+                  </div>
+                </>
               )}
+
             </div>
           </div>
         </div>
       </div>
       
       {/* Worker Nodes */}
-      {status.ray_cluster.worker_nodes !== "N/A" && (
+      {status.ray_cluster.worker_nodes && 
+       typeof status.ray_cluster.worker_nodes === 'object' && 
+       Object.keys(status.ray_cluster.worker_nodes).length > 0 && (
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
@@ -1342,44 +1565,37 @@ class MyNewApp:
                   </tr>
                 </thead>
                 <tbody>
-                  {status.ray_cluster.worker_nodes.Alive.map((node, index) => (
-                    <tr key={index} className="border-b">
-                      <td className="px-4 py-2">{node.NodeIP}</td>
-                      <td className="px-4 py-2 truncate max-w-[150px]" title={node.NodeID}>
-                        {node.NodeID.substring(0, 8)}...
-                      </td>
-                      <td className="px-4 py-2">
-                        {node["Available CPU"]}/{node["Total CPU"]} ({Math.round((node["Available CPU"] / node["Total CPU"]) * 100)}% available)
-                      </td>
-                      <td className="px-4 py-2">
-                        {node["Available GPU"]}/{node["Total GPU"]} ({Math.round((node["Available GPU"] / node["Total GPU"]) * 100)}% available)
-                      </td>
-                      <td className="px-4 py-2">
-                        {(node["Available Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB/
-                        {(node["Total Memory"] / 1024 / 1024 / 1024).toFixed(2)}GB
-                        ({Math.round((node["Available Memory"] / node["Total Memory"]) * 100)}% available)
-                      </td>
-                      <td className="px-4 py-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Alive
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {status.ray_cluster.worker_nodes.Dead.map((node, index) => (
-                    <tr key={`dead-${index}`} className="border-b">
-                      <td className="px-4 py-2" colSpan={5}>
-                        {JSON.stringify(node)}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                          Dead
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {status.ray_cluster.worker_nodes.Alive.length === 0 && 
-                   status.ray_cluster.worker_nodes.Dead.length === 0 && (
+                  {Object.entries(status.ray_cluster.worker_nodes as Record<string, any[]>).map(([nodeState, nodes]) => 
+                    nodes.map((node: any, index: number) => (
+                      <tr key={`${nodeState}-${index}`} className="border-b">
+                        <td className="px-4 py-2">{node.node_ip}</td>
+                        <td className="px-4 py-2 truncate max-w-[150px]" title={node.node_id}>
+                          {node.node_id.substring(0, 8)}...
+                        </td>
+                        <td className="px-4 py-2">
+                          {node.available_cpu}/{node.total_cpu} ({Math.round((node.available_cpu / node.total_cpu) * 100)}% available)
+                        </td>
+                        <td className="px-4 py-2">
+                          {node.available_gpu}/{node.total_gpu} ({node.total_gpu > 0 ? Math.round((node.available_gpu / node.total_gpu) * 100) : 0}% available)
+                        </td>
+                        <td className="px-4 py-2">
+                          {(node.available_memory / 1024 / 1024 / 1024).toFixed(2)}GB/
+                          {(node.total_memory / 1024 / 1024 / 1024).toFixed(2)}GB
+                          ({Math.round((node.available_memory / node.total_memory) * 100)}% available)
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            nodeState.toUpperCase() === 'ALIVE' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {nodeState.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  {Object.keys(status.ray_cluster.worker_nodes as Record<string, any[]>).length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-2 text-center">No worker nodes available</td>
                     </tr>
@@ -1493,15 +1709,30 @@ class MyNewApp:
                           className="px-4 py-2 text-sm bg-gradient-to-r from-red-400 to-red-500 text-white rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
                         >
                           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
+                          {deployment.status === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                        </button>
+                      ) : deployment.status === "DELETING" ? (
+                        <button
+                          disabled={true}
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
+                        >
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Deleting...
                         </button>
                       ) : (
                         <button
                           onClick={() => handleUndeployArtifact(deployment.artifact_id)}
-                          disabled={false}
-                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 shadow-sm hover:shadow-md transition-all duration-200"
+                          disabled={undeployingArtifactId === deployment.artifact_id}
+                          className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
                         >
-                          {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
+                          {undeployingArtifactId === deployment.artifact_id ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              {getDeploymentStatus(deployment.artifact_id) === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                            </>
+                          ) : (
+                            getDeploymentStatus(deployment.artifact_id) === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"
+                          )}
                         </button>
                       )}
                     </div>
@@ -1635,7 +1866,7 @@ class MyNewApp:
               <div className="flex justify-between items-start">
                 <div className="flex">
                   <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12  8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div>
                     <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
@@ -1779,15 +2010,40 @@ class MyNewApp:
                             className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
                           >
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                            Deploy
+                            Deploying...
                           </button>
+                        ) : isArtifactDeployed(artifact.id) ? (
+                          getDeploymentStatus(artifact.id) === "DELETING" ? (
+                            <button
+                              disabled={true}
+                              className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
+                            >
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Deleting...
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUndeployArtifact(artifact.id)}
+                              disabled={undeployingArtifactId === artifact.id}
+                              className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
+                            >
+                              {undeployingArtifactId === artifact.id ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                                  {getDeploymentStatus(artifact.id) === "DEPLOYING" ? "Canceling..." : "Undeploying..."}
+                                </>
+                              ) : (
+                                getDeploymentStatus(artifact.id) === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"
+                              )}
+                            </button>
+                          )
                         ) : (
                           <button
                             onClick={() => handleDeployArtifact(artifact.id, artifactModes[artifact.id])}
-                            disabled={deployingArtifactId !== null && deployingArtifactId !== artifact.id}
+                            disabled={isDeployButtonDisabled(artifact.id)}
                             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 shadow-sm hover:shadow-md transition-all duration-200"
                           >
-                            Deploy
+                            {getDeployButtonText(artifact.id)}
                           </button>
                         )}
                       </div>
@@ -1864,7 +2120,7 @@ class MyNewApp:
                           <div className="flex items-center gap-1">
                             {!file.isEditable && (
                               <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
                               </svg>
                             )}
                           <span 
@@ -1988,6 +2244,31 @@ class MyNewApp:
               >
                 Cancel
               </button>
+              
+              {/* Show "Save as Copy" button only when editing an artifact that's not in user's workspace */}
+              {editingArtifact && !isUserOwnedArtifact(editingArtifact.id) && (
+                <button 
+                  onClick={handleSaveAsCopy}
+                  disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                  title="Create a copy of this app in your workspace"
+                >
+                  {createAppLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Creating Copy...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Save as Copy
+                    </>
+                  )}
+                </button>
+              )}
+              
               <button 
                 onClick={handleCreateOrUpdateApp}
                 disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
