@@ -79,6 +79,35 @@ interface TestResult {
 type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html' | '.ijm';
 type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
+// Universal binary file detection: detect known text files, treat everything else as binary
+const isKnownTextFile = (filename: string): boolean => {
+  const textExtensions = [
+    // Configuration and data files
+    '.txt', '.yml', '.yaml', '.json', '.xml', '.csv', '.tsv',
+    // Documentation
+    '.md', '.rst', '.tex',
+    // Code files
+    '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.htm',
+    '.c', '.cpp', '.h', '.hpp', '.java', '.php', '.rb', '.go', '.rs',
+    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+    // ImageJ macros
+    '.ijm',
+    // Config files
+    '.ini', '.cfg', '.conf', '.toml',
+    // Log files
+    '.log',
+    // SQL files
+    '.sql',
+    // R files
+    '.r', '.R',
+    // Jupyter notebooks (JSON format)
+    '.ipynb'
+  ];
+  
+  // Return true if it matches a known text extension
+  return textExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+};
+
 interface UploadProps {
   artifactId?: string;
 }
@@ -424,7 +453,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         reject(reader.error);
       };
       
-      if (isImageFile(file.name)) {
+      if (!isKnownTextFile(file.name)) {
         reader.readAsArrayBuffer(file);
       } else {
         reader.readAsText(file);
@@ -483,14 +512,30 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
+  // Function to trigger zip file input click
+  const handleZipButtonClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (fileInputRef.current) {
+      // Temporarily set accept attribute to only allow zip files
+      fileInputRef.current.accept = '.zip';
+      fileInputRef.current.click();
+      // Reset accept attribute after click
+      setTimeout(() => {
+        if (fileInputRef.current) {
+          fileInputRef.current.accept = '';
+        }
+      }, 100);
+    }
+  };
+
   const loadFileContent = async (file: FileNode) => {
     if (file.loaded) return file.content;
 
     try {
       if (file.handle) {
         // Handle JSZip file
-        const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
-        const content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+        const isBinary = !isKnownTextFile(file.name);
+        const content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
         
         setFiles(prevFiles => prevFiles.map(f => 
           f.path === file.path 
@@ -829,8 +874,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           
           if (file.handle) {
             // From zip file
-            const isImage = file.name.match(/\.(png|jpg|jpeg|gif)$/i);
-            content = await file.handle.async(isImage ? 'arraybuffer' : 'string');
+            const isBinary = !isKnownTextFile(file.name);
+            content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
             fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           } else if (file.file) {
             // From regular file
@@ -1460,15 +1505,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                         ) : (
                           <>
                             <p className="text-lg text-gray-700 font-medium mb-2">
-                              Drag & drop your model files here
+                              Drag & drop your model package here
                             </p>
                           </>
                         )}
                       </div>
                       <div className="text-sm text-gray-500 bg-blue-50 p-3 rounded-md border border-blue-100">
                         <p className="font-medium text-blue-700 mb-1">💡 Pro Tip for Large Files</p>
-                        <p className="mb-3">For models with large files (&gt;3GB), please upload individual files instead of a ZIP archive to avoid memory issues in your browser.</p>
-                        
+
                         {/* Added buttons here */}
                         <div className="flex flex-col sm:flex-row justify-center gap-3 mt-4">
                           <button
@@ -1480,10 +1524,24 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                               </svg>
-                              Select Folder
+                              Select Unzipped Files
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleZipButtonClick}
+                            className="px-4 py-2 bg-green-100 border border-green-200 rounded-md text-green-700 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                          >
+                            <span className="flex items-center gap-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                              </svg>
+                              Select Zip File
                             </span>
                           </button>
                         </div>
+                        <p className="mb-3">For models with large files (&gt;3GB), please upload individual files instead of a ZIP archive to avoid memory issues in your browser.</p>
+                        
                       </div>
                     </div>
                   )}
