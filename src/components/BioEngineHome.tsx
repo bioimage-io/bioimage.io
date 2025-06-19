@@ -98,14 +98,32 @@ const BioEngineHome: React.FC = () => {
   // Function to check if default service is online
   const checkDefaultServiceStatus = async () => {
     try {
-      const response = await fetch('https://hypha.aicell.io/bioimage-io/services/bioengine-worker/get_status?_mode=first');
-      if (response.ok) {
+      // Create a timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), 10000);
+      });
+
+      // Race between fetch and timeout
+      const response = await Promise.race([
+        fetch('https://hypha.aicell.io/bioimage-io/services/bioengine-worker/get_status?_mode=first', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }),
+        timeoutPromise
+      ]);
+      
+      // Only consider the service online if we get a successful response
+      if (response.ok && response.status >= 200 && response.status < 300) {
         setDefaultServiceOnline(true);
       } else {
+        // Don't log warnings for expected failures
         setDefaultServiceOnline(false);
       }
     } catch (err) {
-      console.warn('Default BioEngine service is offline:', err);
+      // Silently handle all errors: network errors, timeouts, 500 errors, etc.
+      // This is expected behavior when the service is offline
       setDefaultServiceOnline(false);
     }
   };
