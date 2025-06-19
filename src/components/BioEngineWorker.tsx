@@ -33,49 +33,33 @@ const styles = `
 `;
 
 type ServiceStatus = {
-  service: {
-    start_time_s: number;
-    start_time: string;
-    uptime: string;
-  };
+  service_start_time: number;
   ray_cluster: {
     head_address: string;
-    start_time_s: number | "N/A";
-    start_time: string | "N/A";
-    uptime: string | "N/A";
-    worker_nodes: {
-      [state: string]: Array<{
-        node_id: string;
-        node_ip: string;
-        total_gpu: number;
-        available_gpu: number;
-        total_cpu: number;
-        available_cpu: number;
-        total_memory: number;
-        available_memory: number;
-      }>;
-    } | {};
+    start_time: number | "N/A";
+    cluster: {
+      total_gpu: number;
+      available_gpu: number;
+      total_cpu: number;
+      available_cpu: number;
+      total_memory: number;
+      available_memory: number;
+      total_object_store_memory: number;
+      available_object_store_memory: number;
+    };
+    worker_nodes: Record<string, Array<{
+      "node_id": string;
+      "node_ip": string;
+      "total_gpu": number;
+      "total_cpu": number;
+      "total_memory": number;
+    }>>;
   };
   bioengine_apps: {
     service_id: string | null;
-    note?: string;
-    [key: string]: {
-      deployment_name: string;
-      available_methods?: string[];
-      start_time_s: number;
-      start_time: string;
-      uptime: string;
-      status: "DEPLOYING" | "RUNNING" | "DELETING" | string;
-      replica_states?: Record<string, number>;
-      resources?: {
-        num_cpus?: number;
-        num_gpus?: number;
-        memory?: number | null;
-      };
-      [key: string]: any;
-    } | string | null | undefined;
+    [key: string]: any;
   };
-  bioengine_datasets: {
+  bioengine_datasets?: {
     available_datasets: Record<string, any>;
     loaded_datasets: Record<string, any>;
   };
@@ -129,9 +113,7 @@ type ArtifactType = {
 type DeploymentType = {
   deployment_name: string;
   artifact_id: string;
-  start_time_s: number;
-  start_time: string;
-  uptime: string;
+  start_time: number;
   status: string;
   available_methods?: string[];
   replica_states?: Record<string, number>;
@@ -203,6 +185,7 @@ const BioEngineWorker: React.FC = () => {
   const [newFileName, setNewFileName] = useState('');
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [nodesExpanded, setNodesExpanded] = useState(false);
   
   // Update current time every second for live uptime calculation
   useEffect(() => {
@@ -311,6 +294,7 @@ const BioEngineWorker: React.FC = () => {
   }, []);
 
   const formatTimeInfo = (timestamp: number): { formattedTime: string, uptime: string } => {
+    // Handle UTC timestamp in seconds
     const startTime = new Date(timestamp * 1000);
     
     const formattedTime = startTime.toLocaleString();
@@ -1367,6 +1351,20 @@ class MyNewApp:
     );
   };
 
+  // Helper function to parse service ID
+  const parseServiceId = (serviceId: string) => {
+    const parts = serviceId.split(':');
+    if (parts.length === 2) {
+      const [workspaceAndClient, serviceName] = parts;
+      const workspaceClientParts = workspaceAndClient.split('/');
+      if (workspaceClientParts.length === 2) {
+        const [workspace, clientId] = workspaceClientParts;
+        return { workspace, clientId, serviceName };
+      }
+    }
+    return { workspace: 'Unknown', clientId: 'Unknown', serviceName: 'Unknown' };
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96">
@@ -1462,26 +1460,41 @@ class MyNewApp:
               <h3 className="text-lg font-semibold text-gray-800">Service Information</h3>
             </div>
             <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-700">Service ID:</span>
-                <span className="text-gray-900">{serviceId}</span>
-              </div>
-              {status?.service?.start_time_s && (
+              {status?.service_start_time && (
                 <>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Start Time:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.service.start_time_s).formattedTime}
+                      {formatTimeInfo(status.service_start_time).formattedTime}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Uptime:</span>
                     <span className="text-gray-900">
-                      {formatTimeInfo(status.service.start_time_s).uptime}
+                      {formatTimeInfo(status.service_start_time).uptime}
                     </span>
                   </div>
                 </>
               )}
+              {serviceId && (() => {
+                const { workspace, clientId, serviceName } = parseServiceId(serviceId);
+                return (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Workspace:</span>
+                      <span className="text-gray-900 font-mono">{workspace}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Client ID:</span>
+                      <span className="text-gray-900 font-mono">{clientId}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Service Name:</span>
+                      <span className="text-gray-900 font-mono">{serviceName}</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1497,112 +1510,233 @@ class MyNewApp:
               <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
             </div>
             <div className="space-y-3">
+              {status?.ray_cluster?.start_time && status.ray_cluster.start_time !== "N/A" && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.ray_cluster.start_time as number).formattedTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.ray_cluster.start_time as number).uptime}
+                    </span>
+                  </div>
+                </>
+              )}
+              {status?.ray_cluster?.start_time === "N/A" && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-500">N/A (External cluster)</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="font-medium text-gray-700">Head Address:</span>
-                <span className="text-gray-900">{status?.ray_cluster?.head_address}</span>
+                <span className="text-gray-900 font-mono">{status?.ray_cluster?.head_address}</span>
               </div>
-              {status?.ray_cluster?.start_time_s && status.ray_cluster.start_time_s !== "N/A" && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Start Time:</span>
-                    <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s as number).formattedTime}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Uptime:</span>
-                    <span className="text-gray-900">
-                      {formatTimeInfo(status.ray_cluster.start_time_s as number).uptime}
-                    </span>
-                  </div>
-                </>
-              )}
-              {status?.ray_cluster?.start_time_s === "N/A" && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Start Time:</span>
-                    <span className="text-gray-500">N/A (External cluster)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Uptime:</span>
-                    <span className="text-gray-500">N/A (External cluster)</span>
-                  </div>
-                </>
-              )}
-
             </div>
           </div>
         </div>
       </div>
       
-      {/* Worker Nodes */}
-      {status.ray_cluster.worker_nodes && 
-       typeof status.ray_cluster.worker_nodes === 'object' && 
-       Object.keys(status.ray_cluster.worker_nodes).length > 0 && (
+      {/* Cluster Resources */}
+      {status?.ray_cluster?.cluster && (
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 mb-8 hover:shadow-md transition-all duration-200">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center">
                 <div className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 rounded-xl flex items-center justify-center mr-3">
                   <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2v-8a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-800">Worker Nodes</h3>
+                <h3 className="text-lg font-semibold text-gray-800">Cluster Resources</h3>
               </div>
             </div>
             
-            <div className="overflow-x-auto">
-              <table className="w-full table-auto">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-4 py-2 text-left">Node IP</th>
-                    <th className="px-4 py-2 text-left">Node ID</th>
-                    <th className="px-4 py-2 text-left">CPU</th>
-                    <th className="px-4 py-2 text-left">GPU</th>
-                    <th className="px-4 py-2 text-left">Memory</th>
-                    <th className="px-4 py-2 text-left">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(status.ray_cluster.worker_nodes as Record<string, any[]>).map(([nodeState, nodes]) => 
-                    nodes.map((node: any, index: number) => (
-                      <tr key={`${nodeState}-${index}`} className="border-b">
-                        <td className="px-4 py-2">{node.node_ip}</td>
-                        <td className="px-4 py-2 truncate max-w-[150px]" title={node.node_id}>
-                          {node.node_id.substring(0, 8)}...
-                        </td>
-                        <td className="px-4 py-2">
-                          {node.available_cpu}/{node.total_cpu} ({Math.round((node.available_cpu / node.total_cpu) * 100)}% available)
-                        </td>
-                        <td className="px-4 py-2">
-                          {node.available_gpu}/{node.total_gpu} ({node.total_gpu > 0 ? Math.round((node.available_gpu / node.total_gpu) * 100) : 0}% available)
-                        </td>
-                        <td className="px-4 py-2">
-                          {(node.available_memory / 1024 / 1024 / 1024).toFixed(2)}GB/
-                          {(node.total_memory / 1024 / 1024 / 1024).toFixed(2)}GB
-                          ({Math.round((node.available_memory / node.total_memory) * 100)}% available)
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            nodeState.toUpperCase() === 'ALIVE' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {nodeState.toUpperCase()}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                  {Object.keys(status.ray_cluster.worker_nodes as Record<string, any[]>).length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-2 text-center">No worker nodes available</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              {/* CPU Usage */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-blue-700">CPU Cores</span>
+                  <span className="text-xs text-blue-600">
+                    {status.ray_cluster.cluster.total_cpu > 0 
+                      ? Math.round(((status.ray_cluster.cluster.total_cpu - status.ray_cluster.cluster.available_cpu) / status.ray_cluster.cluster.total_cpu) * 100)
+                      : 0}% used
+                  </span>
+                </div>
+                <div className="text-lg font-bold text-blue-800 mb-2">
+                  {status.ray_cluster.cluster.total_cpu - status.ray_cluster.cluster.available_cpu} / {status.ray_cluster.cluster.total_cpu}
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ 
+                      width: status.ray_cluster.cluster.total_cpu > 0 
+                        ? `${((status.ray_cluster.cluster.total_cpu - status.ray_cluster.cluster.available_cpu) / status.ray_cluster.cluster.total_cpu) * 100}%`
+                        : '0%'
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* GPU Usage */}
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-purple-700">GPU Cards</span>
+                  <span className="text-xs text-purple-600">
+                    {status.ray_cluster.cluster.total_gpu > 0 
+                      ? Math.round(((status.ray_cluster.cluster.total_gpu - status.ray_cluster.cluster.available_gpu) / status.ray_cluster.cluster.total_gpu) * 100)
+                      : 0}% used
+                  </span>
+                </div>
+                <div className="text-lg font-bold text-purple-800 mb-2">
+                  {status.ray_cluster.cluster.total_gpu - status.ray_cluster.cluster.available_gpu} / {status.ray_cluster.cluster.total_gpu}
+                </div>
+                <div className="w-full bg-purple-200 rounded-full h-2">
+                  <div 
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ 
+                      width: status.ray_cluster.cluster.total_gpu > 0 
+                        ? `${((status.ray_cluster.cluster.total_gpu - status.ray_cluster.cluster.available_gpu) / status.ray_cluster.cluster.total_gpu) * 100}%`
+                        : '0%'
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Memory Usage */}
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-orange-700">Memory</span>
+                  <span className="text-xs text-orange-600">
+                    {status.ray_cluster.cluster.total_memory > 0 
+                      ? Math.round(((status.ray_cluster.cluster.total_memory - status.ray_cluster.cluster.available_memory) / status.ray_cluster.cluster.total_memory) * 100)
+                      : 0}% used
+                  </span>
+                </div>
+                <div className="text-lg font-bold text-orange-800 mb-2">
+                  {((status.ray_cluster.cluster.total_memory - status.ray_cluster.cluster.available_memory) / 1024 / 1024 / 1024).toFixed(1)} / {(status.ray_cluster.cluster.total_memory / 1024 / 1024 / 1024).toFixed(1)}GB
+                </div>
+                <div className="w-full bg-orange-200 rounded-full h-2">
+                  <div 
+                    className="bg-orange-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ 
+                      width: status.ray_cluster.cluster.total_memory > 0 
+                        ? `${((status.ray_cluster.cluster.total_memory - status.ray_cluster.cluster.available_memory) / status.ray_cluster.cluster.total_memory) * 100}%`
+                        : '0%'
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Object Store Memory Usage */}
+              <div className="bg-gradient-to-br from-teal-50 to-teal-100 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-teal-700">Object Store</span>
+                  <span className="text-xs text-teal-600">
+                    {Math.round(((status.ray_cluster.cluster.total_object_store_memory - status.ray_cluster.cluster.available_object_store_memory) / status.ray_cluster.cluster.total_object_store_memory) * 100)}% used
+                  </span>
+                </div>
+                <div className="text-lg font-bold text-teal-800 mb-2">
+                  {((status.ray_cluster.cluster.total_object_store_memory - status.ray_cluster.cluster.available_object_store_memory) / 1024 / 1024 / 1024).toFixed(1)} / {(status.ray_cluster.cluster.total_object_store_memory / 1024 / 1024 / 1024).toFixed(1)}GB
+                </div>
+                <div className="w-full bg-teal-200 rounded-full h-2">
+                  <div 
+                    className="bg-teal-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: `${((status.ray_cluster.cluster.total_object_store_memory - status.ray_cluster.cluster.available_object_store_memory) / status.ray_cluster.cluster.total_object_store_memory) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
             </div>
+
+            {/* Expandable Nodes Section */}
+            {status.ray_cluster.worker_nodes && Object.keys(status.ray_cluster.worker_nodes).length > 0 && (
+              <div className="border-t border-gray-200 pt-6">
+                <button
+                  onClick={() => setNodesExpanded(!nodesExpanded)}
+                  className="flex items-center justify-between w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"
+                >
+                  <div className="flex items-center">
+                    <svg className="w-5 h-5 text-gray-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                    <span className="font-medium text-gray-700">
+                      Worker Nodes ({Object.values(status.ray_cluster.worker_nodes).reduce((total, nodes) => total + nodes.length, 0)})
+                    </span>
+                  </div>
+                  <svg 
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${nodesExpanded ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {nodesExpanded && (
+                  <div className="mt-4 space-y-3 animate-slideUp">
+                    {Object.entries(status.ray_cluster.worker_nodes).map(([nodeState, nodes]) => 
+                      nodes.map((node, index) => (
+                        <div key={`${nodeState}-${node.node_id}`} className="bg-white border border-gray-200 rounded-xl p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <div className="flex items-center mb-2">
+                                <div className={`w-2 h-2 rounded-full mr-2 ${
+                                  nodeState === 'ALIVE' ? 'bg-green-500' : 'bg-red-500'
+                                }`}></div>
+                                <span className="font-medium text-gray-800">
+                                  Node {index + 1}
+                                </span>
+                              </div>
+                              <div className="space-y-1 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">IP Address:</span>
+                                  <span className="text-gray-900 font-mono">{node.node_ip}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Node ID:</span>
+                                  <span className="text-gray-900 font-mono truncate max-w-[150px]" title={node.node_id}>
+                                    {node.node_id.substring(0, 12)}...
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">CPU Cores:</span>
+                                  <span className="text-gray-900 font-semibold">{node.total_cpu}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">GPU Cards:</span>
+                                  <span className="text-gray-900 font-semibold">{node.total_gpu}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Memory:</span>
+                                  <span className="text-gray-900 font-semibold">
+                                    {(node.total_memory / 1024 / 1024 / 1024).toFixed(1)}GB
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1740,13 +1874,13 @@ class MyNewApp:
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      {deployment.start_time_s && (
+                      {deployment.start_time && (
                         <div className="mb-3">
                           <p className="text-sm text-gray-600">
-                            <span className="font-medium">Start Time:</span> {formatTimeInfo(deployment.start_time_s).formattedTime}
+                            <span className="font-medium">Start Time:</span> {formatTimeInfo(deployment.start_time).formattedTime}
                           </p>
                           <p className="text-sm text-gray-600">
-                            <span className="font-medium">Uptime:</span> {formatTimeInfo(deployment.start_time_s).uptime}
+                            <span className="font-medium">Uptime:</span> {formatTimeInfo(deployment.start_time).uptime}
                           </p>
                         </div>
                       )}
@@ -2261,7 +2395,7 @@ class MyNewApp:
                   ) : (
                     <>
                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 00-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                       Save as Copy
                     </>
@@ -2287,8 +2421,6 @@ class MyNewApp:
           </div>
         </div>
       )}
-
-
       </div>
     </div>
   );
