@@ -59,7 +59,7 @@ type ServiceStatus = {
     service_id: string | null;
     [key: string]: any;
   };
-  bioengine_datasets?: {
+  bioengine_datasets: {
     available_datasets: Record<string, any>;
     loaded_datasets: Record<string, any>;
   };
