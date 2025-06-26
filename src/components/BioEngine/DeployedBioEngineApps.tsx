@@ -22,18 +22,18 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
 
   const deployments = Object.entries(status?.bioengine_apps || {})
     .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
-    .map(([key, value]) => ({ 
+    .map(([key, value]) => ({
       artifact_id: key,
       ...(value as any)
     }));
-  
+
   const hasDeployments = deployments.length > 0;
   const deploymentNote = status?.bioengine_apps?.note;
   const deploymentServiceId = status?.bioengine_apps?.service_id;
 
   const handleCopyServiceId = async () => {
     if (!deploymentServiceId) return;
-    
+
     try {
       await navigator.clipboard.writeText(deploymentServiceId);
       setCopySuccess(true);
@@ -68,7 +68,7 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           <h3 className="text-lg font-semibold text-gray-800">Deployed BioEngine Apps</h3>
         </div>
       </div>
-      
+
       {/* Undeployment Error Display */}
       {undeploymentError && setUndeploymentError && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -94,16 +94,15 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           </div>
         </div>
       )}
-      
+
       {deploymentServiceId && (
         <div className="mb-6">
           <button
             onClick={handleCopyServiceId}
-            className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all duration-200 flex items-center ${
-              copySuccess
+            className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all duration-200 flex items-center ${copySuccess
                 ? 'bg-green-50 text-green-700 border-green-200'
                 : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-            }`}
+              }`}
             title="Copy service ID to clipboard"
           >
             {copySuccess ? (

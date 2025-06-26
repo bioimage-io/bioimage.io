@@ -44,23 +44,29 @@ const BioEngineAppManager = React.forwardRef<
 }, ref) => {
   // State management
   const [artifactManager, setArtifactManager] = useState<any>(null);
-  
+
   // Create/Edit Dialog state
   const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
   const [editingArtifact, setEditingArtifact] = useState<ArtifactType | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState(0);
   const [createAppLoading, setCreateAppLoading] = useState(false);
   const [createAppError, setCreateAppError] = useState<string | null>(null);
-  
+
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // File management state
-  const [files, setFiles] = useState<Array<{name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean}>>([]);
+  const [files, setFiles] = useState<Array<{ name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean }>>([]);
   const [editingFileName, setEditingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
 
   // Initialize artifact manager
   React.useEffect(() => {
     if (!isLoggedIn) return;
-    
+
     const initArtifactManager = async () => {
       try {
         const manager = await server.getService('public/artifact-manager');
@@ -69,7 +75,7 @@ const BioEngineAppManager = React.forwardRef<
         console.error('Failed to initialize artifact manager:', err);
       }
     };
-    
+
     initArtifactManager();
   }, [server, isLoggedIn]);
 
@@ -188,8 +194,8 @@ class MyNewApp:
   };
 
   const updateFileContent = (fileName: string, content: string) => {
-    setFiles(prevFiles => 
-      prevFiles.map(file => 
+    setFiles(prevFiles =>
+      prevFiles.map(file =>
         file.name === fileName ? { ...file, content } : file
       )
     );
@@ -211,10 +217,10 @@ class MyNewApp:
 
   const renameFile = (oldName: string, newName: string) => {
     if (oldName === newName || files.some(file => file.name === newName)) return;
-    
-    setFiles(prevFiles => 
-      prevFiles.map(file => 
-        file.name === oldName 
+
+    setFiles(prevFiles =>
+      prevFiles.map(file =>
+        file.name === oldName
           ? { ...file, name: newName, language: getFileLanguage(newName), isEditable: isEditableFile(newName) }
           : file
       )
@@ -224,6 +230,44 @@ class MyNewApp:
   const isUserOwnedArtifact = (artifactId: string): boolean => {
     const userWorkspace = server.config.workspace;
     return userWorkspace && artifactId.startsWith(userWorkspace);
+  };
+
+  // Check if "Save as Copy" should be shown
+  const shouldShowSaveAsCopy = (artifactId: string): boolean => {
+    const isFromBioimageIoWorkspace = artifactId.startsWith('bioimage-io/');
+    const userWorkspace = server.config.workspace;
+    const isUserWorkspaceNotBioimageIo = userWorkspace !== 'bioimage-io';
+
+    return isFromBioimageIoWorkspace && isUserWorkspaceNotBioimageIo;
+  };
+
+  // Delete artifact handler
+  const handleDeleteArtifact = async () => {
+    if (!editingArtifact || !artifactManager) return;
+
+    setDeleteLoading(true);
+    setDeleteError(null);
+
+    try {
+      await artifactManager.delete(editingArtifact.id);
+
+      // Close dialogs and refresh
+      setDeleteDialogOpen(false);
+      setCreateAppDialogOpen(false);
+      setEditingArtifact(null);
+      setDeleteConfirmationText('');
+
+      if (onArtifactUpdated) {
+        onArtifactUpdated();
+      }
+
+      console.log('Successfully deleted artifact:', editingArtifact.id);
+    } catch (err) {
+      console.error('Failed to delete artifact:', err);
+      setDeleteError(`Failed to delete artifact: ${err}`);
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   // Create App Dialog handlers
@@ -243,15 +287,15 @@ class MyNewApp:
     setActiveEditorTab(0);
     setCreateAppError(null);
     setCreateAppLoading(true);
-    
+
     try {
-      const loadedFiles: Array<{name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean}> = [];
-      
+      const loadedFiles: Array<{ name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean }> = [];
+
       // Always generate manifest.yaml from artifact.manifest metadata
       let manifestText = '';
       if (artifact.manifest) {
         let manifestObj: any = artifact.manifest;
-        
+
         // Check if the manifest is URL-encoded string data
         if (typeof manifestObj === 'string' && manifestObj.includes('%')) {
           console.log('Detected URL-encoded manifest, decoding...');
@@ -259,7 +303,7 @@ class MyNewApp:
             // Decode URL-encoded string and parse as query parameters
             const decoded = decodeURIComponent(manifestObj);
             console.log('Decoded manifest string:', decoded);
-            
+
             // Parse query string format into object
             const params = new URLSearchParams(decoded);
             const parsedObj: any = {};
@@ -282,12 +326,12 @@ class MyNewApp:
             manifestObj = artifact.manifest;
           }
         }
-        
+
         // Clean the manifest object to remove any non-serializable properties
         const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
         console.log('Original manifest object:', artifact.manifest);
         console.log('Cleaned manifest object:', cleanManifest);
-        
+
         manifestText = yaml.dump(cleanManifest, {
           indent: 2,
           lineWidth: 120,
@@ -299,7 +343,7 @@ class MyNewApp:
       } else {
         manifestText = getDefaultManifest();
       }
-        
+
       // Add manifest.yaml as the first file
       loadedFiles.push({
         name: 'manifest.yaml',
@@ -307,19 +351,19 @@ class MyNewApp:
         language: 'yaml',
         isEditable: true
       });
-      
+
       // Get list of all files in the artifact - only load when editing
       try {
-        const fileList = await artifactManager.list_files({artifact_id: artifact.id, _rkwargs: true});
+        const fileList = await artifactManager.list_files({ artifact_id: artifact.id, _rkwargs: true });
         console.log('Files found in artifact:', fileList);
-        
+
         // Filter out manifest.yaml since we already have it, and load other files
-        const filesToLoad = fileList.filter((file: any) => 
-          file.name !== 'manifest.yaml' && 
+        const filesToLoad = fileList.filter((file: any) =>
+          file.name !== 'manifest.yaml' &&
           !file.name.endsWith('/') && // Skip directories
           file.name.length > 0
         );
-        
+
         // Load content for each file
         for (const fileInfo of filesToLoad) {
           try {
@@ -330,12 +374,12 @@ class MyNewApp:
             if (isEditable) {
               console.log(`Loading editable file: ${fileInfo.name}`);
               const fileUrl = await artifactManager.get_file({
-                artifact_id: artifact.id, 
-                file_path: fileInfo.name, 
+                artifact_id: artifact.id,
+                file_path: fileInfo.name,
                 _rkwargs: true
               });
               const response = await fetch(fileUrl);
-              
+
               if (response.ok) {
                 const content = await response.text();
                 loadedFiles.push({
@@ -384,7 +428,7 @@ class MyNewApp:
             });
           }
         }
-        
+
         // If no main.py was found in the files, add a default one
         if (!loadedFiles.some(f => f.name === 'main.py')) {
           console.log('No main.py found, adding default');
@@ -395,15 +439,15 @@ class MyNewApp:
             isEditable: true
           });
         }
-        
+
       } catch (listErr) {
         console.warn('Could not list files, falling back to default files:', listErr);
         // Fallback: try to load main.py individually
         try {
-          const mainPyUrl = await artifactManager.get_file({artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true});
+          const mainPyUrl = await artifactManager.get_file({ artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true });
           const mainPyResponse = await fetch(mainPyUrl);
           const mainPyText = await mainPyResponse.text();
-          
+
           loadedFiles.push({
             name: 'main.py',
             content: mainPyText,
@@ -421,7 +465,7 @@ class MyNewApp:
           });
         }
       }
-      
+
       setFiles(loadedFiles);
       setCreateAppDialogOpen(true);
     } catch (err) {
@@ -443,20 +487,20 @@ class MyNewApp:
 
   const handleCreateOrUpdateApp = async () => {
     if (!serviceId || !isLoggedIn || !artifactManager) return;
-    
+
     setCreateAppLoading(true);
     setCreateAppError(null);
-    
+
     try {
       const bioengineWorker = await server.getService(serviceId);
-      
+
       // Find the manifest.yaml file
       const manifestFile = files.find(file => file.name === 'manifest.yaml');
       if (!manifestFile) {
         setCreateAppError('manifest.yaml file is required');
         return;
       }
-      
+
       // Parse the manifest YAML to get the manifest object
       let manifestObj;
       try {
@@ -466,41 +510,41 @@ class MyNewApp:
         setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
         return;
       }
-      
+
       const filesToUpload = files.map(file => ({
         name: file.name,
         content: file.content,
         type: 'text'
       }));
-      
+
       if (editingArtifact) {
         // For editing existing artifacts:
         // 1. Update the artifact's manifest metadata using artifactManager.edit
         // 2. Upload all files including the manifest.yaml
-        
+
         console.log('Updating existing artifact:', editingArtifact.id);
-        
+
         // Update the manifest metadata
-        await artifactManager.edit({artifact_id: editingArtifact.id, manifest: manifestObj, _rkwargs: true});
+        await artifactManager.edit({ artifact_id: editingArtifact.id, manifest: manifestObj, _rkwargs: true });
         console.log('Updated artifact manifest metadata');
-        
+
         // Upload all files including manifest.yaml
-        await bioengineWorker.create_artifact({files: filesToUpload, artifact_id: editingArtifact.id, _rkwargs: true});
+        await bioengineWorker.create_artifact({ files: filesToUpload, artifact_id: editingArtifact.id, _rkwargs: true });
         console.log('Uploaded files to artifact');
-        
+
       } else {
         // For creating new artifacts, just use create_artifact with files
         console.log('Creating new artifact');
-        await bioengineWorker.create_artifact({files: filesToUpload, _rkwargs: true});
+        await bioengineWorker.create_artifact({ files: filesToUpload, _rkwargs: true });
       }
-      
+
       handleCloseCreateAppDialog();
-      
+
       // Notify parent component if callback provided
       if (onArtifactUpdated) {
         onArtifactUpdated();
       }
-      
+
       console.log(`Successfully ${editingArtifact ? 'updated' : 'created'} artifact`);
     } catch (err) {
       console.error('Failed to create/update artifact:', err);
@@ -512,50 +556,54 @@ class MyNewApp:
 
   const handleSaveAsCopy = async () => {
     if (!serviceId || !isLoggedIn || !artifactManager) return;
-    
+
     setCreateAppLoading(true);
     setCreateAppError(null);
-    
+
     try {
       const bioengineWorker = await server.getService(serviceId);
-      
+
       // Find the manifest.yaml file
       const manifestFile = files.find(file => file.name === 'manifest.yaml');
       if (!manifestFile) {
         setCreateAppError('manifest.yaml file is required');
         return;
       }
-      
+
       // Parse the manifest YAML and modify it for the copy
-      let manifestObj;
+      let manifestObj: any;
       try {
         manifestObj = yaml.load(manifestFile.content);
         console.log('Parsed manifest object for copy:', manifestObj);
-        
-        // The manifest will be used as-is for the copy
-        // Users can modify the ID and name in the editor if needed
+
+        // Ensure the manifest ID is just the alias (not workspace/alias)
+        if (manifestObj && manifestObj.id && typeof manifestObj.id === 'string' && manifestObj.id.includes('/')) {
+          const idParts = manifestObj.id.split('/');
+          manifestObj.id = idParts[idParts.length - 1]; // Get just the alias part
+        }
       } catch (yamlErr) {
         setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
         return;
       }
-      
-      // Update the manifest.yaml file with the current content (no modifications)
+
+      // Update the manifest.yaml file with the modified content
+      const updatedManifestContent = yaml.dump(manifestObj);
       const updatedFiles = files.map(file => ({
         name: file.name,
-        content: file.content,
+        content: file.name === 'manifest.yaml' ? updatedManifestContent : file.content,
         type: 'text'
       }));
-      
+
       console.log('Creating copy of artifact in user workspace');
-      await bioengineWorker.create_artifact({files: updatedFiles, _rkwargs: true});
-      
+      await bioengineWorker.create_artifact({ files: updatedFiles, _rkwargs: true });
+
       handleCloseCreateAppDialog();
-      
+
       // Notify parent component if callback provided
       if (onArtifactUpdated) {
         onArtifactUpdated();
       }
-      
+
       console.log('Successfully created artifact copy');
     } catch (err) {
       console.error('Failed to create artifact copy:', err);
@@ -568,12 +616,12 @@ class MyNewApp:
   // File management handlers
   const handleAddNewFile = () => {
     if (!newFileName.trim()) return;
-    
+
     if (files.some(file => file.name === newFileName.trim())) {
       setCreateAppError(`File "${newFileName.trim()}" already exists`);
       return;
     }
-    
+
     addNewFile(newFileName.trim());
     setActiveEditorTab(files.length);
     setNewFileName('');
@@ -587,12 +635,12 @@ class MyNewApp:
 
   const handleFileNameSave = () => {
     if (!editingFileName || !newFileName.trim()) return;
-    
+
     if (newFileName.trim() !== editingFileName && files.some(file => file.name === newFileName.trim())) {
       setCreateAppError(`File "${newFileName.trim()}" already exists`);
       return;
     }
-    
+
     renameFile(editingFileName, newFileName.trim());
     setEditingFileName(null);
     setNewFileName('');
@@ -602,6 +650,43 @@ class MyNewApp:
   const handleFileNameCancel = () => {
     setEditingFileName(null);
     setNewFileName('');
+  };
+
+  // Delete confirmation handlers
+  const handleOpenDeleteDialog = (fileName: string) => {
+    setDeleteConfirmationText(fileName);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setDeleteConfirmationText('');
+    setDeleteError(null);
+  };
+
+  const handleDeleteFile = async () => {
+    if (!editingArtifact || !artifactManager) return;
+
+    setDeleteLoading(true);
+    setDeleteError(null);
+
+    try {
+      // Delete the file from the artifact
+      await artifactManager.delete_file({ artifact_id: editingArtifact.id, file_path: deleteConfirmationText, _rkwargs: true });
+      console.log(`Successfully deleted file: ${deleteConfirmationText}`);
+
+      // Remove the file from the local state
+      removeFile(deleteConfirmationText);
+
+      setDeleteDialogOpen(false);
+      setDeleteConfirmationText('');
+      setDeleteError(null);
+    } catch (err) {
+      console.error('Failed to delete file:', err);
+      setDeleteError(`Failed to delete file: ${err}`);
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   // Expose methods for parent components
@@ -638,7 +723,7 @@ class MyNewApp:
                 </svg>
               </button>
             </div>
-            
+
             <div className="flex-1 flex flex-col min-h-0">
               {/* Tab Navigation with Add Button */}
               <div className="border-b border-gray-200 bg-gray-50 flex items-center">
@@ -647,12 +732,11 @@ class MyNewApp:
                     <button
                       key={file.name}
                       onClick={() => setActiveEditorTab(index)}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
-                        activeEditorTab === index
-                          ? 'border-blue-500 text-blue-600 bg-white'
-                          : 'border-transparent text-gray-500 hover:text-gray-700'
-                      } ${!file.isEditable ? 'opacity-60' : ''}`}
-                      title={file.isEditable ? 
+                      className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${activeEditorTab === index
+                        ? 'border-blue-500 text-blue-600 bg-white'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                        } ${!file.isEditable ? 'opacity-60' : ''}`}
+                      title={file.isEditable ?
                         `${file.name}${file.size ? ` (${formatFileSize(file.size)})` : ''}${file.lastModified ? ` - Modified: ${file.lastModified}` : ''}` :
                         `${file.name} - Read-only${file.size ? ` (${formatFileSize(file.size)})` : ''}`
                       }
@@ -679,7 +763,7 @@ class MyNewApp:
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
                               </svg>
                             )}
-                            <span 
+                            <span
                               onDoubleClick={() => file.isEditable && handleFileNameEdit(file.name)}
                               className={file.isEditable ? "cursor-pointer" : "cursor-default"}
                             >
@@ -691,7 +775,7 @@ class MyNewApp:
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              removeFile(file.name);
+                              handleOpenDeleteDialog(file.name);
                             }}
                             className="ml-1 text-gray-400 hover:text-red-500"
                             aria-label={`Remove file ${file.name}`}
@@ -706,7 +790,7 @@ class MyNewApp:
                     </button>
                   ))}
                 </div>
-                
+
                 {/* Add New File */}
                 <div className="p-2 flex items-center gap-2 border-l border-gray-200">
                   <input
@@ -733,14 +817,14 @@ class MyNewApp:
                   </button>
                 </div>
               </div>
-              
+
               {/* Error Display */}
               {createAppError && (
                 <div className="p-3 bg-red-50 border-b border-red-200">
                   <p className="text-sm text-red-600">{createAppError}</p>
                 </div>
               )}
-              
+
               {/* Editor Content */}
               <div className="flex-1 min-h-0">
                 {files.length > 0 && files[activeEditorTab] && (
@@ -762,7 +846,7 @@ class MyNewApp:
                         </div>
                       </div>
                     )}
-                    
+
                     <div className="flex-1">
                       <Editor
                         height="100%"
@@ -791,19 +875,33 @@ class MyNewApp:
                 )}
               </div>
             </div>
-            
+
             <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
-              <button 
-                onClick={handleCloseCreateAppDialog} 
+              <button
+                onClick={handleCloseCreateAppDialog}
                 disabled={createAppLoading}
                 className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
               </button>
-              
-              {/* Show "Save as Copy" button only when editing an artifact that's not in user's workspace */}
-              {editingArtifact && !isUserOwnedArtifact(editingArtifact.id) && (
-                <button 
+
+              {/* Show "Delete" button only when editing an artifact owned by the user */}
+              {editingArtifact && isUserOwnedArtifact(editingArtifact.id) && (
+                <button
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center"
+                  title="Delete this app permanently"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
+                </button>
+              )}
+
+              {/* Show "Save as Copy" button only when editing an artifact from bioimage-io workspace and user is not in bioimage-io workspace */}
+              {editingArtifact && shouldShowSaveAsCopy(editingArtifact.id) && (
+                <button
                   onClick={handleSaveAsCopy}
                   disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
@@ -824,8 +922,8 @@ class MyNewApp:
                   )}
                 </button>
               )}
-              
-              <button 
+
+              <button
                 onClick={handleCreateOrUpdateApp}
                 disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
@@ -837,6 +935,115 @@ class MyNewApp:
                   </>
                 ) : (
                   editingArtifact ? 'Update app' : 'Create app'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md mx-4 p-6 flex flex-col border border-white/20">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Confirm Delete
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to delete the file <span className="font-medium">{deleteConfirmationText}</span>? This action cannot be undone.
+            </p>
+
+            {/* Error message for delete action */}
+            {deleteError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md mb-4">
+                <p className="text-sm text-red-600">{deleteError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={handleCloseDeleteDialog}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteFile}
+                disabled={deleteLoading}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete File'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteDialogOpen && editingArtifact && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <svg className="w-6 h-6 text-red-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <h3 className="text-lg font-semibold text-gray-900">Delete App</h3>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              This action cannot be undone. This will permanently delete the app and all its associated data.
+            </p>
+
+            <p className="text-sm text-gray-500 mb-2">
+              To confirm, type the full artifact ID: <span className="font-mono bg-gray-100 px-1 rounded">{editingArtifact.id}</span>
+            </p>
+
+            <input
+              type="text"
+              value={deleteConfirmationText}
+              onChange={(e) => setDeleteConfirmationText(e.target.value)}
+              placeholder="Enter artifact ID to confirm"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent mb-4"
+            />
+
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{deleteError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setDeleteConfirmationText('');
+                  setDeleteError(null);
+                }}
+                disabled={deleteLoading}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleDeleteArtifact}
+                disabled={deleteLoading || deleteConfirmationText !== editingArtifact.id}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete App'
                 )}
               </button>
             </div>

@@ -70,7 +70,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   const [artifactManager, setArtifactManager] = useState<any>(null);
   const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  
+
   // Reference to the app manager
   const appManagerRef = React.useRef<{
     openCreateDialog: () => void;
@@ -80,7 +80,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   // Initialize artifact manager
   useEffect(() => {
     if (!isLoggedIn) return;
-    
+
     const initArtifactManager = async () => {
       try {
         const manager = await server.getService('public/artifact-manager');
@@ -90,7 +90,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         setError('Failed to initialize artifact manager');
       }
     };
-    
+
     initArtifactManager();
   }, [server, isLoggedIn]);
 
@@ -104,13 +104,13 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   const determineArtifactSupportedModes = (artifact: any) => {
     const supportedModes = { cpu: false, gpu: false };
     let defaultMode = 'cpu'; // Always default to CPU
-    
+
     if (artifact.manifest?.deployment_config?.modes) {
       const modes = artifact.manifest.deployment_config.modes;
-      
+
       if (modes.cpu) supportedModes.cpu = true;
       if (modes.gpu) supportedModes.gpu = true;
-    } 
+    }
     else if (artifact.manifest?.deployment_config?.ray_actor_options) {
       const numGpus = artifact.manifest.deployment_config.ray_actor_options.num_gpus || 0;
       supportedModes.gpu = numGpus > 0;
@@ -127,52 +127,52 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
   const fetchAvailableArtifacts = async () => {
     if (!serviceId || !artifactManager) return;
-    
+
     try {
       setLoading(true);
       setError(null);
-      
+
       let allArtifacts: ArtifactType[] = [];
-      
+
       try {
         const publicCollectionId = 'bioimage-io/bioengine-apps';
         let publicArtifacts: ArtifactType[] = [];
-        
+
         try {
-          publicArtifacts = await artifactManager.list({parent_id: publicCollectionId, _rkwargs: true});
+          publicArtifacts = await artifactManager.list({ parent_id: publicCollectionId, _rkwargs: true });
           console.log(`Public artifacts found in ${publicCollectionId}:`, publicArtifacts.map(a => a.id));
         } catch (err) {
           console.warn(`Could not fetch public artifacts: ${err}`);
         }
-        
+
         let userArtifacts: ArtifactType[] = [];
         const userWorkspace = server.config.workspace;
-        
+
         if (userWorkspace) {
           const userCollectionId = `${userWorkspace}/bioengine-apps`;
           try {
-            userArtifacts = await artifactManager.list({parent_id: userCollectionId, _rkwargs: true});
+            userArtifacts = await artifactManager.list({ parent_id: userCollectionId, _rkwargs: true });
             console.log(`User artifacts found in ${userCollectionId}:`, userArtifacts.map(a => a.id));
           } catch (collectionErr) {
             console.log(`User collection ${userCollectionId} does not exist, skipping`);
           }
         }
-        
+
         const combinedArtifacts = [...publicArtifacts, ...userArtifacts];
-        
+
         // Lazily load manifests for each artifact
         for (const art of combinedArtifacts) {
           try {
             console.log(`Processing artifact: ${art.id}, alias: ${art.alias}, workspace: ${art.workspace}`);
-            
+
             const artifactData = await artifactManager.read(art.id);
-            
+
             if (artifactData) {
               art.manifest = artifactData.manifest;
-              
+
               const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
               console.log(`${art.id} supported modes:`, supportedModes, `Default: ${defaultMode}`);
-              
+
               art.supportedModes = supportedModes;
               art.defaultMode = defaultMode;
             } else {
@@ -182,12 +182,12 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             console.warn(`Failed to fetch manifest for ${art.id}:`, err);
           }
         }
-        
+
         allArtifacts = combinedArtifacts;
       } catch (err) {
         console.warn(`Error processing artifacts: ${err}`);
       }
-      
+
       setAvailableArtifacts(allArtifacts);
     } catch (err) {
       console.error('Error fetching artifacts:', err);
@@ -204,31 +204,31 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
   const handleDeleteArtifact = async (artifactId: string) => {
     if (!artifactManager || !isLoggedIn) return;
-    
+
     // Confirm deletion
     const artifactName = availableArtifacts.find(a => a.id === artifactId)?.manifest?.name || artifactId;
     if (!window.confirm(`Are you sure you want to delete "${artifactName}"? This action cannot be undone.`)) {
       return;
     }
-    
+
     try {
       setDeleteError(null);
       setDeletingArtifactId(artifactId);
-      
+
       await artifactManager.delete({
-        artifact_id: artifactId, 
-        delete_files: true, 
-        recursive: true, 
+        artifact_id: artifactId,
+        delete_files: true,
+        recursive: true,
         _rkwargs: true
       });
-      
+
       // Refresh the available artifacts list
       await fetchAvailableArtifacts();
-      
+
       setDeletingArtifactId(null);
-      
+
       console.log(`Successfully deleted ${artifactId}`);
-      
+
       // Notify parent component if callback provided
       if (onArtifactUpdated) {
         onArtifactUpdated();
@@ -267,7 +267,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
           <h3 className="text-lg font-semibold text-gray-800">Available BioEngine Apps</h3>
         </div>
         <div className="flex gap-3">
-          <button 
+          <button
             onClick={handleOpenCreateApp}
             disabled={loading}
             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
@@ -277,7 +277,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             </svg>
             Create App
           </button>
-          <button 
+          <button
             onClick={fetchAvailableArtifacts}
             disabled={loading}
             className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
@@ -389,20 +389,15 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             <ArtifactCard
               key={artifact.id}
               artifact={artifact}
-              isUserOwned={isUserOwnedArtifact(artifact.id)}
-              isDeployed={isArtifactDeployed?.(artifact.id) || false}
-              deploymentStatus={getDeploymentStatus?.(artifact.id) || null}
               artifactMode={artifactModes[artifact.id]}
-              isDeploying={deployingArtifactId === artifact.id}
-              isDeleting={deletingArtifactId === artifact.id}
-              isDeployDisabled={isDeployButtonDisabled?.(artifact.id) || false}
-              deployButtonText={getDeployButtonText?.(artifact.id) || 'Deploy'}
               onEdit={() => handleOpenEditApp(artifact)}
-              onDelete={() => handleDeleteArtifact(artifact.id)}
-              onDeploy={(mode) => onDeployArtifact?.(artifact.id, mode)}
-              onUndeploy={() => onUndeployArtifact?.(artifact.id)}
+              onDeploy={(artifactId, mode) => onDeployArtifact?.(artifactId, mode)}
               onModeChange={(checked) => onModeChange?.(artifact.id, checked)}
               server={server}
+              onDeployFeedback={(message, type) => {
+                // You can add feedback handling here if needed
+                console.log(`Deploy feedback: ${message} (${type})`);
+              }}
             />
           ))}
         </div>

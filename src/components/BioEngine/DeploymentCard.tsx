@@ -43,13 +43,12 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             <h4 className="text-lg font-semibold">
               {deployment.display_name || deployment.artifact_id.split('/').pop()}
             </h4>
-            
+
             <div className="flex items-center ml-3">
-              <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                deployment.status === "HEALTHY" || deployment.status === "RUNNING" 
-                  ? "bg-green-100 text-green-700 border border-green-200" 
-                  : "bg-gray-100 text-gray-700 border border-gray-200"
-              }`}>
+              <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${deployment.status === "HEALTHY" || deployment.status === "RUNNING"
+                ? "bg-green-100 text-green-700 border border-green-200"
+                : "bg-gray-100 text-gray-700 border border-gray-200"
+                }`}>
                 {deployment.status}
               </span>
               {deployment.status === "UPDATING" && (
@@ -57,13 +56,13 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               )}
             </div>
           </div>
-          
+
           <p className="text-sm text-gray-500">{deployment.artifact_id}</p>
           {deployment.description && (
             <p className="text-sm text-gray-600 mt-2">{deployment.description}</p>
           )}
         </div>
-        
+
         <div>
           {isUndeploying ? (
             <button
@@ -91,7 +90,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
           )}
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           {deployment.start_time && formatTimeInfo && (
@@ -104,7 +103,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               </p>
             </div>
           )}
-          
+
           {deployment.replica_states && Object.keys(deployment.replica_states).length > 0 && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Replica States:</p>
@@ -112,11 +111,10 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                 {Object.entries(deployment.replica_states).map(([state, count]) => (
                   <span
                     key={state}
-                    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${
-                      state === "RUNNING" 
-                        ? "bg-green-50 text-green-700 border-green-200" 
-                        : "bg-gray-50 text-gray-700 border-gray-200"
-                    }`}
+                    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${state === "RUNNING"
+                      ? "bg-green-50 text-green-700 border-green-200"
+                      : "bg-gray-50 text-gray-700 border-gray-200"
+                      }`}
                   >
                     {state}: {count}
                   </span>
@@ -125,48 +123,48 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </div>
           )}
         </div>
-        
+
         <div>
           <p className="text-sm text-gray-600 mb-3">
             <span className="font-medium">Deployment name:</span> {deployment.deployment_name}
           </p>
-          
+
           {deployment.resources && (
             (deployment.resources.num_cpus != null && deployment.resources.num_cpus > 0) ||
             (deployment.resources.num_gpus != null && deployment.resources.num_gpus > 0) ||
             (deployment.resources.memory != null && deployment.resources.memory > 0)
           ) && (
-            <div className="mb-3">
-              <p className="text-sm font-medium text-gray-700 mb-2">Resources:</p>
-              <div className="flex flex-wrap gap-2">
-                {deployment.resources.num_cpus != null && deployment.resources.num_cpus > 0 && (
-                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    {deployment.resources.num_cpus} CPU{deployment.resources.num_cpus > 1 ? 's' : ''}
-                  </span>
-                )}
-                {deployment.resources.num_gpus != null && deployment.resources.num_gpus > 0 && (
-                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    {deployment.resources.num_gpus} GPU{deployment.resources.num_gpus > 1 ? 's' : ''}
-                  </span>
-                )}
-                {deployment.resources.memory != null && deployment.resources.memory > 0 && (
-                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-                    </svg>
-                    {formatMemoryToGB(deployment.resources.memory)}
-                  </span>
-                )}
+              <div className="mb-3">
+                <p className="text-sm font-medium text-gray-700 mb-2">Resources:</p>
+                <div className="flex flex-wrap gap-2">
+                  {deployment.resources.num_cpus != null && deployment.resources.num_cpus > 0 && (
+                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                      {deployment.resources.num_cpus} CPU{deployment.resources.num_cpus > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {deployment.resources.num_gpus != null && deployment.resources.num_gpus > 0 && (
+                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      {deployment.resources.num_gpus} GPU{deployment.resources.num_gpus > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {deployment.resources.memory != null && deployment.resources.memory > 0 && (
+                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                      </svg>
+                      {formatMemoryToGB(deployment.resources.memory)}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-          
+            )}
+
           {deployment.available_methods && deployment.available_methods.length > 0 && deployment.status !== "DEPLOYING" && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>

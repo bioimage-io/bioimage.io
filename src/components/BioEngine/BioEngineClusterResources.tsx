@@ -55,7 +55,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     const used = total - available;
     const displayUsed = unit === "GB" ? formatBytes(used) : used;
     const displayTotal = unit === "GB" ? formatBytes(total) : total;
-    
+
     if (total === 0) {
       return (
         <div className="flex items-center space-x-2">
@@ -71,7 +71,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
       <div className="flex items-center space-x-2">
         <span className="text-sm font-medium text-gray-700 w-20">{displayUsed}{unit} / {displayTotal}{unit}</span>
         <div className="flex-1 bg-gray-200 rounded-full h-2">
-          <div 
+          <div
             className={`h-2 rounded-full transition-all duration-300 ${color}`}
             style={{ width: `${(used / total) * 100}%` }}
           ></div>
@@ -80,11 +80,11 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     );
   };
 
-  const ResourceCard: React.FC<{ 
-    title: string; 
-    available: number; 
-    total: number; 
-    color: string; 
+  const ResourceCard: React.FC<{
+    title: string;
+    available: number;
+    total: number;
+    color: string;
     bgColor: string;
     unit?: string;
   }> = ({ title, available, total, color, bgColor, unit = "" }) => {
@@ -105,7 +105,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           {displayUsed}{unit} / {displayTotal}{unit}
         </div>
         <div className={`w-full ${color.replace('bg-', 'bg-').replace('600', '200')} rounded-full h-2`}>
-          <div 
+          <div
             className={`${color} h-2 rounded-full transition-all duration-300`}
             style={{ width: total > 0 ? `${percentage}%` : '0%' }}
           ></div>
@@ -127,7 +127,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
             <h3 className="text-lg font-semibold text-gray-800">Cluster Resources</h3>
           </div>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           {/* CPU Usage */}
           <ResourceCard
@@ -183,10 +183,10 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                   Pending Resources (Total: {rayCluster.cluster.pending_resources.total})
                 </span>
               </div>
-              <svg 
-                className={`w-5 h-5 text-yellow-600 transition-transform duration-200 ${pendingExpanded ? 'rotate-180' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className={`w-5 h-5 text-yellow-600 transition-transform duration-200 ${pendingExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -242,10 +242,10 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                   Worker Nodes ({Object.keys(rayCluster.nodes).length})
                 </span>
               </div>
-              <svg 
-                className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${nodesExpanded ? 'rotate-180' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${nodesExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -294,35 +294,35 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                         <div className="space-y-3 text-sm">
                           <div>
                             <span className="text-gray-600 text-xs">CPU Cores</span>
-                            <ResourceBar 
-                              available={node.available_cpu} 
-                              total={node.total_cpu} 
-                              color="bg-blue-600" 
+                            <ResourceBar
+                              available={node.available_cpu}
+                              total={node.total_cpu}
+                              color="bg-blue-600"
                             />
                           </div>
                           <div>
                             <span className="text-gray-600 text-xs">GPU Cards</span>
-                            <ResourceBar 
-                              available={node.available_gpu} 
-                              total={node.total_gpu} 
-                              color="bg-purple-600" 
+                            <ResourceBar
+                              available={node.available_gpu}
+                              total={node.total_gpu}
+                              color="bg-purple-600"
                             />
                           </div>
                           <div>
                             <span className="text-gray-600 text-xs">Memory</span>
-                            <ResourceBar 
-                              available={node.available_memory} 
-                              total={node.total_memory} 
-                              color="bg-orange-600" 
+                            <ResourceBar
+                              available={node.available_memory}
+                              total={node.total_memory}
+                              color="bg-orange-600"
                               unit="GB"
                             />
                           </div>
                           <div>
                             <span className="text-gray-600 text-xs">Object Store</span>
-                            <ResourceBar 
-                              available={node.available_object_store_memory} 
-                              total={node.total_object_store_memory} 
-                              color="bg-teal-600" 
+                            <ResourceBar
+                              available={node.available_object_store_memory}
+                              total={node.total_object_store_memory}
+                              color="bg-teal-600"
                               unit="GB"
                             />
                           </div>

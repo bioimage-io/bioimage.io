@@ -27,8 +27,8 @@ interface BioEngineAppsProps {
   server?: any;
 }
 
-const BioEngineApps: React.FC<BioEngineAppsProps> = ({ 
-  serviceId, 
+const BioEngineApps: React.FC<BioEngineAppsProps> = ({
+  serviceId,
   onArtifactUpdated,
   deployingArtifactId,
   undeployingArtifactId,

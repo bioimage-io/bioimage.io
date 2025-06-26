@@ -20,45 +20,44 @@ interface ArtifactCardProps {
     supportedModes?: { cpu: boolean; gpu: boolean };
     defaultMode?: string;
   };
-  isUserOwned: boolean;
-  isDeployed: boolean;
-  deploymentStatus?: string | null;
   artifactMode?: string;
-  isDeploying?: boolean;
-  isDeleting?: boolean;
-  isDeployDisabled?: boolean;
-  deployButtonText?: string;
   onEdit: () => void;
-  onDelete?: () => void;
-  onDeploy: (mode?: string | null) => void;
-  onUndeploy: () => void;
+  onDeploy: (artifactId: string, mode?: string | null) => void;
   onModeChange?: (checked: boolean) => void;
   server?: any;
+  onDeployFeedback?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
 const ArtifactCard: React.FC<ArtifactCardProps> = ({
   artifact,
-  isUserOwned,
-  isDeployed,
-  deploymentStatus,
   artifactMode,
-  isDeploying = false,
-  isDeleting = false,
-  isDeployDisabled = false,
-  deployButtonText = 'Deploy',
   onEdit,
-  onDelete,
   onDeploy,
-  onUndeploy,
   onModeChange,
-  server
+  server,
+  onDeployFeedback
 }) => {
+  const [isDeploying, setIsDeploying] = React.useState(false);
+
+  const handleDeploy = () => {
+    setIsDeploying(true);
+    onDeploy(artifact.id, artifactMode);
+    if (onDeployFeedback) {
+      onDeployFeedback('Deployment started', 'info');
+    }
+
+    // Reset loading state after 5 seconds
+    setTimeout(() => {
+      setIsDeploying(false);
+    }, 5000);
+  };
+
   // Helper function to transform documentation URLs
   const transformDocumentationUrl = (docPath: string, artifactId: string) => {
     if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
       return docPath;
     }
-    
+
     const parts = artifactId.split('/');
     if (parts.length >= 2) {
       const workspace = parts[0];
@@ -66,7 +65,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
       const baseUrl = server?.config?.server_url || 'https://hypha.aicell.io';
       return `${baseUrl}/${workspace}/artifacts/${alias}/files/${docPath}`;
     }
-    
+
     return docPath;
   };
 
@@ -79,10 +78,10 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   // Helper function to get computational resources for a mode
   const getComputationalResources = (manifest?: any, mode?: string) => {
     if (!manifest?.deployment_config?.modes) return null;
-    
+
     const modeConfig = manifest.deployment_config.modes[mode || 'cpu'];
     if (!modeConfig?.ray_actor_options) return null;
-    
+
     const options = modeConfig.ray_actor_options;
     return {
       cpus: options.num_cpus || 0,
@@ -94,7 +93,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   // Helper function to extract documentation and tutorial links from manifest
   const getDocumentationLinks = (manifest?: any, artifactId?: string) => {
     const links: Array<{ url: string; label: string; icon?: string; type: 'documentation' | 'tutorial' | 'link' }> = [];
-    
+
     if (manifest?.documentation) {
       let docUrl = '';
       if (typeof manifest.documentation === 'string') {
@@ -102,7 +101,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
       } else if (manifest.documentation.url) {
         docUrl = artifactId ? transformDocumentationUrl(manifest.documentation.url, artifactId) : manifest.documentation.url;
       }
-      
+
       if (docUrl) {
         links.push({
           url: docUrl,
@@ -112,7 +111,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
         });
       }
     }
-    
+
     if (manifest?.tutorial) {
       let tutorialUrl = '';
       if (typeof manifest.tutorial === 'string') {
@@ -120,7 +119,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
       } else if (manifest.tutorial.url) {
         tutorialUrl = artifactId ? transformDocumentationUrl(manifest.tutorial.url, artifactId) : manifest.tutorial.url;
       }
-      
+
       if (tutorialUrl) {
         links.push({
           url: tutorialUrl,
@@ -130,14 +129,14 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
         });
       }
     }
-    
+
     if (manifest?.links && Array.isArray(manifest.links)) {
       manifest.links.forEach((link: any) => {
         if (link.url && link.label) {
-          const isTutorial = link.label.toLowerCase().includes('tutorial') || 
-                           link.label.toLowerCase().includes('guide') ||
-                           link.label.toLowerCase().includes('example');
-          
+          const isTutorial = link.label.toLowerCase().includes('tutorial') ||
+            link.label.toLowerCase().includes('guide') ||
+            link.label.toLowerCase().includes('example');
+
           links.push({
             url: link.url,
             label: link.label,
@@ -147,15 +146,15 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
         }
       });
     }
-    
+
     return links;
   };
 
   const DocumentationLinks: React.FC<{ className?: string }> = ({ className = "" }) => {
     const links = getDocumentationLinks(artifact.manifest, artifact.id);
-    
+
     if (links.length === 0) return null;
-    
+
     return (
       <div className={className}>
         <div className="flex items-center mb-2">
@@ -171,13 +170,12 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 hover:shadow-sm hover:scale-105 ${
-                link.type === 'documentation' 
+              className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 hover:shadow-sm hover:scale-105 ${link.type === 'documentation'
                   ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300'
                   : link.type === 'tutorial'
-                  ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300'
-                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-              }`}
+                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300'
+                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                }`}
               title={`Open ${link.label}`}
             >
               <span className="mr-1.5">{link.icon}</span>
@@ -195,9 +193,9 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   const ResourceInfo: React.FC<{ className?: string }> = ({ className = "" }) => {
     const currentMode = artifactMode || 'cpu';
     const resources = getComputationalResources(artifact.manifest, currentMode);
-    
+
     if (!resources) return null;
-    
+
     return (
       <div className={className}>
         <div className="flex items-center mb-2">
@@ -248,35 +246,33 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
           <DocumentationLinks className="mb-3" />
           <ResourceInfo className="mb-3" />
         </div>
-        
+
         <div className="flex flex-col items-end">
           {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) && onModeChange ? (
             <div className="mb-2">
               <div className="flex items-center bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => onModeChange(false)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    (artifactMode === 'cpu' || !artifactMode)
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${(artifactMode === 'cpu' || !artifactMode)
                       ? 'bg-white text-blue-600 shadow-sm'
                       : 'text-gray-600 hover:text-gray-800'
-                  }`}
+                    }`}
                 >
                   CPU
                 </button>
                 <button
                   onClick={() => onModeChange(true)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    artifactMode === 'gpu'
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${artifactMode === 'gpu'
                       ? 'bg-white text-purple-600 shadow-sm'
                       : 'text-gray-600 hover:text-gray-800'
-                  }`}
+                    }`}
                 >
                   GPU
                 </button>
               </div>
             </div>
           ) : null}
-          
+
           <div className="flex gap-2">
             <button
               onClick={onEdit}
@@ -287,62 +283,17 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
               </svg>
               Edit
             </button>
-            
-            {isUserOwned && onDelete && (
-              isDeleting ? (
-                <button
-                  disabled={true}
-                  className="px-4 py-2 text-sm bg-red-50 border-2 border-red-300 text-red-600 rounded-xl opacity-50 cursor-not-allowed flex items-center shadow-sm"
-                >
-                  <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin mr-1"></div>
-                  Delete
-                </button>
-              ) : (
-                <button
-                  onClick={onDelete}
-                  className="px-4 py-2 text-sm bg-red-50 border-2 border-red-300 text-red-600 rounded-xl hover:bg-red-100 hover:border-red-400 flex items-center shadow-sm hover:shadow-md transition-all duration-200"
-                >
-                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Delete
-                </button>
-              )
-            )}
 
-            {isDeployed ? (
-              deploymentStatus === "DELETING" ? (
-                <button
-                  disabled={true}
-                  className="px-6 py-3 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-xl cursor-not-allowed flex items-center shadow-sm"
-                >
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Deleting...
-                </button>
-              ) : (
-                <button
-                  onClick={onUndeploy}
-                  className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 shadow-sm hover:shadow-md transition-all duration-200"
-                >
-                  {deploymentStatus === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
-                </button>
-              )
-            ) : (
-              <button
-                onClick={() => onDeploy(artifactMode)}
-                disabled={isDeployDisabled}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 shadow-sm hover:shadow-md transition-all duration-200"
-              >
-                {isDeploying ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Deploying...
-                  </>
-                ) : (
-                  deployButtonText
-                )}
-              </button>
-            )}
+            <button
+              onClick={handleDeploy}
+              disabled={isDeploying}
+              className={`px-6 py-3 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center ${isDeploying
+                  ? 'bg-gradient-to-r from-gray-400 to-gray-500 text-white cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800'
+                }`}
+            >
+              {isDeploying ? 'Starting Deployment...' : 'Deploy'}
+            </button>
           </div>
         </div>
       </div>
