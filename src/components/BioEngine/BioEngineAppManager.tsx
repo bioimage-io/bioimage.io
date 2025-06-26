@@ -62,6 +62,8 @@ const BioEngineAppManager = React.forwardRef<
   const [files, setFiles] = useState<Array<{ name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean }>>([]);
   const [editingFileName, setEditingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
+  const [saveAsCopyLoading, setSaveAsCopyLoading] = useState(false);
+  const [loadingArtifactFiles, setLoadingArtifactFiles] = useState(false);
 
   // Initialize artifact manager
   React.useEffect(() => {
@@ -287,8 +289,23 @@ class MyNewApp:
     setActiveEditorTab(0);
     setCreateAppError(null);
     setCreateAppLoading(true);
+    setLoadingArtifactFiles(true);
 
     try {
+      // Ensure artifactManager is available
+      if (!artifactManager) {
+        console.warn('ArtifactManager not available, trying to initialize...');
+        try {
+          const manager = await server.getService('public/artifact-manager');
+          setArtifactManager(manager);
+        } catch (err) {
+          console.error('Failed to initialize artifact manager:', err);
+          setCreateAppError('Failed to initialize artifact manager. Please try again.');
+          setCreateAppLoading(false);
+          return;
+        }
+      }
+
       const loadedFiles: Array<{ name: string, content: string, language: string, lastModified?: string, size?: number, isEditable?: boolean }> = [];
 
       // Always generate manifest.yaml from artifact.manifest metadata
@@ -352,9 +369,15 @@ class MyNewApp:
         isEditable: true
       });
 
-      // Get list of all files in the artifact - only load when editing
+      // Show dialog immediately with manifest.yaml while other files load
+      setFiles(loadedFiles);
+      setCreateAppDialogOpen(true);
+
+      // Load other files in the background
+      console.log('Loading real files from artifact:', artifact.id);
       try {
-        const fileList = await artifactManager.list_files({ artifact_id: artifact.id, _rkwargs: true });
+        const currentArtifactManager = artifactManager || await server.getService('public/artifact-manager');
+        const fileList = await currentArtifactManager.list_files({ artifact_id: artifact.id, _rkwargs: true });
         console.log('Files found in artifact:', fileList);
 
         // Filter out manifest.yaml since we already have it, and load other files
@@ -363,6 +386,8 @@ class MyNewApp:
           !file.name.endsWith('/') && // Skip directories
           file.name.length > 0
         );
+
+        console.log('Files to load:', filesToLoad.map((f: any) => f.name));
 
         // Load content for each file
         for (const fileInfo of filesToLoad) {
@@ -373,106 +398,132 @@ class MyNewApp:
 
             if (isEditable) {
               console.log(`Loading editable file: ${fileInfo.name}`);
-              const fileUrl = await artifactManager.get_file({
+              const fileUrl = await currentArtifactManager.get_file({
                 artifact_id: artifact.id,
                 file_path: fileInfo.name,
                 _rkwargs: true
               });
+              console.log(`File URL for ${fileInfo.name}:`, fileUrl);
+              
               const response = await fetch(fileUrl);
 
               if (response.ok) {
                 const content = await response.text();
-                loadedFiles.push({
+                const newFile = {
                   name: fileInfo.name,
                   content: content,
                   language: getFileLanguage(fileInfo.name),
                   lastModified,
                   size,
                   isEditable: true
-                });
+                };
+                
+                // Add file to the state immediately as it loads
+                setFiles(prevFiles => [...prevFiles, newFile]);
                 console.log(`Successfully loaded ${fileInfo.name} (${content.length} chars)`);
               } else {
                 console.warn(`Failed to fetch ${fileInfo.name}: ${response.status} ${response.statusText}`);
                 // Add as non-editable if fetch failed
-                loadedFiles.push({
+                const errorFile = {
                   name: fileInfo.name,
-                  content: `// Failed to load file: ${response.status} ${response.statusText}`,
+                  content: `// Failed to load file: ${response.status} ${response.statusText}\n// This might be a permission issue or the file might not exist.`,
                   language: 'plaintext',
                   lastModified,
                   size,
                   isEditable: false
-                });
+                };
+                setFiles(prevFiles => [...prevFiles, errorFile]);
               }
             } else {
               // Add binary/non-editable files to the list but don't load content
               console.log(`Adding non-editable file to list: ${fileInfo.name}`);
-              loadedFiles.push({
+              const binaryFile = {
                 name: fileInfo.name,
                 content: `// Binary file - not editable\n// Size: ${formatFileSize(size)}\n// Last modified: ${lastModified || 'Unknown'}`,
                 language: 'plaintext',
                 lastModified,
                 size,
                 isEditable: false
-              });
+              };
+              setFiles(prevFiles => [...prevFiles, binaryFile]);
             }
           } catch (fileErr) {
             console.warn(`Error processing file ${fileInfo.name}:`, fileErr);
             // Add as error file
-            loadedFiles.push({
+            const errorFile = {
               name: fileInfo.name,
-              content: `// Error loading file: ${fileErr}`,
+              content: `// Error loading file: ${fileErr}\n// Please check the console for more details.`,
               language: 'plaintext',
               lastModified: fileInfo.last_modified ? new Date(fileInfo.last_modified).toLocaleString() : undefined,
               size: fileInfo.size || 0,
               isEditable: false
-            });
+            };
+            setFiles(prevFiles => [...prevFiles, errorFile]);
           }
         }
 
-        // If no main.py was found in the files, add a default one
-        if (!loadedFiles.some(f => f.name === 'main.py')) {
-          console.log('No main.py found, adding default');
-          loadedFiles.push({
-            name: 'main.py',
-            content: getDefaultMainPy(),
-            language: 'python',
-            isEditable: true
-          });
-        }
+        console.log(`Finished loading files from artifact`);
 
       } catch (listErr) {
-        console.warn('Could not list files, falling back to default files:', listErr);
+        console.error('Failed to list or load files from artifact:', listErr);
+        setCreateAppError(`Failed to load artifact files: ${listErr}. Using fallback files.`);
+        
         // Fallback: try to load main.py individually
         try {
-          const mainPyUrl = await artifactManager.get_file({ artifact_id: artifact.id, file_path: 'main.py', _rkwargs: true });
-          const mainPyResponse = await fetch(mainPyUrl);
-          const mainPyText = await mainPyResponse.text();
-
-          loadedFiles.push({
-            name: 'main.py',
-            content: mainPyText,
-            language: 'python',
-            isEditable: true
+          const currentArtifactManager = artifactManager || await server.getService('public/artifact-manager');
+          console.log('Attempting fallback main.py load...');
+          const mainPyUrl = await currentArtifactManager.get_file({ 
+            artifact_id: artifact.id, 
+            file_path: 'main.py', 
+            _rkwargs: true 
           });
-          console.log('Successfully fetched main.py via fallback');
+          const mainPyResponse = await fetch(mainPyUrl);
+          
+          if (mainPyResponse.ok) {
+            const mainPyText = await mainPyResponse.text();
+            const mainPyFile = {
+              name: 'main.py',
+              content: mainPyText,
+              language: 'python',
+              isEditable: true
+            };
+            setFiles(prevFiles => [...prevFiles, mainPyFile]);
+            console.log('Successfully fetched main.py via fallback');
+          } else {
+            throw new Error(`HTTP ${mainPyResponse.status}: ${mainPyResponse.statusText}`);
+          }
         } catch (fileErr) {
           console.warn('Could not fetch main.py file, using default:', fileErr);
-          loadedFiles.push({
+          const defaultMainPy = {
             name: 'main.py',
             content: getDefaultMainPy(),
             language: 'python',
             isEditable: true
-          });
+          };
+          setFiles(prevFiles => [...prevFiles, defaultMainPy]);
         }
       }
 
-      setFiles(loadedFiles);
-      setCreateAppDialogOpen(true);
+      // Ensure we have at least main.py - check current files state
+      setFiles(prevFiles => {
+        if (!prevFiles.some(f => f.name === 'main.py')) {
+          console.log('No main.py found after loading, adding default');
+          return [...prevFiles, {
+            name: 'main.py',
+            content: getDefaultMainPy(),
+            language: 'python',
+            isEditable: true
+          }];
+        }
+        return prevFiles;
+      });
+
     } catch (err) {
       console.error('Failed to load artifact files for editing:', err);
       setCreateAppError(`Failed to load artifact files: ${err}`);
     } finally {
       setCreateAppLoading(false);
+      setLoadingArtifactFiles(false);
     }
   };
 
@@ -557,7 +608,7 @@ class MyNewApp:
   const handleSaveAsCopy = async () => {
     if (!serviceId || !isLoggedIn || !artifactManager) return;
 
-    setCreateAppLoading(true);
+    setSaveAsCopyLoading(true);
     setCreateAppError(null);
 
     try {
@@ -609,7 +660,7 @@ class MyNewApp:
       console.error('Failed to create artifact copy:', err);
       setCreateAppError(`Failed to create artifact copy: ${err}`);
     } finally {
-      setCreateAppLoading(false);
+      setSaveAsCopyLoading(false);
     }
   };
 
@@ -652,41 +703,16 @@ class MyNewApp:
     setNewFileName('');
   };
 
-  // Delete confirmation handlers
-  const handleOpenDeleteDialog = (fileName: string) => {
-    setDeleteConfirmationText(fileName);
+  // Delete confirmation handlers for artifact deletion
+  const handleOpenDeleteArtifactDialog = () => {
     setDeleteDialogOpen(true);
+    setDeleteConfirmationText('');
   };
 
-  const handleCloseDeleteDialog = () => {
+  const handleCloseDeleteArtifactDialog = () => {
     setDeleteDialogOpen(false);
     setDeleteConfirmationText('');
     setDeleteError(null);
-  };
-
-  const handleDeleteFile = async () => {
-    if (!editingArtifact || !artifactManager) return;
-
-    setDeleteLoading(true);
-    setDeleteError(null);
-
-    try {
-      // Delete the file from the artifact
-      await artifactManager.delete_file({ artifact_id: editingArtifact.id, file_path: deleteConfirmationText, _rkwargs: true });
-      console.log(`Successfully deleted file: ${deleteConfirmationText}`);
-
-      // Remove the file from the local state
-      removeFile(deleteConfirmationText);
-
-      setDeleteDialogOpen(false);
-      setDeleteConfirmationText('');
-      setDeleteError(null);
-    } catch (err) {
-      console.error('Failed to delete file:', err);
-      setDeleteError(`Failed to delete file: ${err}`);
-    } finally {
-      setDeleteLoading(false);
-    }
   };
 
   // Expose methods for parent components
@@ -771,15 +797,17 @@ class MyNewApp:
                             </span>
                           </div>
                         )}
-                        {files.length > 2 && (
+                        {file.name !== 'manifest.yaml' && files.length > 1 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleOpenDeleteDialog(file.name);
+                              // When editing, just remove from local state (won't be included in update)
+                              // When creating, remove from local state immediately
+                              removeFile(file.name);
                             }}
                             className="ml-1 text-gray-400 hover:text-red-500"
                             aria-label={`Remove file ${file.name}`}
-                            title={`Remove file ${file.name}`}
+                            title={editingArtifact ? `Remove ${file.name} from app (will be excluded from update)` : `Remove ${file.name}`}
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -822,6 +850,16 @@ class MyNewApp:
               {createAppError && (
                 <div className="p-3 bg-red-50 border-b border-red-200">
                   <p className="text-sm text-red-600">{createAppError}</p>
+                </div>
+              )}
+
+              {/* Loading indicator while files are being loaded */}
+              {loadingArtifactFiles && editingArtifact && (
+                <div className="p-3 bg-blue-50 border-b border-blue-200">
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <p className="text-sm text-blue-700">Loading artifact files...</p>
+                  </div>
                 </div>
               )}
 
@@ -888,7 +926,7 @@ class MyNewApp:
               {/* Show "Delete" button only when editing an artifact owned by the user */}
               {editingArtifact && isUserOwnedArtifact(editingArtifact.id) && (
                 <button
-                  onClick={() => setDeleteDialogOpen(true)}
+                  onClick={handleOpenDeleteArtifactDialog}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center"
                   title="Delete this app permanently"
                 >
@@ -903,11 +941,11 @@ class MyNewApp:
               {editingArtifact && shouldShowSaveAsCopy(editingArtifact.id) && (
                 <button
                   onClick={handleSaveAsCopy}
-                  disabled={createAppLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
+                  disabled={saveAsCopyLoading || files.length === 0 || !files.some(f => f.name === 'manifest.yaml')}
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
                   title="Create a copy of this app in your workspace"
                 >
-                  {createAppLoading ? (
+                  {saveAsCopyLoading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                       Creating Copy...
@@ -942,51 +980,7 @@ class MyNewApp:
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
-      {deleteDialogOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md mx-4 p-6 flex flex-col border border-white/20">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">
-              Confirm Delete
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Are you sure you want to delete the file <span className="font-medium">{deleteConfirmationText}</span>? This action cannot be undone.
-            </p>
-
-            {/* Error message for delete action */}
-            {deleteError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md mb-4">
-                <p className="text-sm text-red-600">{deleteError}</p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={handleCloseDeleteDialog}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteFile}
-                disabled={deleteLoading}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
-              >
-                {deleteLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete File'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Dialog */}
+      {/* Delete App Confirmation Dialog */}
       {deleteDialogOpen && editingArtifact && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -1021,11 +1015,7 @@ class MyNewApp:
 
             <div className="flex justify-end space-x-3">
               <button
-                onClick={() => {
-                  setDeleteDialogOpen(false);
-                  setDeleteConfirmationText('');
-                  setDeleteError(null);
-                }}
+                onClick={handleCloseDeleteArtifactDialog}
                 disabled={deleteLoading}
                 className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
