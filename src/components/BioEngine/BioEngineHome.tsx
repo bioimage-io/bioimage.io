@@ -10,6 +10,12 @@ type BioEngineService = {
   service?: any;
 };
 
+// Helper function to compare arrays
+const arraysEqual = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false;
+  return a.every((val, index) => val === b[index]);
+};
+
 // ServiceCard component for fancy instance cards
 const ServiceCard: React.FC<{
   service: BioEngineService;
@@ -95,39 +101,6 @@ const BioEngineHome: React.FC = () => {
   const [defaultServiceOnline, setDefaultServiceOnline] = useState<boolean | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
 
-  // Function to check if default service is online
-  const checkDefaultServiceStatus = async () => {
-    try {
-      // Create a timeout promise
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout')), 10000);
-      });
-
-      // Race between fetch and timeout
-      const response = await Promise.race([
-        fetch('https://hypha.aicell.io/bioimage-io/services/bioengine-worker/get_status?_mode=first', {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }),
-        timeoutPromise
-      ]);
-
-      // Only consider the service online if we get a successful response
-      if (response.ok && response.status >= 200 && response.status < 300) {
-        setDefaultServiceOnline(true);
-      } else {
-        // Don't log warnings for expected failures
-        setDefaultServiceOnline(false);
-      }
-    } catch (err) {
-      // Silently handle all errors: network errors, timeouts, 500 errors, etc.
-      // This is expected behavior when the service is offline
-      setDefaultServiceOnline(false);
-    }
-  };
-
   const fetchBioEngineServices = useCallback(async (isManualRefresh = false) => {
     if (!isLoggedIn) {
       setServicesLoading(!isManualRefresh);
@@ -139,9 +112,14 @@ const BioEngineHome: React.FC = () => {
       if (isManualRefresh) {
         setManualRefreshLoading(true);
       } else {
-        setServicesLoading(true);
+        // Only show loading if we don't have any services yet
+        if (bioEngineServices.length === 0) {
+          setServicesLoading(true);
+        }
       }
       setServicesError(null);
+      
+      // Get the list of services from the workspace
       const services = await server.listServices({ "type": "bioengine-worker" });
 
       const defaultService: BioEngineService = {
@@ -152,22 +130,45 @@ const BioEngineHome: React.FC = () => {
 
       const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);
 
-      // Only include default service if it's online and not already in the list
       let allServices = [...services];
-      if (!hasDefaultService && defaultServiceOnline === true) {
-        allServices = [defaultService, ...services];
+      let isDefaultOnline = false;
+
+      // If default service is not in the workspace list, try to access it directly
+      if (!hasDefaultService) {
+        try {
+          await server.getService("bioimage-io/bioengine-worker", { _mode: "first" });
+          allServices = [defaultService, ...services];
+          isDefaultOnline = true;
+          console.log('Default BioEngine service is online and added to list');
+        } catch (err) {
+          // Default service is not accessible, don't add it
+          console.log('Default BioEngine service is not accessible:', err instanceof Error ? err.message : String(err));
+          isDefaultOnline = false;
+        }
+      } else {
+        isDefaultOnline = true; // It's in the workspace list
       }
 
-      // Check if we found new services and scroll to them
-      const foundNewServices = allServices.length > bioEngineServices.length;
+      // Compare with current services list to see if anything changed
+      const servicesChanged = !arraysEqual(
+        allServices.map(s => s.id).sort(),
+        bioEngineServices.map(s => s.id).sort()
+      );
 
-      setBioEngineServices(allServices);
+      const defaultStatusChanged = isDefaultOnline !== defaultServiceOnline;
 
-      // Scroll to services section if new services were found
-      if (foundNewServices && allServices.length > 0 && servicesRef.current) {
-        setTimeout(() => {
-          servicesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 100);
+      // Only update state if something actually changed
+      if (servicesChanged || defaultStatusChanged) {
+        setDefaultServiceOnline(isDefaultOnline);
+        setBioEngineServices(allServices);
+        
+        // Check if we found new services and scroll to them
+        const foundNewServices = allServices.length > bioEngineServices.length;
+        if (foundNewServices && allServices.length > 0 && servicesRef.current) {
+          setTimeout(() => {
+            servicesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 100);
+        }
       }
 
       if (isManualRefresh) {
@@ -183,24 +184,25 @@ const BioEngineHome: React.FC = () => {
         setServicesLoading(false);
       }
     }
-  }, [isLoggedIn, server, defaultServiceOnline, bioEngineServices.length]);
+  }, [isLoggedIn, server, bioEngineServices, defaultServiceOnline, servicesRef]);
 
-  // Check default service status on mount
-  useEffect(() => {
-    checkDefaultServiceStatus();
-  }, []);
-
-  // Fetch services when login state changes or default service status changes
+  // Initialize services on mount
   useEffect(() => {
     if (isLoggedIn) {
       fetchBioEngineServices();
-    } else {
+    }
+  }, [isLoggedIn, fetchBioEngineServices]);
+
+  // Fetch services when login state changes (avoid duplicate with initial effect)
+  useEffect(() => {
+    if (!isLoggedIn) {
       // Reset services state when logged out
       setBioEngineServices([]);
       setServicesLoading(false);
       setServicesError('Please log in to view your BioEngine instances');
+      setDefaultServiceOnline(null);
     }
-  }, [isLoggedIn, fetchBioEngineServices]);
+  }, [isLoggedIn]);
 
   // Auto-refresh services every 5 seconds
   useEffect(() => {
