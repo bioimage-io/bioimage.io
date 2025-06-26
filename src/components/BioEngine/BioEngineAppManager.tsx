@@ -114,16 +114,24 @@ deployment_config:
 deployment_class:
   class_name: MyNewApp
   python_file: main.py
+  max_num_models_per_replica: 3  # Applies to the method \`_get_model\`
   exposed_methods:
     ping:
-      authorized_users: "*"
+      authorized_users: "*"  # Allow all users to ping the model
+      description: "Ping the application to check connectivity"
     process:
-      authorized_users: "*"
-  kwargs: {}
+      authorized_users: "*"  # Allow all users to process data
+      description: "Process some data with the application"
 `;
 
-  const getDefaultMainPy = () => `import time
+  const getDefaultMainPy = () => `# All standard python libraries can be imported at the top of this file.
+import asyncio
+import time
 from datetime import datetime
+from typing import Any
+
+# All non standard libraries need to be imported in each method where they are used.
+
 
 class MyNewApp:
     """A simple BioEngine application example."""
@@ -132,9 +140,62 @@ class MyNewApp:
         """Initialize the application."""
         self.start_time = time.time()
         print("MyNewApp initialized successfully!")
+
+    # === Internal Bioengine App Methods ===
+
+    async def _async_init(self) -> None:
+        """
+        An optional async initialization method for the deployment. If defined, it will be called
+        when the deployment is started.
+
+        Requirements:
+        - Must be an async method.
+        - Must not accept any arguments.
+        - Must not return any value.
+        """
+        # Mock initialization logic
+        print("Initializing DemoDeployment...")
+        await asyncio.sleep(0.01)
+
+    async def _get_model(self, model_id: str) -> Any:
+        """
+        An optional method to load multiplexed models in a replica. If defined, the decorator
+        \`@ray.serve.multiplexed\` will be added to the method.
+
+        Requirements:
+        - Must be an async method.
+        - Must accept exactly one argument: model_id (str).
+        - Must return the loaded model (can be any type, e.g., a machine learning model).
+
+        The entry \`deployment_class.max_num_models_per_replica = <int>\` in the manifest
+        can be used to change the default maximum number of models per replica (default is 3).
+        """
+        # Mock model loading logic
+        print(f"Loading model with ID: {model_id}")
+        model = None
+
+        return model
+
+    async def _test_deployment(self) -> bool:
+        """
+        An optional method to test the deployment. If defined, it will be called when the deployment
+        is started to check if the deployment is working correctly.
+
+        Requirements:
+        - Must be an async method.
+        - Must not accept any arguments.
+        - Must return a boolean value indicating whether the deployment is working correctly.
+        """
+        try:
+            model = await self._get_model(model_id="test_model")
+            return True
+        except Exception as e:
+            return False
+
+    # === Replace with your own methods ===
     
     def ping(self):
-        """Simple ping method to test connectivity."""
+        """An example method to test connectivity."""
         return {
             "status": "ok",
             "message": "Hello from MyNewApp!",
@@ -143,7 +204,7 @@ class MyNewApp:
         }
     
     def process(self, data=None):
-        """Process some data - customize this for your use case."""
+        """An example method to process some data."""
         if data is None:
             data = "No data provided"
         
