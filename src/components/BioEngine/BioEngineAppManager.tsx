@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useHyphaStore } from '../../store/hyphaStore';
 import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
 
@@ -346,8 +345,6 @@ class MyNewApp:
 
         // Clean the manifest object to remove any non-serializable properties
         const cleanManifest = JSON.parse(JSON.stringify(manifestObj));
-        console.log('Original manifest object:', artifact.manifest);
-        console.log('Cleaned manifest object:', cleanManifest);
 
         manifestText = yaml.dump(cleanManifest, {
           indent: 2,
@@ -356,7 +353,6 @@ class MyNewApp:
           skipInvalid: true,
           flowLevel: -1
         });
-        console.log('Generated YAML from manifest:', manifestText);
       } else {
         manifestText = getDefaultManifest();
       }
@@ -374,11 +370,9 @@ class MyNewApp:
       setCreateAppDialogOpen(true);
 
       // Load other files in the background
-      console.log('Loading real files from artifact:', artifact.id);
       try {
         const currentArtifactManager = artifactManager || await server.getService('public/artifact-manager');
         const fileList = await currentArtifactManager.list_files({ artifact_id: artifact.id, _rkwargs: true });
-        console.log('Files found in artifact:', fileList);
 
         // Filter out manifest.yaml since we already have it, and load other files
         const filesToLoad = fileList.filter((file: any) =>
@@ -397,13 +391,11 @@ class MyNewApp:
             const size = fileInfo.size || 0;
 
             if (isEditable) {
-              console.log(`Loading editable file: ${fileInfo.name}`);
               const fileUrl = await currentArtifactManager.get_file({
                 artifact_id: artifact.id,
                 file_path: fileInfo.name,
                 _rkwargs: true
               });
-              console.log(`File URL for ${fileInfo.name}:`, fileUrl);
               
               const response = await fetch(fileUrl);
 
@@ -420,7 +412,6 @@ class MyNewApp:
                 
                 // Add file to the state immediately as it loads
                 setFiles(prevFiles => [...prevFiles, newFile]);
-                console.log(`Successfully loaded ${fileInfo.name} (${content.length} chars)`);
               } else {
                 console.warn(`Failed to fetch ${fileInfo.name}: ${response.status} ${response.statusText}`);
                 // Add as non-editable if fetch failed
@@ -436,7 +427,6 @@ class MyNewApp:
               }
             } else {
               // Add binary/non-editable files to the list but don't load content
-              console.log(`Adding non-editable file to list: ${fileInfo.name}`);
               const binaryFile = {
                 name: fileInfo.name,
                 content: `// Binary file - not editable\n// Size: ${formatFileSize(size)}\n// Last modified: ${lastModified || 'Unknown'}`,
@@ -462,8 +452,6 @@ class MyNewApp:
           }
         }
 
-        console.log(`Finished loading files from artifact`);
-
       } catch (listErr) {
         console.error('Failed to list or load files from artifact:', listErr);
         setCreateAppError(`Failed to load artifact files: ${listErr}. Using fallback files.`);
@@ -471,7 +459,6 @@ class MyNewApp:
         // Fallback: try to load main.py individually
         try {
           const currentArtifactManager = artifactManager || await server.getService('public/artifact-manager');
-          console.log('Attempting fallback main.py load...');
           const mainPyUrl = await currentArtifactManager.get_file({ 
             artifact_id: artifact.id, 
             file_path: 'main.py', 
@@ -488,7 +475,6 @@ class MyNewApp:
               isEditable: true
             };
             setFiles(prevFiles => [...prevFiles, mainPyFile]);
-            console.log('Successfully fetched main.py via fallback');
           } else {
             throw new Error(`HTTP ${mainPyResponse.status}: ${mainPyResponse.statusText}`);
           }
@@ -507,7 +493,6 @@ class MyNewApp:
       // Ensure we have at least main.py - check current files state
       setFiles(prevFiles => {
         if (!prevFiles.some(f => f.name === 'main.py')) {
-          console.log('No main.py found after loading, adding default');
           return [...prevFiles, {
             name: 'main.py',
             content: getDefaultMainPy(),
@@ -556,7 +541,6 @@ class MyNewApp:
       let manifestObj;
       try {
         manifestObj = yaml.load(manifestFile.content);
-        console.log('Parsed manifest object:', manifestObj);
       } catch (yamlErr) {
         setCreateAppError(`Invalid YAML in manifest.yaml: ${yamlErr}`);
         return;
@@ -573,19 +557,14 @@ class MyNewApp:
         // 1. Update the artifact's manifest metadata using artifactManager.edit
         // 2. Upload all files including the manifest.yaml
 
-        console.log('Updating existing artifact:', editingArtifact.id);
-
         // Update the manifest metadata
         await artifactManager.edit({ artifact_id: editingArtifact.id, manifest: manifestObj, _rkwargs: true });
-        console.log('Updated artifact manifest metadata');
 
         // Upload all files including manifest.yaml
         await bioengineWorker.create_artifact({ files: filesToUpload, artifact_id: editingArtifact.id, _rkwargs: true });
-        console.log('Uploaded files to artifact');
 
       } else {
         // For creating new artifacts, just use create_artifact with files
-        console.log('Creating new artifact');
         await bioengineWorker.create_artifact({ files: filesToUpload, _rkwargs: true });
       }
 
@@ -595,8 +574,6 @@ class MyNewApp:
       if (onArtifactUpdated) {
         onArtifactUpdated();
       }
-
-      console.log(`Successfully ${editingArtifact ? 'updated' : 'created'} artifact`);
     } catch (err) {
       console.error('Failed to create/update artifact:', err);
       setCreateAppError(`Failed to ${editingArtifact ? 'update' : 'create'} artifact: ${err}`);
@@ -625,7 +602,6 @@ class MyNewApp:
       let manifestObj: any;
       try {
         manifestObj = yaml.load(manifestFile.content);
-        console.log('Parsed manifest object for copy:', manifestObj);
 
         // Ensure the manifest ID is just the alias (not workspace/alias)
         if (manifestObj && manifestObj.id && typeof manifestObj.id === 'string' && manifestObj.id.includes('/')) {
@@ -654,8 +630,6 @@ class MyNewApp:
       if (onArtifactUpdated) {
         onArtifactUpdated();
       }
-
-      console.log('Successfully created artifact copy');
     } catch (err) {
       console.error('Failed to create artifact copy:', err);
       setCreateAppError(`Failed to create artifact copy: ${err}`);
