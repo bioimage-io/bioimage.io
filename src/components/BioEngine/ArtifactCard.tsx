@@ -41,7 +41,8 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
 
   const handleDeploy = () => {
     setIsDeploying(true);
-    onDeploy(artifact.id, artifactMode);
+    const modeToUse = artifactMode || artifact.defaultMode || 'cpu';
+    onDeploy(artifact.id, modeToUse);
     if (onDeployFeedback) {
       onDeployFeedback('Deployment started', 'info');
     }
@@ -191,7 +192,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   };
 
   const ResourceInfo: React.FC<{ className?: string }> = ({ className = "" }) => {
-    const currentMode = artifactMode || 'cpu';
+    const currentMode = artifactMode || artifact.defaultMode || 'cpu';
     const resources = getComputationalResources(artifact.manifest, currentMode);
 
     if (!resources) return null;

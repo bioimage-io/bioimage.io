@@ -40,6 +40,7 @@ interface AvailableBioEngineAppsProps {
   onDeployArtifact?: (artifactId: string, mode?: string | null) => void;
   onUndeployArtifact?: (artifactId: string) => void;
   onModeChange?: (artifactId: string, checked: boolean) => void;
+  onSetArtifactMode?: (artifactId: string, mode: string) => void;
   isArtifactDeployed?: (artifactId: string) => boolean;
   getDeploymentStatus?: (artifactId: string) => string | null;
   isDeployButtonDisabled?: (artifactId: string) => boolean;
@@ -58,6 +59,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   onDeployArtifact,
   onUndeployArtifact,
   onModeChange,
+  onSetArtifactMode,
   isArtifactDeployed,
   getDeploymentStatus,
   isDeployButtonDisabled,
@@ -189,6 +191,15 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       }
 
       setAvailableArtifacts(allArtifacts);
+
+      // After setting artifacts, initialize modes for artifacts that support both CPU and GPU
+      if (onSetArtifactMode) {
+        allArtifacts.forEach(artifact => {
+          if (artifact.supportedModes?.cpu && artifact.supportedModes?.gpu && !artifactModes[artifact.id]) {
+            onSetArtifactMode(artifact.id, 'cpu');
+          }
+        });
+      }
     } catch (err) {
       console.error('Error fetching artifacts:', err);
       setError(`Failed to fetch artifacts: ${err}`);
