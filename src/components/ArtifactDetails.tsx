@@ -219,7 +219,7 @@ const ArtifactDetails = () => {
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
         }}
       >
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
         {manifest.id_emoji} {manifest.name} 
         </Typography>
         <Typography variant="subtitle1" color="text.secondary" gutterBottom className="flex items-center gap-2">
@@ -324,7 +324,7 @@ const ArtifactDetails = () => {
                       backdropFilter: 'blur(8px)',
                       border: '1px solid rgba(16, 185, 129, 0.2)',
                       color: 'white',
-                      fontWeight: 600,
+                      fontWeight: 300,
                       px: 4,
                       py: 1.5,
                       fontSize: '0.95rem',
@@ -573,7 +573,7 @@ const ArtifactDetails = () => {
               }}
             >
               <CardContent sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                   Versions
                 </Typography>
                 <Stack spacing={2}>
@@ -642,7 +642,7 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Authors
               </Typography>
@@ -693,7 +693,7 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 Statistics
               </Typography>
               <Stack spacing={1}>
@@ -776,7 +776,7 @@ const ArtifactDetails = () => {
               }}
             >
               <CardContent sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                   Citations
                 </Typography>
                 <Stack spacing={2}>
@@ -822,7 +822,7 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Tags
               </Typography>
@@ -864,7 +864,7 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Links
               </Typography>
@@ -900,7 +900,7 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#1f2937' }}>License</Typography>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>License</Typography>
               <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>{manifest.license}</Typography>
             </CardContent>
           </Card>
