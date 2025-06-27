@@ -285,7 +285,41 @@ const ArtifactDetails = () => {
             >
               Download
             </Button>
-            <Button
+            
+            {selectedResource?.manifest?.type === 'model' && (
+              <>
+                {!showModelRunner && (
+                  <Button
+                    onClick={handleRunModel}
+                    variant="outlined"
+                    size="medium"
+                    sx={{
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                      backdropFilter: 'blur(8px)',
+                      border: '2px solid #3b82f6',
+                      color: '#3b82f6',
+                      fontWeight: 500,
+                      px: 4,
+                      py: 1.5,
+                      fontSize: '0.95rem',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderColor: '#2563eb',
+                        color: '#2563eb',
+                        transform: 'translateY(-2px) scale(1.02)',
+                        boxShadow: '0 8px 25px rgba(59, 130, 246, 0.2)',
+                      },
+                    }}
+                  >
+                    Test Run Model
+                  </Button>
+                )}
+              </>
+            )}
+
+<Button
               onClick={handleViewSource}
               startIcon={<CodeIcon />}
               variant="outlined"
@@ -311,37 +345,6 @@ const ArtifactDetails = () => {
             >
               View Source
             </Button>
-            {selectedResource?.manifest?.type === 'model' && (
-              <>
-                {!showModelRunner && (
-                  <Button
-                    onClick={handleRunModel}
-                    variant="contained"
-                    size="medium"
-                    sx={{
-                      background: 'linear-gradient(135deg, #059669, #10b981)',
-                      borderRadius: '12px',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(16, 185, 129, 0.2)',
-                      color: 'white',
-                      fontWeight: 300,
-                      px: 4,
-                      py: 1.5,
-                      fontSize: '0.95rem',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        background: 'linear-gradient(135deg, #047857, #059669)',
-                        borderColor: 'rgba(16, 185, 129, 0.4)',
-                        transform: 'translateY(-2px) scale(1.02)',
-                        boxShadow: '0 8px 25px rgba(16, 185, 129, 0.3)',
-                      },
-                    }}
-                  >
-                    Test Run Model
-                  </Button>
-                )}
-              </>
-            )}
             {latestVersion && (
               <Chip 
                 icon={<UpdateIcon />} 
