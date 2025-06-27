@@ -170,15 +170,25 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
               <div className="flex flex-wrap gap-1">
                 {deployment.available_methods.map((method: string) => (
-                  <a
-                    key={method}
-                    href={serviceId ? `https://hypha.aicell.io/${serviceId.split('/')[0]}/services/${serviceId.split('/')[1]}/${deployment.deployment_name}.${method}` : '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors"
-                  >
-                    {method}
-                  </a>
+                  serviceId ? (
+                    <a
+                      key={method}
+                      href={`https://hypha.aicell.io/${serviceId.split('/')[0]}/services/${serviceId.split('/')[1]}/${deployment.deployment_name}.${method}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"
+                    >
+                      {method}
+                    </a>
+                  ) : (
+                    <span
+                      key={method}
+                      className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed opacity-60"
+                      title="Service ID not available yet"
+                    >
+                      {method}
+                    </span>
+                  )
                 ))}
               </div>
             </div>
