@@ -257,7 +257,7 @@ class BioEngineExecutor {
   async init() {
     const server = await hyphaWebsocketClient.connectToServer({
       server_url: this.serverUrl,
-      method_timeout: 30,
+      method_timeout: 360,
       name: "client",
     });
     // this.runner = await server.getService("bioimage-io/bioimageio-model-runner");
