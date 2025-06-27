@@ -98,12 +98,14 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
     
     try {
       setLoadingStep('Connecting to model runner service...');
-      const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
+      // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
+      const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
+      const runner = bioengine.bioimage_io_model_runner;
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
       console.log(`Testing model ${modelId} at ${modelUrl}`);
-      const result = await runner.test(modelId, modelUrl);
+      const result = await runner.test({model_id: modelUrl || modelId, _rkwargs: true});
       console.log("Test result:", result);
       setTestResult(result);
     } catch (err) {

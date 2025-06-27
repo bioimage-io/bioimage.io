@@ -65,8 +65,9 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
     setIsMenuOpen(false);
     
     try {
-      const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      
+      // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
+      const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
+      const runner = bioengine.bioimage_io_model_runner;
       // Parse the RDF content and assert its type
       let rdfDict = yaml.load(rdfContent) as RdfWithUploader | null;
       
@@ -92,7 +93,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
         return; // Stop validation if RDF is invalid
       }
 
-      const result = await runner.validate(rdfDict); // Pass the modified dictionary
+      const result = await runner.validate({rdf_dict: rdfDict, _rkwargs: true}); // Pass the modified dictionary
       console.log("Validation result:", result);
       
       setValidationResult(result);
