@@ -206,7 +206,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
               <Menu.Items
                 static
                 ref={menuRef}
-                className="absolute right-0 mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-[100]"
+                className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-[600px] max-w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-[100]"
               >
                 {renderContent()}
               </Menu.Items>

@@ -1,9 +1,5 @@
-import React, { useState } from 'react';
-import Button from '@mui/material/Button';
-import Menu from '@mui/material/Menu';
-import ListSubheader from '@mui/material/ListSubheader';
+import React, { useState, useRef, useEffect } from 'react';
 import TuneIcon from '@mui/icons-material/Tune';
-import { Grid, Chip, Divider } from '@mui/material';
 
 interface TagSelectionProps {
   onTagSelect: (tag: string) => void;
@@ -52,112 +48,101 @@ export const tagCategories = {
 };
 
 const TagSelection: React.FC<TagSelectionProps> = ({ onTagSelect, selectedTags = [] }) => {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
+          buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
 
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleTagClick = (tag: string) => {
     onTagSelect(`${tag}`);
-    handleClose();
+    setIsOpen(false);
+  };
+
+  const formatCategoryName = (category: string) => {
+    return category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
   return (
-    <div>
-      <Button
-        variant="outlined"
-        onClick={handleClick}
-        sx={{ 
-          minWidth: 'auto',
-          padding: '6px 12px',
-          height: '40px',
-          borderColor: 'divider',
-          '&:hover': {
-            borderColor: 'text.primary'
-          }
-        }}
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setIsOpen(!isOpen)}
+        className="h-12 w-12 rounded-lg bg-white/80 backdrop-blur-sm border border-white/50 hover:border-blue-200/60 hover:bg-white/90 transition-all duration-300 shadow-sm hover:shadow-md group flex items-center justify-center"
+        aria-label="Filter by tags"
+        title="Filter by tags"
       >
-        <TuneIcon fontSize="small" />
-      </Button>
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        sx={{ 
-          '& .MuiPaper-root': {
-            width: 400,
-            maxHeight: 600,
-          }
-        }}
-      >
-        <div style={{ position: 'relative' }}>
-          <div style={{ 
-            position: 'sticky', 
-            top: 0, 
-            backgroundColor: 'white',
-            zIndex: 1,
-            padding: '16px'
-          }}>
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-semibold">Filter by Tags</h3>
-              <Button 
-                size="small" 
-                onClick={handleClose}
-                sx={{ minWidth: 'auto' }}
-              >
-                Close
-              </Button>
-            </div>
-            <Divider sx={{ mt: 2 }} />
-          </div>
+        <TuneIcon className="text-gray-600 group-hover:text-blue-600 transition-colors duration-300" fontSize="small" />
+      </button>
 
-          <div style={{ padding: '16px' }}>
-            {Object.entries(tagCategories).map(([category, tags]) => (
-              <div key={category} style={{ marginBottom: '24px' }}>
-                <ListSubheader 
-                  sx={{
-                    bgcolor: 'transparent',
-                    fontWeight: 600,
-                    lineHeight: '2rem',
-                    color: 'text.primary',
-                    padding: 0
-                  }}
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40" onClick={() => setIsOpen(false)} />
+          
+          {/* Dropdown */}
+          <div
+            ref={dropdownRef}
+            className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[80vw] max-w-[500px] bg-white/95 backdrop-blur-lg rounded-lg border border-white/50 shadow-xl shadow-blue-200/10 z-50 max-h-[80vh] overflow-hidden"
+          >
+            {/* Header */}
+            <div className="sticky top-0 bg-white/90 backdrop-blur-lg border-b border-blue-100/50 p-4 z-10">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  Filter by Tags
+                </h3>
+                <button 
+                  onClick={() => setIsOpen(false)}
+                  className="px-3 py-1 text-sm text-gray-600 hover:text-blue-600 transition-colors duration-300 hover:bg-blue-50/50 rounded-lg"
                 >
-                  {category.replace(/-/g, ' ')}
-                </ListSubheader>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {tags.map((tag) => {
-                    const isSelected = selectedTags.includes(tag);
-                    return (
-                      <Chip
-                        key={tag}
-                        label={tag}
-                        size="small"
-                        clickable
-                        onClick={() => handleTagClick(tag)}
-                        sx={{
-                          borderRadius: 1,
-                          bgcolor: isSelected ? 'primary.main' : 'action.selected',
-                          color: isSelected ? 'primary.contrastText' : 'inherit',
-                          '&:hover': {
-                            bgcolor: isSelected ? 'primary.dark' : 'action.hover'
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
+                  Close
+                </button>
               </div>
-            ))}
+            </div>
+
+            {/* Content */}
+            <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {Object.entries(tagCategories).map(([category, tags]) => (
+                  <div key={category} className="mb-4 last:mb-0">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
+                      {formatCategoryName(category)}
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => {
+                        const isSelected = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            onClick={() => handleTagClick(tag)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-300 border backdrop-blur-sm ${
+                              isSelected
+                                ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white border-blue-500/20 shadow-md hover:from-blue-700 hover:to-blue-800 hover:shadow-lg'
+                                : 'bg-white/70 text-gray-700 border-white/50 hover:bg-white/90 hover:border-blue-200/60 hover:text-blue-600 hover:shadow-sm'
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </Menu>
+        </>
+      )}
     </div>
   );
 };

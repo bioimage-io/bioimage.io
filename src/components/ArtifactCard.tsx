@@ -75,14 +75,19 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        border: '1px solid rgba(0, 0, 0, 0.12)',
-        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)',
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(255, 255, 255, 0.5)',
+        borderRadius: '16px',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
         cursor: 'pointer',
         position: 'relative',
+        transition: 'all 0.3s ease',
         '&:hover': {
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.12)',
-          transform: 'translateY(-2px)',
-          transition: 'all 0.2s ease-in-out',
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          borderColor: 'rgba(59, 130, 246, 0.3)',
+          boxShadow: '0 8px 25px rgba(0, 0, 0, 0.1)',
+          transform: 'translateY(-4px)',
           '& .preview-button': {
             opacity: 1,
           },
@@ -101,15 +106,20 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           top: 8,
           left: 8,
           zIndex: 1,
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255, 255, 255, 0.5)',
+          borderRadius: '12px',
           opacity: 0,
-          transition: 'opacity 0.2s ease-in-out',
+          transition: 'all 0.3s ease',
           '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: 'rgba(59, 130, 246, 0.3)',
+            transform: 'scale(1.05)',
           }
         }}
       >
-        <VisibilityIcon fontSize="small" />
+        <VisibilityIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
       </IconButton>
 
       <PreviewDialog 
@@ -118,7 +128,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         onClose={handlePreviewClose}
       />
 
-      <div style={{ position: 'relative', paddingTop: '56.25%' }}> {/* 16:9 aspect ratio container */}
+      <div style={{ position: 'relative', paddingTop: '56.25%', borderRadius: '16px 16px 0 0', overflow: 'hidden' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
           <CardMedia
             onClick={handleClick}
@@ -132,7 +142,10 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
+              transition: 'transform 0.3s ease',
+              '&:hover': {
+                transform: 'scale(1.02)',
+              }
             }}
           />
         ) : (
@@ -146,8 +159,8 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: '#f5f5f5',
-              borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
+              backgroundColor: 'rgba(249, 250, 251, 0.8)',
+              backdropFilter: 'blur(4px)',
             }}
           >
             {artifact.manifest.icon ? (
@@ -163,7 +176,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             ) : artifact.manifest.id_emoji ? (
               <span style={{ fontSize: '3rem' }}>{artifact.manifest.id_emoji}</span>
             ) : (
-              <div className="w-16 h-16 bg-gray-200 rounded-full" />
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
             )}
           </div>
         )}
@@ -181,7 +194,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               ) : artifact.manifest.id_emoji ? (
                 <span className="text-xl">{artifact.manifest.id_emoji}</span>
               ) : (
-                <div className="w-6 h-6 bg-gray-200 rounded-full" />
+                <div className="w-6 h-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
               )}
             </div>
             <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
@@ -190,21 +203,28 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           </div>
 
           <div className="flex items-center gap-1 text-xs text-gray-500">
-            <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/50">
               <span className="font-medium">ID:</span>
               <code className="font-mono">{artifact.id.split('/').pop()}</code>
               <Tooltip title="Copy ID" placement="top">
                 <IconButton
                   onClick={handleCopyId}
                   size="small"
-                  className="ml-1 text-gray-400 hover:text-gray-600"
-                  sx={{ padding: '2px' }}
+                  className="ml-1 text-gray-400 hover:text-blue-600"
+                  sx={{ 
+                    padding: '2px',
+                    borderRadius: '8px',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    }
+                  }}
                 >
                   <ContentCopyIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>
               {showCopied && (
-                <span className="text-green-600 ml-1">Copied!</span>
+                <span className="text-green-600 ml-1 font-medium">Copied!</span>
               )}
             </div>
           </div>
@@ -219,7 +239,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             {artifact.manifest.tags?.slice(0, 3).map((tag: string) => (
               <span
                 key={tag}
-                className="px-2 py-0.5 bg-gray-50 text-gray-600 text-xs rounded-full border border-gray-100"
+                className="px-2.5 py-1 bg-gray-50/80 text-gray-500 text-xs rounded-full border border-gray-100/60 transition-all duration-300 hover:bg-gray-100/80 hover:text-gray-600"
               >
                 {tag}
               </span>
@@ -233,7 +253,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded-full border border-blue-100 flex items-center gap-1 hover:bg-blue-100 transition-colors"
+                className="px-2 py-0.5 bg-gradient-to-r from-blue-50/80 to-blue-100/80 backdrop-blur-sm text-blue-600 text-xs rounded-lg border border-blue-200/50 flex items-center gap-1 hover:from-blue-100/90 hover:to-blue-200/90 hover:border-blue-300/60 transition-all duration-300"
               >
                 {badge.icon && <img src={badge.icon} alt="" className="h-4" />}
                 {badge.label}
@@ -255,11 +275,17 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           right: 16,
           opacity: 0,
           transform: 'translateY(10px)',
-          transition: 'all 0.2s ease-in-out',
-          backgroundColor: '#2563eb',
+          transition: 'all 0.3s ease',
+          background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+          borderRadius: '12px',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
           color: 'white',
+          fontWeight: 500,
           '&:hover': {
-            backgroundColor: '#1d4ed8',
+            background: 'linear-gradient(135deg, #2563eb, #4f46e5)',
+            borderColor: 'rgba(59, 130, 246, 0.4)',
+            transform: 'translateY(0) scale(1.05)',
           },
         }}
       >

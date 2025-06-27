@@ -20,38 +20,38 @@ const Navbar: React.FC = () => {
   };
 
   const navLinkClasses = (path: string): string => {
-    const baseClasses = "flex items-center px-3 py-2";
-    const activeClasses = "text-blue-600 font-medium";
-    const inactiveClasses = "text-gray-700 hover:text-gray-900";
+    const baseClasses = "flex items-center px-4 py-2 rounded-xl transition-all duration-300";
+    const activeClasses = "text-blue-700 font-semibold";
+    const inactiveClasses = "text-gray-700 hover:text-blue-600";
     
     return `${baseClasses} ${isActivePath(path) ? activeClasses : inactiveClasses}`;
   };
 
   const mobileNavLinkClasses = (path: string): string => {
-    const baseClasses = "flex items-center px-3 py-2 rounded-md hover:bg-gray-50";
-    const activeClasses = "text-blue-600 font-medium bg-blue-50";
-    const inactiveClasses = "text-gray-700 hover:text-gray-900";
+    const baseClasses = "flex items-center px-4 py-3 rounded-xl transition-all duration-300";
+    const activeClasses = "text-blue-700 font-semibold";
+    const inactiveClasses = "text-gray-700 hover:text-blue-600";
     
     return `${baseClasses} ${isActivePath(path) ? activeClasses : inactiveClasses}`;
   };
 
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
-      <div className="max-w-[1400px] mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
+    <nav className="sticky top-0 z-50 bg-gradient-to-r from-blue-50/90 via-purple-50/85 to-cyan-50/90 backdrop-blur-lg border-b border-blue-100/40 shadow-xl shadow-blue-200/20 h-16">
+      <div className="max-w-[1400px] mx-auto px-6 h-full">
+        <div className="flex items-center justify-between h-full">
           {/* Left section with logo */}
           <div className="flex items-center">
-            <Link to="/" className="flex items-center">
+            <Link to="/" className="flex items-center group">
               <img 
                 src="https://bioimage.io/static/img/bioimage-io-logo.svg"
                 alt="BioImage.IO"
-                className="h-12"
+                className="h-10 group-hover:scale-105 transition-transform duration-300"
               />
             </Link>
           </div>
 
           {/* Center section with navigation */}
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden lg:flex items-center space-x-2">
             <Link to="/models" className={navLinkClasses("/models")}>
               <BiCube className="mr-2" size={20} />
               Models
@@ -80,14 +80,14 @@ const Navbar: React.FC = () => {
           </div>
 
           {/* Right section with auth buttons */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             {/* Move Upload and Login buttons to desktop-only view */}
-            <div className="hidden md:flex items-center space-x-4">
+            <div className="hidden lg:flex items-center space-x-3">
               
               {location.pathname !== '/upload' && (
                 <Link
                   to="/upload"
-                  className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all duration-300 flex items-center shadow-lg hover:shadow-xl backdrop-blur-sm border border-blue-500/20 hover:scale-105 font-medium"
                 >
                   <IoCloudUploadOutline className="mr-2" size={18} />
                   Upload
@@ -96,7 +96,7 @@ const Navbar: React.FC = () => {
               {user?.email && location.pathname !== '/my-artifacts' && (
                 <Link
                   to="/my-artifacts"
-                  className="hover:bg-gray-50 px-4 py-2 rounded-md flex items-center"
+                  className="px-4 py-2 rounded-xl bg-white/80 text-gray-700 hover:bg-white/95 hover:text-blue-600 transition-all duration-300 flex items-center backdrop-blur-sm border border-blue-200/50 hover:border-blue-300/60 hover:shadow-lg font-medium"
                 >
                   <BsCollection className="mr-2" size={18} />
                   Artifacts
@@ -107,10 +107,12 @@ const Navbar: React.FC = () => {
             
             {/* Mobile menu button */}
             <button 
-              className="md:hidden"
+              className="lg:hidden p-2.5 rounded-xl bg-white/80 hover:bg-white/95 transition-all duration-300 backdrop-blur-sm border border-blue-200/50 hover:border-blue-300/60 hover:shadow-lg"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label="Toggle mobile menu"
+              title="Toggle mobile menu"
             >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-gray-600 hover:text-blue-600 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
@@ -118,45 +120,48 @@ const Navbar: React.FC = () => {
         </div>
 
         {/* Mobile menu */}
-        <div className={`md:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
-          <div className="px-2 pt-2 pb-3 space-y-1">
+        <div className={`lg:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
+          <div className="px-4 pt-4 pb-6 space-y-3 bg-white/90 backdrop-blur-lg rounded-2xl mt-4 mb-4 border border-blue-200/50 shadow-2xl shadow-blue-200/30">
             {user?.email && (
               <Link 
                 to="/my-artifacts" 
                 className={mobileNavLinkClasses("/my-artifacts")}
                 onClick={() => setIsMobileMenuOpen(false)}
               >
-                <BsCollection className="mr-2" size={18} />
+                <BsCollection className="mr-3" size={18} />
                 Artifacts
               </Link>
             )}
             <Link 
               to="/upload" 
-              className={mobileNavLinkClasses("/upload")}
+              className="flex items-center px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-lg backdrop-blur-sm border border-blue-500/20 font-medium"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              <IoCloudUploadOutline className="mr-2" size={18} />
+              <IoCloudUploadOutline className="mr-3" size={18} />
               Upload
             </Link>
             <Link 
               to="/models" 
               className={mobileNavLinkClasses("/models")}
+              onClick={() => setIsMobileMenuOpen(false)}
             >
-              <BiCube className="mr-2" size={20} />
+              <BiCube className="mr-3" size={20} />
               Models
             </Link>
             <Link 
               to="/datasets" 
               className={mobileNavLinkClasses("/datasets")}
+              onClick={() => setIsMobileMenuOpen(false)}
             >
-              <BsDatabase className="mr-2" size={18} />
+              <BsDatabase className="mr-3" size={18} />
               Datasets
             </Link>
             <Link 
               to="/applications" 
               className={mobileNavLinkClasses("/applications")}
+              onClick={() => setIsMobileMenuOpen(false)}
             >
-              <HiOutlineBeaker className="mr-2" size={20} />
+              <HiOutlineBeaker className="mr-3" size={20} />
               Applications
             </Link>
             <a 
@@ -164,33 +169,25 @@ const Navbar: React.FC = () => {
               className={mobileNavLinkClasses("/docs")}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => setIsMobileMenuOpen(false)}
             >
-              <IoDocumentTextOutline className="mr-2" size={18} />
+              <IoDocumentTextOutline className="mr-3" size={18} />
               Docs
             </a>
             <Link 
               to="/about" 
               className={mobileNavLinkClasses("/about")}
+              onClick={() => setIsMobileMenuOpen(false)}
             >
-              <AiOutlineInfoCircle className="mr-2" size={18} />
+              <AiOutlineInfoCircle className="mr-3" size={18} />
               About
             </Link>
 
             {/* Add divider */}
-            <div className="border-t border-gray-200 my-2"></div>
+            <div className="border-t border-blue-200/50 my-4"></div>
 
-            {/* Add Upload and Login buttons to mobile menu */}
-            {location.pathname !== '/upload' && (
-              <Link 
-                to="/upload" 
-                className={mobileNavLinkClasses("/upload")}
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                <IoCloudUploadOutline className="mr-2" size={18} />
-                Upload
-              </Link>
-            )}
-            <div className="px-3 py-2">
+            {/* Add Login button to mobile menu */}
+            <div className="px-4 py-2">
               <LoginButton />
             </div>
           </div>

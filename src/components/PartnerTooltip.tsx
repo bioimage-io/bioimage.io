@@ -24,7 +24,7 @@ const PartnerTooltip: React.FC<PartnerTooltipProps> = ({
 
   return createPortal(
     <div 
-      className="fixed bg-white text-gray-800 text-xs rounded-lg py-3 px-4 w-[250px] shadow-xl border border-gray-200 z-[100]"
+      className="fixed bg-white/90 backdrop-blur-lg text-gray-800 text-xs rounded-2xl py-4 px-5 w-[280px] shadow-xl border border-blue-200/50 z-[100] transition-all duration-300"
       style={{ 
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -33,25 +33,28 @@ const PartnerTooltip: React.FC<PartnerTooltipProps> = ({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="font-semibold text-sm mb-2 text-center">
+      <div className="font-semibold text-base mb-3 text-center bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
         {name}
       </div>
-      <div className="text-center mb-3 text-gray-600">
+      <div className="text-center mb-4 text-gray-600 leading-relaxed">
         {tooltip}
       </div>
-      <div className="border-t border-gray-200 my-2"></div>
       {link && (
-        <a
-          href={link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-center text-blue-600 hover:text-blue-800 underline mt-2"
-        >
-          Read more →
-        </a>
+        <>
+          <div className="border-t border-blue-100/50 my-3"></div>
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-center text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors duration-300 hover:scale-105 transform"
+          >
+            Read more →
+          </a>
+        </>
       )}
-      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-white"/>
-      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-[-1px] border-8 border-transparent border-t-gray-200"/>
+      {/* Tooltip arrow */}
+      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-white/90"/>
+      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-[-2px] border-8 border-transparent border-t-blue-200/50"/>
     </div>,
     document.body
   );

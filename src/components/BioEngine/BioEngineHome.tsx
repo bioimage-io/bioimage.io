@@ -341,13 +341,17 @@ const BioEngineHome: React.FC = () => {
     <div className="container mx-auto px-4 py-8">
       {/* Fancy Header - Always visible */}
       <div className="text-center mb-12">
-        <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4 leading-tight">
-          BioEngine
-        </h1>
-        <p className="text-xl text-gray-600 font-medium">
+        <div className="flex items-center justify-center gap-4">
+          <img src="/bioengine-icon.svg" alt="BioEngine Logo" className="w-12 h-12" />
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4 leading-tight">
+            BioEngine
+          </h1>
+        </div>
+        <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-4 rounded-full"></div>
+        <p className="mt-4 text-xl text-gray-600 font-medium">
           Unveiling cloud-powered AI for simplified Bioimage Analysis
         </p>
-        <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-4 rounded-full"></div>
+        
       </div>
 
       {/* BioEngine Guide - Always visible */}

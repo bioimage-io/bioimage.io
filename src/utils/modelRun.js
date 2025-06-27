@@ -254,16 +254,24 @@ class BioEngineExecutor {
     this.serverUrl = serverUrl;
   }
 
-  async init() {
-    const server = await hyphaWebsocketClient.connectToServer({
+  async init(token = null, serviceId = 'bioimage-io/bioengine-apps') {
+    const connectOptions = {
       server_url: this.serverUrl,
       method_timeout: 360,
       name: "client",
-    });
-    // this.runner = await server.getService("bioimage-io/bioimageio-model-runner");
-    const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
+    };
+    
+    // Add token if provided
+    if (token) {
+      connectOptions.token = token;
+    }
+    
+    const server = await hyphaWebsocketClient.connectToServer(connectOptions);
+    
+    // Use the provided service ID
+    const bioengine = await server.getService(serviceId, {mode: "last"});
     this.runner = bioengine.bioimage_io_model_runner;
-    console.log("Runner initialized");
+    console.log("Runner initialized with service:", serviceId);
   }
 
   async loadModelRdf(nickname) {
@@ -316,8 +324,8 @@ export class ModelRunnerEngine {
     this.modelId = null;
   }
 
-  async init() {
-    await this.bioengineExecutor.init();
+  async init(token = null, serviceId = 'bioimage-io/bioengine-apps') {
+    await this.bioengineExecutor.init(token, serviceId);
   }
 
   getInputMinShape() {
@@ -520,6 +528,7 @@ export class ModelRunnerEngine {
    * @param {Object} tileOverlaps - Tile overlaps for each axis
    * @param {Object|undefined} additionalParameters - Additional model parameters
    * @param {Function|undefined} reportFunc - Function to report progress
+   * @param {boolean} enableTiling - Whether to enable tiling (default: false)
    * @returns {Promise<Object>} - Output tensor
    */
   async runTiles(
@@ -529,7 +538,8 @@ export class ModelRunnerEngine {
     tileSizes,
     tileOverlaps,
     additionalParameters = undefined,
-    reportFunc = undefined
+    reportFunc = undefined,
+    enableTiling = false
   ) {
     if (!reportFunc) {
       reportFunc = (msg) => {
@@ -546,6 +556,17 @@ export class ModelRunnerEngine {
     }
     
     let padder = new ImgPadder(undefined, minShape, stepShape, 0);
+    
+    // Check if tiling is disabled or if tensor is small enough to process without tiling
+    if (!enableTiling) {
+      console.log("Tiling disabled - Running on whole tensor");
+      reportFunc("Running the model on whole image (tiling disabled)...");
+      const result = await this.runOneTensor(tensor, padder, additionalParameters);
+      console.log("Output tensor shape:", result.shape);
+      return result;
+    }
+    
+    // Tiling enabled - proceed with original tiling logic
     const tileSize = inputAxes.split("").map((a) => tileSizes[a]);
     const overlap = inputAxes.split("").map((a) => tileOverlaps[a]);
     

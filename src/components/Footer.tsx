@@ -42,88 +42,89 @@ const footerLinks = [
 
 const Footer: React.FC = () => {
   return (
-    <footer className="w-full py-8 px-4 mt-16 bg-gray-50 border-t border-gray-200">
+    <footer className="w-full py-12 px-4 mt-16 bg-gradient-to-b from-blue-50/50 via-purple-50/30 to-cyan-50/40 backdrop-blur-sm border-t border-blue-100/40">
       <div className="max-w-7xl mx-auto">
         {/* Links Section */}
-        <div className="flex flex-wrap justify-center items-start gap-4 mb-8">
+        <div className="flex flex-wrap justify-center items-start gap-6 mb-12">
           {footerLinks.map((link, index) => (
-            <div key={index} className="w-[150px] text-center">
+            <div key={index} className="w-32 sm:w-40 text-center flex-shrink-0">
               <div className="group relative" title={link.label}>
                 <a
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-block hover:opacity-80 transition-opacity"
+                  className="inline-block p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50 hover:bg-white/80 hover:border-blue-200/60 hover:shadow-lg transition-all duration-300 hover:scale-105 hover:-translate-y-1"
                 >
                   <figure className="flex flex-col items-center">
                     <img
                       src={link.icon}
                       alt={link.caption}
-                      className="h-[45px] w-auto object-contain mb-2"
+                      className="h-[45px] w-auto object-contain mb-3 group-hover:scale-110 transition-transform duration-300"
                     />
-                    <figcaption className="text-sm text-gray-600 hidden md:block">
+                    <figcaption className="text-sm text-gray-700 font-medium hidden md:block group-hover:text-blue-600 transition-colors duration-300">
                       {link.caption}
                     </figcaption>
                   </figure>
                 </a>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-4 py-2 bg-gray-900 text-white text-xs rounded-md shadow-lg whitespace-nowrap z-10">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-4 py-3 bg-gray-900/90 backdrop-blur-sm text-white text-xs rounded-xl shadow-xl whitespace-nowrap z-10 border border-gray-700/50">
                   {link.label}
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900/90"/>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-
         {/* Content Section */}
-        <div className="text-center space-y-6 max-w-4xl mx-auto">
-          <div className="border-t border-gray-200 pt-6">
-             {/* Made with love */}
-          <div className="pt-4">
-          <p className="text-sm font-medium text-gray-600">
-              
-              Made with <span role="img" aria-label="love">❤️</span> by the BioImage Model Zoo community
-            </p>
-            <br></br>
-        
-            
-          </div>
+        <div className="text-center space-y-8 max-w-4xl mx-auto">
+          <div className="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/50 p-8  transition-all duration-300">
+            {/* Made with love */}
+            <div className="mb-6">
+              <p className="text-lg font-semibold text-gray-700 mb-4">
+                Made with <span role="img" aria-label="love" className="text-red-500 animate-pulse">❤️</span> by the BioImage Model Zoo community
+              </p>
+            </div>
             
             <img
               src="/img/EuropeanFlag-Funded by the EU-POS.jpg"
               alt="Funded by the European Union"
-              className="w-[300px] mx-auto mb-4"
+              className="w-full max-w-xs mx-auto mb-6 rounded-xl transition-shadow duration-300"
             />
-              <p className="text-sm text-gray-600 leading-relaxed px-4">
+            
+            <p className="text-base text-gray-700 leading-relaxed px-4 mb-4 font-medium">
               BioImage.IO -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
             </p>
+            
             <p className="text-sm text-gray-600 leading-relaxed px-4">
               AI4Life receives funding from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them.
             </p>
           </div>
 
           {/* License and Terms */}
-          <div className="border-t border-gray-200 pt-6 flex flex-col items-center justify-center space-y-2">
-            <p className="text-sm text-gray-600">
-              All content is licensed under{' '}
-              <a 
-                href="https://creativecommons.org/licenses/by/4.0/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 hover:underline"
-              >
-                CC-BY 4.0
-              </a>
-              {' '}unless explicitly specified otherwise
-            </p>
-            <p className="text-sm text-gray-600">
-              <Link to="/toc" className="text-blue-600 hover:text-blue-800 hover:underline">
-                Terms of Service
-              </Link>
-            </p>
+          <div className="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/50 p-6  transition-all duration-300">
+            <div className="flex flex-col items-center justify-center space-y-3">
+              <p className="text-sm text-gray-700">
+                All content is licensed under{' '}
+                <a 
+                  href="https://creativecommons.org/licenses/by/4.0/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-300"
+                >
+                  CC-BY 4.0
+                </a>
+                {' '}unless explicitly specified otherwise
+              </p>
+              <p className="text-sm text-gray-700">
+                <Link 
+                  to="/toc" 
+                  className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-300 hover:scale-105 transform inline-block"
+                >
+                  Terms of Service
+                </Link>
+              </p>
+            </div>
           </div>
-
-         
         </div>
       </div>
     </footer>

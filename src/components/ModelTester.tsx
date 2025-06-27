@@ -276,7 +276,7 @@ Please keep this window open while the test is running.`;
               // Dropdown for desktop
               <div 
                 ref={dropdownRef}
-                className="absolute mt-2 w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+                className="absolute mt-2 w-[calc(100vw-2rem)] sm:w-[600px] max-w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
               >
                 {renderContent()}
               </div>
