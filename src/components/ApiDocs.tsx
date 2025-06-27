@@ -116,7 +116,7 @@ async def interact_with_model_zoo():
     )
 
     # Get the artifact manager service
-    artifact_manager = await server.get_service("public/artifact-manager")
+    artifact_manager = await server.get_service("public/services/artifact-manager")
 
     # List available models
     models = await artifact_manager.list(
@@ -217,7 +217,7 @@ async function interactWithModelZoo() {
     });
 
     // Get the artifact manager service
-    const artifactManager = await server.getService("public/artifact-manager", {
+    const artifactManager = await server.getService("public/services/artifact-manager", {
         case_conversion: "camel"
     });
 
@@ -726,7 +726,7 @@ except Exception as e:
                   background: '#f9fafb'
                 }}
               >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/children
+                GET https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children
               </SyntaxHighlighter>
             </div>
             <p className="text-gray-600 mt-2">
@@ -898,9 +898,9 @@ except Exception as e:
                   background: '#f9fafb'
                 }}
               >
-                {`GET https://hypha.aicell.io/<service_path>/<method_name>?param1=value1&param2=value2
+                {`GET https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>?param1=value1&param2=value2
 # OR for complex parameters
-POST https://hypha.aicell.io/<service_path>/<method_name>
+POST https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>
 Content-Type: application/json
 
 {
@@ -930,10 +930,10 @@ models = await artifact_manager.list(
 )
 
 # Equivalent HTTP GET request:
-GET https://hypha.aicell.io/public/artifact-manager/list?parent_id=bioimage-io/bioimage.io&limit=10
+GET https://hypha.aicell.io/public/services/artifact-manager/list?parent_id=bioimage-io/bioimage.io&limit=10
 
 # OR HTTP POST request:
-POST https://hypha.aicell.io/public/artifact-manager/list
+POST https://hypha.aicell.io/public/services/artifact-manager/list
 Content-Type: application/json
 
 {
@@ -948,7 +948,7 @@ Content-Type: application/json
           <div className="mt-8">
             <h3 className="text-lg font-medium text-gray-900 mb-2">Available Service Endpoints</h3>
             <p className="text-gray-600 mb-4">
-              The following endpoints are available through the artifact-manager service at <code>/public/artifact-manager/</code>:
+              The following endpoints are available through the artifact-manager service at <code>/public/services/artifact-manager/</code>:
             </p>
 
             <div className="space-y-6">
@@ -1182,7 +1182,7 @@ def download_model_files():
     """Example: Download model files"""
     # List available models
     response = requests.get(
-        f"{BASE_URL}/public/artifact-manager/list",
+        f"{BASE_URL}/public/services/artifact-manager/list",
         params={
             "parent_id": "bioimage-io/bioimage.io",
             "limit": 10
@@ -1195,7 +1195,7 @@ def download_model_files():
     # Get model details
     model_id = "bioimage-io/affable-shark"
     response = requests.get(
-        f"{BASE_URL}/public/artifact-manager/read",
+        f"{BASE_URL}/public/services/artifact-manager/read",
         params={"artifact_id": model_id},
         headers=headers
     )
@@ -1205,7 +1205,7 @@ def download_model_files():
     # Download a specific file
     file_path = "weights.pt"
     response = requests.get(
-        f"{BASE_URL}/public/artifact-manager/get_file",
+        f"{BASE_URL}/public/services/artifact-manager/get_file",
         params={
             "artifact_id": model_id,
             "file_path": file_path
@@ -1233,7 +1233,7 @@ def upload_model():
 
     # Create new model
     response = requests.post(
-        f"{BASE_URL}/public/artifact-manager/create",
+        f"{BASE_URL}/public/services/artifact-manager/create",
         json={
             "parent_id": "bioimage-io/bioimage.io",
             "alias": "{animal_adjective}-{animal}",
@@ -1250,7 +1250,7 @@ def upload_model():
 
     # Get upload URL for a file
     response = requests.post(
-        f"{BASE_URL}/public/artifact-manager/put_file",
+        f"{BASE_URL}/public/services/artifact-manager/put_file",
         json={
             "artifact_id": model_id,
             "file_path": "weights.pt"
@@ -1271,7 +1271,7 @@ def upload_model():
     # Update model status
     model_manifest["status"] = "request-review"
     response = requests.post(
-        f"{BASE_URL}/public/artifact-manager/edit",
+        f"{BASE_URL}/public/services/artifact-manager/edit",
         json={
             "artifact_id": model_id,
             "version": "stage",
