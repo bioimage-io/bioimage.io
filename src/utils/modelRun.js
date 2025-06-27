@@ -250,9 +250,8 @@ export const loadCellposeRdf = () => {
 
 
 class BioEngineExecutor {
-  constructor(serverUrl, serviceId) {
+  constructor(serverUrl) {
     this.serverUrl = serverUrl;
-    this.serviceId = serviceId;
   }
 
   async init() {
@@ -261,7 +260,9 @@ class BioEngineExecutor {
       method_timeout: 30,
       name: "client",
     });
-    this.runner = await server.getService(this.serviceId);
+    // this.runner = await server.getService("bioimage-io/bioimageio-model-runner");
+    const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
+    this.runner = bioengine.bioimage_io_model_runner;
     console.log("Runner initialized");
   }
 
@@ -308,8 +309,8 @@ class BioEngineExecutor {
 }
 
 export class ModelRunnerEngine {
-  constructor(serverUrl = "https://hypha.aicell.io", serviceId = "bioimage-io/bioimageio-model-runner") {
-    this.bioengineExecutor = new BioEngineExecutor(serverUrl, serviceId);
+  constructor(serverUrl = "https://hypha.aicell.io") {
+    this.bioengineExecutor = new BioEngineExecutor(serverUrl);
     this.rdf = null;
     this.inputEndianness = null;
     this.modelId = null;
