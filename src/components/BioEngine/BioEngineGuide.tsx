@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 type OSType = 'macos' | 'linux' | 'windows';
-type ModeType = 'single-machine' | 'slurm' | 'connect';
+type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
 const BioEngineGuide: React.FC = () => {
@@ -15,7 +15,7 @@ const BioEngineGuide: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  
+
   // Advanced options
   const [workspace, setWorkspace] = useState('');
   const [serverUrl, setServerUrl] = useState('');
@@ -49,7 +49,7 @@ const BioEngineGuide: React.FC = () => {
       }, 100);
     }
   }, [showTroubleshooting]);
-  
+
   const getPlatform = () => {
     return platformOverride || '';
   };
@@ -58,7 +58,7 @@ const BioEngineGuide: React.FC = () => {
     if (containerRuntime !== 'apptainer' && containerRuntime !== 'singularity') {
       return '';
     }
-    
+
     // Get the base cache directory
     let baseCache = cacheDir;
     if (!baseCache) {
@@ -68,13 +68,13 @@ const BioEngineGuide: React.FC = () => {
         baseCache = '$HOME/.bioengine';
       }
     }
-    
+
     // Remove trailing slash if present and append /images
-    const normalizedCache = baseCache.endsWith('/') || baseCache.endsWith('\\') 
-      ? baseCache.slice(0, -1) 
+    const normalizedCache = baseCache.endsWith('/') || baseCache.endsWith('\\')
+      ? baseCache.slice(0, -1)
       : baseCache;
-    
-    return os === 'windows' 
+
+    return os === 'windows'
       ? `${normalizedCache}\\images`
       : `${normalizedCache}/images`;
   };
@@ -83,7 +83,7 @@ const BioEngineGuide: React.FC = () => {
 
   const getUserFlag = () => {
     if (runAsRoot) return '';
-    
+
     switch (os) {
       case 'windows':
         return ''; // Windows doesn't use the same user flag
@@ -94,7 +94,7 @@ const BioEngineGuide: React.FC = () => {
 
   const getGpuFlag = () => {
     if (!hasGpu) return '';
-    
+
     if (containerRuntime === 'podman') {
       // Podman uses --device for GPU access
       return '--device nvidia.com/gpu=all ';
@@ -110,27 +110,27 @@ const BioEngineGuide: React.FC = () => {
   const getCommand = () => {
     // Base arguments - exclude --mode for SLURM since the script handles it automatically
     let args: string[] = [];
-    
+
     // Add mode argument only for non-SLURM modes
     if (mode !== 'slurm') {
       args.push(`--mode ${mode}`);
     }
-    
+
     // Mode-specific arguments
     if (mode === 'single-machine') {
       args.push(`--head_num_cpus ${cpus}`);
       if (hasGpu) {
         args.push(`--head_num_gpus ${gpus}`);
       }
-    } else if (mode === 'connect' && rayAddress) {
+    } else if (mode === 'external-cluster' && rayAddress) {
       args.push(`--connection_address ${rayAddress}`);
     }
-    
+
     // Advanced arguments
     if (workspace) args.push(`--workspace ${workspace}`);
     if (serverUrl) args.push(`--server_url ${serverUrl}`);
     if (token) args.push(`--token ${token}`);
-    
+
     // Handle admin users - only add flag if users are specified
     if (adminUsers) {
       if (adminUsers === '*') {
@@ -140,22 +140,22 @@ const BioEngineGuide: React.FC = () => {
         args.push(`--admin_users ${users}`);
       }
     }
-    
+
     if (clientId) args.push(`--client_id ${clientId}`);
-    
+
     // Add custom image if specified
     if (customImage) args.push(`--image ${customImage}`);
-    
+
     const argsString = args.length > 0 ? args.join(' ') : '';
-    
+
     // SLURM mode uses the bash script instead of Docker
     if (mode === 'slurm') {
       // Add cache and data directories for SLURM mode only
       if (cacheDir) args.push(`--cache_dir ${cacheDir}`);
       if (dataDir) args.push(`--data_dir ${dataDir}`);
-      
+
       const slurmArgsString = args.length > 0 ? args.join(' ') : '';
-      
+
       if (interactiveMode) {
         return {
           dockerCmd: `# Download and inspect the script first (optional)`,
@@ -165,19 +165,19 @@ const BioEngineGuide: React.FC = () => {
         return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${slurmArgsString ? ` ${slurmArgsString}` : ''}`;
       }
     }
-    
-    // For single-machine and connect modes, use container runtime
+
+    // For single-machine and external-cluster modes, use container runtime
     const platform = getPlatform();
     const userFlag = getUserFlag();
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
-    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.1.20';
-    
+    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.2.1';
+
     // Build volume mounts
     let volumeMounts = '';
     const mounts: string[] = [];
-    
+
     // Handle cache directory mount
     if (cacheDir) {
       // User specified a custom cache directory - mount it directly to /tmp/bioengine
@@ -203,7 +203,7 @@ const BioEngineGuide: React.FC = () => {
         }
       }
     }
-    
+
     // Handle data directory mount
     if (dataDir) {
       // User specified a data directory - mount it directly to /data
@@ -213,14 +213,14 @@ const BioEngineGuide: React.FC = () => {
         mounts.push(`-v ${dataDir}:/data`);
       }
     }
-    
+
     volumeMounts = mounts.join(' ');
-    
+
     // Create directory creation commands - only for default directories
     let createDirCmd = '';
     if (os === 'windows') {
       const dirs: string[] = [];
-      
+
       // Always create cache directory
       if (cacheDir) {
         dirs.push(`"${cacheDir}"`);
@@ -228,25 +228,25 @@ const BioEngineGuide: React.FC = () => {
         const cachePath = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
         dirs.push(`"${cachePath}"`);
       }
-      
+
       if (dirs.length > 0) {
         createDirCmd = dirs.map(dir => `cmd /c "mkdir ${dir} 2>nul || echo Directory already exists"`).join(' && ');
       }
     } else {
       const dirs: string[] = [];
-      
+
       // Always create cache directory
       if (cacheDir) {
         dirs.push(`"${cacheDir}"`);
       } else {
         dirs.push('$HOME/.bioengine');
       }
-      
+
       if (dirs.length > 0) {
         createDirCmd = `mkdir -p ${dirs.join(' ')}`;
       }
     }
-    
+
     if (interactiveMode) {
       // Interactive mode - separate container run and python command
       let containerCmd = '';
@@ -266,13 +266,13 @@ const BioEngineGuide: React.FC = () => {
           containerCmd = `${containerRuntime} run ${platformFlag}--rm -it ${shmFlag}${userFlag}--entrypoint bash ${gpuFlag}${volumeMounts} ${imageToUse}`;
         }
       }
-      
+
       const pythonCmd = `python -m bioengine_worker ${argsString}`;
-      
-      return { 
+
+      return {
         createDirCmd,
-        dockerCmd: containerCmd, 
-        pythonCmd 
+        dockerCmd: containerCmd,
+        pythonCmd
       };
     } else {
       // Single command mode
@@ -290,7 +290,7 @@ const BioEngineGuide: React.FC = () => {
       } else {
         dockerCmd = `${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${userFlag}${volumeMounts} ${imageToUse} python -m bioengine_worker ${argsString}`;
       }
-      
+
       return {
         createDirCmd,
         dockerCmd
@@ -302,9 +302,9 @@ const BioEngineGuide: React.FC = () => {
     try {
       const command = getCommand();
       const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-      
+
       let textToCopy = '';
-      
+
       if (typeof command === 'string') {
         // SLURM mode - simple string
         textToCopy = command;
@@ -315,7 +315,7 @@ const BioEngineGuide: React.FC = () => {
         // Single command mode
         textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
       }
-      
+
       await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -327,7 +327,7 @@ const BioEngineGuide: React.FC = () => {
   const getTroubleshootingPrompt = () => {
     const currentCommand = getCommand();
     const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-    
+
     let commandText = '';
     if (typeof currentCommand === 'string') {
       // SLURM mode - simple string
@@ -339,7 +339,7 @@ const BioEngineGuide: React.FC = () => {
       // Single command mode
       commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
     }
-    
+
     return `# BioEngine Worker Troubleshooting Assistant
 
 ## Context & Background
@@ -358,7 +358,7 @@ I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is 
 - **Mode**: ${mode === 'single-machine' ? 'Single Machine (local)' : mode === 'slurm' ? 'SLURM (HPC cluster with bash script)' : 'Connect to existing Ray cluster'}
 ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
-${mode === 'connect' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
+${mode === 'external-cluster' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
 ${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
 - **Shared Memory Size**: ${shmSize}` : ''}
 - **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : `Yes (separate ${containerName} and Python commands${containerRuntime === 'apptainer' || containerRuntime === 'singularity' ? ` with ${containerRuntime} shell` : ' with --entrypoint bash'})`) : 'No (single command)'}
@@ -383,78 +383,52 @@ ${commandText}
 
 \`\`\`
 python -m bioengine_worker --help
-usage: __main__.py [-h] [--mode {slurm,single-machine,connect}]
-                   [--admin_users ADMIN_USERS [ADMIN_USERS ...]]
-                   [--cache_dir CACHE_DIR] [--data_dir DATA_DIR]
-                   [--startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]]
-                   [--server_url SERVER_URL] [--workspace WORKSPACE]
-                   [--token TOKEN] [--client_id CLIENT_ID]
-                   [--head_node_address HEAD_NODE_ADDRESS]
-                   [--head_node_port HEAD_NODE_PORT]
-                   [--node_manager_port NODE_MANAGER_PORT]
-                   [--object_manager_port OBJECT_MANAGER_PORT]
-                   [--redis_shard_port REDIS_SHARD_PORT]
-                   [--serve_port SERVE_PORT] [--dashboard_port DASHBOARD_PORT]
-                   [--client_server_port CLIENT_SERVER_PORT]
-                   [--redis_password REDIS_PASSWORD]
-                   [--head_num_cpus HEAD_NUM_CPUS]
-                   [--head_num_gpus HEAD_NUM_GPUS]
-                   [--runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB]
-                   [--connection_address CONNECTION_ADDRESS] [--skip_cleanup]
-                   [--status_interval_seconds STATUS_INTERVAL_SECONDS]
-                   [--max_status_history_length MAX_STATUS_HISTORY_LENGTH]
-                   [--image IMAGE] [--worker_cache_dir WORKER_CACHE_DIR]
-                   [--worker_data_dir WORKER_DATA_DIR]
-                   [--default_num_gpus DEFAULT_NUM_GPUS]
-                   [--default_num_cpus DEFAULT_NUM_CPUS]
-                   [--default_mem_per_cpu DEFAULT_MEM_PER_CPU]
-                   [--default_time_limit DEFAULT_TIME_LIMIT]
-                   [--further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]]
-                   [--min_workers MIN_WORKERS] [--max_workers MAX_WORKERS]
-                   [--check_interval_seconds CHECK_INTERVAL_SECONDS]
-                   [--scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS]
-                   [--scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS]
-                   [--scale_down_cooldown_seconds SCALE_DOWN_COOLDOWN_SECONDS]
-                   [--debug]
+usage: __main__.py [-h] [--mode {slurm,single-machine,external-cluster}] [--admin_users ADMIN_USERS [ADMIN_USERS ...]] [--cache_dir CACHE_DIR]
+                   [--data_dir DATA_DIR] [--startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]] [--server_url SERVER_URL]
+                   [--workspace WORKSPACE] [--token TOKEN] [--client_id CLIENT_ID] [--head_node_address HEAD_NODE_ADDRESS]
+                   [--head_node_port HEAD_NODE_PORT] [--node_manager_port NODE_MANAGER_PORT] [--object_manager_port OBJECT_MANAGER_PORT]
+                   [--redis_shard_port REDIS_SHARD_PORT] [--serve_port SERVE_PORT] [--dashboard_port DASHBOARD_PORT]
+                   [--client_server_port CLIENT_SERVER_PORT] [--redis_password REDIS_PASSWORD] [--head_num_cpus HEAD_NUM_CPUS]
+                   [--head_num_gpus HEAD_NUM_GPUS] [--runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB]
+                   [--connection_address CONNECTION_ADDRESS] [--skip_cleanup] [--status_interval_seconds STATUS_INTERVAL_SECONDS]
+                   [--max_status_history_length MAX_STATUS_HISTORY_LENGTH] [--image IMAGE] [--worker_cache_dir WORKER_CACHE_DIR]
+                   [--worker_data_dir WORKER_DATA_DIR] [--default_num_gpus DEFAULT_NUM_GPUS] [--default_num_cpus DEFAULT_NUM_CPUS]
+                   [--default_mem_per_cpu DEFAULT_MEM_PER_CPU] [--default_time_limit DEFAULT_TIME_LIMIT]
+                   [--further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]] [--min_workers MIN_WORKERS] [--max_workers MAX_WORKERS]
+                   [--scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS] [--scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS]
+                   [--scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS] [--dashboard_url DASHBOARD_URL] [--debug]
 
 BioEngine Worker Registration
 
 options:
   -h, --help            show this help message and exit
-  --mode {slurm,single-machine,connect}
-                        Mode of operation: 'slurm' for managing a Ray cluster
-                        with SLURM jobs, 'single-machine' for local Ray
-                        cluster, 'connect' for connecting to an existing Ray
-                        cluster.
+  --mode {slurm,single-machine,external-cluster}
+                        Mode of operation: 'slurm' for managing a Ray cluster with SLURM jobs, 'single-machine' for local Ray cluster, 'external-cluster' for
+                        connecting to an existing Ray cluster.
   --admin_users ADMIN_USERS [ADMIN_USERS ...]
-                        List of admin users for BioEngine apps and datasets.
-                        If not set, defaults to the logged-in user.
+                        List of admin users for BioEngine apps and datasets. If not set, defaults to the logged-in user.
   --cache_dir CACHE_DIR
-                        BioEngine cache directory. This should be a mounted
-                        directory if running in container.
-  --data_dir DATA_DIR   Data directory served by the dataset manager. This
-                        should be a mounted directory if running in container.
+                        BioEngine cache directory. This should be a mounted directory if running in container.
+  --data_dir DATA_DIR   Data directory served by the dataset manager. This should be a mounted directory if running in container.
   --startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]
                         List of artifact IDs to deploy on worker startup
+  --dashboard_url DASHBOARD_URL
+                        URL of the BioEngine dashboard
   --debug               Set logger to debug level
 
 Hypha Options:
   --server_url SERVER_URL
                         URL of the Hypha server
   --workspace WORKSPACE
-                        Hypha workspace to connect to. If not set, the
-                        workspace associated with the token will be used.
-  --token TOKEN         Authentication token for Hypha server. If not set, the
-                        environment variable 'HYPHA_TOKEN' will be used,
-                        otherwise the user will be prompted to log in.
+                        Hypha workspace to connect to. If not set, the workspace associated with the token will be used.
+  --token TOKEN         Authentication token for Hypha server. If not set, the environment variable 'HYPHA_TOKEN' will be used, otherwise the user will
+                        be prompted to log in.
   --client_id CLIENT_ID
-                        Client ID for the worker. If not set, a client ID will
-                        be generated automatically.
+                        Client ID for the worker. If not set, a client ID will be generated automatically.
 
 Ray Cluster Manager Options:
   --head_node_address HEAD_NODE_ADDRESS
-                        Address of head node. If not set, the first system IP
-                        will be used.
+                        Address of head node. If not set, the first system IP will be used.
   --head_node_port HEAD_NODE_PORT
                         Port for Ray head node and GCS server
   --node_manager_port NODE_MANAGER_PORT
@@ -470,35 +444,27 @@ Ray Cluster Manager Options:
   --client_server_port CLIENT_SERVER_PORT
                         Port for Ray client server
   --redis_password REDIS_PASSWORD
-                        Redis password for Ray cluster. If not set, a random
-                        password will be generated.
+                        Redis password for Ray cluster. If not set, a random password will be generated.
   --head_num_cpus HEAD_NUM_CPUS
                         Number of CPUs for head node if starting locally
   --head_num_gpus HEAD_NUM_GPUS
                         Number of GPUs for head node if starting locally
   --runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB
-                        Size of the pip cache in GB for Ray runtime
-                        environment
+                        Size of the pip cache in GB for Ray runtime environment
   --connection_address CONNECTION_ADDRESS
-                        Address of existing Ray cluster to connect to (format:
-                        'auto' for auto-discovery, 'ip:port' for specific
-                        address).
+                        Address of existing Ray cluster to connect to (format: 'ip:port' for specific address).
   --skip_cleanup        Skip cleanup of previous Ray cluster
   --status_interval_seconds STATUS_INTERVAL_SECONDS
-                        Interval in seconds to check the status of the Ray
-                        cluster
+                        Interval in seconds to check the status of the Ray cluster
   --max_status_history_length MAX_STATUS_HISTORY_LENGTH
-                        Maximum length of the status history for the Ray
-                        cluster
+                        Maximum length of the status history for the Ray cluster
 
 SLURM Job Options:
   --image IMAGE         Worker image for SLURM job
   --worker_cache_dir WORKER_CACHE_DIR
-                        Cache directory mounted to the container when starting
-                        a worker. Required in SLURM mode.
+                        Cache directory mounted to the container when starting a worker. Required in SLURM mode.
   --worker_data_dir WORKER_DATA_DIR
-                        Data directory mounted to the container when starting
-                        a worker. Required in SLURM mode.
+                        Data directory mounted to the container when starting a worker. Required in SLURM mode.
   --default_num_gpus DEFAULT_NUM_GPUS
                         Default number of GPUs per worker
   --default_num_cpus DEFAULT_NUM_CPUS
@@ -515,21 +481,19 @@ Ray Autoscaler Options:
                         Minimum number of worker nodes
   --max_workers MAX_WORKERS
                         Maximum number of worker nodes
-  --check_interval_seconds CHECK_INTERVAL_SECONDS
-                        Interval in seconds to check scale up/down
+  --scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS
+                        Cooldown period between scaling up operations
+  --scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS
+                        Interval in seconds to check for scale down
   --scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS
                         Time threshold before scaling down idle nodes
-  --scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS
-                        Cooldown period before scaling up
-  --scale_down_cooldown_seconds SCALE_DOWN_COOLDOWN_SECONDS
-                        Cooldown period before scaling down
 \`\`\`
 
 ## Troubleshooting Chain of Thought
 
 When helping me troubleshoot, please consider:
 
-1. **${containerName} Issues** (single-machine/connect modes): Container startup, platform compatibility, volume mounting
+1. **${containerName} Issues** (single-machine/external-cluster modes): Container startup, platform compatibility, volume mounting
 2. **SLURM Issues** (SLURM mode): Job submission, resource allocation, container runtime, shared filesystem
 3. **Network Issues**: Port conflicts, firewall settings, connectivity
 4. **Resource Issues**: CPU/GPU allocation, memory constraints
@@ -549,12 +513,12 @@ ${mode === 'slurm' ? `### SLURM Mode Specific:
 - Proper SLURM partition and QOS settings
 - Container image can be pulled and cached successfully
 
-### General:` : `- ${containerName} is installed and running (for single-machine/connect modes)`}
+### General:` : `- ${containerName} is installed and running (for single-machine/external-cluster modes)`}
 - Sufficient system resources (CPU, memory, disk space)
 - Network ports are available (especially for Ray cluster communication)
 ${mode !== 'slurm' ? '- A bioengine-workdir directory will be created in your home directory for data mounting' : ''}
 ${mode === 'single-machine' && hasGpu ? `- For GPU mode: NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit for Podman' : 'drivers for Apptainer (--nv flag)'}` : ''}
-${mode === 'connect' ? '- For connect mode: Target Ray cluster is running and accessible' : ''}
+${mode === 'external-cluster' ? '- For external-cluster mode: Target Ray cluster is running and accessible' : ''}
 
 ## My Question
 
@@ -581,49 +545,43 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
     <div className="pt-4">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${
-          isExpanded 
-            ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200' 
+        className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${isExpanded
+            ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
             : 'bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-2 border-blue-200 hover:shadow-md'
-        }`}
+          }`}
       >
         <div className="flex items-center">
-          <div className={`rounded-xl flex items-center justify-center mr-4 transition-all duration-200 ${
-            isExpanded 
-              ? 'w-8 h-8 bg-gradient-to-r from-gray-400 to-gray-500' 
+          <div className={`rounded-xl flex items-center justify-center mr-4 transition-all duration-200 ${isExpanded
+              ? 'w-8 h-8 bg-gradient-to-r from-gray-400 to-gray-500'
               : 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-md'
-          }`}>
+            }`}>
             <svg className={`text-white transition-all duration-200 ${isExpanded ? 'w-4 h-4' : 'w-6 h-6'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <h4 className={`font-semibold transition-all duration-200 ${
-              isExpanded 
-                ? 'text-sm text-gray-700' 
+            <h4 className={`font-semibold transition-all duration-200 ${isExpanded
+                ? 'text-sm text-gray-700'
                 : 'text-lg text-gray-800'
-            }`}>Launch Your Own BioEngine Instance</h4>
-            <p className={`text-gray-500 transition-all duration-200 ${
-              isExpanded 
-                ? 'text-xs' 
+              }`}>Launch Your Own BioEngine Instance</h4>
+            <p className={`text-gray-500 transition-all duration-200 ${isExpanded
+                ? 'text-xs'
                 : 'text-sm font-medium'
-            }`}>Access our powerful deployment configurator</p>
+              }`}>Access our powerful deployment configurator</p>
           </div>
         </div>
         <div className="flex items-center">
-          <span className={`text-gray-500 mr-3 transition-all duration-200 ${
-            isExpanded 
-              ? 'text-xs' 
+          <span className={`text-gray-500 mr-3 transition-all duration-200 ${isExpanded
+              ? 'text-xs'
               : 'text-sm font-medium'
-          }`}>{isExpanded ? 'Hide' : 'Show'}</span>
-          <svg 
-            className={`text-gray-400 transition-all duration-200 ${
-              isExpanded 
-                ? 'w-4 h-4 rotate-180' 
+            }`}>{isExpanded ? 'Hide' : 'Show'}</span>
+          <svg
+            className={`text-gray-400 transition-all duration-200 ${isExpanded
+                ? 'w-4 h-4 rotate-180'
                 : 'w-5 h-5'
-            }`} 
-            fill="none" 
-            stroke="currentColor" 
+              }`}
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -631,8 +589,8 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
         </div>
       </button>
 
-        {isExpanded && (
-          <div className="mt-4 space-y-6">
+      {isExpanded && (
+        <div className="mt-4 space-y-6">
           {/* Primary Mode Selection - More Prominent */}
           <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
             <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
@@ -641,15 +599,14 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </svg>
               Where do you want to run BioEngine?
             </h4>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Desktop/Workstation Option */}
-              <div 
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                  mode === 'single-machine' 
-                    ? 'border-blue-500 bg-blue-50 shadow-md' 
+              <div
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${mode === 'single-machine'
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
                     : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
-                }`}
+                  }`}
                 onClick={() => setMode('single-machine')}
               >
                 <div className="flex items-center mb-2">
@@ -665,7 +622,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <span className="ml-2 font-medium text-gray-800">💻 Desktop/Workstation</span>
                 </div>
                 <p className="text-sm text-gray-600 ml-6">
-                  Run locally on your personal computer or workstation using Docker. 
+                  Run locally on your personal computer or workstation using Docker.
                   Perfect for development, testing, or small-scale analysis.
                 </p>
                 <div className="mt-2 ml-6">
@@ -676,12 +633,11 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
 
               {/* HPC Cluster Option */}
-              <div 
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                  mode === 'slurm' 
-                    ? 'border-purple-500 bg-purple-50 shadow-md' 
+              <div
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${mode === 'slurm'
+                    ? 'border-purple-500 bg-purple-50 shadow-md'
                     : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-sm'
-                }`}
+                  }`}
                 onClick={() => setMode('slurm')}
               >
                 <div className="flex items-center mb-2">
@@ -697,7 +653,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <span className="ml-2 font-medium text-gray-800">🖥️ HPC Cluster</span>
                 </div>
                 <p className="text-sm text-gray-600 ml-6">
-                  Deploy on a high-performance computing cluster with SLURM job scheduler. 
+                  Deploy on a high-performance computing cluster with SLURM job scheduler.
                   Ideal for large-scale processing and production workloads.
                 </p>
                 <div className="mt-2 ml-6">
@@ -708,20 +664,19 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
 
               {/* Connect to Existing Option */}
-              <div 
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                  mode === 'connect' 
-                    ? 'border-orange-500 bg-orange-50 shadow-md' 
+              <div
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${mode === 'external-cluster'
+                    ? 'border-orange-500 bg-orange-50 shadow-md'
                     : 'border-gray-200 bg-white hover:border-orange-300 hover:shadow-sm'
-                }`}
-                onClick={() => setMode('connect')}
+                  }`}
+                onClick={() => setMode('external-cluster')}
               >
                 <div className="flex items-center mb-2">
                   <input
                     type="radio"
                     name="deployment-mode"
-                    value="connect"
-                    checked={mode === 'connect'}
+                    value="external-cluster"
+                    checked={mode === 'external-cluster'}
                     onChange={(e) => setMode(e.target.value as ModeType)}
                     className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 focus:ring-orange-500"
                     aria-label="Connect to existing cluster deployment mode"
@@ -729,7 +684,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <span className="ml-2 font-medium text-gray-800">🔗 Connect to Ray Cluster</span>
                 </div>
                 <p className="text-sm text-gray-600 ml-6">
-                  Connect to an existing Ray cluster that's already running. 
+                  Connect to an existing Ray cluster that's already running.
                   BioEngine won't manage the cluster - you provide the Ray address.
                 </p>
                 <div className="mt-2 ml-6">
@@ -740,8 +695,8 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
             </div>
 
-            {/* Ray Address Input for Connect Mode */}
-            {mode === 'connect' && (
+            {/* Ray Address Input for External-Cluster Mode */}
+            {mode === 'external-cluster' && (
               <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
                 <label className="block text-sm font-medium text-orange-800 mb-2">
                   Ray Cluster Address (Required)
@@ -765,7 +720,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Operating System */}
-            {(mode === 'single-machine' || mode === 'connect') && (
+            {(mode === 'single-machine' || mode === 'external-cluster') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Operating System</label>
                 <select
@@ -785,7 +740,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Container Runtime */}
-            {(mode === 'single-machine' || mode === 'connect') && (
+            {(mode === 'single-machine' || mode === 'external-cluster') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Container Runtime</label>
                 <select
@@ -800,13 +755,13 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <option value="singularity">Singularity</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
-                  {containerRuntime === 'docker' 
-                    ? 'Docker - Most common container runtime' 
+                  {containerRuntime === 'docker'
+                    ? 'Docker - Most common container runtime'
                     : containerRuntime === 'podman'
-                    ? 'Podman - Daemonless, rootless alternative to Docker'
-                    : containerRuntime === 'apptainer'
-                    ? 'Apptainer - Modern HPC-focused container runtime, successor to Singularity'
-                    : 'Singularity - Original HPC container runtime, now superseded by Apptainer'}
+                      ? 'Podman - Daemonless, rootless alternative to Docker'
+                      : containerRuntime === 'apptainer'
+                        ? 'Apptainer - Modern HPC-focused container runtime, successor to Singularity'
+                        : 'Singularity - Original HPC container runtime, now superseded by Apptainer'}
                 </p>
               </div>
             )}
@@ -927,7 +882,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Run as Root */}
-            {(mode === 'single-machine' || mode === 'connect')  && (containerRuntime === 'docker' || containerRuntime === 'podman') && (
+            {(mode === 'single-machine' || mode === 'external-cluster') && (containerRuntime === 'docker' || containerRuntime === 'podman') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
                 <label className="flex items-center">
@@ -946,7 +901,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Interactive Mode */}
-            {(mode === 'single-machine' || mode === 'connect') && (
+            {(mode === 'single-machine' || mode === 'external-cluster') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
                 <label className="flex items-center">
@@ -971,10 +926,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               onClick={() => setShowAdvanced(!showAdvanced)}
               className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors duration-200"
             >
-              <svg 
-                className={`w-4 h-4 mr-2 transition-transform duration-200 ${showAdvanced ? 'rotate-90' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className={`w-4 h-4 mr-2 transition-transform duration-200 ${showAdvanced ? 'rotate-90' : ''}`}
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1045,7 +1000,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 />
                 <p className="text-xs text-gray-500 mt-1">Hypha workspace to connect to (optional)</p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Token</label>
                 <input
@@ -1081,19 +1036,19 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom Hypha server URL (defaults to public server)</p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Container Image</label>
                 <input
                   type="text"
                   value={customImage}
                   onChange={(e) => setCustomImage(e.target.value)}
-                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.1.20"
+                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.2.1"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom container image to use. Leave empty for default bioengine-worker image</p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Platform Override</label>
                 <select
@@ -1115,10 +1070,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
           <div className="bg-gray-900 rounded-xl p-4 relative">
             <div className="flex justify-between items-start mb-2">
               <h4 className="text-sm font-medium text-gray-300">
-                {mode === 'slurm' 
-                  ? 'SLURM Cluster Command:' 
-                  : os === 'windows' 
-                    ? 'PowerShell/Command Prompt Command:' 
+                {mode === 'slurm'
+                  ? 'SLURM Cluster Command:'
+                  : os === 'windows'
+                    ? 'PowerShell/Command Prompt Command:'
                     : 'Terminal Command:'
                 }
               </h4>
@@ -1147,7 +1102,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               {(() => {
                 const command = getCommand();
                 let commandText = '';
-                
+
                 if (typeof command === 'string') {
                   // SLURM mode - simple string
                   commandText = command;
@@ -1160,27 +1115,27 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
                   commandText = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
                 }
-                
+
                 // Add volume mount information
                 if (mode !== 'slurm') {
                   let mountInfo = '\n\n# Volume mounts:';
-                  
+
                   if (cacheDir) {
                     mountInfo += `\n# - ${cacheDir} → /tmp/bioengine (cache)`;
                   } else {
-                    const hostPath = os === 'windows' 
+                    const hostPath = os === 'windows'
                       ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine')
                       : '$HOME/.bioengine';
                     mountInfo += `\n# - ${hostPath} → /tmp/bioengine (cache)`;
                   }
-                  
+
                   if (dataDir) {
                     mountInfo += `\n# - ${dataDir} → /data (data)`;
                   }
-                  
+
                   commandText += mountInfo;
                 }
-                
+
                 return commandText;
               })()}
             </code>
@@ -1270,7 +1225,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     <>
                       <li>{containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1)} must be installed and running{(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? ' (or available on your system)' : ''}</li>
                       {mode === 'single-machine' && hasGpu && <li>NVIDIA {containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : 'drivers'} required for GPU support</li>}
-                      {mode === 'connect' && <li>Existing Ray cluster must be running and accessible</li>}
+                      {mode === 'external-cluster' && <li>Existing Ray cluster must be running and accessible</li>}
                     </>
                   )}
                   {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
@@ -1282,7 +1237,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                   <li>After running, the worker will be available at the service ID shown in the terminal</li>
                   <li>Use the service ID to connect to your BioEngine worker from this interface</li>
-                  {mode === 'connect' && <li>Make sure the Ray address is accessible from your network</li>}
+                  {mode === 'external-cluster' && <li>Make sure the Ray address is accessible from your network</li>}
                   {mode === 'slurm' && <li>The script will automatically handle SLURM job submission and container management</li>}
                 </ul>
               </div>
@@ -1330,7 +1285,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </svg>
               </button>
             </div>
-            
+
             <div className="flex-1 p-6 overflow-hidden flex flex-col">
               <div className="mb-4">
                 <div className="flex justify-between items-center mb-2">
@@ -1357,18 +1312,18 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mb-4">
-                  This prompt includes your current configuration, the complete BioEngine help documentation, 
-                  troubleshooting guidelines, and context about what you're trying to achieve. 
+                  This prompt includes your current configuration, the complete BioEngine help documentation,
+                  troubleshooting guidelines, and context about what you're trying to achieve.
                   Just add your specific question or error message at the end.
                 </p>
               </div>
-              
+
               <div className="flex-1 overflow-auto">
                 <pre className="text-xs text-gray-700 bg-gray-50 p-4 rounded-lg border whitespace-pre-wrap font-mono leading-relaxed">
                   {getTroubleshootingPrompt()}
                 </pre>
               </div>
-              
+
               <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
                 <div className="text-sm text-gray-600">
                   <p className="font-medium mb-1">How to use:</p>
@@ -1379,7 +1334,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     <li>Get detailed, context-aware troubleshooting help</li>
                   </ol>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowTroubleshooting(false)}
                   className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200"
                 >
