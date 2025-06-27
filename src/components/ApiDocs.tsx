@@ -898,9 +898,9 @@ except Exception as e:
                   background: '#f9fafb'
                 }}
               >
-                {`GET https://hypha.aicell.io/<service_path>/<method_name>?param1=value1&param2=value2
+                {`GET https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>?param1=value1&param2=value2
 # OR for complex parameters
-POST https://hypha.aicell.io/<service_path>/<method_name>
+POST https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>
 Content-Type: application/json
 
 {
