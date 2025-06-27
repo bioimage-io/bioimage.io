@@ -192,7 +192,7 @@ class MyNewApp:
         except Exception as e:
             return False
 
-    # === Replace with your own methods ===
+    # === Replace with your own synchronous or asynchronous methods ===
     
     def ping(self):
         """An example method to test connectivity."""
