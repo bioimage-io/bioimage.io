@@ -87,7 +87,7 @@ const Navbar: React.FC = () => {
               {location.pathname !== '/upload' && (
                 <Link
                   to="/upload"
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all duration-300 flex items-center shadow-lg hover:shadow-xl backdrop-blur-sm border border-blue-500/20 hover:scale-105 font-medium"
+                  className="px-4 py-2 rounded-xl bg-blue-50/80 text-blue-700 hover:bg-blue-100/90 hover:text-blue-800 transition-all duration-300 flex items-center backdrop-blur-sm border border-blue-200/60 hover:border-blue-300/70 hover:shadow-md font-medium"
                 >
                   <IoCloudUploadOutline className="mr-2" size={18} />
                   Upload
@@ -134,7 +134,7 @@ const Navbar: React.FC = () => {
             )}
             <Link 
               to="/upload" 
-              className="flex items-center px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-lg backdrop-blur-sm border border-blue-500/20 font-medium"
+              className="flex items-center px-4 py-3 rounded-xl bg-blue-50/80 text-blue-700 hover:bg-blue-100/90 hover:text-blue-800 transition-all duration-300 backdrop-blur-sm border border-blue-200/60 hover:border-blue-300/70 hover:shadow-md font-medium"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               <IoCloudUploadOutline className="mr-3" size={18} />
