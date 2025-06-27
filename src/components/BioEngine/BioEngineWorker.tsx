@@ -351,7 +351,22 @@ const BioEngineWorker: React.FC = () => {
         setLoading(false);
       }
     } catch (err) {
-      setError(`Failed to fetch BioEngine status: ${err instanceof Error ? err.message : String(err)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      // Check if the error indicates the service is not available
+      const isServiceUnavailable = errorMessage.includes('Service not found') || 
+                                   errorMessage.includes('not found') ||
+                                   errorMessage.includes('does not exist') ||
+                                   errorMessage.includes('No service found') ||
+                                   errorMessage.includes('Service is not available');
+      
+      if (isServiceUnavailable) {
+        console.warn(`BioEngine worker service ${serviceId} is no longer available, redirecting to home`);
+        navigate('/bioengine');
+        return;
+      }
+      
+      setError(`Failed to fetch BioEngine status: ${errorMessage}`);
       if (showLoading) {
         setLoading(false);
       }
@@ -384,6 +399,20 @@ const BioEngineWorker: React.FC = () => {
     } catch (err) {
       console.error('Deployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      // Check if the error indicates the service is not available
+      const isServiceUnavailable = errorMessage.includes('Service not found') || 
+                                   errorMessage.includes('not found') ||
+                                   errorMessage.includes('does not exist') ||
+                                   errorMessage.includes('No service found') ||
+                                   errorMessage.includes('Service is not available');
+      
+      if (isServiceUnavailable) {
+        console.warn(`BioEngine worker service ${serviceId} is no longer available, redirecting to home`);
+        navigate('/bioengine');
+        return;
+      }
+      
       setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
       setDeployingArtifactId(null);
     }
@@ -448,6 +477,20 @@ const BioEngineWorker: React.FC = () => {
     } catch (err) {
       console.error('Undeployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      // Check if the error indicates the service is not available
+      const isServiceUnavailable = errorMessage.includes('Service not found') || 
+                                   errorMessage.includes('not found') ||
+                                   errorMessage.includes('does not exist') ||
+                                   errorMessage.includes('No service found') ||
+                                   errorMessage.includes('Service is not available');
+      
+      if (isServiceUnavailable) {
+        console.warn(`BioEngine worker service ${serviceId} is no longer available, redirecting to home`);
+        navigate('/bioengine');
+        return;
+      }
+      
       setUndeploymentError(`Failed to undeploy ${artifactId}: ${errorMessage}`);
       setUndeployingArtifactId(null);
     }
