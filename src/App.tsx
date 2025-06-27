@@ -57,7 +57,7 @@ const AppContent: React.FC = () => {
         message={snackbarMessage}
         onClose={() => setSnackbarOpen(false)}
       />
-      <main className="container mx-auto">
+      <main className="w-full">
         <Routes>
           <Route
             path="/"
