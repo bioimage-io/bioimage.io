@@ -186,7 +186,7 @@ const ArtifactDetails = () => {
   if (!selectedResource) {
     return <div>Artifact not found</div>;
   }
-  console.log(`Current artifact: ${selectedResource}, version: ${version}`);
+  console.log("Current artifact:", selectedResource, "version:", version);
 
   const { manifest } = selectedResource as ArtifactInfo;
 

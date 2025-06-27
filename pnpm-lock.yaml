@@ -60,11 +60,11 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       hypha-core:
-        specifier: ^0.20.47
-        version: 0.20.47(@types/react@18.3.18)(codemirror@5.65.18)(monaco-editor@0.52.2)(postcss@8.5.2)
+        specifier: ^0.20.58
+        version: 0.20.58(@types/react@18.3.18)(codemirror@5.65.18)(monaco-editor@0.52.2)(postcss@8.5.2)
       hypha-rpc:
-        specifier: ^0.20.48
-        version: 0.20.48
+        specifier: ^0.20.58
+        version: 0.20.58
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.0
@@ -3683,11 +3683,11 @@ packages:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
 
-  hypha-core@0.20.47:
-    resolution: {integrity: sha512-Y/3lfN2unowlycrdWKdatTuO5OVhCEFz8k9I9oiZnDQRVEu+FA7jH7MLhHDp+dwZQvQarAVMhMr+kV13I1lObQ==}
+  hypha-core@0.20.58:
+    resolution: {integrity: sha512-ZW8FUBMIHBkZUk4vOU/8n+hGPpk+lR1yZq4Es9EambfTZB/9YVoguWsxlzbWC9TgT8No95d3UtWipPlIZqpisA==}
 
-  hypha-rpc@0.20.48:
-    resolution: {integrity: sha512-yMxVMM5xPeo1ksb8QVSkFlxxkBcLNv3t3Il7ZCF9gUXFlb/nDqni2LX7iLw2cdvqlpBRFnGtUWVQ7rpI8VYJWQ==}
+  hypha-rpc@0.20.58:
+    resolution: {integrity: sha512-7c3B3SKF22xz4af6EzPD4ksh6CSVaCmHmPFfV9qbmZGNdnpSxo69WW0UB+tEAn+AFZ2EZg5sHAoqygordAtBJQ==}
     engines: {node: '>=19.0.0'}
 
   iconv-lite@0.4.24:
@@ -11076,7 +11076,7 @@ snapshots:
 
   human-signals@2.1.0: {}
 
-  hypha-core@0.20.47(@types/react@18.3.18)(codemirror@5.65.18)(monaco-editor@0.52.2)(postcss@8.5.2):
+  hypha-core@0.20.58(@types/react@18.3.18)(codemirror@5.65.18)(monaco-editor@0.52.2)(postcss@8.5.2):
     dependencies:
       '@babel/standalone': 7.26.9
       '@monaco-editor/react': 4.6.0(monaco-editor@0.52.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -11088,7 +11088,7 @@ snapshots:
       autoprefixer: 10.4.20(postcss@8.5.2)
       buffer: 6.0.3
       chai: 4.5.0
-      hypha-rpc: 0.20.48
+      hypha-rpc: 0.20.58
       imjoy-rpc: 0.5.59
       mocha: 8.4.0
       mock-socket: 9.3.1
@@ -11110,7 +11110,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  hypha-rpc@0.20.48:
+  hypha-rpc@0.20.58:
     dependencies:
       '@msgpack/msgpack': 2.8.0
 
