@@ -341,9 +341,9 @@ const BioEngineHome: React.FC = () => {
     <div className="container mx-auto px-4 py-8">
       {/* Fancy Header - Always visible */}
       <div className="text-center mb-12">
-        <div className="flex items-center justify-center gap-4">
-          <img src="/bioengine-icon.svg" alt="BioEngine Logo" className="w-12 h-12" />
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4 leading-tight">
+        <div className="flex items-end justify-center gap-4 mb-4">
+          <img src="/bioengine-icon.svg" alt="BioEngine Logo" className="w-12 h-12 mb-3" />
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
             BioEngine
           </h1>
         </div>
