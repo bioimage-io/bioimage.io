@@ -39,6 +39,7 @@ logger.addHandler(file_handler)
 
 SERVER_URL = "https://hypha.aicell.io"
 COLLECTION_JSON_URL = "https://uk1s3.embassy.ebi.ac.uk/public-datasets/bioimage.io/collection.json"
+COLLECTION_CONFIG_URL = "https://raw.githubusercontent.com/bioimage-io/collection/refs/heads/main/bioimageio_collection_config.json"
 DEFAULT_TIMEOUT = 20
 CONCURENT_TASKS = 10
 
@@ -49,6 +50,26 @@ async def fetch_collection_json():
         response = await client.get(COLLECTION_JSON_URL)
         assert response.status_code == 200, f"Failed to fetch collection.json from {COLLECTION_JSON_URL}"
         return json.loads(response.text)
+
+async def fetch_collection_config():
+    """Fetch the collection configuration JSON from GitHub."""
+    async with httpx.AsyncClient(headers={"Connection": "close"}) as client:
+        response = await client.get(COLLECTION_CONFIG_URL)
+        assert response.status_code == 200, f"Failed to fetch collection config from {COLLECTION_CONFIG_URL}"
+        return json.loads(response.text)
+
+def build_reviewer_permissions(collection_config):
+    """Extract reviewer IDs and build permissions dictionary."""
+    permissions = {"*": "r", "@": "r+"}  # Default permissions
+    
+    reviewers = collection_config.get("reviewers", [])
+    for reviewer in reviewers:
+        reviewer_id = reviewer.get("id")
+        if reviewer_id:
+            permissions[reviewer_id] = "rw+"
+            logger.info(f"Added reviewer permission: {reviewer_id} -> rw+")
+    
+    return permissions
 
 async def download_manifest(rdf_source):
     async with httpx.AsyncClient(headers={"Connection": "close"}) as client:
@@ -223,7 +244,7 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
             await upload_file(artifact_manager, artifact_id, base_url, file)
     logger.info(f"Uploaded all files for {artifact_id}")
 
-async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False):
+async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=False):
     server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
@@ -250,29 +271,59 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     assert os.environ.get("SANDBOX_ZENODO_ACCESS_TOKEN"), "SANDBOX_ZENODO_ACCESS_TOKEN is not set"
     assert os.environ.get("ZENODO_ACCESS_TOKEN"), "ZENODO_ACCESS_TOKEN is not set"
     
-    collection = await artifact_manager.create(
-        alias="bioimage.io",
-        type="collection",
-        manifest={k: collection_json[k] for k in collection_json if k not in ["collection"]},
-        config={
-            "permissions": {"*": "r", "@": "r+"}, 
-            "publish_to": "sandbox_zenodo",
-            "id_parts": id_parts  # Add the id_parts configuration here
-        },
-        secrets={
-            "SANDBOX_ZENODO_ACCESS_TOKEN": os.environ.get("SANDBOX_ZENODO_ACCESS_TOKEN"),
-            "ZENODO_ACCESS_TOKEN": os.environ.get("ZENODO_ACCESS_TOKEN"),
-            "S3_ENDPOINT_URL": os.environ.get("S3_ENDPOINT_URL"),
-            "S3_ACCESS_KEY_ID": os.environ.get("S3_ACCESS_KEY_ID"),
-            "S3_SECRET_ACCESS_KEY": os.environ.get("S3_SECRET_ACCESS_KEY"),
-            "S3_REGION_NAME": os.environ.get("S3_REGION_NAME"),
-            "S3_PREFIX": os.environ.get("S3_PREFIX"),
-            "S3_BUCKET": os.environ.get("S3_BUCKET"),
-        },
-        overwrite=True
-    )
+    # Fetch collection config and build permissions
+    collection_config = await fetch_collection_config()
+    permissions = build_reviewer_permissions(collection_config)
     
-    collection = await artifact_manager.read("bioimage.io")
+    config = {
+        "permissions": permissions, 
+        "publish_to": "sandbox_zenodo",
+        "id_parts": id_parts  # Add the id_parts configuration here
+    }
+    
+    secrets = {
+        "SANDBOX_ZENODO_ACCESS_TOKEN": os.environ.get("SANDBOX_ZENODO_ACCESS_TOKEN"),
+        "ZENODO_ACCESS_TOKEN": os.environ.get("ZENODO_ACCESS_TOKEN"),
+        "S3_ENDPOINT_URL": os.environ.get("S3_ENDPOINT_URL"),
+        "S3_ACCESS_KEY_ID": os.environ.get("S3_ACCESS_KEY_ID"),
+        "S3_SECRET_ACCESS_KEY": os.environ.get("S3_SECRET_ACCESS_KEY"),
+        "S3_REGION_NAME": os.environ.get("S3_REGION_NAME"),
+        "S3_PREFIX": os.environ.get("S3_PREFIX"),
+        "S3_BUCKET": os.environ.get("S3_BUCKET"),
+    }
+    
+    # Try to read existing collection first
+    try:
+        collection = await artifact_manager.read("bioimage.io")
+        logger.info("Collection already exists")
+        
+        if update_reviewers:
+            logger.info("Updating reviewer permissions...")
+            # Get existing config and only update permissions
+            existing_config = collection.get("config", {})
+            existing_config["permissions"] = permissions
+            collection = await artifact_manager.edit(
+                artifact_id=collection["id"],
+                config=existing_config
+            )
+            logger.info("Collection permissions updated with reviewers")
+        else:
+            logger.info("Collection exists and update_reviewers=False, skipping permission updates")
+            
+    except Exception as e:
+        logger.info(f"Collection doesn't exist, creating new one: {e}")
+        collection = await artifact_manager.create(
+            alias="bioimage.io",
+            type="collection",
+            manifest={k: collection_json[k] for k in collection_json if k not in ["collection"]},
+            config=config,
+            secrets=secrets,
+            overwrite=False
+        )
+        logger.info("Collection created with reviewer permissions")
+        
+        # Read the collection to get the full details
+        collection = await artifact_manager.read("bioimage.io")
     collection_manifest = collection["manifest"]
     print(f"Collection created: {collection_manifest}")
 
@@ -363,4 +414,4 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     logger.info("Migration completed.")
 
 # await migrate_collection(skip_migrated=False)
-asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False))
+asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True))

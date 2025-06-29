@@ -6,6 +6,7 @@ migration.log
 /node_modules
 /.pnp
 .pnp.js
+*.pyc
 
 # testing
 /coverage

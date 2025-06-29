@@ -236,7 +236,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   };
 
   return (
-    <div className="p-6 bg-gradient-to-r from-white to-blue-50 border border-blue-100 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-200">
+    <article className="p-6 bg-gradient-to-r from-white to-blue-50 border border-blue-100 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-200">
       <div className="flex justify-between items-start">
         <div className="flex-1 mr-4">
           <h4 className="text-lg font-semibold mb-1">
@@ -251,8 +251,9 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
         <div className="flex flex-col items-end">
           {artifact.supportedModes && (artifact.supportedModes.cpu && artifact.supportedModes.gpu) && onModeChange ? (
             <div className="mb-2">
-              <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <div className="flex items-center bg-gray-100 rounded-lg p-1" role="group" aria-label="Select compute mode">
                 <button
+                  type="button"
                   onClick={() => onModeChange(false)}
                   className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${(artifactMode === 'cpu' || !artifactMode)
                       ? 'bg-white text-blue-600 shadow-sm'
@@ -262,6 +263,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
                   CPU
                 </button>
                 <button
+                  type="button"
                   onClick={() => onModeChange(true)}
                   className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${artifactMode === 'gpu'
                       ? 'bg-white text-purple-600 shadow-sm'
@@ -276,6 +278,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
 
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={onEdit}
               className="px-4 py-2 text-sm bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 flex items-center shadow-sm hover:shadow-md transition-all duration-200"
             >
@@ -286,6 +289,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={handleDeploy}
               disabled={isDeploying}
               className={`px-6 py-3 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center ${isDeploying
@@ -298,7 +302,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 };
 

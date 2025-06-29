@@ -323,21 +323,29 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       
       // Store the window ID for future operations
       setCurrentWindowId(containerId);
-      // Create the window using hypha-core API
-      const imagej = await hyphaCoreAPI.createWindow({
+      
+      // Start both ImageJ and model initialization in parallel
+      const imageJPromise = hyphaCoreAPI.createWindow({
         name: `Run Model: ${modelId}`,
         src: "https://ij.imjoy.io/",
         window_id: containerId
       });
       
+      const modelRunnerPromise = (async () => {
+        const modelRunner = new ModelRunnerEngine(serverUrl) as ExtendedModelRunnerEngine;
+        await modelRunner.init(token.trim() || null, serviceId);
+        return modelRunner;
+      })();
+      
+      // Wait for both ImageJ and model runner to be ready
+      const [imagej, modelRunner] = await Promise.all([imageJPromise, modelRunnerPromise]);
+      
+      // Set up viewer and runner
       const viewer = new ImagejJsController(imagej);
       setViewerControl(viewer);
-      
-      const modelRunner = new ModelRunnerEngine(serverUrl) as ExtendedModelRunnerEngine;
-      await modelRunner.init(token.trim() || null, serviceId);
       setRunner(modelRunner);
       
-      // Initialize the model with the provided artifact ID
+      // Initialize the model (load the RDF and prepare for execution)
       await initModel(modelId, modelRunner);
       
       console.log(`Created window ${containerId} for model ${modelId}`);
