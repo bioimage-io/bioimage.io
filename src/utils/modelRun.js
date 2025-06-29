@@ -52,6 +52,11 @@ export const getMinShape = (inputSpec) => {
     });
   }
   
+  // Format where axes is a string and shape is a direct array
+  if (typeof inputSpec.axes === 'string' && Array.isArray(inputSpec.shape)) {
+    return inputSpec.shape;
+  }
+  
   return null;
 };
 
@@ -73,6 +78,12 @@ export const getStepShape = (inputSpec) => {
       }
       return 1; // Default step size
     });
+  }
+  
+  // Format where axes is a string and shape is a direct array
+  if (typeof inputSpec.axes === 'string' && Array.isArray(inputSpec.shape)) {
+    // Return array of 1s (default step size) with same length as shape
+    return inputSpec.shape.map(() => 1);
   }
   
   return null;
@@ -191,6 +202,29 @@ export const rdfHasTensor = (rdf, type) => {
   }
   
   return false;
+};
+
+// Helper to safely get the identifier (id, name, or index) from input/output specs
+export const getTensorIdentifier = (tensorSpec, fallbackIndex = 0) => {
+  if (!tensorSpec) return `tensor_${fallbackIndex}`;
+  
+  // Try id first
+  if (tensorSpec.id && typeof tensorSpec.id === 'string') {
+    return tensorSpec.id;
+  }
+  
+  // Try name as fallback
+  if (tensorSpec.name && typeof tensorSpec.name === 'string') {
+    return tensorSpec.name;
+  }
+  
+  // Try type as fallback (for some legacy formats)
+  if (tensorSpec.type && typeof tensorSpec.type === 'string') {
+    return tensorSpec.type;
+  }
+  
+  // Use index-based fallback
+  return `tensor_${fallbackIndex}`;
 };
 
 export const loadCellposeRdf = () => {
@@ -491,8 +525,8 @@ export class ModelRunnerEngine {
     //   outImg = resp.mask;
     // } else {
     const resp = await this.bioengineExecutor.execute(modelId, reshapedImg);
-    // get output tensor name 
-    const outputTensorName = this.rdf.outputs[0].id;
+    // get output tensor name with fallback
+    const outputTensorName = getTensorIdentifier(this.rdf.outputs[0], 0);
     return resp[outputTensorName];
   }
 

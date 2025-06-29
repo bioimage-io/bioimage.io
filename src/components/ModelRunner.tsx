@@ -135,6 +135,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [buttonEnabledRun, setButtonEnabledRun] = useState<boolean>(false);
   const [buttonEnabledInput, setButtonEnabledInput] = useState<boolean>(false);
   const [buttonEnabledOutput, setButtonEnabledOutput] = useState<boolean>(false);
+  const [modelInitialized, setModelInitialized] = useState<boolean>(false);
 
   // Auto-initialize when component mounts
   useEffect(() => {
@@ -167,12 +168,14 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     }
   };
 
-  // Initialize button states to show all buttons by default
+  // Initialize button states - all disabled before model initialization
   useEffect(() => {
-    setButtonEnabledRun(true);
-    setButtonEnabledInput(true);
-    setButtonEnabledOutput(true);
-  }, []);
+    if (!modelInitialized) {
+      setButtonEnabledRun(false);
+      setButtonEnabledInput(false);
+      setButtonEnabledOutput(false);
+    }
+  }, [modelInitialized]);
 
   const initModel = async (modelId: string, modelRunner = runner) => {
     if (!modelRunner) return;
@@ -185,6 +188,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       // Update any model parameters if needed
       // This would be similar to the parametersStore.$patch in the Vue example
       
+      setModelInitialized(true);
       updateButtonStates(true, modelRunner);
       setInfoPanel("");
     } catch (e) {
@@ -507,46 +511,13 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
   return (
     <div className={`relative ${className}`}>
-      {/* Status message */}
-      {infoMessage && (
-        <div className="mb-3 px-3 py-2 text-sm rounded" style={{ color: isError ? 'red' : 'black' }}>
-          {isWaiting && <span className="mr-2">⏳</span>}
-          {infoMessage}
-        </div>
-      )}
-      
-      {/* Control buttons - hide initialize button since it auto-initializes */}
+      {/* Control buttons */}
       <div className="flex flex-wrap gap-2 mb-3">
-        {isRunning && (
-          <button
-            onClick={reloadApp}
-            disabled={!isLoggedIn || isDisabled || isReloading || !isHyphaCoreReady}
-            title="Reload the application"
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
-              ${!isLoggedIn || isDisabled || !isHyphaCoreReady || isReloading
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300'
-              }`}
-          >
-            {isReloading ? (
-              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            Reload App
-          </button>
-        )}
-        
         <button
           onClick={loadTestInput}
-          disabled={!buttonEnabledInput || isWaiting}
-          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
-            ${!buttonEnabledInput || isWaiting
+          disabled={!buttonEnabledInput || isWaiting || !isLoggedIn}
+          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors
+            ${!buttonEnabledInput || isWaiting || !isLoggedIn
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
             }`}
@@ -554,14 +525,14 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
-          Load Sample Image
+          {!isLoggedIn ? 'Login to Load Sample' : 'Load Sample Image'}
         </button>
         
         <button
           onClick={runModel}
-          disabled={!buttonEnabledRun || isWaiting || !inputLoaded}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors
-            ${!buttonEnabledRun || isWaiting || !inputLoaded
+          disabled={!buttonEnabledRun || isWaiting || !isLoggedIn}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors
+            ${!buttonEnabledRun || isWaiting || !isLoggedIn
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-700'
             }`}
@@ -577,14 +548,14 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
             </svg>
           )}
-          Run Model
+          {!isLoggedIn ? 'Login to Run Model' : 'Run Model'}
         </button>
         
         <button
           onClick={loadTestOutput}
-          disabled={!buttonEnabledOutput || isWaiting}
-          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
-            ${!buttonEnabledOutput || isWaiting
+          disabled={!buttonEnabledOutput || isWaiting || !isLoggedIn}
+          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors
+            ${!buttonEnabledOutput || isWaiting || !isLoggedIn
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
             }`}
@@ -593,13 +564,13 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
           </svg>
-          Show Reference Output
+          {!isLoggedIn ? 'Login to Show Reference' : 'Show Reference Output'}
         </button>
         
         {/* Advanced Settings Toggle */}
         <button
           onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300"
         >
           <svg 
             className={`w-4 h-4 transition-transform ${showAdvancedSettings ? 'rotate-180' : ''}`} 
@@ -705,6 +676,54 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               <span className="text-xs text-gray-500">
                 Leave empty for public services, needed for connecting to private BioEngine instances
               </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enhanced Status Message - moved below buttons */}
+      {(infoMessage || isLoading || isWaiting || !modelInitialized) && (
+        <div className={`mt-4 px-4 py-3 rounded-lg border transition-all duration-300 ${
+          isError 
+            ? 'bg-red-50 border-red-200 text-red-800' 
+            : isWaiting || isLoading || !modelInitialized
+              ? 'bg-blue-50 border-blue-200 text-blue-800'
+              : 'bg-green-50 border-green-200 text-green-800'
+        }`}>
+          <div className="flex items-center gap-3">
+            {/* Show spinner for loading states */}
+            {(isWaiting || isLoading || (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn)) && (
+              <div className="flex-shrink-0">
+                <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
+                  <circle 
+                    className="opacity-25" 
+                    cx="12" 
+                    cy="12" 
+                    r="10" 
+                    stroke="currentColor" 
+                    strokeWidth="4" 
+                    fill="none" 
+                  />
+                  <path 
+                    className="opacity-75" 
+                    fill="currentColor" 
+                    d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" 
+                  />
+                </svg>
+              </div>
+            )}
+            
+            {/* Status text */}
+            <div className="text-base font-medium">
+              {infoMessage || 
+                (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn 
+                  ? "Initializing model..." 
+                  : !isLoggedIn 
+                    ? "Please log in to use the model runner"
+                    : !hyphaCoreAPI || !isHyphaCoreReady
+                      ? "Connecting to Hypha..."
+                      : "Ready"
+                )}
             </div>
           </div>
         </div>

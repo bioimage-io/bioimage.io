@@ -200,22 +200,21 @@ const ArtifactDetails = () => {
   if (!selectedResource) {
     return <div>Artifact not found</div>;
   }
-  console.log("Current artifact:", selectedResource, "version:", version);
-
+  
   const { manifest } = selectedResource as ArtifactInfo;
 
     return (
     <div className="container-safe">
-      <Box sx={{ p: 2, maxWidth: '100%', width: '100%' }}>
+      <Box sx={{ p: { xs: 1, sm: 1, md: 2 }, maxWidth: '100%', width: '100%' }}>
       {/* Header Section */}
       <Box 
         sx={{ 
-          mb: 4, 
-          p: 4,
+          mb: { xs: 1, sm: 2, md: 4 }, 
+          p: { xs: 1, sm: 2, md: 4 },
           backgroundColor: 'rgba(255, 255, 255, 0.8)',
           backdropFilter: 'blur(8px)',
           border: '1px solid rgba(255, 255, 255, 0.5)',
-          borderRadius: '16px',
+          borderRadius: { xs: '8px', sm: '12px', md: '16px' },
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
         }}
       >
@@ -255,11 +254,11 @@ const ArtifactDetails = () => {
             )}
           </div>
         </Typography>
-        <Typography variant="body1" sx={{ mb: 3, color: '#4b5563', lineHeight: 1.6 }}>{manifest.description}</Typography>
+        <Typography variant="body1" sx={{ mb: { xs: 1, sm: 2, md: 3 }, color: '#4b5563', lineHeight: 1.6 }}>{manifest.description}</Typography>
         
         {/* Main Action Buttons Row */}
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button
               onClick={handleDownload}
               startIcon={<DownloadIcon />}
@@ -389,7 +388,7 @@ const ArtifactDetails = () => {
 
         {/* Model Runner Controls Row (only show when active) */}
         {selectedResource?.manifest?.type === 'model' && showModelRunner && (
-          <Box sx={{ mt: 3 }}>
+          <Box sx={{ mt: { xs: 1, sm: 2, md: 3 } }}>
             <ModelRunner
               artifactId={selectedResource.id}
               isDisabled={false}
@@ -408,9 +407,9 @@ const ArtifactDetails = () => {
               position: 'relative',
               width: '100%',
               height: containerHeight,
-              mt: 4,
-              mb: 3,
-              borderRadius: '16px',
+              mt: { xs: 1, sm: 2, md: 4 },
+              mb: { xs: 1, sm: 2, md: 3 },
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               overflow: 'hidden',
               backgroundColor: 'rgba(249, 250, 251, 0.8)',
               backdropFilter: 'blur(4px)',
@@ -510,26 +509,26 @@ const ArtifactDetails = () => {
 
       
 
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
         {/* Left Column - Documentation */}
         <Grid item xs={12} md={8}>
           {/* Documentation Card */}
           {documentation && (
             <Card 
               sx={{ 
-                mb: 3, 
+                mb: { xs: 1, sm: 2, md: 3 }, 
                 height: '100%',
                 backgroundColor: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
                 border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: '16px',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
               }}
             >
               <CardContent sx={{ p: 0 }}>
                 <Box 
                   sx={{ 
-                    padding: '32px',
+                    padding: { xs: '12px', sm: '16px', md: '32px' },
                     '& pre': {
                       maxWidth: '100%',
                       overflow: 'auto',
@@ -567,15 +566,15 @@ const ArtifactDetails = () => {
           {selectedResource.versions && selectedResource.versions.length > 0 && (
             <Card 
               sx={{ 
-                mb: 3,
+                mb: { xs: 1, sm: 2, md: 3 },
                 backgroundColor: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
                 border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: '16px',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
               }}
             >
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                   Versions
                 </Typography>
@@ -636,15 +635,15 @@ const ArtifactDetails = () => {
           {/* Authors Card - Moved from left column */}
           <Card 
             sx={{ 
-              mb: 3,
+              mb: { xs: 1, sm: 2, md: 3 },
               backgroundColor: 'rgba(255, 255, 255, 0.8)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '16px',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: 3 }}>
+            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Authors
@@ -687,15 +686,15 @@ const ArtifactDetails = () => {
           {/* Statistics Card - New */}
           <Card 
             sx={{ 
-              mb: 3,
+              mb: { xs: 1, sm: 2, md: 3 },
               backgroundColor: 'rgba(255, 255, 255, 0.8)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '16px',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: 3 }}>
+            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 Statistics
               </Typography>
@@ -737,12 +736,12 @@ const ArtifactDetails = () => {
               {showDownloadInfo && (
                 <Box 
                   sx={{ 
-                    mt: 2, 
-                    p: 3, 
+                    mt: { xs: 1, sm: 2 }, 
+                    p: { xs: 1, sm: 2, md: 3 }, 
                     backgroundColor: 'rgba(59, 130, 246, 0.05)', 
                     backdropFilter: 'blur(4px)',
                     border: '1px solid rgba(59, 130, 246, 0.1)',
-                    borderRadius: '12px',
+                    borderRadius: { xs: '6px', sm: '8px', md: '12px' },
                   }}
                 >
                   <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#1f2937' }}>
@@ -770,15 +769,15 @@ const ArtifactDetails = () => {
           {manifest.cite && manifest.cite.length > 0 && (
             <Card 
               sx={{ 
-                mb: 3,
+                mb: { xs: 1, sm: 2, md: 3 },
                 backgroundColor: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
                 border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: '16px',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
               }}
             >
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                   Citations
                 </Typography>
@@ -816,15 +815,15 @@ const ArtifactDetails = () => {
           {/* Tags Card */}
           <Card 
             sx={{ 
-              mb: 3,
+              mb: { xs: 1, sm: 2, md: 3 },
               backgroundColor: 'rgba(255, 255, 255, 0.8)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '16px',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: 3 }}>
+            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Tags
@@ -858,15 +857,15 @@ const ArtifactDetails = () => {
           {/* Links Card */}
           <Card 
             sx={{ 
-              mb: 3,
+              mb: { xs: 1, sm: 2, md: 3 },
               backgroundColor: 'rgba(255, 255, 255, 0.8)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '16px',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: 3 }}>
+            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Links
@@ -898,11 +897,11 @@ const ArtifactDetails = () => {
               backgroundColor: 'rgba(255, 255, 255, 0.8)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '16px',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: 3 }}>
+            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>License</Typography>
               <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>{manifest.license}</Typography>
             </CardContent>
