@@ -223,7 +223,7 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
             await upload_file(artifact_manager, artifact_id, base_url, file)
     logger.info(f"Uploaded all files for {artifact_id}")
 
-async def migrate_collection(skip_migrated):
+async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False):
     server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
@@ -279,7 +279,7 @@ async def migrate_collection(skip_migrated):
     # Create a semaphore to limit concurrent tasks
     semaphore = asyncio.Semaphore(CONCURENT_TASKS)  # Limit to CONCURENT_TASKS concurrent tasks
 
-    async def migrate_dataset(item, skip_migrated):
+    async def migrate_dataset(item, skip_migrated=True, edit_existing=False, reset_stats=False):
         async with semaphore:
             dataset_id = item.get("nickname", item.get("id")).replace("/", ":")
             base_url = item["rdf_source"].replace("/rdf.yaml", "")
@@ -300,11 +300,14 @@ async def migrate_collection(skip_migrated):
             except Exception:
                 pass
             else:
-                artifact = await artifact_manager.edit(
-                    type=full_manifest.get("type"),
-                    artifact_id=artifact.id,
-                    manifest=full_manifest,
-                )
+                if reset_stats:
+                    await artifact_manager.reset_stats(artifact.id)
+                if edit_existing:
+                    artifact = await artifact_manager.edit(
+                        type=full_manifest.get("type"),
+                        artifact_id=artifact.id,
+                        manifest=full_manifest,
+                    )
                 if skip_migrated:
                     logger.info(f"{full_manifest['type']} {dataset_id} already migrated.")
                     return
@@ -352,7 +355,7 @@ async def migrate_collection(skip_migrated):
                 logger.error(f"Failed to migrate, failed to commit {artifact.type} {dataset_id}: {e}")
 
     # Create a list of tasks
-    tasks = [migrate_dataset(item, skip_migrated) for item in collection_json["collection"]]
+    tasks = [migrate_dataset(item, skip_migrated=skip_migrated, edit_existing=edit_existing, reset_stats=reset_stats) for item in collection_json["collection"]]
     
     # Run tasks and wait for them to complete
     await asyncio.gather(*tasks)
@@ -360,4 +363,4 @@ async def migrate_collection(skip_migrated):
     logger.info("Migration completed.")
 
 # await migrate_collection(skip_migrated=False)
-asyncio.run(migrate_collection(skip_migrated=False))
+asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False))

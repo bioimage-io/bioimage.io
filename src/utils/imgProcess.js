@@ -25,7 +25,8 @@ export const parseAxes = (inputSpec) => {
       if (axis.type === 'batch') return 'b';
       if (axis.type === 'channel') return 'c';
       if (axis.type === 'space') {
-        return axis.id || ''; // Use axis id (e.g., 'x', 'y', 'z') if available
+        // Ensure we return a string and handle undefined/null cases explicitly
+        return (axis.id && typeof axis.id === 'string') ? axis.id : '';
       }
       return '';
     }).join('');
@@ -81,6 +82,9 @@ export function inferImgAxes(shape, order = "bcz") {
 }
 
 export function inferImgAxesViaSpec(shape, specAxes, fromIJ = false) {
+  // Clean up specAxes to remove any "undefined" strings that might have been introduced
+  const cleanSpecAxes = typeof specAxes === 'string' ? specAxes.replace(/undefined/g, '') : specAxes;
+  
   let imgAxes;
   if (fromIJ) {
     if (shape.length === 2) {
@@ -88,7 +92,7 @@ export function inferImgAxesViaSpec(shape, specAxes, fromIJ = false) {
     } else if (shape.length === 3) {
       imgAxes = "yxc";
     } else if (shape.length === 4) {
-      if (specAxes.includes("z")) {
+      if (cleanSpecAxes.includes("z")) {
         imgAxes = "zyxc";
       } else {
         imgAxes = "cyxb";
@@ -98,11 +102,11 @@ export function inferImgAxesViaSpec(shape, specAxes, fromIJ = false) {
     }
   } else {
     let order = "bcz";
-    if (!specAxes.includes("c")) {
+    if (!cleanSpecAxes.includes("c")) {
       order = "bz";
-    } else if (!specAxes.includes("z")) {
+    } else if (!cleanSpecAxes.includes("z")) {
       order = "bc";
-    } else if (!specAxes.includes("b")) {
+    } else if (!cleanSpecAxes.includes("b")) {
       order = "cz";
     }
     imgAxes = inferImgAxes(shape, order);
