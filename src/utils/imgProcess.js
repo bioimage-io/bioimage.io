@@ -82,8 +82,20 @@ export function inferImgAxes(shape, order = "bcz") {
 }
 
 export function inferImgAxesViaSpec(shape, specAxes, fromIJ = false) {
-  // Clean up specAxes to remove any "undefined" strings that might have been introduced
-  const cleanSpecAxes = typeof specAxes === 'string' ? specAxes.replace(/undefined/g, '') : specAxes;
+  // Handle both string and array formats for specAxes
+  let cleanSpecAxes;
+  if (typeof specAxes === 'string') {
+    // Already a string, just clean up any "undefined" strings
+    cleanSpecAxes = specAxes.replace(/undefined/g, '');
+  } else if (Array.isArray(specAxes)) {
+    // It's an array of axis objects, parse it first
+    cleanSpecAxes = parseAxes({ axes: specAxes });
+  } else if (specAxes && specAxes.axes) {
+    // It's an object with axes property
+    cleanSpecAxes = parseAxes(specAxes);
+  } else {
+    throw new Error('Invalid specAxes format: expected string or array of axis objects');
+  }
   
   let imgAxes;
   if (fromIJ) {
