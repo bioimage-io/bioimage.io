@@ -144,6 +144,28 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     }
   }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn]);
 
+  // Add spinner animation CSS
+  useEffect(() => {
+    const styleId = 'model-runner-spinner-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes modelRunnerSpin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    return () => {
+      const existingStyle = document.getElementById(styleId);
+      if (existingStyle) {
+        existingStyle.remove();
+      }
+    };
+  }, []);
+
   const setInfoPanel = (message: string, waiting: boolean = false, error: boolean = false) => {
     setInfoMessage(message);
     setIsWaiting(waiting);
@@ -694,22 +716,39 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             {/* Show spinner for loading states */}
             {(isWaiting || isLoading || (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn)) && (
               <div className="flex-shrink-0">
-                <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                  <circle 
-                    className="opacity-25" 
-                    cx="12" 
-                    cy="12" 
-                    r="10" 
-                    stroke="currentColor" 
-                    strokeWidth="4" 
-                    fill="none" 
-                  />
-                  <path 
-                    className="opacity-75" 
-                    fill="currentColor" 
-                    d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" 
-                  />
-                </svg>
+                <div 
+                  style={{
+                    animation: 'modelRunnerSpin 1s linear infinite',
+                    display: 'inline-block'
+                  }}
+                >
+                  <svg 
+                    className="w-5 h-5" 
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle 
+                      cx="12" 
+                      cy="12" 
+                      r="10" 
+                      stroke="currentColor" 
+                      strokeWidth="4" 
+                      strokeDasharray="31.416" 
+                      strokeDashoffset="31.416"
+                      opacity="0.3"
+                    />
+                    <circle 
+                      cx="12" 
+                      cy="12" 
+                      r="10" 
+                      stroke="currentColor" 
+                      strokeWidth="4" 
+                      strokeDasharray="31.416" 
+                      strokeDashoffset="23.562"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
               </div>
             )}
             
