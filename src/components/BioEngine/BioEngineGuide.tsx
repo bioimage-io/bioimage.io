@@ -31,6 +31,8 @@ const BioEngineGuide: React.FC = () => {
   const [customImage, setCustomImage] = useState('');
   const [platformOverride, setPlatformOverride] = useState('');
   const [clientId, setClientId] = useState('');
+  const [clientServerPort, setClientServerPort] = useState('10001');
+  const [servePort, setServePort] = useState('8000');
 
 
   // Ref for the troubleshooting dialog
@@ -124,6 +126,13 @@ const BioEngineGuide: React.FC = () => {
       }
     } else if (mode === 'external-cluster' && rayAddress) {
       args.push(`--connection_address ${rayAddress}`);
+      // Add port configuration for external cluster
+      if (clientServerPort && clientServerPort !== '10001') {
+        args.push(`--client_server_port ${clientServerPort}`);
+      }
+      if (servePort && servePort !== '8000') {
+        args.push(`--serve_port ${servePort}`);
+      }
     }
 
     // Advanced arguments
@@ -359,6 +368,8 @@ I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is 
 ${mode === 'single-machine' ? `- **CPUs**: ${cpus}
 - **GPUs**: ${hasGpu ? gpus : 'None'}` : ''}
 ${mode === 'external-cluster' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
+${mode === 'external-cluster' && clientServerPort && clientServerPort !== '10001' ? `- **Client Server Port**: ${clientServerPort}` : ''}
+${mode === 'external-cluster' && servePort && servePort !== '8000' ? `- **Serve Port**: ${servePort}` : ''}
 ${mode !== 'slurm' ? `- **Run as Root**: ${runAsRoot ? 'Yes' : 'No'}
 - **Shared Memory Size**: ${shmSize}` : ''}
 - **Interactive Mode**: ${interactiveMode ? (mode === 'slurm' ? 'Yes (can inspect script before running)' : `Yes (separate ${containerName} and Python commands${containerRuntime === 'apptainer' || containerRuntime === 'singularity' ? ` with ${containerRuntime} shell` : ' with --entrypoint bash'})`) : 'No (single command)'}
@@ -383,28 +394,23 @@ ${commandText}
 
 \`\`\`
 python -m bioengine_worker --help
-usage: __main__.py [-h] [--mode {slurm,single-machine,external-cluster}] [--admin_users ADMIN_USERS [ADMIN_USERS ...]] [--cache_dir CACHE_DIR]
-                   [--data_dir DATA_DIR] [--startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]] [--server_url SERVER_URL]
-                   [--workspace WORKSPACE] [--token TOKEN] [--client_id CLIENT_ID] [--head_node_address HEAD_NODE_ADDRESS]
-                   [--head_node_port HEAD_NODE_PORT] [--node_manager_port NODE_MANAGER_PORT] [--object_manager_port OBJECT_MANAGER_PORT]
-                   [--redis_shard_port REDIS_SHARD_PORT] [--serve_port SERVE_PORT] [--dashboard_port DASHBOARD_PORT]
-                   [--client_server_port CLIENT_SERVER_PORT] [--redis_password REDIS_PASSWORD] [--head_num_cpus HEAD_NUM_CPUS]
-                   [--head_num_gpus HEAD_NUM_GPUS] [--runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB]
-                   [--connection_address CONNECTION_ADDRESS] [--skip_cleanup] [--status_interval_seconds STATUS_INTERVAL_SECONDS]
-                   [--max_status_history_length MAX_STATUS_HISTORY_LENGTH] [--image IMAGE] [--worker_cache_dir WORKER_CACHE_DIR]
-                   [--worker_data_dir WORKER_DATA_DIR] [--default_num_gpus DEFAULT_NUM_GPUS] [--default_num_cpus DEFAULT_NUM_CPUS]
-                   [--default_mem_per_cpu DEFAULT_MEM_PER_CPU] [--default_time_limit DEFAULT_TIME_LIMIT]
-                   [--further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]] [--min_workers MIN_WORKERS] [--max_workers MAX_WORKERS]
-                   [--scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS] [--scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS]
-                   [--scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS] [--dashboard_url DASHBOARD_URL] [--debug]
+usage: __main__.py [-h] [--mode {slurm,single-machine,external-cluster}] [--admin_users ADMIN_USERS [ADMIN_USERS ...]] [--cache_dir CACHE_DIR] [--data_dir DATA_DIR]
+                   [--startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]] [--server_url SERVER_URL] [--workspace WORKSPACE] [--token TOKEN] [--client_id CLIENT_ID]
+                   [--head_node_address HEAD_NODE_ADDRESS] [--head_node_port HEAD_NODE_PORT] [--node_manager_port NODE_MANAGER_PORT] [--object_manager_port OBJECT_MANAGER_PORT]
+                   [--redis_shard_port REDIS_SHARD_PORT] [--serve_port SERVE_PORT] [--dashboard_port DASHBOARD_PORT] [--client_server_port CLIENT_SERVER_PORT] [--redis_password REDIS_PASSWORD]
+                   [--head_num_cpus HEAD_NUM_CPUS] [--head_num_gpus HEAD_NUM_GPUS] [--runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB] [--skip_cleanup]
+                   [--status_interval_seconds STATUS_INTERVAL_SECONDS] [--max_status_history_length MAX_STATUS_HISTORY_LENGTH] [--image IMAGE] [--worker_cache_dir WORKER_CACHE_DIR]
+                   [--worker_data_dir WORKER_DATA_DIR] [--default_num_gpus DEFAULT_NUM_GPUS] [--default_num_cpus DEFAULT_NUM_CPUS] [--default_mem_per_cpu DEFAULT_MEM_PER_CPU]
+                   [--default_time_limit DEFAULT_TIME_LIMIT] [--further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]] [--min_workers MIN_WORKERS] [--max_workers MAX_WORKERS]
+                   [--scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS] [--scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS] [--scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS]
+                   [--dashboard_url DASHBOARD_URL] [--debug]
 
 BioEngine Worker Registration
 
 options:
   -h, --help            show this help message and exit
   --mode {slurm,single-machine,external-cluster}
-                        Mode of operation: 'slurm' for managing a Ray cluster with SLURM jobs, 'single-machine' for local Ray cluster, 'external-cluster' for
-                        connecting to an existing Ray cluster.
+                        Mode of operation: 'slurm' for managing a Ray cluster with SLURM jobs, 'single-machine' for local Ray cluster, 'external-cluster' for connecting to an existing Ray cluster.
   --admin_users ADMIN_USERS [ADMIN_USERS ...]
                         List of admin users for BioEngine apps and datasets. If not set, defaults to the logged-in user.
   --cache_dir CACHE_DIR
@@ -421,8 +427,7 @@ Hypha Options:
                         URL of the Hypha server
   --workspace WORKSPACE
                         Hypha workspace to connect to. If not set, the workspace associated with the token will be used.
-  --token TOKEN         Authentication token for Hypha server. If not set, the environment variable 'HYPHA_TOKEN' will be used, otherwise the user will
-                        be prompted to log in.
+  --token TOKEN         Authentication token for Hypha server. If not set, the environment variable 'HYPHA_TOKEN' will be used, otherwise the user will be prompted to log in.
   --client_id CLIENT_ID
                         Client ID for the worker. If not set, a client ID will be generated automatically.
 
@@ -451,8 +456,6 @@ Ray Cluster Manager Options:
                         Number of GPUs for head node if starting locally
   --runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB
                         Size of the pip cache in GB for Ray runtime environment
-  --connection_address CONNECTION_ADDRESS
-                        Address of existing Ray cluster to connect to (format: 'ip:port' for specific address).
   --skip_cleanup        Skip cleanup of previous Ray cluster
   --status_interval_seconds STATUS_INTERVAL_SECONDS
                         Interval in seconds to check the status of the Ray cluster
@@ -705,7 +708,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   type="text"
                   value={rayAddress}
                   onChange={(e) => setRayAddress(e.target.value)}
-                  placeholder="ray://head-node-ip:10001"
+                  placeholder="ray://head-node-ip"
                   className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                   aria-label="Ray cluster address"
                 />
@@ -1063,6 +1066,39 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </select>
                 <p className="text-xs text-gray-500 mt-1">Override platform detection. Docker usually auto-detects correctly, so leave as default unless needed</p>
               </div>
+
+              {/* External Cluster Port Configuration */}
+              {mode === 'external-cluster' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Client Server Port</label>
+                    <input
+                      type="number"
+                      min="1024"
+                      max="65535"
+                      value={clientServerPort}
+                      onChange={(e) => setClientServerPort(e.target.value)}
+                      placeholder="10001"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Port for Ray client server (default: 10001)</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Serve Port</label>
+                    <input
+                      type="number"
+                      min="1024"
+                      max="65535"
+                      value={servePort}
+                      onChange={(e) => setServePort(e.target.value)}
+                      placeholder="8000"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Port for Ray Serve (default: 8000)</p>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

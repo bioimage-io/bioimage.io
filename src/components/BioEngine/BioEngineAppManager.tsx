@@ -305,13 +305,26 @@ class MyNewApp:
 
   // Delete artifact handler
   const handleDeleteArtifact = async () => {
-    if (!editingArtifact || !artifactManager) return;
+    if (!editingArtifact) return;
 
     setDeleteLoading(true);
     setDeleteError(null);
 
     try {
-      await artifactManager.delete(editingArtifact.id);
+      // Check if this is a user's own artifact or a BioEngine worker artifact
+      const isUserOwned = isUserOwnedArtifact(editingArtifact.id);
+      
+      if (isUserOwned) {
+        // Use artifact manager for user's own artifacts
+        if (!artifactManager) {
+          throw new Error('Artifact manager not available');
+        }
+        await artifactManager.delete(editingArtifact.id);
+      } else {
+        // Use BioEngine worker's delete_artifact function for worker artifacts
+        const bioengineWorker = await server.getService(serviceId);
+        await bioengineWorker.delete_artifact(editingArtifact.id);
+      }
 
       // Close dialogs and refresh
       setDeleteDialogOpen(false);
@@ -323,7 +336,7 @@ class MyNewApp:
         onArtifactUpdated();
       }
 
-      console.log('Successfully deleted artifact:', editingArtifact.id);
+      console.log(`Successfully deleted artifact: ${editingArtifact.id} using ${isUserOwned ? 'artifact manager' : 'BioEngine worker'}`);
     } catch (err) {
       console.error('Failed to delete artifact:', err);
       setDeleteError(`Failed to delete artifact: ${err}`);

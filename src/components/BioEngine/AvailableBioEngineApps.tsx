@@ -70,8 +70,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artifactManager, setArtifactManager] = useState<any>(null);
-  const [deletingArtifactId, setDeletingArtifactId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Reference to the app manager
   const appManagerRef = React.useRef<{
@@ -213,45 +211,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     return userWorkspace && artifactId.startsWith(userWorkspace);
   };
 
-  const handleDeleteArtifact = async (artifactId: string) => {
-    if (!artifactManager || !isLoggedIn) return;
-
-    // Confirm deletion
-    const artifactName = availableArtifacts.find(a => a.id === artifactId)?.manifest?.name || artifactId;
-    if (!window.confirm(`Are you sure you want to delete "${artifactName}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setDeleteError(null);
-      setDeletingArtifactId(artifactId);
-
-      await artifactManager.delete({
-        artifact_id: artifactId,
-        delete_files: true,
-        recursive: true,
-        _rkwargs: true
-      });
-
-      // Refresh the available artifacts list
-      await fetchAvailableArtifacts();
-
-      setDeletingArtifactId(null);
-
-      console.log(`Successfully deleted ${artifactId}`);
-
-      // Notify parent component if callback provided
-      if (onArtifactUpdated) {
-        onArtifactUpdated();
-      }
-    } catch (err) {
-      console.error('Deletion failed:', err);
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setDeleteError(`Failed to delete ${artifactId}: ${errorMessage}`);
-      setDeletingArtifactId(null);
-    }
-  };
-
   const handleOpenCreateApp = () => {
     appManagerRef.current?.openCreateDialog();
   };
@@ -342,32 +301,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600"
-              aria-label="Dismiss error"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Error Display */}
-      {deleteError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex justify-between items-start">
-            <div className="flex">
-              <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-red-800">Delete Error</h4>
-                <p className="text-sm text-red-700 mt-1">{deleteError}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setDeleteError(null)}
               className="text-red-400 hover:text-red-600"
               aria-label="Dismiss error"
             >
