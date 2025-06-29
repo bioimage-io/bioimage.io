@@ -244,7 +244,105 @@ async def upload_files(artifact_manager, artifact_id, base_url, documentation, c
             await upload_file(artifact_manager, artifact_id, base_url, file)
     logger.info(f"Uploaded all files for {artifact_id}")
 
-async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=False):
+async def verify_and_reupload_files(artifact_manager, artifact_id, base_url, full_manifest, rdf_source):
+    """Verify all files exist for an artifact and re-upload missing ones."""
+    missing_files = []
+    verification_issues = []
+    
+    # List of all files that should exist based on manifest
+    expected_files = []
+    
+    # Add RDF file
+    expected_files.append(rdf_source.split("/")[-1])
+    
+    # Add documentation
+    if full_manifest.get('documentation'):
+        expected_files.append(full_manifest['documentation'])
+    
+    # Add covers
+    for cover in full_manifest.get('covers', []):
+        expected_files.append(cover)
+        if ".thumbnail." in cover:
+            expected_files.append(cover.replace(".thumbnail.", "."))
+    
+    # Add attachments
+    attachments = full_manifest.get('attachments', {})
+    if isinstance(attachments, list):
+        attachments = {"files": attachments}
+    for file in attachments.get('files', []):
+        if isinstance(file, str):
+            expected_files.append(file)
+        else:
+            expected_files.append(file['source'])
+    
+    # Add weights
+    weights = full_manifest.get("weights", {})
+    if weights:
+        for file in weights.values():
+            if not file:
+                continue
+            if "architecture" in file:
+                if isinstance(file["architecture"], str):
+                    expected_files.append(file["architecture"].split(":")[0])
+                else:
+                    if file["architecture"]["source"]:
+                        expected_files.append(file["architecture"]["source"].split(":")[0])
+            expected_files.append(file['source'])
+            if file.get("dependencies"):
+                if isinstance(file["dependencies"], str):
+                    source = file["dependencies"].split(":")[1]
+                    expected_files.append(source)
+                else:
+                    expected_files.append(file["dependencies"]["source"])
+    
+    # Add input/output tensors
+    for io_list in [full_manifest.get("inputs", []), full_manifest.get("outputs", [])]:
+        for file in io_list:
+            if "test_tensor" in file and file["test_tensor"]:
+                expected_files.append(file["test_tensor"]["source"])
+            if "sample_tensor" in file and file["sample_tensor"]:
+                expected_files.append(file["sample_tensor"]["source"])
+    
+    # Add test/sample files
+    for file_list_key in ["test_inputs", "test_outputs", "sample_inputs", "sample_outputs"]:
+        for file in full_manifest.get(file_list_key, []):
+            expected_files.append(file)
+    
+    # Remove duplicates and clean file paths
+    expected_files = list(set([f.lstrip("./") for f in expected_files if f]))
+    
+    logger.info(f"Verifying {len(expected_files)} files for {artifact_id}")
+    
+    # Check each file
+    for file_path in expected_files:
+        try:
+            await artifact_manager.get_file(artifact_id, file_path)
+            logger.debug(f"✓ File exists: {file_path}")
+        except Exception as e:
+            logger.warning(f"✗ Missing file: {file_path} - {e}")
+            missing_files.append(file_path)
+            verification_issues.append(f"Missing file: {file_path}")
+    
+    # Re-upload missing files
+    if missing_files:
+        logger.info(f"Re-uploading {len(missing_files)} missing files for {artifact_id}")
+        for file_path in missing_files:
+            try:
+                download_weight = 1 if any(file_path in weights_file.get('source', '') for weights_file in weights.values() if weights_file) else 0
+                await upload_file(artifact_manager, artifact_id, base_url, file_path, download_weight=download_weight)
+                logger.info(f"✓ Re-uploaded: {file_path}")
+            except Exception as e:
+                error_msg = f"Failed to re-upload {file_path}: {e}"
+                logger.error(error_msg)
+                verification_issues.append(error_msg)
+    
+    return {
+        "total_files": len(expected_files),
+        "missing_files": len(missing_files),
+        "issues": verification_issues
+    }
+
+async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=False, verify_files=False):
     server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
@@ -330,7 +428,7 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     # Create a semaphore to limit concurrent tasks
     semaphore = asyncio.Semaphore(CONCURENT_TASKS)  # Limit to CONCURENT_TASKS concurrent tasks
 
-    async def migrate_dataset(item, skip_migrated=True, edit_existing=False, reset_stats=False):
+    async def migrate_dataset(item, skip_migrated=True, edit_existing=False, reset_stats=False, verify_files=False):
         async with semaphore:
             dataset_id = item.get("nickname", item.get("id")).replace("/", ":")
             base_url = item["rdf_source"].replace("/rdf.yaml", "")
@@ -359,8 +457,25 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
                         artifact_id=artifact.id,
                         manifest=full_manifest,
                     )
-                if skip_migrated:
+                
+                # Handle file verification for existing artifacts
+                if verify_files:
+                    logger.info(f"Verifying files for existing artifact {dataset_id}")
+                    try:
+                        verification_result = await verify_and_reupload_files(
+                            artifact_manager, artifact.id, base_url, full_manifest, item["rdf_source"]
+                        )
+                        logger.info(f"Verification complete for {dataset_id}: {verification_result['total_files']} total files, {verification_result['missing_files']} missing files re-uploaded")
+                        if verification_result['issues']:
+                            logger.warning(f"Issues found for {dataset_id}: {verification_result['issues']}")
+                    except Exception as e:
+                        logger.error(f"File verification failed for {dataset_id}: {e}")
+                
+                if skip_migrated and not verify_files:
                     logger.info(f"{full_manifest['type']} {dataset_id} already migrated.")
+                    return
+                elif skip_migrated and verify_files:
+                    logger.info(f"{full_manifest['type']} {dataset_id} already migrated, files verified.")
                     return
             # Create child artifact (dataset)
             artifact = await artifact_manager.create(
@@ -406,7 +521,7 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
                 logger.error(f"Failed to migrate, failed to commit {artifact.type} {dataset_id}: {e}")
 
     # Create a list of tasks
-    tasks = [migrate_dataset(item, skip_migrated=skip_migrated, edit_existing=edit_existing, reset_stats=reset_stats) for item in collection_json["collection"]]
+    tasks = [migrate_dataset(item, skip_migrated=skip_migrated, edit_existing=edit_existing, reset_stats=reset_stats, verify_files=verify_files) for item in collection_json["collection"]]
     
     # Run tasks and wait for them to complete
     await asyncio.gather(*tasks)
@@ -414,4 +529,4 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     logger.info("Migration completed.")
 
 # await migrate_collection(skip_migrated=False)
-asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True))
+asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True, verify_files=True))
