@@ -203,9 +203,11 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           </div>
 
           <div className="flex items-center gap-1 text-xs text-gray-500">
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/50">
+            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg py-1 border border-white/50">
               <span className="font-medium">ID:</span>
-              <code className="font-mono">{artifact.id.split('/').pop()}</code>
+              <code className="font-mono bg-gray-100/80 text-gray-800 px-2 py-1 rounded-md border border-gray-200/60 text-xs">
+                {artifact.id.split('/').pop()}
+              </code>
               <Tooltip title="Copy ID" placement="top">
                 <IconButton
                   onClick={handleCopyId}
