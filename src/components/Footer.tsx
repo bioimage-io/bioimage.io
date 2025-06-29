@@ -42,18 +42,18 @@ const footerLinks = [
 
 const Footer: React.FC = () => {
   return (
-    <footer className="w-full py-12 px-4 mt-16 bg-gradient-to-b from-blue-50/50 via-purple-50/30 to-cyan-50/40 backdrop-blur-sm border-t border-blue-100/40">
+    <footer className="w-full py-12 px-4 mt-16 bg-gradient-to-b from-blue-100/60 via-purple-100/40 to-cyan-100/50 backdrop-blur-sm border-t border-blue-200/50">
       <div className="max-w-7xl mx-auto">
         {/* Links Section */}
         <div className="flex flex-wrap justify-center items-start gap-6 mb-12">
           {footerLinks.map((link, index) => (
-            <div key={index} className="w-32 sm:w-40 text-center flex-shrink-0">
-              <div className="group relative" title={link.label}>
+            <div key={index} className="w-36 sm:w-44 text-center flex-shrink-0">
+              <div className="group relative h-full" title={link.label}>
                 <a
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-block p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50 hover:bg-white/80 hover:border-blue-200/60 hover:shadow-lg transition-all duration-300 hover:scale-105 hover:-translate-y-1"
+                  className="block w-full h-full p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50 hover:bg-white/80 hover:border-blue-200/60 hover:shadow-lg transition-all duration-300 hover:scale-105 hover:-translate-y-1"
                 >
                   <figure className="flex flex-col items-center">
                     <img

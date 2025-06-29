@@ -36,7 +36,7 @@ const Navbar: React.FC = () => {
   };
 
   return (
-    <nav className="sticky top-0 z-50 bg-gradient-to-r from-blue-50/90 via-purple-50/85 to-cyan-50/90 backdrop-blur-lg border-b border-blue-100/40 shadow-xl shadow-blue-200/20 h-16">
+    <nav className="sticky top-0 z-50 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-xl shadow-blue-300/20 h-16">
       <div className="max-w-[1400px] mx-auto px-6 h-full">
         <div className="flex items-center justify-between h-full">
           {/* Left section with logo */}

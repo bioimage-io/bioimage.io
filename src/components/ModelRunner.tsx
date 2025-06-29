@@ -474,13 +474,14 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     }
   };
 
-  const reloadApp = async () => {
+  const handleReloadApp = async () => {
     if (!currentWindowId || !hyphaCoreAPI || !isHyphaCoreReady) {
       console.error('Cannot reload app: Missing windowId or hyphaCoreAPI is not ready');
       return;
     }
 
     setIsReloading(true);
+    setIsError(false); // Clear error state when reloading
 
     try {
       // Extract model ID from the full artifactId
@@ -521,6 +522,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       
       setIsReloading(false);
       setInputLoaded(false);
+      setInfoPanel("Application reloaded successfully!", false, false);
     } catch (error) {
       console.error('Failed to reload app:', error);
       const errorMessage = error instanceof Error && error.message.includes('Container element') 
@@ -712,58 +714,111 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               ? 'bg-blue-50 border-blue-200 text-blue-800'
               : 'bg-green-50 border-green-200 text-green-800'
         }`}>
-          <div className="flex items-center gap-3">
-            {/* Show spinner for loading states */}
-            {(isWaiting || isLoading || (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn)) && (
-              <div className="flex-shrink-0">
-                <div 
-                  style={{
-                    animation: 'modelRunnerSpin 1s linear infinite',
-                    display: 'inline-block'
-                  }}
-                >
-                  <svg 
-                    className="w-5 h-5" 
-                    viewBox="0 0 24 24"
-                    fill="none"
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {/* Show spinner for loading states */}
+              {(isWaiting || isLoading || (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn)) && (
+                <div className="flex-shrink-0">
+                  <div 
+                    style={{
+                      animation: 'modelRunnerSpin 1s linear infinite',
+                      display: 'inline-block'
+                    }}
                   >
-                    <circle 
-                      cx="12" 
-                      cy="12" 
-                      r="10" 
-                      stroke="currentColor" 
-                      strokeWidth="4" 
-                      strokeDasharray="31.416" 
-                      strokeDashoffset="31.416"
-                      opacity="0.3"
-                    />
-                    <circle 
-                      cx="12" 
-                      cy="12" 
-                      r="10" 
-                      stroke="currentColor" 
-                      strokeWidth="4" 
-                      strokeDasharray="31.416" 
-                      strokeDashoffset="23.562"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                    <svg 
+                      className="w-5 h-5" 
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle 
+                        cx="12" 
+                        cy="12" 
+                        r="10" 
+                        stroke="currentColor" 
+                        strokeWidth="4" 
+                        strokeDasharray="31.416" 
+                        strokeDashoffset="31.416"
+                        opacity="0.3"
+                      />
+                      <circle 
+                        cx="12" 
+                        cy="12" 
+                        r="10" 
+                        stroke="currentColor" 
+                        strokeWidth="4" 
+                        strokeDasharray="31.416" 
+                        strokeDashoffset="23.562"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
                 </div>
+              )}
+              
+              {/* Status text */}
+              <div className="text-base font-medium">
+                {infoMessage || 
+                  (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn 
+                    ? "Initializing model..." 
+                    : !isLoggedIn 
+                      ? "Please log in to use the model runner"
+                      : !hyphaCoreAPI || !isHyphaCoreReady
+                        ? "Connecting to Hypha..."
+                        : "Ready"
+                  )}
               </div>
-            )}
-            
-            {/* Status text */}
-            <div className="text-base font-medium">
-              {infoMessage || 
-                (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn 
-                  ? "Initializing model..." 
-                  : !isLoggedIn 
-                    ? "Please log in to use the model runner"
-                    : !hyphaCoreAPI || !isHyphaCoreReady
-                      ? "Connecting to Hypha..."
-                      : "Ready"
-                )}
             </div>
+
+            {/* Reload button - only show when there's an error */}
+            {isError && (
+              <button
+                onClick={handleReloadApp}
+                disabled={isReloading}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md font-medium transition-colors
+                  ${isReloading
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                  }`}
+                title="Reload the application"
+              >
+                {isReloading ? (
+                  <div 
+                    style={{
+                      animation: 'modelRunnerSpin 1s linear infinite',
+                      display: 'inline-block'
+                    }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                      <circle 
+                        cx="12" 
+                        cy="12" 
+                        r="10" 
+                        stroke="currentColor" 
+                        strokeWidth="4" 
+                        strokeDasharray="31.416" 
+                        strokeDashoffset="31.416"
+                        opacity="0.3"
+                      />
+                      <circle 
+                        cx="12" 
+                        cy="12" 
+                        r="10" 
+                        stroke="currentColor" 
+                        strokeWidth="4" 
+                        strokeDasharray="31.416" 
+                        strokeDashoffset="23.562"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+                {isReloading ? 'Reloading...' : 'Reload App'}
+              </button>
+            )}
           </div>
         </div>
       )}
