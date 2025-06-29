@@ -10,6 +10,9 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
+import GavelIcon from '@mui/icons-material/Gavel';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
@@ -576,6 +579,7 @@ const ArtifactDetails = () => {
             >
               <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                  <UpdateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Versions
                 </Typography>
                 <Stack spacing={2}>
@@ -696,6 +700,7 @@ const ArtifactDetails = () => {
           >
             <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                <BarChartIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Statistics
               </Typography>
               <Stack spacing={1}>
@@ -779,6 +784,7 @@ const ArtifactDetails = () => {
             >
               <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                  <FormatQuoteIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Citations
                 </Typography>
                 <Stack spacing={2}>
@@ -902,7 +908,10 @@ const ArtifactDetails = () => {
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>License</Typography>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                <GavelIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                License
+              </Typography>
               <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>{manifest.license}</Typography>
             </CardContent>
           </Card>
