@@ -687,12 +687,19 @@ const BioEngineWorker: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+  // Loading overlay component
+  const LoadingOverlay = () => (
+    <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white/80 backdrop-blur-lg rounded-xl p-8 flex flex-col items-center shadow-lg border border-white/50">
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-300 border-t-blue-600 mb-4"></div>
+        <div className="text-lg font-medium text-gray-700">Loading BioEngine Dashboard...</div>
+        <div className="text-sm text-gray-500 mt-1">Please wait while we fetch the latest status</div>
       </div>
-    );
+    </div>
+  );
+
+  if (loading) {
+    return <LoadingOverlay />;
   }
 
   if (error) {
@@ -748,7 +755,7 @@ const BioEngineWorker: React.FC = () => {
                 <span className="text-sm font-medium">Back</span>
               </button>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent cursor-pointer" onClick={() => navigate('/bioengine')}>
-                BioEngine Dashboard
+                BioEngine Worker Dashboard
               </h1>
             </div>
             <p className="text-gray-600 mt-2">Manage and deploy your bioimage analysis applications</p>
