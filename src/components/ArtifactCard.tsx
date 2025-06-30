@@ -355,10 +355,8 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 height: 32,
                 cursor: 'pointer',
                 background: testReportStatus === 'all-passed' 
-                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(16, 185, 129, 0.9))' 
-                  : testReportStatus === 'some-passed'
-                  ? 'linear-gradient(135deg, rgba(107, 114, 128, 0.95), rgba(156, 163, 175, 0.9))'
-                  : 'linear-gradient(135deg, rgba(107, 114, 128, 0.95), rgba(156, 163, 175, 0.9))',
+                  ? 'linear-gradient(135deg, #22c55e, #16a34a)' 
+                  : 'linear-gradient(135deg, #6b7280, #4b5563)',
                 backdropFilter: 'blur(12px)',
                 border: testReportStatus === 'all-passed' 
                   ? '1px solid rgba(255, 255, 255, 0.8)' 
@@ -366,33 +364,18 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 borderRadius: '50%',
                 boxShadow: testReportStatus === 'all-passed' 
                   ? '0 4px 20px rgba(34, 197, 94, 0.4), 0 2px 8px rgba(0, 0, 0, 0.1)' 
-                  : testReportStatus === 'some-passed'
-                  ? '0 4px 20px rgba(107, 114, 128, 0.3), 0 2px 8px rgba(0, 0, 0, 0.1)'
                   : '0 4px 20px rgba(107, 114, 128, 0.3), 0 2px 8px rgba(0, 0, 0, 0.1)',
                 transition: 'all 0.3s ease',
                 transform: 'translateZ(0)', // Hardware acceleration
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: '2px',
-                  background: 'radial-gradient(circle at top, rgba(255, 255, 255, 0.8), transparent)',
-                  borderRadius: '50%',
-                },
+
                 '&:hover': {
                   background: testReportStatus === 'all-passed' 
-                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 1), rgba(16, 185, 129, 0.95))' 
-                    : testReportStatus === 'some-passed'
-                    ? 'linear-gradient(135deg, rgba(107, 114, 128, 1), rgba(156, 163, 175, 0.95))'
-                    : 'linear-gradient(135deg, rgba(107, 114, 128, 1), rgba(156, 163, 175, 0.95))',
+                    ? 'linear-gradient(135deg, #16a34a, #15803d)' 
+                    : 'linear-gradient(135deg, #4b5563, #374151)',
                   borderColor: 'rgba(255, 255, 255, 0.6)',
                   transform: 'translateY(-2px) scale(1.05)',
                   boxShadow: testReportStatus === 'all-passed' 
                     ? '0 6px 25px rgba(34, 197, 94, 0.5), 0 4px 12px rgba(0, 0, 0, 0.15)' 
-                    : testReportStatus === 'some-passed'
-                    ? '0 6px 25px rgba(107, 114, 128, 0.4), 0 4px 12px rgba(0, 0, 0, 0.15)'
                     : '0 6px 25px rgba(107, 114, 128, 0.4), 0 4px 12px rgba(0, 0, 0, 0.15)',
                 }
               }}
