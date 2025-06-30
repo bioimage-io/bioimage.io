@@ -619,7 +619,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         <ModelTester
           artifactId={artifactId}
           modelUrl={modelUrl}
-          isDisabled={!buttonEnabledRun || isWaiting}
+          isDisabled={false}
           className="flex-shrink-0"
         />
       </div>
