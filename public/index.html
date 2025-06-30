@@ -10,6 +10,11 @@
       content="BioImage Model Zoo - A community-driven, open resource for sharing standardized AI models for bioimage analysis"
     />
     
+    <!-- Cache busting meta tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
     <!-- Apple Touch Icons -->
     <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/icons/apple-touch-icon.png" />
     
@@ -27,6 +32,49 @@
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     
     <title>BioImage.IO - Model Zoo</title>
+    
+    <!-- Force clear old service worker and cache -->
+    <script src="%PUBLIC_URL%/sw-unregister.js"></script>
+    <script>
+      // Additional immediate cleanup and cache busting
+      (function() {
+        // Add cache-busting timestamp to prevent cached resources
+        const timestamp = Date.now();
+        const meta = document.createElement('meta');
+        meta.setAttribute('http-equiv', 'Cache-Control');
+        meta.setAttribute('content', 'no-cache, no-store, must-revalidate');
+        document.head.appendChild(meta);
+        
+        const pragma = document.createElement('meta');
+        pragma.setAttribute('http-equiv', 'Pragma');
+        pragma.setAttribute('content', 'no-cache');
+        document.head.appendChild(pragma);
+        
+        const expires = document.createElement('meta');
+        expires.setAttribute('http-equiv', 'Expires');
+        expires.setAttribute('content', '0');
+        document.head.appendChild(expires);
+        
+        // Force reload once if we detect old cached content
+        const hasReloaded = sessionStorage.getItem('bioimage_forced_reload');
+        if (!hasReloaded && 'caches' in window) {
+          caches.keys().then(function(cacheNames) {
+            const hasOldCache = cacheNames.some(name => 
+              name.includes('kaibu') || 
+              name.includes('workbox') || 
+              name.includes('precache') ||
+              name.includes('vue') ||
+              name.includes('bioimage.io')
+            );
+            if (hasOldCache) {
+              sessionStorage.setItem('bioimage_forced_reload', 'true');
+              console.log('BioImage.IO: Detected old cache, forcing reload...');
+              window.location.reload(true);
+            }
+          });
+        }
+      })();
+    </script>
     
     <!-- Matomo -->
     <script>

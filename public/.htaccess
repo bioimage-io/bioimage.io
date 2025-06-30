@@ -1,0 +1,27 @@
+# Cache control for BioImage.IO
+# Force browsers to check for updates on the main HTML file
+
+<Files "index.html">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+</Files>
+
+# Cache static assets but allow them to be refreshed
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg)$">
+    Header set Cache-Control "public, max-age=86400, must-revalidate"
+</FilesMatch>
+
+# Ensure service worker files are never cached
+<FilesMatch "(service-worker|sw)\.js$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+</FilesMatch>
+
+# Handle old service worker requests
+RewriteEngine On
+RewriteCond %{REQUEST_URI} ^/service-worker\.js$ [OR]
+RewriteCond %{REQUEST_URI} ^/sw\.js$ [OR]
+RewriteCond %{REQUEST_URI} ^/plugin-service-worker\.js$
+RewriteRule ^(.*)$ /sw-unregister.js [R=301,L] 
