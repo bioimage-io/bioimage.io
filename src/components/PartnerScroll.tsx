@@ -342,7 +342,14 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
                       className="w-8 h-8 sm:w-12 sm:h-12 object-contain group-hover/partner:scale-105 transition-transform duration-300"
                       onError={(e) => {
                         const img = e.target as HTMLImageElement;
-                        img.src = '/fallback-icon.png';
+                        // Prevent infinite loop by checking if we're already using the fallback
+                        if (img.src !== window.location.origin + '/img/bioimage-io-icon-small.png') {
+                          img.src = window.location.origin + '/img/bioimage-io-icon-small.png';
+                        } else {
+                          // If even the fallback fails, remove the onError handler to prevent further loops
+                          img.onerror = null;
+                          console.warn('Both original and fallback icon failed to load for partner:', partner.name);
+                        }
                       }}
                     />
                   </div>
