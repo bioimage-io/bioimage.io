@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Card, CardMedia, CardContent, IconButton, Button, Tooltip } from '@mui/material';
+import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Popover, Box, Typography, Stack, Chip } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import WarningIcon from '@mui/icons-material/Warning';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
-import { ArtifactInfo } from '../types/artifact';
+import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
 interface ResourceCardProps {
@@ -19,7 +23,23 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [testReportAnchorEl, setTestReportAnchorEl] = useState<HTMLElement | null>(null);
   const { setSelectedResource } = useHyphaStore();
+
+  // Test report status logic
+  const getTestReportStatus = () => {
+    const testReports = artifact.manifest.test_reports;
+    if (!testReports || testReports.length === 0) return null;
+    
+    const passedCount = testReports.filter(report => report.status === 'passed').length;
+    const totalCount = testReports.length;
+    
+    if (passedCount === totalCount) return 'all-passed';
+    if (passedCount > 0) return 'some-passed';
+    return 'none-passed';
+  };
+
+  const testReportStatus = getTestReportStatus();
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent Link navigation
     setCurrentImageIndex((prev) => (prev + 1) % covers.length);
@@ -62,6 +82,17 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const handlePreviewClose = () => {
     setPreviewOpen(false);
   };
+
+  const handleTestReportClick = (e: React.MouseEvent<HTMLElement>) => {
+    e.stopPropagation(); // Prevent card navigation
+    setTestReportAnchorEl(e.currentTarget);
+  };
+
+  const handleTestReportClose = () => {
+    setTestReportAnchorEl(null);
+  };
+
+  const testReportPopoverOpen = Boolean(testReportAnchorEl);
 
   // Get the resolved cover URL for the current index
   const getCurrentCoverUrl = () => {
@@ -128,6 +159,129 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         onClose={handlePreviewClose}
       />
 
+      {/* Test Report Popover */}
+      <Popover
+        open={testReportPopoverOpen}
+        anchorEl={testReportAnchorEl}
+        onClose={handleTestReportClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        sx={{
+          '& .MuiPopover-paper': {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.5)',
+            borderRadius: '12px',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)',
+            maxWidth: 400,
+            minWidth: 300,
+          }
+        }}
+      >
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500, color: '#1f2937', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssignmentTurnedInIcon sx={{ fontSize: 20 }} />
+            Test Reports
+          </Typography>
+          {artifact.manifest.test_reports && (
+            <Stack spacing={1.5}>
+              {artifact.manifest.test_reports.map((testReport: TestReport, index: number) => (
+                <Box 
+                  key={index}
+                  sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 1.5,
+                    p: 2,
+                    backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                    backdropFilter: 'blur(4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.7)',
+                    borderRadius: '8px',
+                    transition: 'all 0.3s ease',
+                                         '&:hover': {
+                       backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                       borderColor: testReport.status === 'passed' 
+                         ? 'rgba(34, 197, 94, 0.3)' 
+                         : 'rgba(107, 114, 128, 0.3)',
+                     }
+                  }}
+                >
+                  {testReport.status === 'passed' ? (
+                    <CheckCircleIcon 
+                      sx={{ 
+                        color: '#22c55e', 
+                        fontSize: 18,
+                        flexShrink: 0
+                      }} 
+                    />
+                                     ) : (
+                     <CancelIcon 
+                       sx={{ 
+                         color: '#6b7280', 
+                         fontSize: 18,
+                         flexShrink: 0
+                       }} 
+                     />
+                   )}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        fontWeight: 500, 
+                        color: '#1f2937',
+                        lineHeight: 1.2,
+                        wordBreak: 'break-word',
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      {testReport.name}
+                    </Typography>
+                    <Typography 
+                      variant="caption" 
+                      sx={{ 
+                        color: '#6b7280',
+                        fontSize: '0.75rem',
+                        display: 'block',
+                        mt: 0.5
+                      }}
+                    >
+                      {testReport.runtime}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={testReport.status}
+                    size="small"
+                    sx={{
+                                           backgroundColor: testReport.status === 'passed' 
+                       ? 'rgba(34, 197, 94, 0.1)' 
+                       : 'rgba(107, 114, 128, 0.1)',
+                     color: testReport.status === 'passed' 
+                       ? '#22c55e' 
+                       : '#6b7280',
+                      borderRadius: '6px',
+                      fontWeight: 500,
+                      fontSize: '0.7rem',
+                      height: 20,
+                                           border: `1px solid ${testReport.status === 'passed' 
+                       ? 'rgba(34, 197, 94, 0.2)' 
+                       : 'rgba(107, 114, 128, 0.2)'}`,
+                      textTransform: 'capitalize',
+                      flexShrink: 0
+                    }}
+                  />
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </Box>
+      </Popover>
+
       <div style={{ position: 'relative', paddingTop: '56.25%', borderRadius: '16px 16px 0 0', overflow: 'hidden' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
           <CardMedia
@@ -179,6 +333,79 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
             )}
           </div>
+        )}
+
+        {/* Floating Test Report Badge */}
+        {testReportStatus && (
+          <Tooltip 
+            title={`Test Reports: ${artifact.manifest.test_reports?.filter(r => r.status === 'passed').length || 0}/${artifact.manifest.test_reports?.length || 0} passed`} 
+            placement="left"
+          >
+            <Box
+              onClick={handleTestReportClick}
+              sx={{ 
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 2,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                cursor: 'pointer',
+                background: testReportStatus === 'all-passed' 
+                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(16, 185, 129, 0.9))' 
+                  : testReportStatus === 'some-passed'
+                  ? 'linear-gradient(135deg, rgba(107, 114, 128, 0.95), rgba(156, 163, 175, 0.9))'
+                  : 'linear-gradient(135deg, rgba(107, 114, 128, 0.95), rgba(156, 163, 175, 0.9))',
+                backdropFilter: 'blur(12px)',
+                border: testReportStatus === 'all-passed' 
+                  ? '1px solid rgba(255, 255, 255, 0.8)' 
+                  : '1px solid rgba(255, 255, 255, 0.6)',
+                borderRadius: '50%',
+                boxShadow: testReportStatus === 'all-passed' 
+                  ? '0 4px 20px rgba(34, 197, 94, 0.4), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                  : testReportStatus === 'some-passed'
+                  ? '0 4px 20px rgba(107, 114, 128, 0.3), 0 2px 8px rgba(0, 0, 0, 0.1)'
+                  : '0 4px 20px rgba(107, 114, 128, 0.3), 0 2px 8px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                transform: 'translateZ(0)', // Hardware acceleration
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '2px',
+                  background: 'radial-gradient(circle at top, rgba(255, 255, 255, 0.8), transparent)',
+                  borderRadius: '50%',
+                },
+                '&:hover': {
+                  background: testReportStatus === 'all-passed' 
+                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 1), rgba(16, 185, 129, 0.95))' 
+                    : testReportStatus === 'some-passed'
+                    ? 'linear-gradient(135deg, rgba(107, 114, 128, 1), rgba(156, 163, 175, 0.95))'
+                    : 'linear-gradient(135deg, rgba(107, 114, 128, 1), rgba(156, 163, 175, 0.95))',
+                  borderColor: 'rgba(255, 255, 255, 0.6)',
+                  transform: 'translateY(-2px) scale(1.05)',
+                  boxShadow: testReportStatus === 'all-passed' 
+                    ? '0 6px 25px rgba(34, 197, 94, 0.5), 0 4px 12px rgba(0, 0, 0, 0.15)' 
+                    : testReportStatus === 'some-passed'
+                    ? '0 6px 25px rgba(107, 114, 128, 0.4), 0 4px 12px rgba(0, 0, 0, 0.15)'
+                    : '0 6px 25px rgba(107, 114, 128, 0.4), 0 4px 12px rgba(0, 0, 0, 0.15)',
+                }
+              }}
+            >
+                             {testReportStatus === 'all-passed' ? (
+                 <CheckCircleIcon sx={{ fontSize: 18, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3))' }} />
+               ) : testReportStatus === 'some-passed' ? (
+                 <WarningIcon sx={{ fontSize: 18, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3))' }} />
+               ) : (
+                 <CancelIcon sx={{ fontSize: 18, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3))' }} />
+               )}
+            </Box>
+          </Tooltip>
         )}
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>

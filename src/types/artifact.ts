@@ -15,6 +15,12 @@ export interface Citation {
   doi?: string;
 }
 
+export interface TestReport {
+  name: string;
+  status: string;
+  runtime: string;
+}
+
 interface Version {
   version: string;
   comment: string;
@@ -43,6 +49,7 @@ export interface ArtifactInfo {
     documentation?: string;
     authors?: Author[];
     cite?: Citation[];
+    test_reports?: TestReport[];
     links?: {
       url: string;
       icon?: string;

@@ -14,12 +14,15 @@ import UpdateIcon from '@mui/icons-material/Update';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
-import { ArtifactInfo } from '../types/artifact';
+import { ArtifactInfo, TestReport } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -407,7 +410,6 @@ const ArtifactDetails = () => {
             sx={{ 
               position: 'relative',
               width: '100%',
-              height: containerHeight,
               mt: { xs: 1, sm: 2, md: 4 },
               mb: { xs: 1, sm: 2, md: 3 },
               borderRadius: { xs: '8px', sm: '12px', md: '16px' },
@@ -419,90 +421,201 @@ const ArtifactDetails = () => {
             }}
             data-cover-container="true"
           >
-            {showModelRunner ? (
-              <div 
-                ref={modelContainerRef}
-                id={currentContainerId || "model-container"}
-                style={{
-                  width: '100%',
-                  height: '100%'
-                }}
-              />
-            ) : (
-              <>
-                <img
-                  src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
-                  alt={`Cover ${currentImageIndex + 1}`}
+            {/* Image/Model Runner Section */}
+            <Box
+              sx={{
+                position: 'relative',
+                width: '100%',
+                height: containerHeight,
+              }}
+            >
+              {showModelRunner ? (
+                <div 
+                  ref={modelContainerRef}
+                  id={currentContainerId || "model-container"}
                   style={{
                     width: '100%',
-                    height: '100%',
-                    objectFit: 'contain'
+                    height: '100%'
                   }}
                 />
-                {selectedResource.manifest.covers.length > 1 && (
-                  <>
-                    <IconButton
-                      onClick={previousImage}
-                      sx={{
-                        position: 'absolute',
-                        left: 12,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(255, 255, 255, 0.5)',
+              ) : (
+                <>
+                  <img
+                    src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
+                    alt={`Cover ${currentImageIndex + 1}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                      borderRadius: '12px'
+                    }}
+                  />
+                  {selectedResource.manifest.covers.length > 1 && (
+                    <>
+                      <IconButton
+                        onClick={previousImage}
+                        sx={{
+                          position: 'absolute',
+                          left: 12,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(255, 255, 255, 0.5)',
+                          borderRadius: '12px',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderColor: 'rgba(59, 130, 246, 0.3)',
+                            transform: 'translateY(-50%) scale(1.05)',
+                          }
+                        }}
+                      >
+                        <NavigateBeforeIcon />
+                      </IconButton>
+                      <IconButton
+                        onClick={nextImage}
+                        sx={{
+                          position: 'absolute',
+                          right: 12,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(255, 255, 255, 0.5)',
+                          borderRadius: '12px',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderColor: 'rgba(59, 130, 246, 0.3)',
+                            transform: 'translateY(-50%) scale(1.05)',
+                          }
+                        }}
+                      >
+                        <NavigateNextIcon />
+                      </IconButton>
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          bottom: 12,
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                          backdropFilter: 'blur(8px)',
+                          color: 'white',
+                          padding: '6px 12px',
+                          borderRadius: '12px',
+                          fontSize: '0.875rem',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {currentImageIndex + 1} / {selectedResource.manifest.covers.length}
+                      </Box>
+                    </>
+                  )}
+                </>
+              )}
+            </Box>
+
+            {/* Test Reports Section - Only show for models and when not in model runner mode */}
+            {selectedResource?.manifest?.type === 'model' && 
+             selectedResource?.manifest.test_reports && 
+             selectedResource.manifest.test_reports.length > 0 && 
+             !showModelRunner && (
+              <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, borderTop: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937', mb: 2 }}>
+                  <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Test Reports
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                  {selectedResource.manifest.test_reports.map((testReport: TestReport, index: number) => (
+                    <Box 
+                      key={index}
+                      sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1.5,
+                        p: 2,
+                        minWidth: '200px',
+                        flex: '1 1 auto',
+                        backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                        backdropFilter: 'blur(4px)',
+                        border: '1px solid rgba(255, 255, 255, 0.7)',
                         borderRadius: '12px',
                         transition: 'all 0.3s ease',
                         '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderColor: 'rgba(59, 130, 246, 0.3)',
-                          transform: 'translateY(-50%) scale(1.05)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                          borderColor: testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.3)' 
+                            : 'rgba(239, 68, 68, 0.3)',
                         }
                       }}
                     >
-                      <NavigateBeforeIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={nextImage}
-                      sx={{
-                        position: 'absolute',
-                        right: 12,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(255, 255, 255, 0.5)',
-                        borderRadius: '12px',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderColor: 'rgba(59, 130, 246, 0.3)',
-                          transform: 'translateY(-50%) scale(1.05)',
-                        }
-                      }}
-                    >
-                      <NavigateNextIcon />
-                    </IconButton>
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        bottom: 12,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                        backdropFilter: 'blur(8px)',
-                        color: 'white',
-                        padding: '6px 12px',
-                        borderRadius: '12px',
-                        fontSize: '0.875rem',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {currentImageIndex + 1} / {selectedResource.manifest.covers.length}
+                      {testReport.status === 'passed' ? (
+                        <CheckCircleIcon 
+                          sx={{ 
+                            color: '#22c55e', 
+                            fontSize: 20,
+                            flexShrink: 0
+                          }} 
+                        />
+                      ) : (
+                        <CancelIcon 
+                          sx={{ 
+                            color: '#ef4444', 
+                            fontSize: 20,
+                            flexShrink: 0
+                          }} 
+                        />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 500, 
+                            color: '#1f2937',
+                            lineHeight: 1.2,
+                            wordBreak: 'break-word'
+                          }}
+                        >
+                          {testReport.name}
+                        </Typography>
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            color: '#6b7280',
+                            fontSize: '0.75rem',
+                            display: 'block',
+                            mt: 0.5
+                          }}
+                        >
+                          {testReport.runtime}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        label={testReport.status}
+                        size="small"
+                        sx={{
+                          backgroundColor: testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.1)' 
+                            : 'rgba(239, 68, 68, 0.1)',
+                          color: testReport.status === 'passed' 
+                            ? '#22c55e' 
+                            : '#ef4444',
+                          borderRadius: '8px',
+                          fontWeight: 500,
+                          fontSize: '0.75rem',
+                          border: `1px solid ${testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.2)' 
+                            : 'rgba(239, 68, 68, 0.2)'}`,
+                          textTransform: 'capitalize',
+                          flexShrink: 0
+                        }}
+                      />
                     </Box>
-                  </>
-                )}
-              </>
+                  ))}
+                </Box>
+              </Box>
             )}
           </Box>
         )}
@@ -769,6 +882,8 @@ const ArtifactDetails = () => {
             </CardContent>
           </Card>
 
+
+
           {/* Citations Card */}
           {manifest.cite && manifest.cite.length > 0 && (
             <Card 
@@ -809,7 +924,6 @@ const ArtifactDetails = () => {
                           DOI: {citation.doi}
                         </Link>
                       )}
-                      {index < (manifest.cite?.length || 0) - 1 && <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.5)' }} />}
                     </Box>
                   ))}
                 </Stack>
