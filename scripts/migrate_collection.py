@@ -424,9 +424,12 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
             # Get existing config and only update permissions
             existing_config = collection.get("config", {})
             existing_config["permissions"] = permissions
+            # merge config to existing config
+            existing_config.update(config)
             collection = await artifact_manager.edit(
-                artifact_id=collection["id"],
-                config=existing_config
+                artifact_id=collection["id"].split("/")[-1],
+                config=existing_config,
+                secrets=secrets,
             )
             logger.info("Collection permissions updated with reviewers")
         else:
