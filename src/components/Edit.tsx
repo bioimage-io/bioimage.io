@@ -570,7 +570,6 @@ const Edit: React.FC = () => {
           await artifactManager.edit({
             artifact_id: artifactId,
             stage: true,
-            version: editVersion,
             _rkwargs: true
           });
           needsStageCleanup = true;
@@ -659,7 +658,6 @@ const Edit: React.FC = () => {
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: mergedManifest, // Use the merged manifest
-              version: editVersion,
               _rkwargs: true
             });
 
@@ -1740,14 +1738,26 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
       
-      // First, create a new artifact with the same type
-      const newArtifact = await artifactManager.create({
-        parent_id: artifactId || '',  // Add null check here
-        type: artifactType || 'default',
-        _rkwargs: true
-      });
-      
-      // ... rest of the function remains the same ...
+      try {
+        const newArtifact = await artifactManager.edit({
+          artifact_id: artifactId,
+          type: artifactType,
+          stage: true,
+          version: 'new',
+          _rkwargs: true
+        });
+        console.log('new version created', newArtifact);
+
+        // Redirect to the staging version
+        const stagePath = `/edit/${artifactId}/${artifactType}/stage`;
+        navigate(stagePath);
+      } catch (error) {
+        console.error('Error creating new version:', error);
+        setUploadStatus({
+          message: 'Error creating new version, see console for details',
+          severity: 'error'
+        });
+      }
     } catch (error) {
       console.error('Error creating new version:', error);
       setUploadStatus({
