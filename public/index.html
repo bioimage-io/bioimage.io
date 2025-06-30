@@ -34,12 +34,89 @@
     <title>BioImage.IO - Model Zoo</title>
     
     <!-- Force clear old service worker and cache -->
-    <script src="%PUBLIC_URL%/sw-unregister.js"></script>
     <script>
-      // Additional immediate cleanup and cache busting
+      // Service Worker Cache Clearing
       (function() {
-        // Add cache-busting timestamp to prevent cached resources
-        const timestamp = Date.now();
+        console.log('BioImage.IO: Starting cache clearing process...');
+        
+        // Listen for messages from service worker
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.addEventListener('message', function(event) {
+            console.log('BioImage.IO: Received message from service worker:', event.data);
+            if (event.data && event.data.type === 'CACHE_CLEARED') {
+              console.log('BioImage.IO: Service worker cleared caches, reloading...');
+              // Add a small delay to ensure the service worker finishes its work
+              setTimeout(() => {
+                window.location.reload(true);
+              }, 500);
+            }
+          });
+          
+          // Register the new cache-clearing service worker
+          navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+            .then(function(registration) {
+              console.log('BioImage.IO: Cache-clearing service worker registered:', registration.scope);
+              
+              // If there's a waiting service worker, activate it immediately
+              if (registration.waiting) {
+                console.log('BioImage.IO: Service worker is waiting, activating...');
+                registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+              }
+              
+              // Listen for updates
+              registration.addEventListener('updatefound', function() {
+                console.log('BioImage.IO: Service worker update found');
+                const newWorker = registration.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', function() {
+                    console.log('BioImage.IO: Service worker state changed to:', newWorker.state);
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      console.log('BioImage.IO: New service worker installed, sending skip waiting message');
+                      newWorker.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                  });
+                }
+              });
+            })
+            .catch(function(error) {
+              console.log('BioImage.IO: Service worker registration failed:', error);
+            });
+          
+          // Also try to unregister any existing service workers and clear caches manually
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            registrations.forEach(function(registration) {
+              // Don't unregister our new service worker
+              if (!registration.scope.endsWith('/')) {
+                console.log('BioImage.IO: Found old service worker to unregister:', registration.scope);
+                registration.unregister();
+              }
+            });
+          });
+          
+          // Manual cache clearing as backup
+          if ('caches' in window) {
+            caches.keys().then(function(cacheNames) {
+              const oldCacheNames = cacheNames.filter(name => 
+                name.includes('kaibu') || 
+                name.includes('workbox') || 
+                name.includes('precache') ||
+                name.includes('vue')
+              );
+              
+              if (oldCacheNames.length > 0) {
+                console.log('BioImage.IO: Found old caches to clear:', oldCacheNames);
+                return Promise.all(
+                  oldCacheNames.map(function(cacheName) {
+                    console.log('BioImage.IO: Manually deleting cache:', cacheName);
+                    return caches.delete(cacheName);
+                  })
+                );
+              }
+            });
+          }
+        }
+        
+        // Add cache-busting meta tags
         const meta = document.createElement('meta');
         meta.setAttribute('http-equiv', 'Cache-Control');
         meta.setAttribute('content', 'no-cache, no-store, must-revalidate');
@@ -54,25 +131,6 @@
         expires.setAttribute('http-equiv', 'Expires');
         expires.setAttribute('content', '0');
         document.head.appendChild(expires);
-        
-        // Force reload once if we detect old cached content
-        const hasReloaded = sessionStorage.getItem('bioimage_forced_reload');
-        if (!hasReloaded && 'caches' in window) {
-          caches.keys().then(function(cacheNames) {
-            const hasOldCache = cacheNames.some(name => 
-              name.includes('kaibu') || 
-              name.includes('workbox') || 
-              name.includes('precache') ||
-              name.includes('vue') ||
-              name.includes('bioimage.io')
-            );
-            if (hasOldCache) {
-              sessionStorage.setItem('bioimage_forced_reload', 'true');
-              console.log('BioImage.IO: Detected old cache, forcing reload...');
-              window.location.reload(true);
-            }
-          });
-        }
       })();
     </script>
     

@@ -19,9 +19,19 @@
     Header set Expires "0"
 </FilesMatch>
 
-# Handle old service worker requests
+# Handle old service worker requests and redirect to our cache-clearing service worker
 RewriteEngine On
-RewriteCond %{REQUEST_URI} ^/service-worker\.js$ [OR]
+
+# Redirect old service worker patterns to our new cache-clearing service worker
 RewriteCond %{REQUEST_URI} ^/sw\.js$ [OR]
-RewriteCond %{REQUEST_URI} ^/plugin-service-worker\.js$
-RewriteRule ^(.*)$ /sw-unregister.js [R=301,L] 
+RewriteCond %{REQUEST_URI} ^/plugin-service-worker\.js$ [OR]
+RewriteCond %{REQUEST_URI} ^/precache-manifest\..*\.js$
+RewriteRule ^(.*)$ /service-worker.js [R=302,L]
+
+# Ensure the main service worker is never cached but allow browsers to check for updates
+<Files "service-worker.js">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set Last-Modified "Thu, 01 Dec 1994 16:00:00 GMT"
+</Files> 
