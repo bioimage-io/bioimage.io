@@ -384,6 +384,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             rdf.outputs[0]
           );
           setInputLoaded(true);
+          setInfoPanel("Test input loaded successfully!");
+          return;
         }
       } else if (rdfHas(rdf, "sample_inputs")) {
         const sampleInputUrl = getRdfTensorUrl(rdf, 'sample_inputs');
@@ -394,18 +396,24 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             rdf.outputs[0]
           );
           setInputLoaded(true);
+          setInfoPanel("Sample input loaded successfully!");
+          return;
         }
       } else {
-        alert("No test input found.");
+        setInfoPanel("No test or sample input found in this model.", false, true);
+        return;
       }
     } catch (err) {
-      console.log("Failed to load the test input, see console for details.");
-      console.error(err);
+      console.error("Failed to load the test input:", err);
+      
+      // Extract meaningful error message
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const detailedError = `Failed to load test input: ${errorMessage}`;
       
       try {
         const rdf = runner.rdf as ModelRDF;
         if (rdfHas(rdf, "sample_inputs")) {
-          console.log("Loading sample input instead...");
+          console.log("Attempting to load sample input as fallback...");
           const sampleInputUrl = getRdfTensorUrl(rdf, 'sample_inputs');
           if (sampleInputUrl) {
             await viewerControl.viewFromUrl(
@@ -414,14 +422,19 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               rdf.outputs[0]
             );
             setInputLoaded(true);
+            setInfoPanel("Sample input loaded successfully (test input failed)!");
+            return;
           }
         }
       } catch (sampleError) {
         console.error("Failed to load sample input:", sampleError);
-        setInfoPanel("Failed to load any input images.", false, true);
+        const sampleErrorMessage = sampleError instanceof Error ? sampleError.message : String(sampleError);
+        setInfoPanel(`Failed to load any input images. Test input error: ${errorMessage}. Sample input error: ${sampleErrorMessage}`, false, true);
+        return;
       }
-    } finally {
-      setInfoPanel("");
+      
+      // If we get here, show the original error
+      setInfoPanel(detailedError, false, true);
     }
   };
 
@@ -441,6 +454,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             rdf.outputs[0],
             "output"
           );
+          setInfoPanel("Test output loaded successfully!");
+          return;
         }
       } else if (rdfHas(rdf, "sample_outputs")) {
         const sampleOutputUrl = getRdfTensorUrl(rdf, 'sample_outputs');
@@ -451,18 +466,24 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             rdf.outputs[0],
             "output"
           );
+          setInfoPanel("Sample output loaded successfully!");
+          return;
         }
       } else {
-        alert("No test output found.");
+        setInfoPanel("No test or sample output found in this model.", false, true);
+        return;
       }
     } catch (err) {
-      console.log("Failed to load the test output.");
-      console.error(err);
+      console.error("Failed to load the test output:", err);
+      
+      // Extract meaningful error message
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const detailedError = `Failed to load test output: ${errorMessage}`;
       
       try {
         const rdf = runner.rdf as ModelRDF;
         if (rdfHas(rdf, "sample_outputs")) {
-          console.log("Loading sample output instead...");
+          console.log("Attempting to load sample output as fallback...");
           const sampleOutputUrl = getRdfTensorUrl(rdf, 'sample_outputs');
           if (sampleOutputUrl) {
             await viewerControl.viewFromUrl(
@@ -471,14 +492,19 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               rdf.outputs[0],
               "output"
             );
+            setInfoPanel("Sample output loaded successfully (test output failed)!");
+            return;
           }
         }
       } catch (sampleError) {
         console.error("Failed to load sample output:", sampleError);
-        setInfoPanel("Failed to load any output images.", false, true);
+        const sampleErrorMessage = sampleError instanceof Error ? sampleError.message : String(sampleError);
+        setInfoPanel(`Failed to load any output images. Test output error: ${errorMessage}. Sample output error: ${sampleErrorMessage}`, false, true);
+        return;
       }
-    } finally {
-      setInfoPanel("");
+      
+      // If we get here, show the original error
+      setInfoPanel(detailedError, false, true);
     }
   };
 

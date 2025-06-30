@@ -43,7 +43,7 @@ const footerLinks = [
 const Footer: React.FC = () => {
   return (
     <footer className="w-full py-12 px-4 mt-16 bg-gradient-to-b from-blue-100/60 via-purple-100/40 to-cyan-100/50 backdrop-blur-sm border-t border-blue-200/50">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         {/* Links Section */}
         <div className="flex flex-wrap justify-center items-start gap-6 mb-12">
           {footerLinks.map((link, index) => (

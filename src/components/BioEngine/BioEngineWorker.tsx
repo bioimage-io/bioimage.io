@@ -740,7 +740,7 @@ const BioEngineWorker: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <style>{styles}</style>
-      <div className="container mx-auto px-4 py-8">
+      <div className="max-w-[1400px] mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
           <div>
             <div className="flex items-center mb-2">

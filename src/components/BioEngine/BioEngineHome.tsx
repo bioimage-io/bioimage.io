@@ -338,7 +338,7 @@ const BioEngineHome: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+            <div className="max-w-[1400px] mx-auto px-4 py-8">
       {/* Fancy Header - Always visible */}
       <div className="text-center mb-12">
         <div className="flex items-end justify-center gap-4 mb-4">

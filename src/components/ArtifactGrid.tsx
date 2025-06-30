@@ -160,7 +160,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="w-full">
-      <div className="container mx-auto px-2 sm:px-4 md:px-4 lg:px-4">
+      <div className="max-w-[1400px] mx-auto px-2 sm:px-4 md:px-4 lg:px-4">
         {/* Enhanced separator line with gradient and shadow */}
         <div className="relative w-full mb-8 sm:mb-12">
           <div className="w-full h-px bg-gradient-to-r from-transparent via-blue-300/50 to-transparent"></div>
