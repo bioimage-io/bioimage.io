@@ -22,7 +22,7 @@ import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
-import { ArtifactInfo, TestReport } from '../types/artifact';
+import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -30,6 +30,8 @@ import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import TestReportBadge from './TestReportBadge';
+import TestReportDialog from './TestReportDialog';
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -48,6 +50,9 @@ const ArtifactDetails = () => {
   const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
   const [containerHeight, setContainerHeight] = useState('400px');
   const [showDownloadInfo, setShowDownloadInfo] = useState(false);
+  const [isTestReportDialogOpen, setIsTestReportDialogOpen] = useState(false);
+  const [detailedTestReport, setDetailedTestReport] = useState<DetailedTestReport | null>(null);
+  const [isLoadingTestReport, setIsLoadingTestReport] = useState(false);
   const modelContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,6 +90,22 @@ const ArtifactDetails = () => {
     }
   }, [selectedResource?.versions]);
 
+  const fetchDetailedTestReport = async () => {
+    if (selectedResource?.id) {
+      try {
+        setIsLoadingTestReport(true);
+        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id);
+        const response = await fetch(testReportUrl);
+        const testReportData = await response.json();
+        setDetailedTestReport(testReportData);
+        setIsTestReportDialogOpen(true);
+      } catch (error) {
+        console.error('Failed to fetch detailed test report:', error);
+      } finally {
+        setIsLoadingTestReport(false);
+      }
+    }
+  };
 
   const handleDownload = () => {
     const artifactId = selectedResource?.id.split('/').pop();
@@ -523,14 +544,24 @@ const ArtifactDetails = () => {
              selectedResource.manifest.test_reports.length > 0 && 
              !showModelRunner && (
               <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, borderTop: '1px solid rgba(255, 255, 255, 0.3)' }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937', mb: 2 }}>
-                  <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                  Test Reports
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
+                    <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                    Test Reports
+                  </Typography>
+                  <TestReportBadge
+                    artifact={selectedResource}
+                    mode="inline"
+                    size="small"
+                    showPopover={false}
+                    onStopPropagation={false}
+                  />
+                </Box>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
                   {selectedResource.manifest.test_reports.map((testReport: TestReport, index: number) => (
                     <Box 
                       key={index}
+                      onClick={fetchDetailedTestReport}
                       sx={{ 
                         display: 'flex', 
                         alignItems: 'center', 
@@ -542,12 +573,15 @@ const ArtifactDetails = () => {
                         backdropFilter: 'blur(4px)',
                         border: '1px solid rgba(255, 255, 255, 0.7)',
                         borderRadius: '12px',
+                        cursor: 'pointer',
                         transition: 'all 0.3s ease',
                         '&:hover': {
                           backgroundColor: 'rgba(255, 255, 255, 0.8)',
                           borderColor: testReport.status === 'passed' 
                             ? 'rgba(34, 197, 94, 0.3)' 
                             : 'rgba(239, 68, 68, 0.3)',
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
                         }
                       }}
                     >
@@ -1067,6 +1101,14 @@ const ArtifactDetails = () => {
           </Box>
         </DialogContent>
       </Dialog>
+
+      <TestReportDialog
+        open={isTestReportDialogOpen}
+        onClose={() => setIsTestReportDialogOpen(false)}
+        testReport={detailedTestReport}
+        isLoading={isLoadingTestReport}
+      />
+
       </Box>
     </div>
   );

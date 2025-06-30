@@ -21,6 +21,38 @@ export interface TestReport {
   runtime: string;
 }
 
+export interface TestError {
+  loc: string[];
+  msg: string;
+  type: string;
+  with_traceback: boolean;
+  traceback_md: string;
+  traceback_html: string;
+}
+
+export interface TestDetail {
+  name: string;
+  status: 'passed' | 'failed';
+  loc: string[];
+  errors: TestError[];
+  warnings: any[];
+  context: any;
+  recommended_env: any;
+  conda_compare: string | null;
+}
+
+export interface DetailedTestReport {
+  name: string;
+  source_name: string;
+  id: string;
+  type: string;
+  format_version: string;
+  status: 'passed' | 'failed';
+  details: TestDetail[];
+  env: string[][];
+  conda_list: any;
+}
+
 interface Version {
   version: string;
   comment: string;
