@@ -158,7 +158,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const offset = (page - 1) * get().itemsPerPage;
       
       // Construct the base URL
-      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false`;
+      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=view_count`;
       
       // Prepare filters object
       const filters: any = {};
