@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Menu } from '@headlessui/react';
 import yaml from 'js-yaml';
 
@@ -126,6 +127,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
       {validationResult && (
         <ReactMarkdown 
           className="prose prose-sm max-w-none"
+          remarkPlugins={[remarkGfm]}
         >
           {`# ${validationResult.success ? '✅ Validation Passed' : '❌ Validation Failed'}\n\n## Details\n\n${validationResult.details}`}
         </ReactMarkdown>
