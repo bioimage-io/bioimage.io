@@ -4,6 +4,7 @@ import os
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
 
 import httpx
 import yaml
@@ -16,8 +17,9 @@ logging.basicConfig(stream=sys.stdout)
 logger = logging.getLogger("collection-migration")
 logger.setLevel(logging.INFO)
 
-# Define log file path
-LOG_FILE_PATH = Path("migration.log")
+# Define log file path with timestamp
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+LOG_FILE_PATH = Path(f"migration_{timestamp}.log")
 
 # Formatter for log messages
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -343,6 +345,28 @@ async def verify_and_reupload_files(artifact_manager, artifact_id, base_url, ful
     }
 
 async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=False, verify_files=False):
+    # Safety check for reset_stats
+    if reset_stats:
+        print("\n" + "="*60)
+        print("⚠️  WARNING: STATS RESET OPERATION ⚠️")
+        print("="*60)
+        print("You are about to RESET ALL VIEW AND DOWNLOAD COUNTS")
+        print("for all artifacts in the collection!")
+        print("\nThis action will:")
+        print("• Set all view_count values to 0")
+        print("• Set all download_count values to 0") 
+        print("• Current stats will be backed up to the log file")
+        print("\nThis operation CANNOT be undone!")
+        print("="*60)
+        
+        confirmation = input("\nType 'reset-stats' to confirm this destructive operation: ")
+        if confirmation != "reset-stats":
+            print("Operation cancelled. Stats will NOT be reset.")
+            reset_stats = False
+        else:
+            print("Confirmation received. Proceeding with stats reset...")
+            logger.warning("STATS RESET CONFIRMED BY USER - proceeding with destructive operation")
+    
     server = await connect_to_server({"server_url": SERVER_URL, "workspace": "bioimage-io", "token": os.environ.get("WORKSPACE_TOKEN")})
     artifact_manager = await server.get_service("public/artifact-manager")
 
@@ -450,6 +474,10 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
                 pass
             else:
                 if reset_stats:
+                    # Log current stats before resetting them
+                    view_count = artifact.view_count
+                    download_count = artifact.download_count
+                    logger.info(f"STATS_BACKUP - {dataset_id}: view_count={view_count}, download_count={download_count}")
                     await artifact_manager.reset_stats(artifact.id)
                 if edit_existing:
                     artifact = await artifact_manager.edit(
@@ -529,4 +557,4 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     logger.info("Migration completed.")
 
 # await migrate_collection(skip_migrated=False)
-asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True, verify_files=True))
+asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True, verify_files=False))
