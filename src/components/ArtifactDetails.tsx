@@ -276,7 +276,8 @@ const ArtifactDetails = () => {
 
     return (
     <div className="container-safe">
-      <Box sx={{ p: { xs: 1, sm: 1, md: 2 }, maxWidth: '100%', width: '100%' }}>
+      <div className="max-w-[1400px] mx-auto px-2 sm:px-4 md:px-4 lg:px-4">
+        <Box sx={{ p: { xs: 1, sm: 1, md: 2 }, maxWidth: '100%', width: '100%' }}>
       {/* Header Section */}
       <Box 
         sx={{ 
@@ -1172,6 +1173,7 @@ const ArtifactDetails = () => {
       />
 
       </Box>
+      </div>
     </div>
   );
 };

@@ -264,7 +264,27 @@ const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
             )}
 
             {!isLoading && !error && files.length > 0 && (
-              <Stack spacing={1}>
+              <Stack 
+                spacing={1}
+                sx={{
+                  maxHeight: '420px', // Approximately 7 files (60px per file)
+                  overflowY: 'auto',
+                  '&::-webkit-scrollbar': {
+                    width: '6px',
+                  },
+                  '&::-webkit-scrollbar-track': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    borderRadius: '3px',
+                  },
+                  '&::-webkit-scrollbar-thumb': {
+                    backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                    borderRadius: '3px',
+                    '&:hover': {
+                      backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                    },
+                  },
+                }}
+              >
                 {files.map((file, index) => (
                   <Box 
                     key={index}
