@@ -14,10 +14,11 @@ interface ResourceGridProps {
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
+  totalItems: number;
   onPageChange: (page: number) => void;
 }
 
-export const Pagination = ({ currentPage, totalPages, onPageChange }: PaginationProps) => {
+export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }: PaginationProps) => {
   const getPageNumbers = () => {
     const delta = 2; // Number of pages to show around current page
     const range = [];
@@ -99,7 +100,7 @@ export const Pagination = ({ currentPage, totalPages, onPageChange }: Pagination
       
       {/* Page info */}
       <div className="ml-4 text-sm text-gray-600 hidden sm:block">
-        Page {currentPage} of {totalPages}
+        Page {currentPage} of {totalPages} ({totalItems.toLocaleString()} items)
       </div>
     </div>
   );
@@ -319,6 +320,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
+            totalItems={totalItems}
             onPageChange={handlePageChange}
           />
         )}

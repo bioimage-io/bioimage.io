@@ -560,4 +560,4 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
     logger.info("Migration completed.")
 
 # await migrate_collection(skip_migrated=False)
-asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True, verify_files=False))
+asyncio.run(migrate_collection(skip_migrated=True, edit_existing=False, reset_stats=False, update_reviewers=True, verify_files=True))
