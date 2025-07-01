@@ -1662,11 +1662,11 @@ const Edit: React.FC = () => {
         )}
 
         {/* Test Model button */}
-        {isStaged && artifactType === 'model' && artifactId && (
+        {artifactType === 'model' && artifactId && (
           <div className="w-full sm:w-auto">
             <ModelTester
               artifactId={artifactId}
-              modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=stage`}
+              modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=${isStaged ? 'stage' : editVersion || 'latest'}`}
               isDisabled={!server}
               className="w-full sm:w-auto"
             />
