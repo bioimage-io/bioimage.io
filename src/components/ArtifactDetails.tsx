@@ -53,6 +53,8 @@ const ArtifactDetails = () => {
   const [isTestReportDialogOpen, setIsTestReportDialogOpen] = useState(false);
   const [detailedTestReport, setDetailedTestReport] = useState<DetailedTestReport | null>(null);
   const [isLoadingTestReport, setIsLoadingTestReport] = useState(false);
+  const [rawErrorContent, setRawErrorContent] = useState<string | null>(null);
+  const [isInvalidJson, setIsInvalidJson] = useState(false);
   const modelContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,17 +92,60 @@ const ArtifactDetails = () => {
     }
   }, [selectedResource?.versions]);
 
+  // Validation function to check if parsed JSON is a valid test report
+  const isValidTestReport = (data: any): data is DetailedTestReport => {
+    return (
+      data &&
+      typeof data === 'object' &&
+      typeof data.name === 'string' &&
+      typeof data.status === 'string' &&
+      typeof data.source_name === 'string' &&
+      typeof data.type === 'string' &&
+      typeof data.format_version === 'string' &&
+      typeof data.id === 'string' &&
+      Array.isArray(data.details)
+    );
+  };
+
   const fetchDetailedTestReport = async () => {
     if (selectedResource?.id) {
       try {
         setIsLoadingTestReport(true);
+        setIsInvalidJson(false);
+        setRawErrorContent(null);
+        setDetailedTestReport(null);
+        
         const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id);
         const response = await fetch(testReportUrl);
-        const testReportData = await response.json();
-        setDetailedTestReport(testReportData);
+        const responseText = await response.text();
+        
+        try {
+          const testReportData = JSON.parse(responseText);
+          console.log('Parsed test report data:', testReportData);
+          
+          // Validate that the parsed data has the expected structure
+          if (isValidTestReport(testReportData)) {
+            console.log('Valid test report structure detected');
+            setDetailedTestReport(testReportData);
+            setIsInvalidJson(false);
+          } else {
+            console.log('Invalid test report structure detected, showing raw content');
+            console.error('Invalid test report structure:', testReportData);
+            setRawErrorContent(responseText);
+            setIsInvalidJson(true);
+          }
+        } catch (jsonError) {
+          console.error('Invalid JSON response:', jsonError);
+          setRawErrorContent(responseText);
+          setIsInvalidJson(true);
+        }
+        
         setIsTestReportDialogOpen(true);
       } catch (error) {
         console.error('Failed to fetch detailed test report:', error);
+        setRawErrorContent('Failed to fetch test report data.');
+        setIsInvalidJson(true);
+        setIsTestReportDialogOpen(true);
       } finally {
         setIsLoadingTestReport(false);
       }
@@ -1107,6 +1152,8 @@ const ArtifactDetails = () => {
         onClose={() => setIsTestReportDialogOpen(false)}
         testReport={detailedTestReport}
         isLoading={isLoadingTestReport}
+        rawErrorContent={rawErrorContent}
+        isInvalidJson={isInvalidJson}
       />
 
       </Box>
