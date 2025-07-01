@@ -32,6 +32,7 @@ import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import TestReportBadge from './TestReportBadge';
 import TestReportDialog from './TestReportDialog';
+import ArtifactFiles from './ArtifactFiles';
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -582,13 +583,138 @@ const ArtifactDetails = () => {
                 </>
               )}
             </Box>
+          </Box>
+        )}
 
-            {/* Test Reports Section - Only show for models and when not in model runner mode */}
-            {selectedResource?.manifest?.type === 'model' && 
+
+      </Box>
+
+      
+
+      <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
+        {/* Left Column - Documentation */}
+        <Grid item xs={12} md={8}>
+          {/* Documentation Card */}
+          {documentation && (
+            <Card 
+              sx={{ 
+                mb: { xs: 1, sm: 2, md: 3 }, 
+                height: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <CardContent sx={{ p: 0 }}>
+                <Box 
+                  sx={{ 
+                    padding: { xs: '12px', sm: '16px', md: '32px' },
+                    '& pre': {
+                      maxWidth: '100%',
+                      overflow: 'auto',
+                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.5)',
+                    },
+                    '& img': {
+                      maxWidth: '100%',
+                      height: 'auto',
+                      borderRadius: '12px',
+                    },
+                    '& code': {
+                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                      padding: '2px 6px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255, 255, 255, 0.5)',
+                    }
+                  }}
+                >
+                  <ReactMarkdown 
+                    className="markdown-body"
+                    remarkPlugins={[remarkGfm]}
+                  >
+                    {documentation}
+                  </ReactMarkdown>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
+        </Grid>
+
+        {/* Right Column */}
+        <Grid item xs={12} md={4}>
+
+          {/* Authors Card - Moved from left column */}
+          <Card 
+            sx={{ 
+              mb: { xs: 1, sm: 2, md: 3 },
+              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+            }}
+          >
+            <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Authors
+              </Typography>
+              {manifest.authors?.map((author, index) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 500, color: '#1f2937' }}>
+                    {author.name}
+                  </Typography>
+                  {author.orcid && (
+                    <Link 
+                      href={`https://orcid.org/${author.orcid}`}
+                      target="_blank"
+                      sx={{ 
+                        display: 'inline-block',
+                        fontSize: '0.875rem',
+                        mb: 0.5,
+                        color: '#3b82f6',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                        }
+                      }}
+                    >
+                      ORCID: {author.orcid}
+                    </Link>
+                  )}
+                  {author.affiliation && (
+                    <Typography variant="body2" color="text.secondary" sx={{ color: '#6b7280' }}>
+                      <SchoolIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
+                      {author.affiliation}
+                    </Typography>
+                  )}
+                  {index < (manifest.authors?.length || 0) - 1 && <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.5)' }} />}
+                </Box>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Files Card - Always show for all artifact types */}
+          <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} />
+
+          {/* Test Reports Card - Only show for models */}
+          {selectedResource?.manifest?.type === 'model' && 
              selectedResource?.manifest.test_reports && 
-             selectedResource.manifest.test_reports.length > 0 && 
-             !showModelRunner && (
-              <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, borderTop: '1px solid rgba(255, 255, 255, 0.3)' }}>
+             selectedResource.manifest.test_reports.length > 0 && (
+            <Card 
+              sx={{ 
+                mb: { xs: 1, sm: 2, md: 3 },
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                   <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
                     <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
@@ -602,7 +728,7 @@ const ArtifactDetails = () => {
                     onStopPropagation={false}
                   />
                 </Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                <Stack spacing={1}>
                   {selectedResource.manifest.test_reports.map((testReport: TestReport, index: number) => (
                     <Box 
                       key={index}
@@ -611,9 +737,7 @@ const ArtifactDetails = () => {
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: 1.5,
-                        p: 2,
-                        minWidth: '200px',
-                        flex: '1 1 auto',
+                        p: 1.5,
                         backgroundColor: 'rgba(255, 255, 255, 0.6)',
                         backdropFilter: 'blur(4px)',
                         border: '1px solid rgba(255, 255, 255, 0.7)',
@@ -693,190 +817,10 @@ const ArtifactDetails = () => {
                       />
                     </Box>
                   ))}
-                </Box>
-              </Box>
-            )}
-          </Box>
-        )}
-      </Box>
-
-      
-
-      <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
-        {/* Left Column - Documentation */}
-        <Grid item xs={12} md={8}>
-          {/* Documentation Card */}
-          {documentation && (
-            <Card 
-              sx={{ 
-                mb: { xs: 1, sm: 2, md: 3 }, 
-                height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-              }}
-            >
-              <CardContent sx={{ p: 0 }}>
-                <Box 
-                  sx={{ 
-                    padding: { xs: '12px', sm: '16px', md: '32px' },
-                    '& pre': {
-                      maxWidth: '100%',
-                      overflow: 'auto',
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
-                    },
-                    '& img': {
-                      maxWidth: '100%',
-                      height: 'auto',
-                      borderRadius: '12px',
-                    },
-                    '& code': {
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      padding: '2px 6px',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
-                    }
-                  }}
-                >
-                  <ReactMarkdown 
-                    className="markdown-body"
-                    remarkPlugins={[remarkGfm]}
-                  >
-                    {documentation}
-                  </ReactMarkdown>
-                </Box>
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-
-        {/* Right Column */}
-        <Grid item xs={12} md={4}>
-          {/* Add Versions Card here */}
-          {selectedResource.versions && selectedResource.versions.length > 0 && (
-            <Card 
-              sx={{ 
-                mb: { xs: 1, sm: 2, md: 3 },
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-              }}
-            >
-              <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                  <UpdateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                  Versions
-                </Typography>
-                <Stack spacing={2}>
-                  {[...selectedResource.versions].reverse().map((version, index) => (
-                    <Box key={version.version}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <RouterLink 
-                          to={`/artifacts/${selectedResource.id.split('/').pop()}/${version.version}`}
-                          style={{ textDecoration: 'none', color: 'inherit' }}
-                        >
-                          <Typography 
-                            variant="subtitle2" 
-                            sx={{ 
-                              fontWeight: 500,
-                              cursor: 'pointer',
-                              color: '#3b82f6',
-                              '&:hover': {
-                                textDecoration: 'underline'
-                              }
-                            }}
-                          >
-                            {version.version}
-                          </Typography>
-                        </RouterLink>
-                        {version.version === latestVersion?.version && (
-                          <Chip 
-                            label="Latest" 
-                            color="primary" 
-                            size="small" 
-                            sx={{
-                              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                              color: '#3b82f6',
-                              borderRadius: '8px',
-                              fontWeight: 500,
-                            }}
-                          />
-                        )}
-                      </Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {formatTimestamp(version.created_at)}
-                      </Typography>
-                      {version.comment && (
-                        <Typography variant="body2" sx={{ mt: 0.5, color: '#4b5563' }}>
-                          {version.comment}
-                        </Typography>
-                      )}
-                      {index < selectedResource.versions.length - 1 && (
-                        <Divider sx={{ my: 1.5, borderColor: 'rgba(255, 255, 255, 0.5)' }} />
-                      )}
-                    </Box>
-                  ))}
                 </Stack>
               </CardContent>
             </Card>
           )}
-
-          {/* Authors Card - Moved from left column */}
-          <Card 
-            sx={{ 
-              mb: { xs: 1, sm: 2, md: 3 },
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-            }}
-          >
-            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Authors
-              </Typography>
-              {manifest.authors?.map((author, index) => (
-                <Box key={index} sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 500, color: '#1f2937' }}>
-                    {author.name}
-                  </Typography>
-                  {author.orcid && (
-                    <Link 
-                      href={`https://orcid.org/${author.orcid}`}
-                      target="_blank"
-                      sx={{ 
-                        display: 'inline-block',
-                        fontSize: '0.875rem',
-                        mb: 0.5,
-                        color: '#3b82f6',
-                        textDecoration: 'none',
-                        '&:hover': {
-                          textDecoration: 'underline',
-                        }
-                      }}
-                    >
-                      ORCID: {author.orcid}
-                    </Link>
-                  )}
-                  {author.affiliation && (
-                    <Typography variant="body2" color="text.secondary" sx={{ color: '#6b7280' }}>
-                      <SchoolIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
-                      {author.affiliation}
-                    </Typography>
-                  )}
-                  {index < (manifest.authors?.length || 0) - 1 && <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.5)' }} />}
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
 
           {/* Statistics Card - New */}
           <Card 
@@ -889,7 +833,7 @@ const ArtifactDetails = () => {
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+            <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <BarChartIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Statistics
@@ -975,7 +919,7 @@ const ArtifactDetails = () => {
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
               }}
             >
-              <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                   <FormatQuoteIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Citations
@@ -1010,6 +954,77 @@ const ArtifactDetails = () => {
             </Card>
           )}
 
+          {/* Add Versions Card here */}
+          {selectedResource.versions && selectedResource.versions.length > 0 && (
+            <Card 
+              sx={{ 
+                mb: { xs: 1, sm: 2, md: 3 },
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+                  <UpdateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Versions
+                </Typography>
+                <Stack spacing={2}>
+                  {[...selectedResource.versions].reverse().map((version, index) => (
+                    <Box key={version.version}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <RouterLink 
+                          to={`/artifacts/${selectedResource.id.split('/').pop()}/${version.version}`}
+                          style={{ textDecoration: 'none', color: 'inherit' }}
+                        >
+                          <Typography 
+                            variant="subtitle2" 
+                            sx={{ 
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              color: '#3b82f6',
+                              '&:hover': {
+                                textDecoration: 'underline'
+                              }
+                            }}
+                          >
+                            {version.version}
+                          </Typography>
+                        </RouterLink>
+                        {version.version === latestVersion?.version && (
+                          <Chip 
+                            label="Latest" 
+                            color="primary" 
+                            size="small" 
+                            sx={{
+                              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                              color: '#3b82f6',
+                              borderRadius: '8px',
+                              fontWeight: 500,
+                            }}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatTimestamp(version.created_at)}
+                      </Typography>
+                      {version.comment && (
+                        <Typography variant="body2" sx={{ mt: 0.5, color: '#4b5563' }}>
+                          {version.comment}
+                        </Typography>
+                      )}
+                      {index < selectedResource.versions.length - 1 && (
+                        <Divider sx={{ my: 1.5, borderColor: 'rgba(255, 255, 255, 0.5)' }} />
+                      )}
+                    </Box>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Tags Card */}
           <Card 
             sx={{ 
@@ -1021,7 +1036,7 @@ const ArtifactDetails = () => {
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+            <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Tags
@@ -1063,7 +1078,7 @@ const ArtifactDetails = () => {
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+            <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Links
@@ -1099,7 +1114,7 @@ const ArtifactDetails = () => {
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <CardContent sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+            <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
                 <GavelIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 License

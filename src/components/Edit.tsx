@@ -83,6 +83,26 @@ const Edit: React.FC = () => {
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Determine where to navigate back to
+  const getBackPath = () => {
+    const referrerParam = searchParams.get('from');
+    if (referrerParam) {
+      return referrerParam;
+    }
+    
+    // Check document.referrer for common paths
+    const referrer = document.referrer;
+    if (referrer.includes('/review')) {
+      return '/review';
+    }
+    if (referrer.includes('/my-artifacts')) {
+      return '/my-artifacts';
+    }
+    
+    // Default fallback
+    return '/my-artifacts';
+  };
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn, server, user} = useHyphaStore();
@@ -112,6 +132,7 @@ const Edit: React.FC = () => {
   const [newVersionData, setNewVersionData] = useState({
     copyFiles: true
   });
+  const [isCreatingVersion, setIsCreatingVersion] = useState(false);
   const [copyProgress, setCopyProgress] = useState<{
     current: number;
     total: number;
@@ -802,8 +823,8 @@ const Edit: React.FC = () => {
         }))
       );
 
-      // Navigate back to My Artifacts after successful publish
-      navigate('/my-artifacts');
+      // Navigate back to the appropriate page after successful publish
+      navigate(getBackPath());
 
     } catch (error) {
       console.error('Error publishing artifact:', error);
@@ -1541,20 +1562,39 @@ const Edit: React.FC = () => {
                   </span>
                 )}
 
-                {/* Delete button - hidden by default, shown on group hover */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowDeleteConfirm(file.path);
-                  }}
-                  title="Delete file"
-                  aria-label="Delete file"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
-                >
-                  <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                {/* Action buttons - hidden by default, shown on group hover */}
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                  {/* Download button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
+                      window.open(downloadUrl, '_blank');
+                    }}
+                    title="Download file"
+                    aria-label="Download file"
+                    className="p-1 hover:bg-blue-100 rounded transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </button>
+                  
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDeleteConfirm(file.path);
+                    }}
+                    title="Delete file"
+                    aria-label="Delete file"
+                    className="p-1 hover:bg-red-100 rounded transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -1730,7 +1770,9 @@ const Edit: React.FC = () => {
 
   // Add function to handle new version creation
   const handleCreateNewVersion = async () => {
-    if (!artifactManager) return;
+    if (!artifactManager || isCreatingVersion) return;
+    
+    setIsCreatingVersion(true);
     
     try {
       setUploadStatus({
@@ -1738,32 +1780,116 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
       
-      try {
-        const newArtifact = await artifactManager.edit({
-          artifact_id: artifactId,
-          type: artifactType,
-          stage: true,
-          version: 'new',
-          _rkwargs: true
-        });
-        console.log('new version created', newArtifact);
+      // Create the new version first
+      const newArtifact = await artifactManager.edit({
+        artifact_id: artifactId,
+        type: artifactType,
+        stage: true,
+        version: 'new',
+        _rkwargs: true
+      });
+      console.log('new version created', newArtifact);
 
-        // Redirect to the staging version
-        const stagePath = `/edit/${artifactId}/${artifactType}/stage`;
-        navigate(stagePath);
-      } catch (error) {
-        console.error('Error creating new version:', error);
+      // If user wants to copy files, do the copy process
+      if (newVersionData.copyFiles) {
         setUploadStatus({
-          message: 'Error creating new version, see console for details',
-          severity: 'error'
+          message: 'Downloading files from previous version...',
+          severity: 'info'
+        });
+
+        try {
+          // Get the zip download URL for the current version
+          const zipUrl = await artifactManager.create_zip_file({
+            artifact_id: artifactId,
+            version: editVersion || 'latest',
+            _rkwargs: true
+          });
+
+          // Download the zip file
+          const response = await fetch(zipUrl);
+          if (!response.ok) {
+            throw new Error('Failed to download previous version files');
+          }
+          
+          const zipBlob = await response.blob();
+          
+          setUploadStatus({
+            message: 'Extracting and uploading files to new version...',
+            severity: 'info'
+          });
+
+          // Create a temporary zip file to upload
+          const zipFile = new File([zipBlob], 'previous-version.zip', { type: 'application/zip' });
+          
+          // Get presigned URL for uploading the zip
+          const presignedUrl = await artifactManager.put_file({
+            artifact_id: artifactId,
+            file_path: 'previous-version.zip',
+            _rkwargs: true
+          });
+
+          // Upload the zip file
+          const uploadResponse = await fetch(presignedUrl, {
+            method: 'PUT',
+            body: zipFile,
+            headers: {
+              'Content-Type': '' // important for s3
+            }
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error('Failed to upload zip file');
+          }
+
+          // Extract the zip file in the new version
+          await artifactManager.extract_zip_file({
+            artifact_id: artifactId,
+            file_path: 'previous-version.zip',
+            _rkwargs: true
+          });
+
+          // Remove the temporary zip file
+          await artifactManager.remove_file({
+            artifact_id: artifactId,
+            file_path: 'previous-version.zip',
+            _rkwargs: true
+          });
+
+          setUploadStatus({
+            message: 'Files copied successfully. Redirecting to edit mode...',
+            severity: 'success'
+          });
+        } catch (copyError) {
+          console.error('Error copying files:', copyError);
+          setUploadStatus({
+            message: 'Warning: New version created but failed to copy files. You can upload files manually.',
+            severity: 'error'
+          });
+        }
+      } else {
+        setUploadStatus({
+          message: 'New version created successfully. Redirecting to edit mode...',
+          severity: 'success'
         });
       }
+
+      // Close the dialog
+      setShowNewVersionDialog(false);
+
+      // Redirect to the staging version after a short delay
+      setTimeout(() => {
+        const stagePath = `/edit/${artifactId}/stage`;
+        navigate(stagePath);
+      }, 1500);
+
     } catch (error) {
       console.error('Error creating new version:', error);
       setUploadStatus({
         message: 'Error creating new version',
         severity: 'error'
       });
+    } finally {
+      setIsCreatingVersion(false);
     }
   };
 
@@ -1772,13 +1898,58 @@ const Edit: React.FC = () => {
     <MuiDialog 
       open={showNewVersionDialog} 
       onClose={() => setShowNewVersionDialog(false)}
-      maxWidth="sm"
+      maxWidth="md"
       fullWidth
     >
       <div className="p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-4">
           Create New Version
         </h3>
+        
+        {/* Warning and guidance section */}
+        <div className="space-y-4 mb-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="text-sm text-blue-800">
+                <h4 className="font-semibold mb-2">When should you create a new version?</h4>
+                <div className="space-y-2">
+                  <p><strong>✅ Create new version when:</strong></p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>Model weight files have changed</li>
+                    <li>Model architecture or functionality has been modified</li>
+                    <li>Breaking changes to the model interface</li>
+                    <li>Significant improvements that warrant a version bump</li>
+                  </ul>
+                  
+                  <p className="mt-3"><strong>❌ You don't need a new version for:</strong></p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>Editing the RDF.yaml metadata file</li>
+                    <li>Updating cover images or documentation</li>
+                    <li>Fixing typos in descriptions</li>
+                    <li>Adding or updating tags and citations</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="text-sm text-amber-800">
+                <h4 className="font-semibold mb-1">File Copying Process</h4>
+                <p>If you choose to copy files, we will download all files from version <span className="font-mono bg-amber-100 px-1 rounded">{editVersion || 'latest'}</span> and upload them to the new version. This process may take several minutes depending on file sizes.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Options */}
         <div className="space-y-4">
           <FormControlLabel
             control={
@@ -1787,21 +1958,42 @@ const Edit: React.FC = () => {
                 onChange={(e) => setNewVersionData(prev => ({ ...prev, copyFiles: e.target.checked }))}
               />
             }
-            label="Copy existing files to new version"
+            label={
+              <div className="ml-2">
+                <div className="font-medium">Copy existing files to new version</div>
+                <div className="text-sm text-gray-500">
+                  This will download and copy all files from the current version to the new version. 
+                  Uncheck if you plan to upload completely new files.
+                </div>
+              </div>
+            }
           />
         </div>
+
         <div className="mt-6 flex gap-3 justify-end">
           <button
             onClick={() => setShowNewVersionDialog(false)}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            disabled={isCreatingVersion}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleCreateNewVersion}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
+            disabled={isCreatingVersion}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            Create
+            {isCreatingVersion ? (
+              <>
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Creating...
+              </>
+            ) : (
+              'Create New Version'
+            )}
           </button>
         </div>
       </div>
@@ -1978,8 +2170,8 @@ const Edit: React.FC = () => {
       // Close the dialog
       setShowDeleteVersionDialog(false);
 
-      // Navigate back to My Artifacts
-      navigate('/my-artifacts');
+      // Navigate back to the appropriate page
+      navigate(getBackPath());
     } catch (error) {
       console.error('Error deleting version:', error);
       setUploadStatus({
@@ -2050,13 +2242,15 @@ const Edit: React.FC = () => {
 
           {/* Back button */}
           <button
-            onClick={() => navigate('/my-artifacts')}
+            onClick={() => navigate(getBackPath())}
             className="flex items-center text-gray-600 hover:text-gray-900"
           >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            <span className="hidden sm:inline">Back to My Artifacts</span>
+            <span className="hidden sm:inline">
+              {getBackPath().includes('/review') ? 'Back to Review Artifacts' : 'Back to My Artifacts'}
+            </span>
           </button>
         </div>
       </div>

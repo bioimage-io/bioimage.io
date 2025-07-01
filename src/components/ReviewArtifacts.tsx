@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { Dialog, Transition, Switch, Listbox } from '@headlessui/react';
@@ -44,6 +44,7 @@ const ReviewArtifacts: React.FC = () => {
     itemsPerPage 
   } = useHyphaStore();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +55,15 @@ const ReviewArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('pending');
+  
+  // Initialize viewMode from URL parameter or default to 'pending'
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const showParam = searchParams.get('show');
+    if (showParam === 'published' || showParam === 'staging' || showParam === 'pending') {
+      return showParam as ViewMode;
+    }
+    return 'pending';
+  });
   const [copiedIds, setCopiedIds] = useState<{[key: string]: boolean}>({});
   const [approveLoading, setApproveLoading] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
@@ -67,6 +76,27 @@ const ReviewArtifacts: React.FC = () => {
     { id: 'staging', name: 'Staging' },
     { id: 'pending', name: 'Pending Review' }
   ];
+
+  // Function to handle view mode changes with URL updates
+  const handleViewModeChange = (newMode: ViewMode) => {
+    setViewMode(newMode);
+    setReviewArtifactsPage(1);
+    
+    // Update URL parameters
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('show', newMode);
+    setSearchParams(newParams, { replace: true });
+  };
+
+  // Effect to sync URL parameters with view mode
+  useEffect(() => {
+    const showParam = searchParams.get('show');
+    if (showParam !== viewMode) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set('show', viewMode);
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [viewMode, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (isLoggedIn && user) {
@@ -276,10 +306,7 @@ const ReviewArtifacts: React.FC = () => {
             </h1>
             <div className="flex items-center space-x-4">
               <div className="relative w-64">
-                <Listbox value={viewMode} onChange={(newMode: ViewMode) => {
-                  setViewMode(newMode);
-                  setReviewArtifactsPage(1);
-                }}>
+                <Listbox value={viewMode} onChange={handleViewModeChange}>
                   <div className="relative mt-1">
                     <Listbox.Button className="relative w-full cursor-default rounded-lg bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-300 sm:text-sm">
                       <span className="block truncate">
@@ -583,7 +610,7 @@ const ReviewArtifacts: React.FC = () => {
                         </div>
                         <div className="flex gap-2 items-center">
                           <button
-                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/${viewMode === 'published' ? '' : 'stage'}?tab=review`)}
+                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/${viewMode === 'published' ? '' : 'stage'}?tab=review&from=${encodeURIComponent('/review?show=' + viewMode)}`)}
                             className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
                             {viewMode === 'published' ? "Edit" : "Review"}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { Switch, TextField, FormControl, FormHelperText, Autocomplete, Chip } from '@mui/material';
 import yaml from 'js-yaml';
@@ -111,6 +111,8 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const [editorContent, setEditorContent] = useState(content);
   const [licenses, setLicenses] = useState<SPDXLicense[]>([]);
   const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
+  const isLoadingLicensesRef = useRef(false);
+  const hasFetchedLicensesRef = useRef(false);
   const [remoteSuggestions, setRemoteSuggestions] = useState<string[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const [isInternalChange, setIsInternalChange] = useState(false);
@@ -138,9 +140,14 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   };
 
   const fetchLicenses = useCallback(async () => {
-    if (isLoadingLicenses) return; // Only prevent fetching if already loading
+    // Use refs to avoid stale closure and prevent multiple fetches
+    if (isLoadingLicensesRef.current || hasFetchedLicensesRef.current) {
+      return;
+    }
     
+    isLoadingLicensesRef.current = true;
     setIsLoadingLicenses(true);
+    
     try {
       const response = await fetch('https://raw.githubusercontent.com/spdx/license-list-data/master/json/licenses.json');
       const data = await response.json();
@@ -150,12 +157,14 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         reference: license.reference
       }));
       setLicenses(formattedLicenses);
+      hasFetchedLicensesRef.current = true;
     } catch (error) {
       console.error('Error fetching licenses:', error);
     } finally {
+      isLoadingLicensesRef.current = false;
       setIsLoadingLicenses(false);
     }
-  }, [isLoadingLicenses]);
+  }, []); // No dependencies to prevent infinite loop
 
   // Update the debounced fetch function to use setRemoteSuggestions
   const debouncedFetchTags = useCallback(
@@ -194,20 +203,14 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
       const parsed = yaml.load(content) as RDFContent;
       setFormData(parsed || {});
       setErrors({});
-      
-      // If there's a license in the content, make sure we fetch the licenses
-      if (parsed?.license && licenses.length === 0) {
-        fetchLicenses();
-      }
     } catch (error) {
       console.error('Error parsing YAML:', error);
       setErrors({ yaml: 'Invalid YAML format' });
     }
-  }, [content]); // Remove licenses.length and fetchLicenses from dependencies
+  }, [content]);
 
-  // Add a new useEffect to fetch licenses on component mount
+  // Fetch licenses on component mount
   useEffect(() => {
-    // Fetch licenses on component mount to ensure they're available
     fetchLicenses();
   }, [fetchLicenses]);
 
