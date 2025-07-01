@@ -63,12 +63,12 @@ const About: React.FC = () => {
         </p>
         <div className="flex flex-wrap items-center gap-6 mt-4">
           <img 
-            src="/img/AI4Life-logo-giraffe.png" 
+            src="/static/img/AI4Life-logo-giraffe.png" 
             alt="AI4Life Logo" 
             className="h-16 object-contain"
           />
           <img 
-            src="/img/EuropeanFlag-Funded by the EU-POS.jpg" 
+            src="/static/img/EuropeanFlag-Funded by the EU-POS.jpg" 
             alt="EU Flag" 
             className="h-16 object-contain"
           />

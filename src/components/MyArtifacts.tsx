@@ -285,7 +285,7 @@ const MyArtifacts: React.FC = () => {
         ) : artifacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <img 
-              src="/img/zoo-background.svg" 
+              src="/static/img/zoo-background.svg" 
               alt="Zoo Background" 
               className="w-100 h-64 mb-8 opacity-50"
             />

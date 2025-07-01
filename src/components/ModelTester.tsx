@@ -189,7 +189,7 @@ Please keep this window open while the test is running.`;
       {isLoading && (
         <div className="flex items-center justify-center mb-4">
           <img 
-            src="/img/bioengine-logo-black.svg" 
+            src="/static/img/bioengine-logo-black.svg" 
             alt="BioEngine Logo" 
             className="h-28 animate-pulse"
           />

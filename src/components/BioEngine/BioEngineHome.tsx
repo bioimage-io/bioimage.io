@@ -278,7 +278,7 @@ const BioEngineHome: React.FC = () => {
         <div className="flex justify-center items-center h-64">
           <div className="flex flex-col items-center">
             <img
-              src="/img/bioengine-logo-black.svg"
+              src="/static/img/bioengine-logo-black.svg"
               alt="BioEngine Loading"
               className="w-32 h-auto opacity-60 animate-pulse"
             />

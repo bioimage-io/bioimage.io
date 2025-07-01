@@ -3,19 +3,19 @@
   "name": "BioImage Model Zoo",
   "icons": [
     {
-      "src": "icons/favicon.ico",
+      "src": "static/icons/favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "icons/android-chrome-192x192.png",
+      "src": "static/icons/android-chrome-192x192.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "icons/android-chrome-512x512.png",
+      "src": "static/icons/android-chrome-384x384.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "384x384"
     }
   ],
   "start_url": ".",

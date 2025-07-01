@@ -241,7 +241,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <div 
             className="absolute right-2 sm:right-10 -bottom-6 w-32 h-32 sm:w-64 sm:h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none" 
             style={{ 
-              backgroundImage: 'url(/img/zoo-background.svg)'
+              backgroundImage: 'url(/static/img/zoo-background.svg)'
             }} 
           />
           <div className="max-w-3xl mx-auto w-full px-2 sm:px-0">

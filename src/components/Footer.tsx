@@ -5,31 +5,31 @@ const footerLinks = [
   {
     label: "Ask a question on image.sc forum",
     href: "https://forum.image.sc/tag/bioimageio",
-    icon: "/img/imagesc-logo.png",
+    icon: "/static/img/imagesc-logo.png",
     caption: "Question"
   },
   {
     label: "Give us some feedback through this Google Form",
     href: "https://forms.gle/CA1yK4pUKMqBPtso8",
-    icon: "/img/feedback-icon.png",
+    icon: "/static/img/feedback-icon.png",
     caption: "Feedback Form"
   },
   {
     label: "Github Repository",
     href: "https://github.com/bioimage-io/bioimage.io",
-    icon: "/img/github.png",
+    icon: "/static/img/github.png",
     caption: "Source Code"
   },
   {
     label: "Send us a message",
     href: "https://oeway.typeform.com/to/K3j2tJt7",
-    icon: "/img/contact.png",
+    icon: "/static/img/contact.png",
     caption: "Contact Us"
   },
   {
     label: "We receive funding through the AI4Life project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
     href: "https://ai4life.eurobioimaging.eu/",
-    icon: "/img/AI4Life-logo-giraffe.png",
+    icon: "/static/img/AI4Life-logo-giraffe.png",
     caption: "AI4Life"
   },
   {
@@ -86,7 +86,7 @@ const Footer: React.FC = () => {
             </div>
             
             <img
-              src="/img/EuropeanFlag-Funded by the EU-POS.jpg"
+              src="/static/img/EuropeanFlag-Funded by the EU-POS.jpg"
               alt="Funded by the European Union"
               className="w-full max-w-xs mx-auto mb-6 rounded-xl transition-shadow duration-300"
             />
