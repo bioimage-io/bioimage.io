@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 
 import ArtifactGrid from './components/ArtifactGrid';
@@ -61,11 +61,7 @@ const AppContent: React.FC = () => {
         <Routes>
           <Route
             path="/"
-            element={
-              <>
-                <ArtifactGrid />
-              </>
-            }
+            element={<Navigate to="/models" replace />}
           />
           <Route 
             path="/resources/:id" 
