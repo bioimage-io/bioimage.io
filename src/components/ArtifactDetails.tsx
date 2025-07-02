@@ -68,7 +68,7 @@ const ArtifactDetails = () => {
     const fetchDocumentation = async () => {
       if (selectedResource?.manifest.documentation) {
         try {
-          const docUrl = resolveHyphaUrl(selectedResource.manifest.documentation, selectedResource.id);
+          const docUrl = resolveHyphaUrl(selectedResource.manifest.documentation, selectedResource.id, true);
           
           const response = await fetch(docUrl);
           const text = await response.text();
@@ -699,7 +699,7 @@ const ArtifactDetails = () => {
           </Card>
 
           {/* Files Card - Always show for all artifact types */}
-          <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} />
+          <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} version={version} />
 
           {/* Test Reports Card - Only show for models */}
           {selectedResource?.manifest?.type === 'model' && 

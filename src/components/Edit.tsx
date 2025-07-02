@@ -153,6 +153,7 @@ const Edit: React.FC = () => {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [editVersion, setEditVersion] = useState<string | undefined>(version);
+  const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
   useEffect(() => {
     setEditVersion(version);
   }, [version]);
@@ -239,6 +240,7 @@ const Edit: React.FC = () => {
   const loadArtifactFiles = async () => {
     if (!artifactManager || !artifactId || !server) return;
     try {
+      setIsLoadingFiles(true);
       setUploadStatus({
         message: 'Loading files...',
         severity: 'info'
@@ -248,6 +250,7 @@ const Edit: React.FC = () => {
           message: 'No artifact ID',
           severity: 'error'
         });
+        setIsLoadingFiles(false);
         return;
       }
       // Get artifact info
@@ -292,10 +295,12 @@ const Edit: React.FC = () => {
       });
 
       if (!fileList || fileList.length === 0) {
+        setFiles([]);
         setUploadStatus({
           message: 'No files found',
           severity: 'error'
         });
+        setIsLoadingFiles(false);
         return;
       }
 
@@ -313,6 +318,7 @@ const Edit: React.FC = () => {
         message: 'Files loaded successfully',
         severity: 'success'
       });
+      setIsLoadingFiles(false);
 
       // Preserve the current tab state
       const currentTab = searchParams.get('tab');
@@ -330,6 +336,7 @@ const Edit: React.FC = () => {
         message: 'Error loading files',
         severity: 'error'
       });
+      setIsLoadingFiles(false);
     }
   };
 
@@ -1495,10 +1502,15 @@ const Edit: React.FC = () => {
         </div>
       </div>
       <div className="py-2">
-        {files.length === 0 ? (
+        {isLoadingFiles ? (
           <div className="flex flex-col items-center justify-center h-48">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
             <div className="text-xl font-semibold text-gray-700">Loading files...</div>
+          </div>
+        ) : files.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48">
+            <div className="text-xl font-semibold text-gray-700">No files found</div>
+            <div className="text-sm text-gray-500 mt-2">This artifact doesn't contain any files</div>
           </div>
         ) : (
           files.map((file) => (

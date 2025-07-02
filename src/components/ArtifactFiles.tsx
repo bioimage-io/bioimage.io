@@ -10,6 +10,7 @@ import {
   IconButton,
   Collapse,
   Stack,
+  Button,
 } from '@mui/material';
 import {
   Folder as FolderIcon,
@@ -36,13 +37,15 @@ interface ArtifactFilesProps {
   baseUrl?: string;
   workspace?: string;
   artifactInfo?: any; // For checking weight files
+  version?: string; // Add version prop for download all functionality
 }
 
 const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
   artifactId,
   baseUrl = 'https://hypha.aicell.io',
   workspace = 'bioimage-io',
-  artifactInfo
+  artifactInfo,
+  version
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [files, setFiles] = useState<FileInfo[]>([]);
@@ -83,6 +86,15 @@ const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
 
   const handleToggle = () => {
     setIsExpanded(!isExpanded);
+  };
+
+  const handleDownloadAll = () => {
+    if (!alias) return;
+    let downloadUrl = `${baseUrl}/${workspace}/artifacts/${alias}/create-zip-file`;
+    if (version && version !== 'latest') {
+      downloadUrl += `?version=${version}`;
+    }
+    window.open(downloadUrl, '_blank');
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -212,6 +224,36 @@ const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
                   fontWeight: 500,
                   fontSize: '0.75rem',
                   border: '1px solid rgba(59, 130, 246, 0.2)',
+                }}
+              />
+            )}
+            {files.length > 0 && (
+              <Chip
+                icon={<ArchiveIcon sx={{ fontSize: '14px !important' }} />}
+                label="zip"
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent the toggle from being triggered
+                  handleDownloadAll();
+                }}
+                sx={{
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  color: '#3b82f6',
+                  borderRadius: '8px',
+                  fontWeight: 500,
+                  fontSize: '0.75rem',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                    transform: 'scale(1.05)',
+                  },
+                  '& .MuiChip-icon': {
+                    color: '#3b82f6',
+                    marginLeft: '4px',
+                  },
                 }}
               />
             )}

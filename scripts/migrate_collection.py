@@ -250,7 +250,6 @@ async def verify_and_reupload_files(artifact_manager, artifact_id, base_url, ful
     """Verify all files exist for an artifact and re-upload missing ones."""
     missing_files = []
     verification_issues = []
-    
     # List of all files that should exist based on manifest
     expected_files = []
     
@@ -328,6 +327,22 @@ async def verify_and_reupload_files(artifact_manager, artifact_id, base_url, ful
     # Re-upload missing files
     if missing_files:
         logger.info(f"Re-uploading {len(missing_files)} missing files for {artifact_id}")
+        
+        # Stage the artifact for editing
+        try:
+            await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+            logger.info(f"Staged artifact {artifact_id} for file re-upload")
+        except Exception as e:
+            error_msg = f"Failed to stage artifact {artifact_id}: {e}"
+            logger.error(error_msg)
+            verification_issues.append(error_msg)
+            return {
+                "total_files": len(expected_files),
+                "missing_files": len(missing_files),
+                "issues": verification_issues
+            }
+        
+        # Re-upload missing files
         for file_path in missing_files:
             try:
                 download_weight = 1 if any(file_path in weights_file.get('source', '') for weights_file in weights.values() if weights_file) else 0
@@ -337,6 +352,15 @@ async def verify_and_reupload_files(artifact_manager, artifact_id, base_url, ful
                 error_msg = f"Failed to re-upload {file_path}: {e}"
                 logger.error(error_msg)
                 verification_issues.append(error_msg)
+        
+        # Commit the changes
+        try:
+            await artifact_manager.commit(artifact_id=artifact_id)
+            logger.info(f"Committed file changes for artifact {artifact_id}")
+        except Exception as e:
+            error_msg = f"Failed to commit changes for {artifact_id}: {e}"
+            logger.error(error_msg)
+            verification_issues.append(error_msg)
     
     return {
         "total_files": len(expected_files),
@@ -469,8 +493,7 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
             if not full_manifest:
                 logger.info(f"Failed to fetch manifest for {dataset_id}")
                 return
-            full_manifest.update(item)
-            
+            # full_manifest.update(item)
             try:
                 artifact = await artifact_manager.read(dataset_id)
             except Exception:
@@ -514,7 +537,7 @@ async def migrate_collection(skip_migrated=True, edit_existing=False, reset_stat
                 alias=dataset_id,
                 parent_id="bioimage-io/bioimage.io",
                 manifest=full_manifest,
-                version="stage",
+                stage=True,
                 overwrite=True
             )
 

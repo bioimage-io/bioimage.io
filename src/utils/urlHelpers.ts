@@ -4,7 +4,7 @@
  * @param resourceId - The resource ID
  * @returns The full resolved URL
  */
-export const resolveHyphaUrl = (path: string, resourceId: string): string => {
+export const resolveHyphaUrl = (path: string, resourceId: string, use_proxy: boolean = false): string => {
   if (!path) return '';
   
   // If the path is already a full URL, return it as is
@@ -16,5 +16,9 @@ export const resolveHyphaUrl = (path: string, resourceId: string): string => {
   const id = resourceId.split('/').pop();
   
   // Construct the full URL
-  return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
+  if (use_proxy) {
+    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
+  } else {
+    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}`;
+  }
 }; 
