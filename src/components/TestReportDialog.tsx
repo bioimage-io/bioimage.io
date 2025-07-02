@@ -355,9 +355,9 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
                                     <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: 1 }}>
                                       Traceback:
                                     </Typography>
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    <pre>
                                       {error.traceback_md}
-                                    </ReactMarkdown>
+                                    </pre>
                                   </Box>
                                 )}
                               </Box>
