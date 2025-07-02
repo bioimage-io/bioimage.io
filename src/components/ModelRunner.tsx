@@ -646,6 +646,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           artifactId={artifactId}
           modelUrl={modelUrl}
           isDisabled={false}
+          skipCache={false}
           className="flex-shrink-0"
         />
       </div>

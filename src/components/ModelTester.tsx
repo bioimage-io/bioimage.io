@@ -27,9 +27,10 @@ interface ModelTesterProps {
   modelUrl?: string;
   isDisabled?: boolean;
   className?: string;
+  skipCache?: boolean;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisabled, className = '' }) => {
+const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisabled, skipCache=false, className = '' }) => {
   const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,7 +107,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
       
       setLoadingStep('Downloading and preparing model for testing...');
       console.log(`Testing model ${modelId} at ${modelUrl}`);
-      const result = await runner.test({model_id: modelUrl || modelId, _rkwargs: true});
+      const result = await runner.test({model_id: modelUrl || modelId, skip_cache: skipCache, _rkwargs: true});
       console.log("Test result:", result);
       setTestResult(result);
     } catch (err) {

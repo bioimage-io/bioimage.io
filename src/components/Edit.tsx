@@ -1720,6 +1720,7 @@ const Edit: React.FC = () => {
               artifactId={artifactId}
               modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=${isStaged ? 'stage' : editVersion || 'latest'}`}
               isDisabled={!server}
+              skipCache={true}
               className="w-full sm:w-auto"
             />
           </div>

@@ -42,7 +42,9 @@ const About: React.FC = () => {
              className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
             Contribute Models
           </a>
-          <a href="#community-partners" 
+          <a href="https://bioimage.io/docs/#/guides/community-partners-guide?id=introduction-to-community-partners" 
+            target="_blank" 
+            rel="noopener noreferrer"
              className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
             Join Community Partners
           </a>

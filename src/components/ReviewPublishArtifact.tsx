@@ -237,6 +237,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                     artifactId={artifactId}
                     modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split("/").pop()}/create-zip-file${modelVersion ? `?version=${modelVersion}` : ''}`}
                     isDisabled={shouldDisableActions}
+                    skipCache={true}
                   />
                 )}
               </>
