@@ -14,6 +14,7 @@ import StatusBadge from './StatusBadge';
 import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
+import SearchBar from './SearchBar';
 
 // Define view mode type for the dropdown
 type ViewMode = 'published' | 'staging' | 'pending';
@@ -69,6 +70,8 @@ const ReviewArtifacts: React.FC = () => {
   const [rejectLoading, setRejectLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteIdConfirmation, setDeleteIdConfirmation] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [serverSearchQuery, setServerSearchQuery] = useState('');
 
   // View mode options for the dropdown
   const viewModeOptions = [
@@ -102,7 +105,17 @@ const ReviewArtifacts: React.FC = () => {
     if (isLoggedIn && user) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, viewMode, reviewArtifactsPage]);
+  }, [artifactManager, user, isLoggedIn, viewMode, reviewArtifactsPage, serverSearchQuery]);
+
+  // Add debounced server search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setServerSearchQuery(searchQuery);
+      setReviewArtifactsPage(1);
+    }, 500); // 500ms delay before triggering server search
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, setReviewArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
@@ -110,14 +123,21 @@ const ReviewArtifacts: React.FC = () => {
     try {
       setLoading(true);
       const filters: any = {};
+      const keywords: string[] = [];
       
       if (viewMode === 'pending') {
         filters.manifest = { status: 'request-review' };
       }
 
+      // Add search query to filters if present
+      if (serverSearchQuery.trim()) {
+        keywords.push(serverSearchQuery.trim());
+      }
+
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
+        keywords: keywords,
         stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined),
         limit: itemsPerPage,
         offset: (reviewArtifactsPage - 1) * itemsPerPage,
@@ -276,6 +296,10 @@ const ReviewArtifacts: React.FC = () => {
     }, 2000);
   };
 
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -371,6 +395,15 @@ const ReviewArtifacts: React.FC = () => {
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="mt-4 max-w-md mx-auto">
+            <SearchBar 
+              value={searchQuery}
+              onSearchChange={handleSearchChange}
+              onSearchConfirm={() => {}}
+            />
           </div>
 
           {/* Info Box with Collapsible Guidelines */}
@@ -949,6 +982,7 @@ const ReviewArtifacts: React.FC = () => {
           <Pagination
             currentPage={reviewArtifactsPage}
             totalPages={Math.ceil(reviewArtifactsTotalItems / itemsPerPage)}
+            totalItems={reviewArtifactsTotalItems}
             onPageChange={handlePageChange}
           />
         </div>

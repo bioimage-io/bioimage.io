@@ -28,6 +28,8 @@ import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import TestReportBadge from './TestReportBadge';
@@ -56,7 +58,9 @@ const ArtifactDetails = () => {
   const [isLoadingTestReport, setIsLoadingTestReport] = useState(false);
   const [rawErrorContent, setRawErrorContent] = useState<string | null>(null);
   const [isInvalidJson, setIsInvalidJson] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const modelContainerRef = useRef<HTMLDivElement>(null);
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (id) {
@@ -249,6 +253,58 @@ const ArtifactDetails = () => {
     setCurrentContainerId(null);
   };
 
+  // Fullscreen functionality
+  const handleFullscreen = async () => {
+    const element = fullscreenContainerRef.current;
+    if (!element) return;
+
+    try {
+      if (!isFullscreen) {
+        // Enter fullscreen
+        if (element.requestFullscreen) {
+          await element.requestFullscreen();
+        } else if ((element as any).webkitRequestFullscreen) {
+          await (element as any).webkitRequestFullscreen();
+        } else if ((element as any).msRequestFullscreen) {
+          await (element as any).msRequestFullscreen();
+        }
+      } else {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling fullscreen:', error);
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement || 
+        (document as any).webkitFullscreenElement || 
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isCurrentlyFullscreen);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   // Add this overlay spinner component
   const LoadingOverlay = () => (
     <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
@@ -432,47 +488,139 @@ const ArtifactDetails = () => {
             )}
           </Box>
 
-          {/* Close Button - only show when model runner is active */}
+          {/* Fullscreen and Close Buttons - only show when model runner is active */}
           {showModelRunner && (
-            <IconButton
-              onClick={handleCloseModelRunner}
-              size="medium"
-              sx={{
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(239, 68, 68, 0.2)',
-                borderRadius: '12px',
-                color: '#dc2626',
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                  borderColor: 'rgba(239, 68, 68, 0.4)',
-                  transform: 'scale(1.05)',
-                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)',
-                },
-              }}
-              title="Close Model Runner"
-            >
-              <CloseIcon />
-            </IconButton>
+            <Stack direction="row" spacing={1}>
+              <IconButton
+                onClick={handleFullscreen}
+                size="medium"
+                sx={{
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  borderRadius: '12px',
+                  color: '#3b82f6',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    borderColor: 'rgba(59, 130, 246, 0.4)',
+                    transform: 'scale(1.05)',
+                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)',
+                  },
+                }}
+                title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+              >
+                {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              </IconButton>
+              <IconButton
+                onClick={handleCloseModelRunner}
+                size="medium"
+                sx={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  borderRadius: '12px',
+                  color: '#dc2626',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                    borderColor: 'rgba(239, 68, 68, 0.4)',
+                    transform: 'scale(1.05)',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)',
+                  },
+                }}
+                title="Close Model Runner"
+              >
+                <CloseIcon />
+              </IconButton>
+            </Stack>
           )}
         </Box>
 
-        {/* Model Runner Controls Row (only show when active) */}
-        {selectedResource?.manifest?.type === 'model' && showModelRunner && (
-          <Box sx={{ mt: { xs: 1, sm: 2, md: 3 } }}>
-            <ModelRunner
-              artifactId={selectedResource.id}
-              isDisabled={false}
-              onRunStateChange={setShowModelRunner}
-              createContainerCallback={createModelRunnerContainer}
-              className="w-full"
-              modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
-            />
-          </Box>
-        )}
+        {/* Model Runner Section - wrap both controls and visualization */}
+        <Box 
+          ref={fullscreenContainerRef}
+          sx={{ 
+            // Fullscreen styles
+            ...(isFullscreen && {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: 9999,
+              backgroundColor: '#ffffff',
+              padding: 2,
+              overflow: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+            })
+          }}
+        >
+          {/* Fullscreen Header - only show in fullscreen mode */}
+          {isFullscreen && selectedResource?.manifest?.type === 'model' && showModelRunner && (
+            <Box 
+              sx={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                mb: 3,
+                pb: 2,
+                borderBottom: '1px solid rgba(229, 231, 235, 0.8)',
+                backgroundColor: 'rgba(249, 250, 251, 0.5)',
+                borderRadius: '12px',
+                padding: '16px 24px',
+                backdropFilter: 'blur(8px)',
+              }}
+            >
+              <img 
+                src="/static/img/bioimage-io-icon-small.svg" 
+                alt="BioImage.IO"
+                style={{
+                  height: '40px',
+                  width: '40px',
+                }}
+              />
+              <Box>
+                <Typography 
+                  variant="h5" 
+                  sx={{ 
+                    fontWeight: 600,
+                    color: '#1f2937',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Model Test Run
+                </Typography>
+                <Typography 
+                  variant="body1" 
+                  sx={{ 
+                    color: '#6b7280',
+                    fontFamily: 'monospace',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  {selectedResource.id.split('/').pop()}
+                </Typography>
+              </Box>
+            </Box>
+          )}
 
-        {/* Cover Image Section or Model Runner Container */}
+          {/* Model Runner Controls Row (only show when active) */}
+          {selectedResource?.manifest?.type === 'model' && showModelRunner && (
+            <Box sx={{ mt: isFullscreen ? 0 : { xs: 1, sm: 2, md: 3 } }}>
+              <ModelRunner
+                artifactId={selectedResource.id}
+                isDisabled={false}
+                onRunStateChange={setShowModelRunner}
+                createContainerCallback={createModelRunnerContainer}
+                className="w-full"
+                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
+              />
+            </Box>
+          )}
+
+          {/* Cover Image Section or Model Runner Container */}
         {selectedResource.manifest.covers && selectedResource.manifest.covers.length > 0 && (
           <Box 
             sx={{ 
@@ -494,7 +642,7 @@ const ArtifactDetails = () => {
               sx={{
                 position: 'relative',
                 width: '100%',
-                height: containerHeight,
+                height: isFullscreen ? 'calc(100vh - 300px)' : containerHeight,
               }}
             >
               {showModelRunner ? (
@@ -586,6 +734,7 @@ const ArtifactDetails = () => {
             </Box>
           </Box>
         )}
+      </Box>
 
 
       </Box>

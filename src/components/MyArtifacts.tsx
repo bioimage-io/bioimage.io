@@ -11,6 +11,7 @@ import { Fragment } from 'react';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
 import { Pagination } from './ArtifactGrid';
+import SearchBar from './SearchBar';
 
 interface Artifact {
   id: string;
@@ -50,6 +51,8 @@ const MyArtifacts: React.FC = () => {
   const [deletionRequestLoading, setDeletionRequestLoading] = useState<string | null>(null);
   const [isRequestDeletionDialogOpen, setIsRequestDeletionDialogOpen] = useState(false);
   const [artifactToRequestDeletion, setArtifactToRequestDeletion] = useState<Artifact | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [serverSearchQuery, setServerSearchQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -57,20 +60,37 @@ const MyArtifacts: React.FC = () => {
       loadArtifacts();
       checkAdminStatus();
     }
-  }, [artifactManager, user, isLoggedIn, showStagedOnly, myArtifactsPage]);
+  }, [artifactManager, user, isLoggedIn, showStagedOnly, myArtifactsPage, serverSearchQuery]);
+
+  // Add debounced server search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setServerSearchQuery(searchQuery);
+      setMyArtifactsPage(1);
+    }, 500); // 500ms delay before triggering server search
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, setMyArtifactsPage]);
 
   const loadArtifacts = async () => {
     if (!artifactManager || !user) return;
 
     try {
       setLoading(true);
-      const filters = {
+      const filters: any = {
         created_by: user.id,
       };
+      const keywords: string[] = [];
+
+      // Add search query to filters if present
+      if (serverSearchQuery.trim()) {
+        keywords.push(serverSearchQuery.trim());
+      }
       
       const response = await artifactManager.list({
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
+        keywords: keywords,
         limit: itemsPerPage,
         stage: showStagedOnly ? "stage" : "all",
         offset: (myArtifactsPage - 1) * itemsPerPage,
@@ -178,6 +198,10 @@ const MyArtifacts: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+  };
+
   if (selectedArtifact) {
     return (
       <Upload 
@@ -269,6 +293,15 @@ const MyArtifacts: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Search Bar */}
+          <div className="mt-4 max-w-md mx-auto">
+            <SearchBar 
+              value={searchQuery}
+              onSearchChange={handleSearchChange}
+              onSearchConfirm={() => {}}
+            />
+          </div>
         </div>
       </div>
 
@@ -332,6 +365,7 @@ const MyArtifacts: React.FC = () => {
           <Pagination
             currentPage={myArtifactsPage}
             totalPages={Math.ceil(myArtifactsTotalItems / itemsPerPage)}
+            totalItems={myArtifactsTotalItems}
             onPageChange={handlePageChange}
           />
         )}
