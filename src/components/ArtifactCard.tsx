@@ -5,12 +5,14 @@ import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Box, Typogra
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import EditIcon from '@mui/icons-material/Edit';
 
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
 import TestReportBadge from './TestReportBadge';
+
 interface ResourceCardProps {
   artifact: ArtifactInfo;
 }
@@ -21,9 +23,44 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
-  const { setSelectedResource } = useHyphaStore();
+  const { setSelectedResource, user, isLoggedIn, artifactManager } = useHyphaStore();
 
+  // Check if user has edit permissions
+  useEffect(() => {
+    const checkEditPermissions = async () => {
+      if (!isLoggedIn || !user || !artifactManager) {
+        setCanEdit(false);
+        return;
+      }
+
+      try {
+        const collection = await artifactManager.read({
+          artifact_id: 'bioimage-io/bioimage.io',
+          _rkwargs: true
+        });
+
+        if (user && collection.config?.permissions) {
+          const userPermission = collection.config.permissions[user.id];
+          // Check if user has write permissions (rw, rw+, or *)
+          const hasWritePermission = userPermission === 'rw' || userPermission === 'rw+' || userPermission === '*';
+          // Also check if user has admin role
+          const isAdmin = user.roles?.includes('admin');
+          
+          setCanEdit(hasWritePermission || isAdmin);
+        } else {
+          // Check if user has admin role even if not in permissions
+          setCanEdit(user.roles?.includes('admin') || false);
+        }
+      } catch (error) {
+        console.error('Error checking edit permissions:', error);
+        setCanEdit(false);
+      }
+    };
+
+    checkEditPermissions();
+  }, [isLoggedIn, user, artifactManager]);
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent Link navigation
@@ -68,7 +105,11 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     setPreviewOpen(false);
   };
 
-
+  const handleEdit = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(`/edit/${encodeURIComponent(artifact.id)}`);
+  };
 
   // Get the resolved cover URL for the current index
   const getCurrentCoverUrl = () => {
@@ -96,6 +137,9 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           boxShadow: '0 8px 25px rgba(0, 0, 0, 0.1)',
           transform: 'translateY(-4px)',
           '& .preview-button': {
+            opacity: 1,
+          },
+          '& .edit-button': {
             opacity: 1,
           },
           '& .download-button': {
@@ -129,13 +173,37 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         <VisibilityIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
       </IconButton>
 
+      {canEdit && (
+        <IconButton
+          className="edit-button"
+          onClick={handleEdit}
+          sx={{
+            position: 'absolute',
+            top: 8,
+            left: 56, // Position next to preview button
+            zIndex: 1,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.5)',
+            borderRadius: '12px',
+            opacity: 0,
+            transition: 'all 0.3s ease',
+            '&:hover': {
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              borderColor: 'rgba(34, 197, 94, 0.3)',
+              transform: 'scale(1.05)',
+            }
+          }}
+        >
+          <EditIcon fontSize="small" sx={{ color: 'rgba(34, 197, 94, 1)' }} />
+        </IconButton>
+      )}
+
       <PreviewDialog 
         open={previewOpen}
         artifact={artifact}
         onClose={handlePreviewClose}
       />
-
-
 
       <div style={{ position: 'relative', paddingTop: '56.25%', borderRadius: '16px 16px 0 0', overflow: 'hidden' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
