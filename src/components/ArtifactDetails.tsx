@@ -116,7 +116,7 @@ const ArtifactDetails = () => {
         setRawErrorContent(null);
         setDetailedTestReport(null);
         
-        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id);
+        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
         const response = await fetch(testReportUrl);
         const responseText = await response.text();
         

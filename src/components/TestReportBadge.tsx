@@ -78,7 +78,7 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
         setRawErrorContent(null);
         setDetailedTestReport(null);
         
-        const testReportUrl = resolveHyphaUrl('test_reports.json', artifact.id);
+        const testReportUrl = resolveHyphaUrl('test_reports.json', artifact.id, true);
         const response = await fetch(testReportUrl);
         const responseText = await response.text();
         
