@@ -100,7 +100,7 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
       
       {/* Page info */}
       <div className="ml-4 text-sm text-gray-600 hidden sm:block">
-        Page {currentPage} of {totalPages} ({totalItems.toLocaleString()} items)
+        Page {currentPage} of {totalPages} ({totalItems} items)
       </div>
     </div>
   );
