@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom';
 
 const footerLinks = [
   {
+    label: "We receive funding through the AI4Life project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
+    href: "https://ai4life.eurobioimaging.eu/",
+    icon: "/static/img/AI4Life-logo-giraffe.png",
+    caption: "AI4Life"
+  },
+  {
     label: "Ask a question on image.sc forum",
     href: "https://forum.image.sc/tag/bioimageio",
     icon: "/static/img/imagesc-logo.png",
@@ -15,10 +21,11 @@ const footerLinks = [
     caption: "Feedback Form"
   },
   {
-    label: "Github Repository",
-    href: "https://github.com/bioimage-io/bioimage.io",
-    icon: "/static/img/github.png",
-    caption: "Source Code"
+    label: "Join our weekly community meetings every Wednesday 4PM CET",
+    href: "#",
+    icon: "/static/img/meeting-icon.png",
+    caption: "Weekly Meetings",
+    isDialog: true
   },
   {
     label: "Send us a message",
@@ -27,17 +34,10 @@ const footerLinks = [
     caption: "Contact Us"
   },
   {
-    label: "We receive funding through the AI4Life project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
-    href: "https://ai4life.eurobioimaging.eu/",
-    icon: "/static/img/AI4Life-logo-giraffe.png",
-    caption: "AI4Life"
-  },
-  {
-    label: "Join our weekly community meetings every Wednesday 4PM CET",
-    href: "#",
-    icon: "/static/img/meeting-icon.png",
-    caption: "Weekly Meetings",
-    isDialog: true
+    label: "Github Repository",
+    href: "https://github.com/bioimage-io/bioimage.io",
+    icon: "/static/img/github.png",
+    caption: "Source Code"
   }
 ];
 
