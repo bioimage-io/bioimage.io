@@ -34,6 +34,16 @@ const About: React.FC = () => {
       </section>
 
       <section className="mb-12 bg-white rounded-lg shadow-sm p-8">
+        <h2 className="text-2xl font-semibold mb-4 text-gray-800">Data Storage & Infrastructure</h2>
+        <p className="text-gray-600 leading-relaxed">
+          We store our models, datasets, and applications along with metadata in a dedicated S3 bucket 
+          hosted at EMBL-EBI, and deposited to Zenodo as a backup. The resource metadata information is 
+          indexed in a SQL database in the Hypha server hosted at KTH for searching and rendering on 
+          the model zoo website.
+        </p>
+      </section>
+
+      <section className="mb-12 bg-white rounded-lg shadow-sm p-8">
         <h2 className="text-2xl font-semibold mb-6 text-gray-800">Get Involved</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <a href="/#/upload" 
