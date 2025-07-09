@@ -852,8 +852,12 @@ const ArtifactDetails = () => {
 
           {/* Test Reports Card - Only show for models */}
           {selectedResource?.manifest?.type === 'model' && 
-             selectedResource?.manifest.test_reports && 
-             selectedResource.manifest.test_reports.length > 0 && (
+             (() => {
+               const testReports = selectedResource?.manifest?.test_reports;
+               if (!testReports) return false;
+               const reports = Array.isArray(testReports) ? testReports : (testReports as any).reports;
+               return reports && reports.length > 0;
+             })() && (
             <Card 
               sx={{ 
                 mb: { xs: 1, sm: 2, md: 3 },
@@ -878,95 +882,100 @@ const ArtifactDetails = () => {
                     onStopPropagation={false}
                   />
                 </Box>
-                <Stack spacing={1}>
-                  {selectedResource.manifest.test_reports.map((testReport: TestReport, index: number) => (
-                    <Box 
-                      key={index}
-                      onClick={fetchDetailedTestReport}
-                      sx={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 1.5,
-                        p: 1.5,
-                        backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                        backdropFilter: 'blur(4px)',
-                        border: '1px solid rgba(255, 255, 255, 0.7)',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                          borderColor: testReport.status === 'passed' 
-                            ? 'rgba(34, 197, 94, 0.3)' 
-                            : 'rgba(239, 68, 68, 0.3)',
-                          transform: 'translateY(-2px)',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                        }
-                      }}
-                    >
-                      {testReport.status === 'passed' ? (
-                        <CheckCircleIcon 
-                          sx={{ 
-                            color: '#22c55e', 
-                            fontSize: 20,
-                            flexShrink: 0
-                          }} 
-                        />
-                      ) : (
-                        <CancelIcon 
-                          sx={{ 
-                            color: '#ef4444', 
-                            fontSize: 20,
-                            flexShrink: 0
-                          }} 
-                        />
-                      )}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            fontWeight: 500, 
-                            color: '#1f2937',
-                            lineHeight: 1.2,
-                            wordBreak: 'break-word'
-                          }}
-                        >
-                          {testReport.name}
-                        </Typography>
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            color: '#6b7280',
-                            fontSize: '0.75rem',
-                            display: 'block',
-                            mt: 0.5
-                          }}
-                        >
-                          {testReport.runtime}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={testReport.status}
-                        size="small"
-                        sx={{
-                          backgroundColor: testReport.status === 'passed' 
-                            ? 'rgba(34, 197, 94, 0.1)' 
-                            : 'rgba(239, 68, 68, 0.1)',
-                          color: testReport.status === 'passed' 
-                            ? '#22c55e' 
-                            : '#ef4444',
-                          borderRadius: '8px',
-                          fontWeight: 500,
-                          fontSize: '0.75rem',
-                          border: `1px solid ${testReport.status === 'passed' 
-                            ? 'rgba(34, 197, 94, 0.2)' 
-                            : 'rgba(239, 68, 68, 0.2)'}`,
-                          textTransform: 'capitalize',
-                          flexShrink: 0
+                                <Stack spacing={1}>
+                  {(() => {
+                    const testReports = selectedResource.manifest.test_reports;
+                    if (!testReports) return [];
+                    const reports = Array.isArray(testReports) ? testReports : (testReports as any).reports;
+                    return reports?.map((testReport: TestReport, index: number) => (
+                      <Box 
+                        key={index}
+                        onClick={fetchDetailedTestReport}
+                        sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 1.5,
+                          p: 1.5,
+                          backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                          backdropFilter: 'blur(4px)',
+                          border: '1px solid rgba(255, 255, 255, 0.7)',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                            borderColor: testReport.status === 'passed' 
+                              ? 'rgba(34, 197, 94, 0.3)' 
+                              : 'rgba(239, 68, 68, 0.3)',
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                          }
                         }}
-                      />
-                    </Box>
-                  ))}
+                      >
+                        {testReport.status === 'passed' ? (
+                          <CheckCircleIcon 
+                            sx={{ 
+                              color: '#22c55e', 
+                              fontSize: 20,
+                              flexShrink: 0
+                            }} 
+                          />
+                        ) : (
+                          <CancelIcon 
+                            sx={{ 
+                              color: '#ef4444', 
+                              fontSize: 20,
+                              flexShrink: 0
+                            }} 
+                          />
+                        )}
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              fontWeight: 500, 
+                              color: '#1f2937',
+                              lineHeight: 1.2,
+                              wordBreak: 'break-word'
+                            }}
+                          >
+                            {testReport.name}
+                          </Typography>
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              color: '#6b7280',
+                              fontSize: '0.75rem',
+                              display: 'block',
+                              mt: 0.5
+                            }}
+                          >
+                            {testReport.runtime}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          label={testReport.status}
+                          size="small"
+                          sx={{
+                            backgroundColor: testReport.status === 'passed' 
+                              ? 'rgba(34, 197, 94, 0.1)' 
+                              : 'rgba(239, 68, 68, 0.1)',
+                            color: testReport.status === 'passed' 
+                              ? '#22c55e' 
+                              : '#ef4444',
+                            borderRadius: '8px',
+                            fontWeight: 500,
+                            fontSize: '0.75rem',
+                            border: `1px solid ${testReport.status === 'passed' 
+                              ? 'rgba(34, 197, 94, 0.2)' 
+                              : 'rgba(239, 68, 68, 0.2)'}`,
+                            textTransform: 'capitalize',
+                            flexShrink: 0
+                          }}
+                        />
+                      </Box>
+                    )) || [];
+                  })()}
                 </Stack>
               </CardContent>
             </Card>

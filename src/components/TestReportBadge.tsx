@@ -40,13 +40,23 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
   const [rawErrorContent, setRawErrorContent] = useState<string | null>(null);
   const [isInvalidJson, setIsInvalidJson] = useState(false);
 
+  // Helper function to get reports array from both old and new format
+  const getReports = (): TestReport[] | null => {
+    const testReports = artifact.manifest.test_reports;
+    if (!testReports) return null;
+    
+    // Handle both old array format and new object format
+    const reports = Array.isArray(testReports) ? testReports : testReports.reports;
+    return reports || null;
+  };
+
   // Test report status logic
   const getTestReportStatus = () => {
-    const testReports = artifact.manifest.test_reports;
-    if (!testReports || testReports.length === 0) return null;
+    const reports = getReports();
+    if (!reports || reports.length === 0) return null;
     
-    const passedCount = testReports.filter(report => report.status === 'passed').length;
-    const totalCount = testReports.length;
+    const passedCount = reports.filter(report => report.status === 'passed').length;
+    const totalCount = reports.length;
     
     if (passedCount === totalCount) return 'all-passed';
     if (passedCount > 0) return 'some-passed';
@@ -210,7 +220,10 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
     if (mode === 'inline') {
       return showPopover ? 'Click for test report summary' : 'Click for detailed test report';
     }
-    return `Test Reports: ${artifact.manifest.test_reports?.filter(r => r.status === 'passed').length || 0}/${artifact.manifest.test_reports?.length || 0} passed`;
+    const reports = getReports();
+    if (!reports) return 'No test reports available';
+    
+    return `Test Reports: ${reports.filter(r => r.status === 'passed').length || 0}/${reports.length || 0} passed`;
   };
 
   const getBadgeComponent = () => (
@@ -289,104 +302,107 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
               <AssignmentTurnedInIcon sx={{ fontSize: 20 }} />
               Test Reports
             </Typography>
-            {artifact.manifest.test_reports && (
-              <Stack spacing={1.5}>
-                {artifact.manifest.test_reports.map((testReport: TestReport, index: number) => (
-                  <Box 
-                    key={index}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePopoverClose();
-                      fetchDetailedTestReport();
-                    }}
-                    sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 1.5,
-                      p: 2,
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      backdropFilter: 'blur(4px)',
-                      border: '1px solid rgba(255, 255, 255, 0.7)',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        borderColor: testReport.status === 'passed' 
-                          ? 'rgba(34, 197, 94, 0.3)' 
-                          : 'rgba(107, 114, 128, 0.3)',
-                        transform: 'translateY(-1px)',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                      }
-                    }}
-                  >
-                    {testReport.status === 'passed' ? (
-                      <CheckCircleIcon 
-                        sx={{ 
-                          color: '#22c55e', 
-                          fontSize: 18,
-                          flexShrink: 0
-                        }} 
-                      />
-                    ) : (
-                      <CancelIcon 
-                        sx={{ 
-                          color: '#6b7280', 
-                          fontSize: 18,
-                          flexShrink: 0
-                        }} 
-                      />
-                    )}
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography 
-                        variant="body2" 
-                        sx={{ 
-                          fontWeight: 500, 
-                          color: '#1f2937',
-                          lineHeight: 1.2,
-                          wordBreak: 'break-word',
-                          fontSize: '0.875rem'
-                        }}
-                      >
-                        {testReport.name}
-                      </Typography>
-                      <Typography 
-                        variant="caption" 
-                        sx={{ 
-                          color: '#6b7280',
-                          fontSize: '0.75rem',
-                          display: 'block',
-                          mt: 0.5
-                        }}
-                      >
-                        {testReport.runtime}
-                      </Typography>
-                    </Box>
-                    <Chip
-                      label={testReport.status}
-                      size="small"
-                      sx={{
-                        backgroundColor: testReport.status === 'passed' 
-                          ? 'rgba(34, 197, 94, 0.1)' 
-                          : 'rgba(107, 114, 128, 0.1)',
-                        color: testReport.status === 'passed' 
-                          ? '#22c55e' 
-                          : '#6b7280',
-                        borderRadius: '6px',
-                        fontWeight: 500,
-                        fontSize: '0.7rem',
-                        height: 20,
-                        border: `1px solid ${testReport.status === 'passed' 
-                          ? 'rgba(34, 197, 94, 0.2)' 
-                          : 'rgba(107, 114, 128, 0.2)'}`,
-                        textTransform: 'capitalize',
-                        flexShrink: 0
+            {(() => {
+              const reports = getReports();
+              return reports && reports.length > 0 && (
+                <Stack spacing={1.5}>
+                  {reports.map((testReport: TestReport, index: number) => (
+                    <Box 
+                      key={index}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePopoverClose();
+                        fetchDetailedTestReport();
                       }}
-                    />
-                  </Box>
-                ))}
-              </Stack>
-            )}
+                      sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1.5,
+                        p: 2,
+                        backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                        backdropFilter: 'blur(4px)',
+                        border: '1px solid rgba(255, 255, 255, 0.7)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          borderColor: testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.3)' 
+                            : 'rgba(107, 114, 128, 0.3)',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                        }
+                      }}
+                    >
+                      {testReport.status === 'passed' ? (
+                        <CheckCircleIcon 
+                          sx={{ 
+                            color: '#22c55e', 
+                            fontSize: 18,
+                            flexShrink: 0
+                          }} 
+                        />
+                      ) : (
+                        <CancelIcon 
+                          sx={{ 
+                            color: '#6b7280', 
+                            fontSize: 18,
+                            flexShrink: 0
+                          }} 
+                        />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 500, 
+                            color: '#1f2937',
+                            lineHeight: 1.2,
+                            wordBreak: 'break-word',
+                            fontSize: '0.875rem'
+                          }}
+                        >
+                          {testReport.name}
+                        </Typography>
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            color: '#6b7280',
+                            fontSize: '0.75rem',
+                            display: 'block',
+                            mt: 0.5
+                          }}
+                        >
+                          {testReport.runtime}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        label={testReport.status}
+                        size="small"
+                        sx={{
+                          backgroundColor: testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.1)' 
+                            : 'rgba(107, 114, 128, 0.1)',
+                          color: testReport.status === 'passed' 
+                            ? '#22c55e' 
+                            : '#6b7280',
+                          borderRadius: '6px',
+                          fontWeight: 500,
+                          fontSize: '0.7rem',
+                          height: 20,
+                          border: `1px solid ${testReport.status === 'passed' 
+                            ? 'rgba(34, 197, 94, 0.2)' 
+                            : 'rgba(107, 114, 128, 0.2)'}`,
+                          textTransform: 'capitalize',
+                          flexShrink: 0
+                        }}
+                      />
+                    </Box>
+                  ))}
+                </Stack>
+              );
+            })()}
           </Box>
         </Popover>
       )}

@@ -21,6 +21,12 @@ export interface TestReport {
   runtime: string;
 }
 
+export interface TestReports {
+  created_at: string;
+  execution_time: number;
+  reports: TestReport[];
+}
+
 export interface TestError {
   loc: string[];
   msg: string;
@@ -81,7 +87,7 @@ export interface ArtifactInfo {
     documentation?: string;
     authors?: Author[];
     cite?: Citation[];
-    test_reports?: TestReport[];
+    test_reports?: TestReports | TestReport[];
     links?: {
       url: string;
       icon?: string;
