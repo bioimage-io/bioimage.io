@@ -133,6 +133,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
@@ -157,12 +159,28 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   useEffect(() => {
     const loadResources = async () => {
       try {
+        // Cancel any ongoing request
+        if (abortController) {
+          abortController.abort();
+        }
+
+        // Create new abort controller for this request
+        const newAbortController = new AbortController();
+        setAbortController(newAbortController);
+
         setLoading(true);
         await fetchResources(currentPage, serverSearchQuery, {
           tags: selectedTags
         });
+      } catch (error) {
+        // Don't set loading to false if the request was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          return;
+        }
+        console.error('Error loading resources:', error);
       } finally {
         setLoading(false);
+        setAbortController(null);
       }
     };
 
@@ -173,15 +191,28 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     getCurrentType();
   }, [getCurrentType]);
 
-  // Add debounced server search
+  // Cleanup effect to cancel ongoing requests when component unmounts
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setServerSearchQuery(searchQuery);
-      setCurrentPage(1);
-    }, 500); // 500ms delay before triggering server search
+    return () => {
+      if (abortController) {
+        abortController.abort();
+      }
+    };
+  }, [abortController]);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  // Improved debounced server search that respects user typing
+  useEffect(() => {
+    // Only set up debounced search if user is actively typing
+    if (isTyping) {
+      const timer = setTimeout(() => {
+        setIsTyping(false);
+        setServerSearchQuery(searchQuery);
+        setCurrentPage(1);
+      }, 800); // Slightly longer delay for better UX
+
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, isTyping]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -189,13 +220,29 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Remove client-side filtering since server handles it
+  // Handle search input changes with improved UX
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
+    setIsTyping(true);
+    
+    // Cancel any ongoing request when user starts typing
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+  };
+
+  // Handle immediate search when user hits Enter
+  const handleSearchConfirm = () => {
+    setIsTyping(false);
+    setServerSearchQuery(searchQuery);
+    setCurrentPage(1);
   };
 
   const handlePartnerClick = useCallback((partnerId: string) => {
     setSearchQuery(partnerId);
+    setIsTyping(false);
+    setServerSearchQuery(partnerId);
     setCurrentPage(1);
   }, []);
 
@@ -204,6 +251,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
       return [tag];
     });
     setSearchQuery(tag);
+    setIsTyping(false);
+    setServerSearchQuery(tag);
     setCurrentPage(1);
   };
 
@@ -220,8 +269,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <div className="absolute inset-0 w-full h-2 bg-gradient-to-b from-blue-50/20 to-transparent transform translate-y-1"></div>
         </div>
         
-        {/* Show loading overlay when loading */}
-        {loading && <LoadingOverlay />}
+        {/* Show loading overlay when loading (but not when just typing) */}
+        {loading && !isTyping && <LoadingOverlay />}
         
         <div className="community-partners mb-4">
           <div className="partner-logos">
@@ -251,7 +300,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                 <SearchBar 
                   value={searchQuery}
                   onSearchChange={handleSearchChange}
-                  onSearchConfirm={() => {}}
+                  onSearchConfirm={handleSearchConfirm}
                 />
               </div>
               <div className="flex-none self-center sm:self-auto">
