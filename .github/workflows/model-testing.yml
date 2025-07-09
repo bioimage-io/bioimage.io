@@ -1,4 +1,4 @@
-name: Daily BioImage.IO Model Tests
+name: BioImage.IO Model Testing
 
 on:
   schedule:
@@ -108,7 +108,7 @@ jobs:
         python bioimageio_test_reports.py $ARGS
         
     - name: Upload test results as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: bioimageio-test-results-${{ github.run_number }}
