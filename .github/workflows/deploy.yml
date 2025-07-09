@@ -56,6 +56,14 @@ jobs:
         env:
           CI: false
 
+      - name: Download and extract chatbot static files
+        run: |
+          curl -LOk https://github.com/bioimage-io/bioimageio-chatbot/archive/refs/heads/main.zip
+          unzip main.zip
+          mkdir -p build/chat
+          cp -r bioimageio-chatbot-main/bioimageio_chatbot/static/* build/chat/
+          rm -rf main.zip bioimageio-chatbot-main
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
