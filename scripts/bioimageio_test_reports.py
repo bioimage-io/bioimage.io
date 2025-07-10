@@ -3,6 +3,7 @@ import json
 import os
 import re
 import argparse
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -487,6 +488,78 @@ def create_test_reports_dict(
     }
 
 
+def analyze_existing_test_results(result_dir: Path) -> None:
+    """Analyze existing test results and output summary for GitHub Actions"""
+    if not result_dir.exists():
+        print("TOTAL_MODELS=0")
+        return
+    
+    # Find all JSON files in the result directory
+    json_files = list(result_dir.glob("*.json"))
+    
+    if not json_files:
+        print("TOTAL_MODELS=0")
+        return
+    
+    total_models = len(json_files)
+    passed_rdf = 0
+    passed_model = 0
+    passed_reproduce = 0
+    total_score = 0
+    total_execution_time = 0
+    
+    for json_file in json_files:
+        try:
+            with open(json_file, 'r') as f:
+                test_result = json.load(f)
+            
+            # Analyze the test result
+            test_reports = analyze_test_results(test_result)
+            model_score = calculate_model_score(test_reports)
+            
+            # Count passed tests
+            if test_reports[0]["status"] == "passed":
+                passed_rdf += 1
+            if test_reports[1]["status"] == "passed":
+                passed_model += 1
+            if test_reports[2]["status"] == "passed":
+                passed_reproduce += 1
+            
+            # Add to total score
+            total_score += model_score
+            
+            # Try to extract execution time if available
+            if isinstance(test_result, dict) and "execution_time" in test_result:
+                total_execution_time += test_result["execution_time"]
+            
+        except Exception as e:
+            print(f"Error processing {json_file}: {e}", file=sys.stderr)
+    
+    # Calculate percentages
+    rdf_rate = round((passed_rdf / total_models) * 100, 1) if total_models > 0 else 0
+    model_rate = round((passed_model / total_models) * 100, 1) if total_models > 0 else 0
+    reproduce_rate = round((passed_reproduce / total_models) * 100, 1) if total_models > 0 else 0
+    
+    # Calculate average score
+    average_score = round(total_score / total_models, 2) if total_models > 0 else 0
+    
+    # Calculate average execution time
+    average_execution_time = round(total_execution_time / total_models, 2) if total_models > 0 else 0
+    
+    # Output variables for GitHub Actions
+    print(f"TOTAL_MODELS={total_models}")
+    print(f"PASSED_RDF={passed_rdf}")
+    print(f"PASSED_MODEL={passed_model}")
+    print(f"PASSED_REPRODUCE={passed_reproduce}")
+    print(f"RDF_RATE={rdf_rate}")
+    print(f"MODEL_RATE={model_rate}")
+    print(f"REPRODUCE_RATE={reproduce_rate}")
+    print(f"TOTAL_SCORE={total_score}")
+    print(f"AVERAGE_SCORE={average_score}")
+    print(f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}")
+    print(f"AVERAGE_EXECUTION_TIME={average_execution_time}")
+
+
 async def test_bmz_models(
     skip_exists: bool = True,
     model_ids: List[str] = None,
@@ -719,6 +792,11 @@ def main():
         action="store_true",
         help="Run tests but don't update any artifacts"
     )
+    parser.add_argument(
+        "--analyze-results",
+        action="store_true",
+        help="Analyze existing test results in the result_dir and output summary for GitHub Actions"
+    )
 
     args = parser.parse_args()
 
@@ -728,14 +806,19 @@ def main():
         args.update_collection = False
         print("Running in dry-run mode - no artifacts will be updated")
 
-    asyncio.run(test_bmz_models(
-        skip_exists=args.skip_exists,
-        model_ids=args.model_ids,
-        result_dir=args.result_dir,
-        update_artifacts=args.update_artifacts,
-        update_collection=args.update_collection,
-    ))
-    print("All models tested successfully.")
+    if args.analyze_results:
+        # Set default result_dir if not provided
+        result_dir = args.result_dir or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
+        analyze_existing_test_results(result_dir)
+    else:
+        asyncio.run(test_bmz_models(
+            skip_exists=args.skip_exists,
+            model_ids=args.model_ids,
+            result_dir=args.result_dir,
+            update_artifacts=args.update_artifacts,
+            update_collection=args.update_collection,
+        ))
+        print("All models tested successfully.")
 
 
 if __name__ == "__main__":

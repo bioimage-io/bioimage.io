@@ -130,9 +130,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
         fi
         
-        # Use the analysis script to get statistics
+        # Use the analysis function to get statistics
         cd scripts
-        ANALYSIS_OUTPUT=$(python3 analyze_test_results.py ../bioimageio_test_reports)
+        ANALYSIS_OUTPUT=$(python3 bioimageio_test_reports.py --analyze-results)
         echo "$ANALYSIS_OUTPUT"
         
         # Parse the analysis output
