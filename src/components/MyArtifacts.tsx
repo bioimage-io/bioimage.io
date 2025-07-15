@@ -134,11 +134,8 @@ const MyArtifacts: React.FC = () => {
     try {
       setDeleteLoading(true);
 
-      await artifactManager.delete({
+      await artifactManager.discard({
         artifact_id: artifactToDelete.id,
-        version: artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : null,
-        delete_files: true,
-        recursive: true,
         _rkwargs: true
       });
       

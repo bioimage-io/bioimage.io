@@ -63,6 +63,7 @@ export interface HyphaState {
   setMyArtifactsTotalItems: (total: number) => void;
   setReviewArtifactsPage: (page: number) => void;
   setReviewArtifactsTotalItems: (total: number) => void;
+  logout: () => void;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -288,4 +289,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setMyArtifactsTotalItems: (total) => set({ myArtifactsTotalItems: total }),
   setReviewArtifactsPage: (page) => set({ reviewArtifactsPage: page }),
   setReviewArtifactsTotalItems: (total) => set({ reviewArtifactsTotalItems: total }),
+  logout: () => {
+    set({
+      client: hyphaWebsocketClient,
+      server: null,
+      artifactManager: null,
+      isConnected: false,
+      isAuthenticated: false,
+      isLoggedIn: false,
+      user: null,
+      isInitialized: false,
+      isConnecting: false,
+      error: null
+    });
+  },
 })); 

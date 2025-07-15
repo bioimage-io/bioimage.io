@@ -20,9 +20,10 @@ interface ReviewPublishArtifactProps {
   artifactId: string;
   isStaged: boolean;
   isCollectionAdmin: boolean;
-  onPublish: (publishData: { version: string; comment: string }) => void;
+  onPublish: () => void;
   isContentValid: boolean;
   hasContentChanged: boolean;
+  defaultComment?: string;
 }
 
 const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
@@ -32,14 +33,12 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   isCollectionAdmin,
   onPublish,
   isContentValid,
-  hasContentChanged
+  hasContentChanged,
+  defaultComment
 }) => {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
-  const [publishData, setPublishData] = useState<{ version: string; comment: string }>({
-    version: '',
-    comment: ''
-  });
+
   const [status, setStatus] = useState<string>('');
   const [modelVersion, setModelVersion] = useState<string>('');
 
@@ -51,7 +50,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     if (artifactInfo?.manifest?.status) {
       setStatus(artifactInfo.manifest.status);
     } else {
-      setStatus(null);
+      setStatus("");
     }
   }, [artifactInfo?.manifest?.status]);
 
@@ -59,8 +58,9 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     setModelVersion(isStaged ? 'stage' : artifactInfo?.current_version || '');
   }, [isStaged, artifactInfo?.current_version]);
 
+
   const handlePublish = () => {
-    onPublish(publishData);
+    onPublish();
     setShowPublishDialog(false);
   };
 
@@ -144,46 +144,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               ⚠️ Warning: This action cannot be undone. Once published, the artifact cannot be withdrawn from either platform.
             </p>
           </div>
-
-          {/* Version and Comment fields */}
-          <div className="space-y-4">
-            <div>
-              <TextField
-                label="Version (optional)"
-                value={publishData.version}
-                onChange={(e) => setPublishData(prev => ({ ...prev, version: e.target.value }))}
-                fullWidth
-                size="small"
-                helperText="Leave empty to auto-increment the latest version"
-              />
-              <div className="mt-2">
-                <span className="text-xs text-gray-500">Existing versions: </span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
-                    artifactInfo.versions.map((v: Version) => (
-                      <span key={v.version} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
-                        {v.version}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-gray-500 italic">No versions published yet</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <TextField
-              label="Comment"
-              value={publishData.comment}
-              onChange={(e) => setPublishData(prev => ({ ...prev, comment: e.target.value }))}
-              required
-              fullWidth
-              multiline
-              rows={3}
-              size="small"
-              helperText="Describe the changes in this publication"
-              error={!publishData.comment.trim()}
-            />
-          </div>
+            
         </div>
         <div className="mt-6 flex gap-3 justify-end">
           <button
@@ -194,11 +155,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           </button>
           <button
             onClick={handlePublish}
-            disabled={!publishData.comment.trim()}
-            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
-              ${!publishData.comment.trim() 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700'}`}
+            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700`}
           >
             Confirm & Publish
           </button>

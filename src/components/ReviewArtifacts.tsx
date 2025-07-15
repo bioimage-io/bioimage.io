@@ -72,6 +72,7 @@ const ReviewArtifacts: React.FC = () => {
   const [deleteIdConfirmation, setDeleteIdConfirmation] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
+  const [acceptLoading, setAcceptLoading] = useState<{[key: string]: boolean}>({});
 
   // View mode options for the dropdown
   const viewModeOptions = [
@@ -144,6 +145,11 @@ const ReviewArtifacts: React.FC = () => {
         pagination: true,
         _rkwargs: true
       });
+
+      // show the keywords, filters, and stage, then the response
+
+      console.log("DEBUG:", {keywords, filters, stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined)})
+      console.log("DEBUG:", response)
 
       setArtifacts(response.items);
       setReviewArtifactsTotalItems(response.total);
@@ -228,16 +234,24 @@ const ReviewArtifacts: React.FC = () => {
     }
 
     try {
+      const versionToDelete = viewMode === 'published' ? "latest" : "stage";
       setDeleteLoading(true);
-      await artifactManager.delete({
-        artifact_id: artifactToDelete.id,
-        version: viewMode === 'published' ? "latest" : 
-          (artifactToDelete.versions && artifactToDelete.versions.length > 0 ? "stage" : undefined),
-        delete_files: true,
-        recursive: true,
-        _rkwargs: true
-      });
-      
+      console.log("DEBUG:", {artifactToDelete, version: versionToDelete})
+      if (versionToDelete == "stage") {
+        // call discard instead of delete
+        await artifactManager.discard({
+          artifact_id: artifactToDelete.id,
+          _rkwargs: true
+        });
+      } else {
+        await artifactManager.delete({
+          artifact_id: artifactToDelete.id,
+          version: versionToDelete,
+          delete_files: true,
+          recursive: true,
+          _rkwargs: true
+        });
+      }
       // Close the dialog immediately after successful deletion
       setIsDeleteDialogOpen(false);
       setArtifactToDelete(null);
@@ -261,17 +275,24 @@ const ReviewArtifacts: React.FC = () => {
   const handleStatusChange = async (artifact: Artifact, newStatus: string) => {
     try {
       if (!artifact.manifest) return;
-      
-      let updatedManifest = { ...artifact.manifest };
+      const updatedManifest = { ...artifact.manifest };
       updatedManifest.status = newStatus;
 
-      await artifactManager.edit({
-        artifact_id: artifact.id,
-        manifest: updatedManifest,
-        version: viewMode === 'published' ? "latest" : "stage",
-        _rkwargs: true
-      });
-      
+      if (newStatus == "accepted"){
+        // commit the artifact to the model zoo
+        await artifactManager.commit({
+          artifact_id: artifact.id,
+          comment: "Committing artifact to model zoo",
+          _rkwargs: true
+        });
+      } else {
+        await artifactManager.edit({
+          artifact_id: artifact.id,
+          manifest: updatedManifest,
+          stage: viewMode === 'published' ? false : true,
+          _rkwargs: true
+        });
+      }
       // Refresh the list
       loadArtifacts();
     } catch (error) {
@@ -298,6 +319,30 @@ const ReviewArtifacts: React.FC = () => {
 
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
+  };
+
+  const handleAccept = async (artifact: Artifact) => {
+    if (!artifactManager) return;
+
+    try {
+      setAcceptLoading(prev => ({ ...prev, [artifact.id]: true }));
+      
+      const acceptanceComment = `Accepted by ${user?.id || 'reviewer'}`;
+
+      await artifactManager.commit({
+        artifact_id: artifact.id,
+        comment: acceptanceComment,
+        _rkwargs: true
+      });
+      
+      // Refresh the list
+      await loadArtifacts();
+    } catch (error) {
+      console.error('Error accepting artifact:', error);
+      setError('Failed to accept artifact');
+    } finally {
+      setAcceptLoading(prev => ({ ...prev, [artifact.id]: false }));
+    }
   };
 
   if (!isLoggedIn) {
@@ -692,12 +737,23 @@ const ReviewArtifacts: React.FC = () => {
                                     <Menu.Item>
                                       {({ active }) => (
                                         <button
-                                          onClick={() => handleStatusChange(artifact, 'accepted')}
+                                          onClick={() => handleAccept(artifact)}
+                                          disabled={acceptLoading[artifact.id]}
                                           className={`${
                                             active ? 'bg-gray-100' : ''
-                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
+                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700 ${
+                                            acceptLoading[artifact.id] ? 'opacity-50 cursor-not-allowed' : ''
+                                          }`}
                                         >
-                                          Accept
+                                          {acceptLoading[artifact.id] ? (
+                                            <div className="flex items-center">
+                                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                              </svg>
+                                              Accepting...
+                                            </div>
+                                          ) : "Accept"}
                                         </button>
                                       )}
                                     </Menu.Item>

@@ -40,7 +40,7 @@ const getSavedToken = () => {
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { client, user, connect, setUser, server, isConnecting, isConnected } = useHyphaStore();
+  const { client, user, connect, setUser, server, isConnecting, isConnected, logout } = useHyphaStore();
   const navigate = useNavigate();
   const location = useLocation(); // Get location
 
@@ -60,22 +60,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // Add logout handler
   const handleLogout = async () => {
     try {
-      // Disconnect from Hypha server if connected (using client directly from store)
-      if (client && isConnected) {
-        // Note: Hypha client might not have a dedicated disconnect.
-        // Assuming store handles disconnection logic when setUser(null) or similar.
-        // If explicit disconnect is needed, use client.disconnect() if available.
-        console.log("Disconnecting client (handled by store state change)");
-      }
-
       // Clear any auth tokens or user data from localStorage and sessionStorage
       localStorage.removeItem('token');
       localStorage.removeItem('tokenExpiry'); // Ensure expiry is also removed
       localStorage.removeItem('user'); // Keep if used elsewhere, otherwise remove
       sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear redirect path on logout
       
-      // Perform existing logout logic
-      setUser(null); // This might trigger disconnection in the store/client
+      // Perform logout logic - this will clear all connection state
+      logout();
       setIsDropdownOpen(false);
       
       // Optionally redirect to home page

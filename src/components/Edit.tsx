@@ -8,11 +8,8 @@ import { useDropzone } from 'react-dropzone';
 import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
-import StatusBadge from './StatusBadge';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
-import { Alert, Snackbar } from '@mui/material';
-import { Drawer } from '@mui/material';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -57,11 +54,7 @@ interface ContentTab {
   icon: React.ReactNode;
 }
 
-// Add this interface near the top with other interfaces
-interface PublishData {
-  version?: string;
-  comment: string;
-}
+
 
 // Add this type definition near other interfaces
 interface KeyboardShortcut {
@@ -138,10 +131,7 @@ const Edit: React.FC = () => {
     total: number;
     file: string;
   } | null>(null);
-  const [publishData, setPublishData] = useState<PublishData>({
-    version: '',
-    comment: ''
-  });
+
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -259,6 +249,7 @@ const Edit: React.FC = () => {
         version: editVersion,
         _rkwargs: true
       });
+      console.log("DEBUG:", {artifact, editVersion})
       if(!editVersion) {
         // get the last value of .versions
         setEditVersion(artifact.versions[artifact.versions.length - 1].version);
@@ -794,10 +785,9 @@ const Edit: React.FC = () => {
         message: 'Publishing artifact...',
         severity: 'info'
       });
-      
       const artifact = await artifactManager?.commit({
         artifact_id: artifactId,
-        comment: publishData.comment || 'Published to Model Zoo',
+        comment: `Published by ${user?.email}`,
         _rkwargs: true
       });
 
@@ -809,9 +799,17 @@ const Edit: React.FC = () => {
           create_zip_file: 1.0
         }
       };
+
+      // update the manifest
+      const newManifest = {
+        ...artifact.manifest,
+        status: 'published'
+      };
+
       await artifactManager?.edit({
         artifact_id: artifactId,
         config: newConfig,
+        manifest: newManifest,
         _rkwargs: true
       });
 
@@ -1121,46 +1119,6 @@ const Edit: React.FC = () => {
               ⚠️ Warning: This action cannot be undone. Once published, the artifact cannot be withdrawn from either platform.
             </p>
           </div>
-
-          {/* Version and Comment fields */}
-          <div className="space-y-4">
-            <div>
-              <TextField
-                label="Version (optional)"
-                value={publishData.version}
-                onChange={(e) => setPublishData(prev => ({ ...prev, version: e.target.value }))}
-                fullWidth
-                size="small"
-                helperText="Leave empty to auto-increment the latest version"
-              />
-              <div className="mt-2">
-                <span className="text-xs text-gray-500">Existing versions: </span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {artifactInfo?.versions && artifactInfo.versions.length > 0 ? (
-                    artifactInfo.versions.map((v) => (
-                      <span key={v.version} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
-                        {v.version}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-gray-500 italic">No versions published yet</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <TextField
-              label="Comment"
-              value={publishData.comment}
-              onChange={(e) => setPublishData(prev => ({ ...prev, comment: e.target.value }))}
-              required
-              fullWidth
-              multiline
-              rows={3}
-              size="small"
-              helperText="Describe the changes in this publication"
-              error={!publishData.comment.trim()}
-            />
-          </div>
         </div>
         <div className="mt-6 flex gap-3 justify-end">
           <button
@@ -1171,11 +1129,7 @@ const Edit: React.FC = () => {
           </button>
           <button
             onClick={handlePublish}
-            disabled={!publishData.comment.trim()}
-            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
-              ${!publishData.comment.trim() 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700'}`}
+            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700`}
           >
             Confirm & Publish
           </button>
@@ -1802,78 +1756,108 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
       console.log('new version created', newArtifact);
+      // get the latest version, the last one
+      const latestVersion = newArtifact.versions[newArtifact.versions.length - 1].version;
 
       // If user wants to copy files, do the copy process
       if (newVersionData.copyFiles) {
-        setUploadStatus({
-          message: 'Downloading files from previous version...',
-          severity: 'info'
-        });
-
         try {
-          // Get the zip download URL for the current version
-          const zipUrl = await artifactManager.create_zip_file({
-            artifact_id: artifactId,
-            version: editVersion || 'latest',
-            _rkwargs: true
-          });
-
-          // Download the zip file
-          const response = await fetch(zipUrl);
-          if (!response.ok) {
-            throw new Error('Failed to download previous version files');
-          }
-          
-          const zipBlob = await response.blob();
-          
+          // Get the file list from the previous version
           setUploadStatus({
-            message: 'Extracting and uploading files to new version...',
+            message: 'Getting file list from previous version...',
             severity: 'info'
           });
 
-          // Create a temporary zip file to upload
-          const zipFile = new File([zipBlob], 'previous-version.zip', { type: 'application/zip' });
-          
-          // Get presigned URL for uploading the zip
-          const presignedUrl = await artifactManager.put_file({
+          const fileList = await artifactManager.list_files({
             artifact_id: artifactId,
-            file_path: 'previous-version.zip',
+            version: latestVersion,
             _rkwargs: true
           });
 
-          // Upload the zip file
-          const uploadResponse = await fetch(presignedUrl, {
-            method: 'PUT',
-            body: zipFile,
-            headers: {
-              'Content-Type': '' // important for s3
+          if (!fileList || fileList.length === 0) {
+            setUploadStatus({
+              message: 'No files found in previous version to copy.',
+              severity: 'info'
+            });
+          } else {
+            // Filter out directories, only copy files
+            const filesToCopy = fileList.filter((file: any) => file.type !== 'directory');
+            
+            setUploadStatus({
+              message: `Found ${filesToCopy.length} files to copy. Starting copy process...`,
+              severity: 'info'
+            });
+
+            // Copy files one by one
+            for (let i = 0; i < filesToCopy.length; i++) {
+              const file = filesToCopy[i];
+              
+              // Update progress
+              setCopyProgress({
+                current: i + 1,
+                total: filesToCopy.length,
+                file: file.name
+              });
+
+              try {
+                // Get download URL for the file from previous version
+                const downloadUrl = await artifactManager.get_file({
+                  artifact_id: artifactId,
+                  file_path: file.name,
+                  version: latestVersion,
+                  _rkwargs: true
+                });
+
+                // Download the file content
+                const response = await fetch(downloadUrl);
+                if (!response.ok) {
+                  throw new Error(`Failed to download ${file.name}`);
+                }
+                
+                const fileContent = await response.blob();
+
+                // Get presigned URL for uploading to new version
+                const presignedUrl = await artifactManager.put_file({
+                  artifact_id: artifactId,
+                  file_path: file.name,
+                  _rkwargs: true
+                });
+
+                // Upload the file to new version
+                const uploadResponse = await fetch(presignedUrl, {
+                  method: 'PUT',
+                  body: fileContent,
+                  headers: {
+                    'Content-Type': '' // important for s3
+                  }
+                });
+
+                if (!uploadResponse.ok) {
+                  throw new Error(`Failed to upload ${file.name}`);
+                }
+
+                console.log(`Successfully copied ${file.name} (${i + 1}/${filesToCopy.length})`);
+              } catch (fileError) {
+                console.error(`Error copying ${file.name}:`, fileError);
+                // Continue with other files even if one fails
+                setUploadStatus({
+                  message: `Warning: Failed to copy ${file.name}. Continuing with other files...`,
+                  severity: 'error'
+                });
+              }
             }
-          });
 
-          if (!uploadResponse.ok) {
-            throw new Error('Failed to upload zip file');
+            // Clear copy progress
+            setCopyProgress(null);
+
+            setUploadStatus({
+              message: 'Files copied successfully. Redirecting to edit mode...',
+              severity: 'success'
+            });
           }
-
-          // Extract the zip file in the new version
-          await artifactManager.extract_zip_file({
-            artifact_id: artifactId,
-            file_path: 'previous-version.zip',
-            _rkwargs: true
-          });
-
-          // Remove the temporary zip file
-          await artifactManager.remove_file({
-            artifact_id: artifactId,
-            file_path: 'previous-version.zip',
-            _rkwargs: true
-          });
-
-          setUploadStatus({
-            message: 'Files copied successfully. Redirecting to edit mode...',
-            severity: 'success'
-          });
         } catch (copyError) {
           console.error('Error copying files:', copyError);
+          setCopyProgress(null);
           setUploadStatus({
             message: 'Warning: New version created but failed to copy files. You can upload files manually.',
             severity: 'error'
@@ -1891,7 +1875,7 @@ const Edit: React.FC = () => {
 
       // Redirect to the staging version after a short delay
       setTimeout(() => {
-        const stagePath = `/edit/${artifactId}/stage`;
+        const stagePath = `/edit/${encodeURIComponent(artifactId || '')}/stage`;
         navigate(stagePath);
       }, 1500);
 
@@ -1919,69 +1903,116 @@ const Edit: React.FC = () => {
           Create New Version
         </h3>
         
-        {/* Warning and guidance section */}
-        <div className="space-y-4 mb-6">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        {/* Show progress during creation */}
+        {isCreatingVersion && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg className="animate-spin w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <div className="text-sm text-blue-800">
-                <h4 className="font-semibold mb-2">When should you create a new version?</h4>
-                <div className="space-y-2">
-                  <p><strong>✅ Create new version when:</strong></p>
-                  <ul className="list-disc pl-4 space-y-1">
-                    <li>Model weight files have changed</li>
-                    <li>Model architecture or functionality has been modified</li>
-                    <li>Breaking changes to the model interface</li>
-                    <li>Significant improvements that warrant a version bump</li>
-                  </ul>
-                  
-                  <p className="mt-3"><strong>❌ You don't need a new version for:</strong></p>
-                  <ul className="list-disc pl-4 space-y-1">
-                    <li>Editing the RDF.yaml metadata file</li>
-                    <li>Updating cover images or documentation</li>
-                    <li>Fixing typos in descriptions</li>
-                    <li>Adding or updating tags and citations</li>
-                  </ul>
+              <div className="flex-1">
+                <h4 className="font-medium text-blue-900 mb-2">Creating New Version</h4>
+                
+                {/* Show current status */}
+                <div className="text-sm text-blue-800 mb-3">
+                  {uploadStatus?.message || 'Processing...'}
+                </div>
+
+                {/* Show file copying progress */}
+                {copyProgress && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm text-blue-800">
+                      <span>Copying files ({copyProgress.current}/{copyProgress.total})</span>
+                      <span>{Math.round((copyProgress.current / copyProgress.total) * 100)}%</span>
+                    </div>
+                    
+                    {/* Progress bar */}
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(copyProgress.current / copyProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    
+                    {/* Current file being copied */}
+                    <div className="text-xs text-blue-700 truncate">
+                      Current file: {copyProgress.file}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Warning and guidance section - only show when not creating */}
+        {!isCreatingVersion && (
+          <div className="space-y-4 mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-sm text-blue-800">
+                  <h4 className="font-semibold mb-2">When should you create a new version?</h4>
+                  <div className="space-y-2">
+                    <p><strong>✅ Create new version when:</strong></p>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>Model weight files have changed</li>
+                      <li>Model architecture or functionality has been modified</li>
+                      <li>Breaking changes to the model interface</li>
+                      <li>Significant improvements that warrant a version bump</li>
+                    </ul>
+                    
+                    <p className="mt-3"><strong>❌ You don't need a new version for:</strong></p>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>Editing the RDF.yaml metadata file</li>
+                      <li>Updating cover images or documentation</li>
+                      <li>Fixing typos in descriptions</li>
+                      <li>Adding or updating tags and citations</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <h4 className="font-semibold mb-1">File Copying Process</h4>
+                  <p>If you choose to copy files, we will download all files from version <span className="font-mono bg-amber-100 px-1 rounded">{editVersion || 'latest'}</span> and upload them to the new version. This process may take several minutes depending on file sizes.</p>
                 </div>
               </div>
             </div>
           </div>
+        )}
 
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div className="text-sm text-amber-800">
-                <h4 className="font-semibold mb-1">File Copying Process</h4>
-                <p>If you choose to copy files, we will download all files from version <span className="font-mono bg-amber-100 px-1 rounded">{editVersion || 'latest'}</span> and upload them to the new version. This process may take several minutes depending on file sizes.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Options */}
-        <div className="space-y-4">
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={newVersionData.copyFiles}
-                onChange={(e) => setNewVersionData(prev => ({ ...prev, copyFiles: e.target.checked }))}
-              />
-            }
-            label={
-              <div className="ml-2">
-                <div className="font-medium">Copy existing files to new version</div>
-                <div className="text-sm text-gray-500">
-                  This will download and copy all files from the current version to the new version. 
-                  Uncheck if you plan to upload completely new files.
+        {/* Options - only show when not creating */}
+        {!isCreatingVersion && (
+          <div className="space-y-4">
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newVersionData.copyFiles}
+                  onChange={(e) => setNewVersionData(prev => ({ ...prev, copyFiles: e.target.checked }))}
+                />
+              }
+              label={
+                <div className="ml-2">
+                  <div className="font-medium">Copy existing files to new version</div>
+                  <div className="text-sm text-gray-500">
+                    This will download and copy all files from the current version to the new version. 
+                    Uncheck if you plan to upload completely new files.
+                  </div>
                 </div>
-              </div>
-            }
-          />
-        </div>
+              }
+            />
+          </div>
+        )}
 
         <div className="mt-6 flex gap-3 justify-end">
           <button
@@ -2186,6 +2217,8 @@ const Edit: React.FC = () => {
       // Navigate back to the appropriate page
       navigate(getBackPath());
     } catch (error) {
+      setShowDeleteVersionDialog(false);
+      alert(`Error deleting version: ${error}`);
       console.error('Error deleting version:', error);
       setUploadStatus({
         message: 'Error deleting version',

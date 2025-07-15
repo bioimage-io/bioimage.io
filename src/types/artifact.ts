@@ -96,6 +96,7 @@ export interface ArtifactInfo {
     git_repo?: string;
     license?: string;
     uploader: Uploader;
+    status?: string;
   };
   staging?: any[];
   download_count: number;
