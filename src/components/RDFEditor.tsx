@@ -371,7 +371,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
           </div>
-          <div className="ml-3">
+          <div className="ml-3 space-y-2">
             <p className="text-sm text-blue-700">
               This form contains common fields. To edit additional fields, please use the{' '}
               <button 
@@ -380,6 +380,18 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
               >
                 Advanced RDF Editor
               </button>
+            </p>
+            <p className="text-sm text-blue-700">
+              It's recommended to provide comprehensive documentation for your model. We provide a{' '}
+              <a 
+                href="https://bioimage.io/docs/#/model-card-template.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium underline hover:text-blue-800"
+              >
+                Model Card Template
+              </a>
+              {' '}to help you create thorough documentation that meets BioImage Model Zoo standards.
             </p>
           </div>
         </div>
