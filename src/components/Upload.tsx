@@ -1579,9 +1579,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       <p className="text-yellow-600">If your model contains large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
                     </div>
                     <p className="text-sm text-gray-500 mt-6">
-                      Need help? Check out our <a href="#" className="text-blue-600 hover:underline font-medium">documentation</a>, 
-                      read our <Link to="/toc" className="text-blue-600 hover:underline font-medium">terms of service</Link>, or 
-                      join our <a href="#" className="text-blue-600 hover:underline font-medium">community forum</a>.
+                      Need help? Check out our <a href="/docs" className="text-blue-600 hover:underline font-medium">documentation</a>, 
+                      read our <Link to="/toc" className="text-blue-600 hover:underline font-medium">terms of service</Link>.
                     </p>
                   </div>
                 </div>

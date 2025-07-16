@@ -119,6 +119,12 @@ All models and resources in the BioImage Model Zoo undergo testing and validatio
 
 
 ###  Model Documentation
+
+#### Model Card Template
+We provide a comprehensive [Model Card Template](../model-card-template.md) to help you create thorough documentation for your model. This template includes structured sections for model description, training details, validation metrics, ethical considerations, and usage guidelines. Using this template ensures your model documentation meets the BioImage Model Zoo standards and helps users understand how to properly use your model.
+
+**Important**: When uploading your model, include a `README.md` file in your model folder following this template structure.
+
 #### Model naming
 
 Models are expected to be used by life-scientists, thus, it is expected that the naming is human readable but also informative enough regarding the final application and the biological tissue being analysed. Example:
