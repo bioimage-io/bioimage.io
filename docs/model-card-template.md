@@ -20,9 +20,6 @@
 - [Evaluation](#evaluation)
 - [Environmental Impact](#environmental-impact)
 - [Technical Specifications](#technical-specifications)
-- [Citation](#citation)
-- [Model Card Authors](#model-card-authors)
-- [Model Card Contact](#model-card-contact)
 - [How to Get Started with the Model](#how-to-get-started-with-the-model)
 
 # Model Details
@@ -44,24 +41,14 @@
 - **Repository:** *[GitHub repository URL]*
 - **Paper:** *[Associated publication DOI/URL]*
 - **Demo:** *[Online demo or notebook URL]*
-- **BioImage Model Zoo:** *[Model zoo entry URL]*
+
 
 # Uses
 
 ## Direct Use
 
-*Explain how the model can be used without fine-tuning for bioimage analysis tasks. Include example code snippet.*
+*Explain how the model can be used without fine-tuning for bioimage analysis tasks. Provide examples images and/or videos for the data used to train the model, provide guidance on what type of data is required for the model to work.*
 
-```python
-# Example usage code
-import bioimageio.core
-from bioimageio.core import load_resource_description
-
-# Load model
-model = load_resource_description("path/to/model.yaml")
-# Process image
-result = model.predict(input_image)
-```
 
 ## Downstream Use
 
@@ -255,86 +242,10 @@ result = model.predict(input_image)
 - **Libraries:** *[Key dependencies and versions]*
 - **BioImage.IO compatibility:** *[Supported consumer software]*
 
-# Citation
-
-## BibTeX
-
-```bibtex
-@misc{model_name,
-  title={[Model Name]},
-  author={[Author(s)]},
-  year={[Year]},
-  url={[Model URL]},
-  note={BioImage Model Zoo}
-}
-```
-
-## APA
-
-*[Author(s)]. ([Year]). [Model Name]. BioImage Model Zoo. [URL]*
-
-## Associated Publication
-
-*If there's an associated paper:*
-
-```bibtex
-@article{paper_citation,
-  title={[Paper Title]},
-  author={[Author(s)]},
-  journal={[Journal]},
-  year={[Year]},
-  doi={[DOI]}
-}
-```
-
-# Model Card Authors
-
-*List the people who created this model card:*
-
-- *[Name], [Affiliation], [Role in model card creation]*
-- *[Name], [Affiliation], [Role in model card creation]*
-
-# Model Card Contact
-
-*Contact information for model card updates, suggestions, or questions:*
-
-- **Primary Contact:** *[Name, Email]*
-- **GitHub Issues:** *[Repository URL for issues]*
-- **Community Forum:** *[Discussion forum if applicable]*
-
 # How to Get Started with the Model
 
 *Provide step-by-step instructions for using the model:*
 
-```python
-# Installation
-pip install bioimageio.core
-
-# Basic usage
-from bioimageio.core import load_resource_description
-import numpy as np
-
-# Load model
-model = load_resource_description("path/to/model.yaml")
-
-# Prepare input (example for 3D image)
-input_image = np.random.rand(1, 1, 64, 64, 64)  # Adjust dimensions as needed
-
-# Run inference
-prediction = model.predict(input_image)
-
-# Process output
-result = prediction[0]  # Adjust based on model output format
-```
-
-## Integration with BioImage.IO Consumer Software
-
-*Instructions for using the model in compatible software:*
-
-- **ilastik:** *[Specific instructions]*
-- **Fiji/ImageJ:** *[Plugin usage instructions]*
-- **Napari:** *[Plugin usage instructions]*
-- **QuPath:** *[Integration instructions]*
 
 ---
 
