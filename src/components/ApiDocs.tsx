@@ -168,7 +168,7 @@ async def interact_with_model_zoo():
         config={
             "publish_to": "sandbox_zenodo"
         },
-        version="stage"
+        stage=True
     )
 
     print(f"Model created with ID: {new_model.id}")
@@ -194,7 +194,7 @@ async def interact_with_model_zoo():
     new_model["manifest"]["status"] = "request-review"
     await artifact_manager.edit(
         artifact_id=new_model.id,
-        version="stage",
+        stage=True,
         manifest=new_model["manifest"]
     )
     print(f"Model status updated to request-review")
@@ -275,7 +275,7 @@ async function interactWithModelZoo() {
         config: {
             publish_to: "sandbox_zenodo"
         },
-        version: "stage",
+        stage: true,
         _rkwargs: true
     });
 
@@ -310,7 +310,7 @@ async function interactWithModelZoo() {
     newModel.manifest.status = "request-review";
     await artifactManager.edit({
         artifact_id: newModel.id,
-        version: "stage",
+        stage: true,
         manifest: newModel.manifest,
         _rkwargs: true
     });
