@@ -206,7 +206,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           
           {/* Dropdown Menu */}
           {isDropdownOpen && (
-            <div id="user-dropdown" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200">
+            <div id="user-dropdown" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-999 border border-gray-200">
               <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
                 {user.email}
               </div>
