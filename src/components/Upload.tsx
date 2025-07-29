@@ -755,7 +755,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         config: {
           publish_to: "sandbox_zenodo"
         },
-        version: "stage",
+        stage: true,
         _rkwargs: true,
         overwrite: true,
       });
@@ -851,7 +851,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       await artifactManager.edit({
         artifact_id: fullId,
         manifest: updatedManifest,
-        version: "stage",
+        stage: true,
         _rkwargs: true
       });
 
