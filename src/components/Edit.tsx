@@ -2144,6 +2144,17 @@ const Edit: React.FC = () => {
     });
   };
 
+  // Add download function
+  const handleDownload = () => {
+    if (!artifactInfo) return;
+    
+    const id = artifactInfo.id.split('/').pop() || '';
+    const versionParam = isStaged ? '?version=stage' : '';
+    const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file${versionParam}`;
+    
+    window.open(downloadUrl, '_blank');
+  };
+
   // Add ValidationErrorDialog
   const ValidationErrorDialog: React.FC<{
     open: boolean;
@@ -2325,7 +2336,7 @@ const Edit: React.FC = () => {
                     {isStaged ? 'stage' : (lastVersion || '')}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-2">
+                <div className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-1">
                   {artifactInfo.manifest.id_emoji && (
                     <span 
                       role="img" 
@@ -2347,7 +2358,15 @@ const Edit: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                     </svg>
                   </button>
-                  
+                  <button
+                    onClick={handleDownload}
+                    className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                    title="Download artifact"
+                  >
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </button>
                 </div>
                 {/* Add status badge if artifact is staged */}
                 {artifactInfo.staging !== null && (
