@@ -130,7 +130,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
   const [serverUrl, setServerUrl] = useState<string>("https://hypha.aicell.io");
-  const [serviceId, setServiceId] = useState<string>("bioimage-io/applications");
+  const [serviceId, setServiceId] = useState<string>("bioimage-io/model-runner");
   const [token, setToken] = useState<string>("");
   
   // Button states
