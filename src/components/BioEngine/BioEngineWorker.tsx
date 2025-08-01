@@ -262,7 +262,7 @@ const BioEngineWorker: React.FC = () => {
         setLoading(true);
       }
 
-      const bioengineWorker = await server.getService(serviceId);
+      const bioengineWorker = await server.getService(serviceId, {mode: "last"});
       let statusData = await bioengineWorker.get_status();
 
       // Preserve existing manifests before processing new status data
@@ -301,7 +301,7 @@ const BioEngineWorker: React.FC = () => {
               const manifestPromise = (async (): Promise<{ key: string, manifest: any }> => {
                 try {
                   console.log(`Fetching manifest for deployed artifact: ${key}`);
-                  const artifact = await artifactManager.read({ artifact_id: key, _rkwargs: true });
+                  const artifact = await artifactManager.read({ artifact_id: `bioimage-io/${key}`, _rkwargs: true });
                   if (artifact && artifact.manifest) {
                     console.log(`Successfully fetched manifest for ${key}:`, artifact.manifest);
                     // Add to local cache immediately

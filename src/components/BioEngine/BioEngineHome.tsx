@@ -136,7 +136,7 @@ const BioEngineHome: React.FC = () => {
       // If default service is not in the workspace list, try to access it directly
       if (!hasDefaultService) {
         try {
-          await server.getService("bioimage-io/bioengine-worker", { _mode: "first" });
+          await server.getService("bioimage-io/bioengine-worker", { mode: "first"});
           allServices = [defaultService, ...services];
           isDefaultOnline = true;
           console.log('Default BioEngine service is online and added to list');

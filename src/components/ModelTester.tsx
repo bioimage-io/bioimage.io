@@ -25,12 +25,13 @@ interface TestResult {
 interface ModelTesterProps {
   artifactId?: string;
   modelUrl?: string;
+  isStaged?: boolean;
   isDisabled?: boolean;
   className?: string;
   skipCache?: boolean;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisabled, skipCache=false, className = '' }) => {
+const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isStaged, isDisabled, skipCache=false, className = '' }) => {
   const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -101,13 +102,16 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isDisab
     try {
       setLoadingStep('Connecting to model runner service...');
       // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
-      const runner = bioengine.bioimage_io_model_runner;
+      const runner = await server.getService('bioimage-io/model-runner', {mode: "select:min:get_load"});
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
       console.log(`Testing model ${modelId} at ${modelUrl}`);
-      const result = await runner.test({model_id: modelUrl || modelId, skip_cache: skipCache, _rkwargs: true});
+      const startTime = performance.now();
+      const result = await runner.test({model_id:modelId, stage: isStaged, skip_cache: skipCache, _rkwargs: true});
+      const endTime = performance.now();
+      const executionTime = (endTime - startTime) / 1000; // Convert to seconds
+      console.log(`Test execution time: ${executionTime.toFixed(2)}s`);
       console.log("Test result:", result);
       setTestResult(result);
     } catch (err) {

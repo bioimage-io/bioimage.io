@@ -95,6 +95,7 @@ const rdfHas = (rdf: ModelRDF | null, key: string): boolean => {
 
 interface ModelRunnerProps {
   artifactId?: string;
+  isStaged?: boolean;
   isDisabled?: boolean;
   className?: string;
   onRunStateChange?: (isRunning: boolean) => void;
@@ -104,6 +105,7 @@ interface ModelRunnerProps {
 
 const ModelRunner: React.FC<ModelRunnerProps> = ({ 
   artifactId, 
+  isStaged = false,
   isDisabled = false, 
   className = '',
   onRunStateChange,
@@ -128,7 +130,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
   const [serverUrl, setServerUrl] = useState<string>("https://hypha.aicell.io");
-  const [serviceId, setServiceId] = useState<string>("bioimage-io/bioengine-apps");
+  const [serviceId, setServiceId] = useState<string>("bioimage-io/applications");
   const [token, setToken] = useState<string>("");
   
   // Button states
@@ -645,6 +647,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         <ModelTester
           artifactId={artifactId}
           modelUrl={modelUrl}
+          isStaged={isStaged}
           isDisabled={false}
           skipCache={false}
           className="flex-shrink-0"
@@ -716,7 +719,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 type="text"
                 value={serviceId}
                 onChange={(e) => setServiceId(e.target.value)}
-                placeholder="bioimage-io/bioengine-apps"
+                placeholder="bioimage-io/model-runner"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
               />
             </div>

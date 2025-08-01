@@ -61,6 +61,7 @@ const ArtifactDetails = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const modelContainerRef = useRef<HTMLDivElement>(null);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
+  const [isStaged, setIsStaged] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -87,6 +88,8 @@ const ArtifactDetails = () => {
         setDocumentation("No documentation found.");
       }
     };
+
+    setIsStaged(version === 'stage');
 
     fetchDocumentation();
   }, [selectedResource?.id, selectedResource?.manifest.documentation]);
@@ -611,6 +614,7 @@ const ArtifactDetails = () => {
             <Box sx={{ mt: isFullscreen ? 0 : { xs: 1, sm: 2, md: 3 } }}>
               <ModelRunner
                 artifactId={selectedResource.id}
+                isStaged={isStaged}
                 isDisabled={false}
                 onRunStateChange={setShowModelRunner}
                 createContainerCallback={createModelRunnerContainer}

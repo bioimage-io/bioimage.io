@@ -67,8 +67,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
     
     try {
       // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const bioengine = await server.getService('bioimage-io/bioengine-apps', {mode: "last"});
-      const runner = bioengine.bioimage_io_model_runner;
+      const runner = await server.getService('bioimage-io/model-runner', {mode: "select:min:get_load"});
       // Parse the RDF content and assert its type
       let rdfDict = yaml.load(rdfContent) as RdfWithUploader | null;
       

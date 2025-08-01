@@ -575,7 +575,7 @@ async def test_bmz_models(
         {"server_url": server_url, "token": token, "method_timeout": 3000}
     )
 
-    bioengine = await server.get_service("bioimage-io/bioengine-apps")
+    runner = await server.get_service('bioimage-io/model-runner', {"mode": "select:min:get_load"});
     artifact_manager = await server.get_service("public/artifact-manager")
 
     # Fetch all model IDs if not provided
@@ -621,8 +621,9 @@ async def test_bmz_models(
         else:
             try:
                 print(f"Testing model: {model_id}")
-                test_results = await bioengine.bioimage_io_model_runner.test(
-                    model_id=model_id
+                test_results = await runner.test(
+                    model_id=model_id,
+                    stage=False
                 )
                 model_execution_time = time.time() - model_start_time
                 print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")

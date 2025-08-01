@@ -288,7 +288,7 @@ class BioEngineExecutor {
     this.serverUrl = serverUrl;
   }
 
-  async init(token = null, serviceId = 'bioimage-io/bioengine-apps') {
+  async init(token = null, serviceId = 'bioimage-io/model-runner') {
     const connectOptions = {
       server_url: this.serverUrl,
       method_timeout: 360,
@@ -303,8 +303,7 @@ class BioEngineExecutor {
     const server = await hyphaWebsocketClient.connectToServer(connectOptions);
     
     // Use the provided service ID
-    const bioengine = await server.getService(serviceId, {mode: "last"});
-    this.runner = bioengine.bioimage_io_model_runner;
+    this.runner = await server.getService(serviceId, {mode: "select:min:get_load"});
     console.log("Runner initialized with service:", serviceId);
   }
 
@@ -358,7 +357,7 @@ export class ModelRunnerEngine {
     this.modelId = null;
   }
 
-  async init(token = null, serviceId = 'bioimage-io/bioengine-apps') {
+  async init(token = null, serviceId = 'bioimage-io/model-runner') {
     await this.bioengineExecutor.init(token, serviceId);
   }
 
@@ -538,8 +537,11 @@ export class ModelRunnerEngine {
     console.log("Input tile shape: " + tensor.shape);
     const [paddedTensor, padArr] = padder.pad(tensor);
     console.log("Padded tile shape: " + paddedTensor.shape);
+    const startTime = performance.now();
     let outImg = await this.submitTensor(paddedTensor, additionalParameters);
+    const endTime = performance.now();
     console.log("Output tile shape: " + outImg._rshape);
+    console.log("Execution time: " + (endTime - startTime).toFixed(2) + "ms");
     const outTensor = imjoyToTfjs(outImg);
     
     const outputSpec = this.rdf.outputs[0];

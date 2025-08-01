@@ -135,11 +135,11 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       let allArtifacts: ArtifactType[] = [];
 
       try {
-        const publicCollectionId = 'bioimage-io/bioengine-apps';
+        const publicCollectionId = 'bioimage-io/applications';
         let publicArtifacts: ArtifactType[] = [];
 
         try {
-          publicArtifacts = await artifactManager.list({ parent_id: publicCollectionId, _rkwargs: true });
+          publicArtifacts = await artifactManager.list({ parent_id: publicCollectionId, type: "application", _rkwargs: true });
           console.log(`Public artifacts found in ${publicCollectionId}:`, publicArtifacts.map(a => a.id));
         } catch (err) {
           console.warn(`Could not fetch public artifacts: ${err}`);
@@ -149,9 +149,9 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         const userWorkspace = server.config.workspace;
 
         if (userWorkspace) {
-          const userCollectionId = `${userWorkspace}/bioengine-apps`;
+          const userCollectionId = `${userWorkspace}/applications`;
           try {
-            userArtifacts = await artifactManager.list({ parent_id: userCollectionId, _rkwargs: true });
+            userArtifacts = await artifactManager.list({ parent_id: userCollectionId, type: "application", _rkwargs: true });
             console.log(`User artifacts found in ${userCollectionId}:`, userArtifacts.map(a => a.id));
           } catch (collectionErr) {
             console.log(`User collection ${userCollectionId} does not exist, skipping`);
