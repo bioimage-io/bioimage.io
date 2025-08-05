@@ -623,7 +623,8 @@ async def test_bmz_models(
                 print(f"Testing model: {model_id}")
                 test_results = await runner.test(
                     model_id=model_id,
-                    stage=False
+                    stage=False,
+                    skip_cache=True,
                 )
                 model_execution_time = time.time() - model_start_time
                 print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")
