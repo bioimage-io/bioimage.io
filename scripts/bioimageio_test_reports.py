@@ -758,14 +758,8 @@ def main():
     parser.add_argument(
         "--skip-exists",
         action="store_true",
-        default=True,
-        help="Skip testing models that already have test results (default: True)"
-    )
-    parser.add_argument(
-        "--no-skip-exists",
-        action="store_false",
-        dest="skip_exists",
-        help="Re-test models even if they already have test results"
+        default=False,
+        help="Skip testing models that already have test results (default: False)"
     )
     parser.add_argument(
         "--model-ids",
