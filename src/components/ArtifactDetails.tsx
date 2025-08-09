@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, Link as RouterLink } from 'react-router-dom';
+import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,6 +9,7 @@ import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -38,7 +39,7 @@ import ArtifactFiles from './ArtifactFiles';
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
-  const { selectedResource, fetchResource, isLoading, error } = useHyphaStore();
+  const { selectedResource, fetchResource, isLoading, error, user, isLoggedIn, artifactManager } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [latestVersion, setLatestVersion] = useState<{
@@ -62,6 +63,39 @@ const ArtifactDetails = () => {
   const modelContainerRef = useRef<HTMLDivElement>(null);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   const [isStaged, setIsStaged] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
+  const navigate = useNavigate();
+
+  // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
+  useEffect(() => {
+    const checkEditPermissions = async () => {
+      if (!isLoggedIn || !user || !artifactManager) {
+        setCanEdit(false);
+        return;
+      }
+
+      try {
+        const collection = await artifactManager.read({
+          artifact_id: 'bioimage-io/bioimage.io',
+          _rkwargs: true
+        });
+
+        if (user && collection.config?.permissions) {
+          const userPermission = collection.config.permissions[user.id];
+          const hasWritePermission = userPermission === 'rw' || userPermission === 'rw+' || userPermission === '*';
+          const isAdmin = user.roles?.includes('admin');
+          setCanEdit(hasWritePermission || isAdmin);
+        } else {
+          setCanEdit(user.roles?.includes('admin') || false);
+        }
+      } catch (error) {
+        console.error('Error checking edit permissions:', error);
+        setCanEdit(false);
+      }
+    };
+
+    checkEditPermissions();
+  }, [isLoggedIn, user, artifactManager]);
 
   useEffect(() => {
     if (id) {
@@ -199,6 +233,11 @@ const ArtifactDetails = () => {
         console.error('Failed to fetch RDF source:', error);
       }
     }
+  };
+
+  const handleEdit = () => {
+    if (!selectedResource?.id) return;
+    navigate(`/edit/${encodeURIComponent(selectedResource.id)}`);
   };
 
   // Add this function to format timestamps
@@ -415,6 +454,34 @@ const ArtifactDetails = () => {
             >
               Download
             </Button>
+            {canEdit && (
+              <Button
+                onClick={handleEdit}
+                startIcon={<EditIcon />}
+                variant="outlined"
+                size="medium"
+                sx={{
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(34, 197, 94, 0.05)',
+                  backdropFilter: 'blur(8px)',
+                  border: '2px solid #22c55e',
+                  color: '#16a34a',
+                  fontWeight: 500,
+                  px: 3,
+                  py: 1.5,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    borderColor: '#16a34a',
+                    color: '#15803d',
+                    transform: 'translateY(-2px) scale(1.02)',
+                    boxShadow: '0 8px 25px rgba(34, 197, 94, 0.2)',
+                  },
+                }}
+              >
+                Edit
+              </Button>
+            )}
             
             {selectedResource?.manifest?.type === 'model' && (
               <>
