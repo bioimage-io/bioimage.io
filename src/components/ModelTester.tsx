@@ -24,14 +24,13 @@ interface TestResult {
 
 interface ModelTesterProps {
   artifactId?: string;
-  modelUrl?: string;
   isStaged?: boolean;
   isDisabled?: boolean;
   className?: string;
   skipCache?: boolean;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isStaged, isDisabled, skipCache=false, className = '' }) => {
+const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, isStaged, isDisabled, skipCache=false, className = '' }) => {
   const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,7 +105,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, modelUrl, isStage
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
-      console.log(`Testing model ${modelId} at ${modelUrl}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}`);
       const startTime = performance.now();
       const result = await runner.test({model_id:modelId, stage: isStaged, skip_cache: skipCache, _rkwargs: true});
       const endTime = performance.now();

@@ -646,7 +646,6 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         {/* Model Tester */}
         <ModelTester
           artifactId={artifactId}
-          modelUrl={modelUrl}
           isStaged={isStaged}
           isDisabled={false}
           skipCache={false}

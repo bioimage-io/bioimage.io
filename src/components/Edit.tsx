@@ -1672,7 +1672,7 @@ const Edit: React.FC = () => {
           <div className="w-full sm:w-auto">
             <ModelTester
               artifactId={artifactId}
-              modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split('/').pop()}/create-zip-file?version=${isStaged ? 'stage' : editVersion || 'latest'}`}
+              isStaged={isStaged}
               isDisabled={!server}
               skipCache={true}
               className="w-full sm:w-auto"

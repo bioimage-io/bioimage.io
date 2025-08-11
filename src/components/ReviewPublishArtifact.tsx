@@ -192,7 +192,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                 {artifactInfo?.manifest && artifactInfo.manifest.type === 'model' && (
                   <ModelTester
                     artifactId={artifactId}
-                    modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifactId.split("/").pop()}/create-zip-file${modelVersion ? `?version=${modelVersion}` : ''}`}
+                    isStaged={isStaged}
                     isDisabled={shouldDisableActions}
                     skipCache={true}
                   />
