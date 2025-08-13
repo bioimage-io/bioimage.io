@@ -145,6 +145,13 @@ const Footer: React.FC = () => {
                   >
                     https://archive.bioimage.io
                   </a>
+                  {' '}|{' '}
+                  <Link 
+                    to="/api" 
+                    className="text-purple-600 hover:text-purple-800 font-medium hover:underline transition-all duration-300"
+                  >
+                    API Documentation
+                  </Link>
                 </p>
                 <div className="pt-2">
                   <a 

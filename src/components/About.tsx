@@ -45,12 +45,16 @@ const About: React.FC = () => {
 
       <section className="mb-12 bg-white rounded-lg shadow-sm p-8">
         <h2 className="text-2xl font-semibold mb-6 text-gray-800">Get Involved</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <a href="/#/upload" 
              target="_blank" 
              rel="noopener noreferrer"
              className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
             Contribute Models
+          </a>
+          <a href="/#/api" 
+             className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 transition duration-150 ease-in-out">
+            API Documentation
           </a>
           <a href="https://bioimage.io/docs/#/guides/community-partners-guide?id=introduction-to-community-partners" 
             target="_blank" 
