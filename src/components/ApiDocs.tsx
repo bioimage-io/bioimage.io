@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { useSearchParams } from 'react-router-dom';
 
 const ApiDocs: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const defaultTab = searchParams.get('tab') === 'http' ? 'http' : 'hypha-rpc';
-  const [activeMainTab, setActiveMainTab] = useState<'hypha-rpc' | 'http'>(defaultTab);
-  const [activeLanguageTab, setActiveLanguageTab] = useState<'python' | 'javascript'>('python');
+  const defaultTab = searchParams.get('tab') || 'getting-started';
+  const [activeMainTab, setActiveMainTab] = useState<'getting-started' | 'api-reference' | 'hypha-rpc' | 'faqs'>(defaultTab as any);
+  const [activeLanguageTab, setActiveLanguageTab] = useState<'curl' | 'python' | 'javascript'>('curl');
+  const [activeHyphaLanguageTab, setActiveHyphaLanguageTab] = useState<'python' | 'javascript'>('python');
   const [token, setToken] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const { server, user } = useHyphaStore();
@@ -41,14 +42,14 @@ const ApiDocs: React.FC = () => {
     }
   };
 
-  // Add token section component
+  // Token section component
   const TokenSection = () => (
     <div className="mb-8 p-6 bg-gray-50 rounded-lg border border-gray-200">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">Generate API Token</h3>
+      <h3 className="text-lg font-medium text-gray-900 mb-4">🔑 Generate API Token</h3>
       {user ? (
         <div className="space-y-4">
           <p className="text-gray-600">
-            Generate a new API token to use with the BioImage Model Zoo API.
+            Generate a personal API token to authenticate your requests to the BioImage Model Zoo API.
           </p>
           <div className="flex flex-col space-y-3">
             <button
@@ -66,7 +67,7 @@ const ApiDocs: React.FC = () => {
                     value={token}
                     readOnly
                     aria-label="API Token"
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono"
                   />
                   <button
                     onClick={copyToClipboard}
@@ -103,278 +104,46 @@ const ApiDocs: React.FC = () => {
     </div>
   );
 
-  const pythonCode = `import os
-import httpx
-import asyncio
-from hypha_rpc import connect_to_server
-
-async def interact_with_model_zoo():
-    # Connect to the server
-    server = await connect_to_server(
-        server_url="https://hypha.aicell.io",
-        token=os.environ.get("BIOIMAGEIO_API_TOKEN")  # Your authentication token
-    )
-
-    # Get the artifact manager service
-    artifact_manager = await server.get_service("public/services/artifact-manager")
-
-    # List available models
-    models = await artifact_manager.list(
-        parent_id="bioimage-io/bioimage.io",
-        limit=10
-    )
-    print("Models in the model zoo:", len(models))
-
-    # Get details of a specific model
-    model = await artifact_manager.read(
-        artifact_id="bioimage-io/affable-shark"
-    )
-
-    # List files of a specific model
-    files = await artifact_manager.list_files(
-        artifact_id="bioimage-io/affable-shark"
-    )
-    print("Files in the model:", files)
-
-    # Download model files
-    file_url = await artifact_manager.get_file(
-        artifact_id="bioimage-io/affable-shark",
-        file_path="weights.pt"
-    )
-
-    # Upload a new model
-    # Create a manifest dictionary for the model
-    model_rdf_dict = {
-        "type": "model",
-        "name": "My test model",
-        "description": "This is a test model",
-        "tags": ["test", "model"],
-        "status": "request-review"
-    }
-
-    # Determine the alias pattern based on the artifact type
-    alias_patterns = {
-        "model": "{animal_adjective}-{animal}",
-        "application": "{object_adjective}-{object}",
-        "dataset": "{fruit_adjective}-{fruit}",
-    }
-    id_pattern = alias_patterns.get(model_rdf_dict["type"])
-    
-    new_model = await artifact_manager.create(
-        parent_id="bioimage-io/bioimage.io",
-        alias=id_pattern,
-        type=model_rdf_dict["type"],
-        manifest=model_rdf_dict,
-        config={
-            "publish_to": "sandbox_zenodo"
-        },
-        stage=True
-    )
-
-    print(f"Model created with ID: {new_model.id}")
-
-    # Upload model files
-    put_url = await artifact_manager.put_file(
-        artifact_id=new_model.id,
-        file_path="weights.pt"
-    )
-
-    # Use put_url to upload your file
-    async def upload_file(put_url, file_path):
-        async with httpx.AsyncClient() as client:
-            with open(file_path, 'rb') as file:
-                response = await client.put(put_url, content=file)
-                response.raise_for_status()
-                print(f"File uploaded successfully: {response.status_code}")
-
-    # Use put_url to upload your file
-    await upload_file(put_url, "path/to/your/weights.pt")
-    
-    # Request for review
-    new_model["manifest"]["status"] = "request-review"
-    await artifact_manager.edit(
-        artifact_id=new_model.id,
-        stage=True,
-        manifest=new_model["manifest"]
-    )
-    print(f"Model status updated to request-review")
-
-    # Now you can see your model also in "My Artifacts" menu in the model zoo
-
-if __name__ == "__main__":
-    asyncio.run(interact_with_model_zoo())`;
-
-  // Note: When calling Python backend from JavaScript:
-  // 1. Use case_conversion: "camel" to automatically convert Python's snake_case to JavaScript's camelCase
-  // 2. Add _rkwargs: true to each method call object to ensure parameters are passed as keyword arguments to Python
-  const javascriptCode = `import { hyphaWebsocketClient } from 'hypha-rpc';
-
-async function interactWithModelZoo() {
-    // Connect to the server
-    const server = await hyphaWebsocketClient.connectToServer({
-        server_url: "https://hypha.aicell.io",
-        token: "your-auth-token"  // Your authentication token
-    });
-
-    // Get the artifact manager service
-    const artifactManager = await server.getService("public/services/artifact-manager", {
-        case_conversion: "camel"
-    });
-
-    // List available models
-    const models = await artifactManager.list({
-        parent_id: "bioimage-io/bioimage.io",
-        limit: 10,
-        _rkwargs: true
-    });
-    console.log("Models in the model zoo:", models.length);
-
-    // Get details of a specific model
-    const model = await artifactManager.read({
-        artifact_id: "bioimage-io/affable-shark",
-        _rkwargs: true
-    });
-
-    // List files of a specific model
-    const files = await artifactManager.listFiles({
-        artifact_id: "bioimage-io/affable-shark",
-        _rkwargs: true
-    });
-    console.log("Files in the model:", files);
-
-    // Download model files
-    const fileUrl = await artifactManager.getFile({
-        artifact_id: "bioimage-io/affable-shark",
-        file_path: "weights.pt",
-        _rkwargs: true
-    });
-
-    // Upload a new model
-    // Create a manifest dictionary for the model
-    const modelRdfDict = {
-        type: "model",
-        name: "My test model",
-        description: "This is a test model",
-        tags: ["test", "model"],
-        status: "request-review"
-    };
-
-    // Determine the alias pattern based on the artifact type
-    const aliasPatterns = {
-        model: "{animal_adjective}-{animal}",
-        application: "{object_adjective}-{object}",
-        dataset: "{fruit_adjective}-{fruit}",
-    };
-    const idPattern = aliasPatterns[modelRdfDict.type];
-
-    const newModel = await artifactManager.create({
-        parent_id: "bioimage-io/bioimage.io",
-        alias: idPattern,
-        type: modelRdfDict.type,
-        manifest: modelRdfDict,
-        config: {
-            publish_to: "sandbox_zenodo"
-        },
-        stage: true,
-        _rkwargs: true
-    });
-
-    console.log("Model created with ID:", newModel.id);
-
-    // Upload model files
-    const putUrl = await artifactManager.putFile({
-        artifact_id: newModel.id,
-        file_path: "weights.pt",
-        _rkwargs: true
-    });
-
-    // Use putUrl to upload your file
-    async function uploadFile(putUrl, filePath) {
-        const response = await fetch(putUrl, {
-            method: 'PUT',
-            body: await fetch(filePath).then(res => res.blob()),
-            headers: {
-                'Content-Type': '' // this is important for s3
-            }
-        });
-        if (!response.ok) {
-            throw new Error(\`Failed to upload file: \${response.status}\`);
-        }
-        console.log(\`File uploaded successfully: \${response.status}\`);
-    }
-
-    // Use putUrl to upload your file
-    await uploadFile(putUrl, "path/to/your/weights.pt");
-
-    // Request for review
-    newModel.manifest.status = "request-review";
-    await artifactManager.edit({
-        artifact_id: newModel.id,
-        stage: true,
-        manifest: newModel.manifest,
-        _rkwargs: true
-    });
-    console.log("Model status updated to request-review");
-
-    // Now you can see your model also in "My Artifacts" menu in the model zoo
-}`;
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-4">
-          BioImage Model Zoo API
+          BioImage Model Zoo API Documentation
         </h1>
         <div className="prose max-w-none">
           <p className="text-gray-600 mb-4">
-            The BioImage Model Zoo backend is powered by <a href="https://docs.amun.ai" className="text-blue-600 hover:text-blue-800">Hypha</a>, 
-            a modern RPC framework designed for building distributed applications. Hypha provides a flexible and efficient way to handle 
-            service registration, remote procedure calls, and real-time communication.
-          </p>
-
-          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
-            <div className="flex">
-              <div className="ml-3">
-                <h3 className="text-lg font-medium text-blue-800">Two Ways to Interact with the API</h3>
-                <div className="mt-2 text-blue-700">
-                  <p className="mb-2">
-                    <strong>1. Hypha RPC</strong>: A powerful programmatic interface that provides:
-                  </p>
-                  <ul className="list-disc list-inside ml-4 mb-4">
-                    <li>Native Python and JavaScript support</li>
-                    <li>Real-time communication via WebSocket</li>
-                    <li>Type safety and better error handling</li>
-                    <li>Automatic reconnection and state management</li>
-                  </ul>
-                  
-                  <p className="mb-2">
-                    <strong>2. HTTP REST API</strong>: A traditional REST interface that offers:
-                  </p>
-                  <ul className="list-disc list-inside ml-4">
-                    <li>Standard HTTP endpoints for basic operations</li>
-                    <li>Language-agnostic access to resources</li>
-                    <li>Familiar REST patterns and conventions</li>
-                    <li>Easy integration with existing tools and scripts</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <p className="text-gray-600 mb-4">
-            Choose the method that best suits your needs. For building applications or scripts that require real-time updates 
-            or complex interactions, we recommend using Hypha RPC. For simple operations or when working with tools that 
-            expect REST APIs, use the HTTP endpoints.
+            Welcome to the BioImage Model Zoo API! This documentation will guide you through accessing and managing 
+            bioimage analysis models, datasets, and applications programmatically.
           </p>
         </div>
       </div>
 
-      {/* Add Token Section before the main tabs */}
+      {/* Add Token Section */}
       <TokenSection />
 
-      {/* Main API Type tabs */}
+      {/* Main navigation tabs */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveMainTab('getting-started')}
+            className={`${
+              activeMainTab === 'getting-started'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+          >
+            Getting Started
+          </button>
+          <button
+            onClick={() => setActiveMainTab('api-reference')}
+            className={`${
+              activeMainTab === 'api-reference'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+          >
+            API Reference
+          </button>
           <button
             onClick={() => setActiveMainTab('hypha-rpc')}
             className={`${
@@ -383,909 +152,2031 @@ async function interactWithModelZoo() {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            Hypha RPC
+            Hypha RPC Client
           </button>
           <button
-            onClick={() => setActiveMainTab('http')}
+            onClick={() => setActiveMainTab('faqs')}
             className={`${
-              activeMainTab === 'http'
+              activeMainTab === 'faqs'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            HTTP Endpoints
+            FAQs
           </button>
         </nav>
       </div>
 
-      {activeMainTab === 'hypha-rpc' ? (
-        <>
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">About Hypha RPC</h2>
+      {/* Getting Started Tab */}
+      {activeMainTab === 'getting-started' && (
+        <div className="space-y-8">
+          {/* Useful Links Section */}
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">🔗 Useful Links</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <a 
+                href="https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+              >
+                <h4 className="font-medium text-gray-900 mb-1">📦 View All Models</h4>
+                <p className="text-sm text-gray-600">Browse the complete collection of models in the zoo</p>
+                <code className="text-xs text-blue-600 mt-2 block truncate">
+                  https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children
+                </code>
+              </a>
+              
+              <a 
+                href="https://hypha.aicell.io/bioimage-io/artifacts/affable-shark" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+              >
+                <h4 className="font-medium text-gray-900 mb-1">🔍 Example Model API</h4>
+                <p className="text-sm text-gray-600">See the API response for a specific model</p>
+                <code className="text-xs text-blue-600 mt-2 block truncate">
+                  https://hypha.aicell.io/bioimage-io/artifacts/affable-shark
+                </code>
+              </a>
+              
+              <a 
+                href="https://docs.amun.ai/#/artifact-manager" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+              >
+                <h4 className="font-medium text-gray-900 mb-1">📚 Artifact Manager Docs</h4>
+                <p className="text-sm text-gray-600">Complete documentation for the Artifact Manager service</p>
+                <code className="text-xs text-blue-600 mt-2 block truncate">
+                  https://docs.amun.ai/#/artifact-manager
+                </code>
+              </a>
+              
+              <a 
+                href="https://bioimage.io" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+              >
+                <h4 className="font-medium text-gray-900 mb-1">🌐 BioImage Model Zoo</h4>
+                <p className="text-sm text-gray-600">Main website to browse models visually</p>
+                <code className="text-xs text-blue-600 mt-2 block truncate">
+                  https://bioimage.io
+                </code>
+              </a>
+            </div>
+          </div>
+
+          {/* Introduction */}
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">🚀 Quick Start</h2>
             <div className="prose max-w-none">
               <p className="text-gray-600 mb-4">
-                Hypha RPC provides a modern, efficient way to interact with the BioImage Model Zoo programmatically. 
-                It offers several advantages over traditional HTTP APIs:
+                The BioImage Model Zoo uses the <strong>Artifact Manager</strong> service (part of the Hypha platform) 
+                to host and manage models, datasets, and applications. All resources are called <strong>artifacts</strong> 
+                and can be accessed via simple HTTP endpoints.
               </p>
-              <ul className="list-disc list-inside text-gray-600 mb-4">
-                <li>Bi-directional communication through WebSocket connections</li>
-                <li>Automatic reconnection and session management</li>
-                <li>Type-safe interactions with built-in TypeScript support</li>
-                <li>Efficient binary data transfer with WebRTC support</li>
-                <li>Real-time updates and event notifications</li>
-                <li>Built-in authentication and token management</li>
-              </ul>
-              <p className="text-gray-600 mb-4">
-                This API is ideal for building applications that require real-time updates, 
-                handling large data transfers, or creating interactive tools that need 
-                persistent connections to the server.
-              </p>
-              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-                <p className="text-sm text-yellow-700">
-                  <strong>Pro Tip:</strong> For the best development experience, we recommend using 
-                  TypeScript with the Hypha RPC client to get full type checking and autocompletion support.
+            </div>
+          </div>
+
+          {/* Basic Concepts */}
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">📚 Basic Concepts</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Artifact</h4>
+                <p className="text-sm text-gray-600">
+                  A digital resource (model, dataset, or application) with metadata, files, and version history.
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Collection</h4>
+                <p className="text-sm text-gray-600">
+                  A container that groups related artifacts together (e.g., all models in the zoo).
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Alias</h4>
+                <p className="text-sm text-gray-600">
+                  A human-readable identifier like "affable-shark" (auto-generated or custom).
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Manifest</h4>
+                <p className="text-sm text-gray-600">
+                  Metadata describing the artifact (name, description, authors, etc.).
                 </p>
               </div>
             </div>
           </div>
-          {/* Language tabs */}
-          <div className="border-b border-gray-200 mb-6">
-            <nav className="-mb-px flex space-x-8">
-              <button
-                onClick={() => setActiveLanguageTab('python')}
-                className={`${
-                  activeLanguageTab === 'python'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-              >
-                Python
-              </button>
-              <button
-                onClick={() => setActiveLanguageTab('javascript')}
-                className={`${
-                  activeLanguageTab === 'javascript'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-              >
-                JavaScript
-              </button>
-            </nav>
-          </div>
 
-          {/* Installation instructions */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Installation</h2>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {activeLanguageTab === 'python' ? 'pip install hypha-rpc' : '<script src="https://cdn.jsdelivr.net/npm/hypha-rpc@0.20.47/dist/hypha-rpc-websocket.min.js"></script>'}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-
-          {/* Authentication */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Authentication</h2>
-            <p className="text-gray-600 mb-4">
-              To access protected resources, you'll need to authenticate first. There are two ways to authenticate:
-            </p>
-
-            <h3 className="text-lg font-medium text-gray-900 mb-2">1. Interactive Login</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <SyntaxHighlighter 
-                language={activeLanguageTab} 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {activeLanguageTab === 'python' ? 
-                  `from hypha_rpc import login, connect_to_server
-
-# This will display a login URL in the console
-token = await login({"server_url": "https://ai.imjoy.io"})
-
-# Connect using the token
-server = await connect_to_server({
-    "server_url": "https://ai.imjoy.io",
-    "token": token
-})` :
-                  `const token = await hyphaWebsocketClient.login({
-    server_url: "https://ai.imjoy.io"
-});
-
-const server = await hyphaWebsocketClient.connectToServer({
-    server_url: "https://ai.imjoy.io",
-    token: token
-});`}
-              </SyntaxHighlighter>
-            </div>
-
-            <h3 className="text-lg font-medium text-gray-900 mb-2">2. Using API Token</h3>
-            <p className="text-gray-600 mb-4">
-              You can generate an API token using the button above and use it directly:
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <SyntaxHighlighter 
-                language={activeLanguageTab} 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {activeLanguageTab === 'python' ? 
-                  `from hypha_rpc import connect_to_server
-
-server = await connect_to_server({
-    "server_url": "https://ai.imjoy.io",
-    "token": "your-api-token-here"
-})` :
-                  `const server = await hyphaWebsocketClient.connectToServer({
-    server_url: "https://ai.imjoy.io",
-    token: "your-api-token-here"
-});`}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-
-          {/* Code examples */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Example Usage</h2>
-            <p className="text-gray-600 mb-4">
-              Here's a complete example showing how to interact with the BioImage Model Zoo API:
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <SyntaxHighlighter 
-                language={activeLanguageTab} 
-                style={vs}
-                showLineNumbers={true}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {activeLanguageTab === 'python' ? pythonCode : javascriptCode}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-
-          {/* Additional Features */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Additional Features</h2>
+          {/* Common Operations */}
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">🔧 Common Operations</h2>
             
-            <h3 className="text-lg font-medium text-gray-900 mb-2">WebRTC Support</h3>
-            <p className="text-gray-600 mb-4">
-              For large data transfers or real-time communication, Hypha supports peer-to-peer connections via WebRTC. 
-              This is particularly useful when transferring large model files or performing real-time inference.
-            </p>
+            {/* Language selector for examples */}
+            <div className="border-b border-gray-200 mb-4">
+              <nav className="-mb-px flex space-x-6">
+                <button
+                  onClick={() => setActiveLanguageTab('curl')}
+                  className={`${
+                    activeLanguageTab === 'curl'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  } py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  cURL
+                </button>
+                <button
+                  onClick={() => setActiveLanguageTab('python')}
+                  className={`${
+                    activeLanguageTab === 'python'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  } py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  Python
+                </button>
+                <button
+                  onClick={() => setActiveLanguageTab('javascript')}
+                  className={`${
+                    activeLanguageTab === 'javascript'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  } py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  JavaScript
+                </button>
+              </nav>
+            </div>
 
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Error Handling</h3>
-            <p className="text-gray-600 mb-4">
-              All API calls should be wrapped in try-catch blocks to handle potential errors properly:
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <SyntaxHighlighter 
-                language={activeLanguageTab} 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {activeLanguageTab === 'python' ? 
-                  `try:
-    model = await artifact_manager.read(
-        artifact_id="bioimage-io/affable-shark"
-    )
-except Exception as e:
-    print(f"Error reading model: {e}")` :
-                  `try {
-    const model = await artifactManager.read({
-        artifact_id: "bioimage-io/affable-shark",
-        _rkwargs: true
-    });
-} catch (error) {
-    console.error("Error reading model:", error);
-}`}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="space-y-6">
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">About HTTP REST API</h2>
-            <div className="prose max-w-none">
-              <p className="text-gray-600 mb-4">
-                The HTTP REST API provides a traditional, stateless interface to interact with the BioImage Model Zoo. 
-                This API is designed for:
-              </p>
-              <ul className="list-disc list-inside text-gray-600 mb-4">
-                <li>Simple, direct access to model artifacts and metadata</li>
-                <li>Integration with tools and scripts in any programming language</li>
-                <li>Stateless operations that don't require persistent connections</li>
-                <li>Browser-based direct downloads and file access</li>
-                <li>Compatibility with standard HTTP tools and libraries</li>
-              </ul>
-              <p className="text-gray-600 mb-4">
-                All endpoints follow REST conventions and return JSON responses (except for file downloads). 
-                The API uses standard HTTP methods (GET, POST, PUT, DELETE) and status codes.
-              </p>
-              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
-                <p className="text-sm text-blue-700">
-                  <strong>Authentication:</strong> For endpoints requiring authentication, 
-                  include your API token in the Authorization header: 
-                  <code className="ml-2 px-2 py-1 bg-blue-100 rounded">Authorization: Bearer your-token-here</code>
-                </p>
-              </div>
-            </div>
-          </div>
+            {/* 1. List all models */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">1️⃣ List All Models</h3>
+              <p className="text-gray-600 mb-3">Get a list of all available models in the BioImage Model Zoo:</p>
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+                  {activeLanguageTab === 'curl' ? 
+`# List first 10 models
+curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10"
 
-          <div className="mb-4">
-            <p className="text-gray-600 mb-4">
-              <strong>Note:</strong> <code>&lt;artifact_alias&gt;</code> is the last part of the artifact ID (e.g., "affable-shark"), while the full <code>&lt;artifact_id&gt;</code> includes the workspace (e.g., "bioimage-io/affable-shark").
-            </p>
-          </div>
+# With search filter
+curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation&limit=5"` :
+                  activeLanguageTab === 'python' ?
+`import requests
 
-          {/* HTTP Endpoints */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Get Artifact Metadata</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600">
-              Retrieves metadata, manifest, and configuration for a specific artifact.
-            </p>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong>
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Query Parameters:</strong>
-            </p>
-            <ul className="list-disc list-inside text-gray-600 ml-4">
-              <li><code>version</code> (optional): Specific version to retrieve (defaults to latest)</li>
-              <li><code>silent</code> (optional): If true, doesn't increment view count</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">List Child Artifacts</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/children`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600">
-              Lists all child artifacts of a specified parent artifact.
-            </p>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong>
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Query Parameters:</strong>
-            </p>
-            <ul className="list-disc list-inside text-gray-600 ml-4">
-              <li><code>keywords</code> (optional): Comma-separated search terms</li>
-              <li><code>filters</code> (optional): JSON-encoded filter criteria</li>
-              <li><code>offset</code> (optional): Pagination offset (default: 0)</li>
-              <li><code>limit</code> (optional): Maximum number of results (default: 100)</li>
-              <li><code>order_by</code> (optional): Field to sort by</li>
-              <li><code>pagination</code> (optional): Whether to return pagination metadata</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Download Artifact Files</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/files/<path>`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600">
-              Retrieves a specific file from an artifact or lists files in a directory.
-            </p>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong>
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Query Parameters:</strong>
-            </p>
-            <ul className="list-disc list-inside text-gray-600 ml-4">
-              <li><code>version</code> (optional): Specific version to retrieve</li>
-              <li><code>silent</code> (optional): If true, doesn't increment download count</li>
-              <li><code>use_proxy</code> (optional): If true, serves file through API proxy instead of redirecting (to s3)</li>
-              <li><code>token</code> (optional): Authentication token for private artifacts</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Download Artifact as ZIP</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/create-zip-file`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600">
-              Creates and downloads a ZIP file containing all or selected files from an artifact.
-            </p>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong>
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Query Parameters:</strong>
-            </p>
-            <ul className="list-disc list-inside text-gray-600 ml-4">
-              <li><code>file</code> (optional, repeatable): Specific files to include in the ZIP</li>
-              <li><code>version</code> (optional): Specific version to download</li>
-              <li><code>token</code> (optional): Authentication token for private artifacts</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Access Files Inside ZIP Archives</h3>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/artifacts/<artifact_alias>/zip-files/<zip_file_path>`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600">
-              Extracts and serves content from a ZIP file stored in an artifact without downloading the entire archive.
-            </p>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong>
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                GET https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/zip-files/model.zip
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Query Parameters:</strong>
-            </p>
-            <ul className="list-disc list-inside text-gray-600 ml-4">
-              <li><code>path</code> (optional): Path to a specific file within the ZIP</li>
-              <li><code>version</code> (optional): Specific artifact version</li>
-              <li><code>token</code> (optional): Authentication token for private artifacts</li>
-            </ul>
-          </div>
-
-          {/* Add new section for HTTP Service Endpoints */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">HTTP Service Endpoints</h3>
-            <p className="text-gray-600 mb-4">
-              Every Hypha service method is also accessible via HTTP endpoints. You can convert any Hypha RPC method call to an HTTP request using the following pattern:
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="bash" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`GET https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>?param1=value1&param2=value2
-# OR for complex parameters
-POST https://hypha.aicell.io/<workspace>/services/<service_id>/<method_name>
-Content-Type: application/json
-
-{
-    "param1": "value1",
-    "param2": "value2"
-}`}
-              </SyntaxHighlighter>
-            </div>
-            <p className="text-gray-600 mt-2">
-              <strong>Example:</strong> Converting Hypha RPC calls to HTTP endpoints
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-2">
-              <SyntaxHighlighter 
-                language="python" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`# Hypha RPC call:
-models = await artifact_manager.list(
-    parent_id="bioimage-io/bioimage.io",
-    limit=10
+# List first 10 models
+response = requests.get(
+    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    params={"limit": 10}
 )
+models = response.json()
 
-# Equivalent HTTP GET request:
-GET https://hypha.aicell.io/public/services/artifact-manager/list?parent_id=bioimage-io/bioimage.io&limit=10
-
-# OR HTTP POST request:
-POST https://hypha.aicell.io/public/services/artifact-manager/list
-Content-Type: application/json
-
-{
-    "parent_id": "bioimage-io/bioimage.io",
-    "limit": 10
-}`}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-
-          {/* Add Available Service Endpoints section */}
-          <div className="mt-8">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Available Service Endpoints</h3>
-            <p className="text-gray-600 mb-4">
-              The following endpoints are available through the artifact-manager service at <code>/public/services/artifact-manager/</code>:
-            </p>
-
-            <div className="space-y-6">
-              <div>
-                <h4 className="text-md font-medium text-gray-900 mb-2">Artifact Management</h4>
-                <ul className="list-disc list-inside text-gray-600 space-y-4">
-                  <li>
-                    <code>create</code>
-                    <p className="ml-6 mt-1">Creates a new artifact. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>alias (optional): Custom identifier for the artifact</li>
-                      <li>workspace: Target workspace</li>
-                      <li>parent_id (optional): ID of the parent artifact</li>
-                      <li>manifest: Artifact metadata and configuration</li>
-                      <li>type: Artifact type (e.g., "model", "generic")</li>
-                      <li>config (optional): Additional configuration</li>
-                      <li>version (optional): Version identifier</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Artifact object containing ID, manifest, config, and other metadata</p>
-                  </li>
-                  <li>
-                    <code>read</code>
-                    <p className="ml-6 mt-1">Retrieves artifact details. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: ID of the artifact to read</li>
-                      <li>silent (optional): Don't increment view count</li>
-                      <li>version (optional): Specific version to retrieve</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Complete artifact object including manifest, config, and version history</p>
-                  </li>
-                  <li>
-                    <code>edit</code>
-                    <p className="ml-6 mt-1">Updates an existing artifact. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: ID of the artifact to edit</li>
-                      <li>manifest (optional): Updated metadata</li>
-                      <li>type (optional): New artifact type</li>
-                      <li>config (optional): Updated configuration</li>
-                      <li>version (optional): Version to update</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Updated artifact object with new values</p>
-                  </li>
-                  <li>
-                    <code>delete</code>
-                    <p className="ml-6 mt-1">Removes an artifact. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: ID of the artifact to delete</li>
-                      <li>delete_files (optional): Whether to delete associated files</li>
-                      <li>recursive (optional): Delete child artifacts</li>
-                      <li>version (optional): Specific version to delete</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="text-md font-medium text-gray-900 mb-2">File Operations</h4>
-                <ul className="list-disc list-inside text-gray-600 space-y-4">
-                  <li>
-                    <code>put_file</code>
-                    <p className="ml-6 mt-1">Generates upload URL for a file. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                      <li>file_path: Path for the file</li>
-                      <li>download_weight (optional): Weight for download count</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Pre-signed URL for uploading the file</p>
-                  </li>
-                  <li>
-                    <code>get_file</code>
-                    <p className="ml-6 mt-1">Generates download URL for a file. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Source artifact ID</li>
-                      <li>file_path: Path to the file</li>
-                      <li>silent (optional): Don't increment download count</li>
-                      <li>version (optional): Specific version to retrieve</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Pre-signed URL for downloading the file</p>
-                  </li>
-                  <li>
-                    <code>list_files</code>
-                    <p className="ml-6 mt-1">Lists files in an artifact. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                      <li>dir_path (optional): Directory to list</li>
-                      <li>limit (optional): Maximum number of files to list</li>
-                      <li>version (optional): Specific version to list</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of file objects containing name, type (file/directory), size, and last modified date</p>
-                  </li>
-                  <li>
-                    <code>remove_file</code>
-                    <p className="ml-6 mt-1">Removes a file from an artifact. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                      <li>file_path: Path to the file to remove</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="text-md font-medium text-gray-900 mb-2">Vector Operations</h4>
-                <ul className="list-disc list-inside text-gray-600 space-y-4">
-                  <li>
-                    <code>add_vectors</code>
-                    <p className="ml-6 mt-1">Adds vectors to a collection. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target vector collection ID</li>
-                      <li>vectors: List of vectors to add</li>
-                      <li>update (optional): Whether to update existing vectors</li>
-                      <li>embedding_models (optional): Models for embedding</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
-                  </li>
-                  <li>
-                    <code>search_vectors</code>
-                    <p className="ml-6 mt-1">Searches vectors in a collection. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Vector collection ID</li>
-                      <li>query: Search query</li>
-                      <li>filters (optional): Search filters</li>
-                      <li>limit (optional): Maximum results</li>
-                      <li>offset (optional): Results offset</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of matching vectors with similarity scores</p>
-                  </li>
-                  <li>
-                    <code>list_vectors</code>
-                    <p className="ml-6 mt-1">Lists vectors in a collection. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Vector collection ID</li>
-                      <li>offset (optional): Starting offset</li>
-                      <li>limit (optional): Maximum results</li>
-                      <li>return_fields (optional): Fields to return</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of vectors with specified fields</p>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="text-md font-medium text-gray-900 mb-2">Other Operations</h4>
-                <ul className="list-disc list-inside text-gray-600 space-y-4">
-                  <li>
-                    <code>list</code>
-                    <p className="ml-6 mt-1">Lists child artifacts. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>parent_id (optional): Parent artifact ID</li>
-                      <li>keywords (optional): Search keywords</li>
-                      <li>filters (optional): Filter criteria</li>
-                      <li>limit (optional): Maximum results</li>
-                      <li>offset (optional): Results offset</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Array of artifact objects, or if pagination=true, an object containing items array, total count, offset, and limit</p>
-                  </li>
-                  <li>
-                    <code>commit</code>
-                    <p className="ml-6 mt-1">Commits staged changes. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                      <li>version (optional): Version to commit</li>
-                      <li>comment (optional): Commit message</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Updated artifact object with committed changes</p>
-                  </li>
-                  <li>
-                    <code>publish</code>
-                    <p className="ml-6 mt-1">Publishes artifact to external service. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                      <li>to (optional): Target service (e.g., "zenodo")</li>
-                      <li>metadata (optional): Additional metadata</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: Publication record from the external service (e.g., Zenodo record)</p>
-                  </li>
-                  <li>
-                    <code>reset_stats</code>
-                    <p className="ml-6 mt-1">Resets artifact statistics. Parameters:</p>
-                    <ul className="list-disc list-inside ml-8">
-                      <li>artifact_id: Target artifact ID</li>
-                    </ul>
-                    <p className="ml-6 mt-1 text-gray-500">Returns: None</p>
-                  </li>
-                </ul>
+# Print model names
+for model in models:
+    print(f"- {model['alias']}: {model['manifest'].get('name', 'N/A')}")` :
+`// List first 10 models
+fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10')
+  .then(res => res.json())
+  .then(models => {
+    models.forEach(model => {
+      console.log(\`- \${model.alias}: \${model.manifest.name || 'N/A'}\`);
+    });
+  });`}
+                </SyntaxHighlighter>
               </div>
             </div>
 
-            <div className="mt-6 bg-yellow-50 border-l-4 border-yellow-400 p-4">
-              <p className="text-sm text-yellow-700">
-                <strong>Note:</strong> All endpoints require authentication via the <code>Authorization</code> header. 
-                Some endpoints may have additional parameters not listed here. Refer to the API response messages for 
-                detailed error information and requirements.
-              </p>
-            </div>
-          </div>
+            {/* 2. Get model details */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">2️⃣ Get Model Details</h3>
+              <p className="text-gray-600 mb-3">Retrieve complete information about a specific model:</p>
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+                  {activeLanguageTab === 'curl' ? 
+`# Get model metadata
+curl "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark"
 
-          {/* Python Examples section continues... */}
-          <div className="mt-8">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Python Examples Using Requests</h3>
-            <p className="text-gray-600 mb-4">
-              Here are complete examples showing how to interact with the API using Python's requests library:
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <SyntaxHighlighter 
-                language="python" 
-                style={vs}
-                customStyle={{
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  background: '#f9fafb'
-                }}
-              >
-                {`import requests
+# Pretty print with jq (if installed)
+curl -s "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark" | jq .` :
+                  activeLanguageTab === 'python' ?
+`import requests
 import json
 
-# Base URL for the API
-BASE_URL = "https://hypha.aicell.io"
-API_TOKEN = "your-api-token-here"
+# Get model details
+response = requests.get(
+    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark"
+)
+model = response.json()
 
-# Headers for authentication
+# Display key information
+print(f"Name: {model['manifest']['name']}")
+print(f"Description: {model['manifest']['description']}")
+print(f"Authors: {', '.join([a['name'] for a in model['manifest']['authors']])}")
+print(f"Tags: {', '.join(model['manifest'].get('tags', []))}")` :
+`// Get model details
+fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark')
+  .then(res => res.json())
+  .then(model => {
+    console.log('Name:', model.manifest.name);
+    console.log('Description:', model.manifest.description);
+    console.log('Authors:', model.manifest.authors.map(a => a.name).join(', '));
+    console.log('Tags:', model.manifest.tags?.join(', ') || 'None');
+  });`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+
+            {/* 3. List model files */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">3️⃣ List Model Files</h3>
+              <p className="text-gray-600 mb-3">See all files included in a model:</p>
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+                  {activeLanguageTab === 'curl' ? 
+`# List all files in a model
+curl "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/"` :
+                  activeLanguageTab === 'python' ?
+`import requests
+
+# List model files
+response = requests.get(
+    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/"
+)
+files = response.json()
+
+# Display files with sizes
+for file in files:
+    size_mb = file['size'] / (1024 * 1024)
+    print(f"{file['name']}: {size_mb:.2f} MB")` :
+`// List model files
+fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/')
+  .then(res => res.json())
+  .then(files => {
+    files.forEach(file => {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      console.log(\`\${file.name}: \${sizeMB} MB\`);
+    });
+  });`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+
+            {/* 4. Download model files */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">4️⃣ Download Model Files</h3>
+              <p className="text-gray-600 mb-3">Download specific files or the entire model as a ZIP:</p>
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+                  {activeLanguageTab === 'curl' ? 
+`# Download a specific file
+curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml"
+
+# Download model weights
+curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/weights.pt"
+
+# Download entire model as ZIP
+curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file"` :
+                  activeLanguageTab === 'python' ?
+`import requests
+
+# Download a specific file
+def download_file(url, filename):
+    response = requests.get(url, stream=True)
+    with open(filename, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+    print(f"Downloaded: {filename}")
+
+# Download model specification
+download_file(
+    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml",
+    "rdf.yaml"
+)
+
+# Download entire model as ZIP
+download_file(
+    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file",
+    "model.zip"
+)` :
+`// Download a file using fetch
+async function downloadFile(url, filename) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  
+  // Create download link
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+// Download model specification
+downloadFile(
+  'https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml',
+  'rdf.yaml'
+);
+
+// Download entire model as ZIP
+downloadFile(
+  'https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file',
+  'model.zip'
+);`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+
+            {/* 5. Search models */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">5️⃣ Search Models</h3>
+              <p className="text-gray-600 mb-3">Search for models using keywords and filters:</p>
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+                  {activeLanguageTab === 'curl' ? 
+`# Search by keywords
+curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation,unet&limit=5"
+
+# Search with filters (URL-encoded JSON)
+curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?filters=%7B%22type%22%3A%22model%22%7D&limit=10"
+
+# Pagination
+curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?offset=10&limit=10"` :
+                  activeLanguageTab === 'python' ?
+`import requests
+import json
+
+# Search by keywords
+response = requests.get(
+    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    params={
+        "keywords": "segmentation,unet",
+        "limit": 5
+    }
+)
+results = response.json()
+
+# Search with filters
+response = requests.get(
+    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    params={
+        "filters": json.dumps({"type": "model"}),
+        "limit": 10
+    }
+)
+
+# Display results
+for model in response.json():
+    print(f"- {model['alias']}: {model['manifest'].get('name', 'N/A')}")` :
+`// Search by keywords
+fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?' + 
+      new URLSearchParams({
+        keywords: 'segmentation,unet',
+        limit: 5
+      }))
+  .then(res => res.json())
+  .then(results => {
+    results.forEach(model => {
+      console.log(\`- \${model.alias}: \${model.manifest.name || 'N/A'}\`);
+    });
+  });
+
+// Search with filters
+const filters = JSON.stringify({ type: 'model' });
+fetch(\`https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?filters=\${encodeURIComponent(filters)}&limit=10\`)
+  .then(res => res.json())
+  .then(console.log);`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+          </div>
+
+          {/* Upload Models Section */}
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">📤 Managing Models</h2>
+            
+            {/* Create New Model */}
+            <div className="mb-8">
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Create and Upload a New Model</h3>
+              <p className="text-gray-600 mb-4">
+                Models are created as staged versions first, then committed when ready:
+              </p>
+              
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language="python"
+                  style={vscDarkPlus}
+                  showLineNumbers={true}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+{`import requests
+import json
+
+# Configuration
+API_TOKEN = "your-api-token-here"  # Generate from the token section above
+BASE_URL = "https://hypha.aicell.io"
+
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",
     "Content-Type": "application/json"
 }
 
-def download_model_files():
-    """Example: Download model files"""
-    # List available models
-    response = requests.get(
-        f"{BASE_URL}/public/services/artifact-manager/list",
-        params={
-            "parent_id": "bioimage-io/bioimage.io",
-            "limit": 10
-        },
-        headers=headers
-    )
-    models = response.json()
-    print("Available models:", json.dumps(models, indent=2))
-
-    # Get model details
-    model_id = "bioimage-io/affable-shark"
-    response = requests.get(
-        f"{BASE_URL}/public/services/artifact-manager/read",
-        params={"artifact_id": model_id},
-        headers=headers
-    )
-    model = response.json()
-    print("Model details:", json.dumps(model, indent=2))
-
-    # Download a specific file
-    file_path = "weights.pt"
-    response = requests.get(
-        f"{BASE_URL}/public/services/artifact-manager/get_file",
-        params={
-            "artifact_id": model_id,
-            "file_path": file_path
-        },
-        headers=headers
-    )
-    download_url = response.json()
-    
-    # Download the file
-    response = requests.get(download_url)
-    with open(file_path, "wb") as f:
-        f.write(response.content)
-    print(f"Downloaded {file_path}")
-
-def upload_model():
-    """Example: Upload a new model"""
-    # Create model manifest
+def upload_new_model():
+    # Step 1: Create model metadata
     model_manifest = {
-        "type": "model",
-        "name": "My test model",
-        "description": "This is a test model",
-        "tags": ["test", "model"],
-        "status": "request-review"
+        "name": "My Segmentation Model",
+        "description": "U-Net model for cell segmentation",
+        "authors": [{"name": "Your Name"}],
+        "tags": ["segmentation", "cell", "unet"],
+        "license": "MIT",
+        "documentation": "# My Model\\n\\nThis model segments cells...",
+        "covers": ["cover.png"],
     }
 
-    # Create new model
+    # Step 2: Create the model artifact as staged version
     response = requests.post(
         f"{BASE_URL}/public/services/artifact-manager/create",
         json={
             "parent_id": "bioimage-io/bioimage.io",
-            "alias": "{animal_adjective}-{animal}",
             "type": "model",
             "manifest": model_manifest,
-            "config": {"publish_to": "sandbox_zenodo"},
-            "version": "stage"
+            "alias": "{animal_adjective}-{animal}",  # Auto-generate a name
+            "stage": True  # Create as staged version
         },
         headers=headers
     )
-    new_model = response.json()
-    model_id = new_model["id"]
-    print(f"Created model with ID: {model_id}")
-
-    # Get upload URL for a file
+    
+    if response.status_code != 200:
+        print(f"Error creating model: {response.text}")
+        return
+    
+    model = response.json()
+    model_id = model["id"]
+    print(f"✅ Created staged model: {model_id}")
+    
+    # Step 3: Upload files
+    files_to_upload = [
+        ("weights.pt", "path/to/your/weights.pt"),
+        ("cover.png", "path/to/your/cover.png"),
+        ("rdf.yaml", "path/to/your/rdf.yaml")
+    ]
+    
+    for file_name, local_path in files_to_upload:
+        # Get upload URL
+        response = requests.post(
+            f"{BASE_URL}/public/services/artifact-manager/put_file",
+            json={
+                "artifact_id": model_id,
+                "file_path": file_name
+            },
+            headers=headers
+        )
+        upload_url = response.json()
+        
+        # Upload the file
+        with open(local_path, "rb") as f:
+            response = requests.put(
+                upload_url,
+                data=f,
+                headers={"Content-Type": ""}  # Important for S3
+            )
+        print(f"✅ Uploaded: {file_name}")
+    
+    # Step 4: Commit the staged version
     response = requests.post(
-        f"{BASE_URL}/public/services/artifact-manager/put_file",
+        f"{BASE_URL}/public/services/artifact-manager/commit",
         json={
             "artifact_id": model_id,
-            "file_path": "weights.pt"
+            "comment": "Initial model release"
         },
         headers=headers
     )
-    upload_url = response.json()
-
-    # Upload file to the provided URL
-    with open("path/to/your/weights.pt", "rb") as f:
-        response = requests.put(
-            upload_url,
-            data=f,
-            headers={"Content-Type": ""}  # Important for S3 uploads
+    
+    if response.status_code == 200:
+        print(f"✅ Model committed successfully!")
+        
+        # Step 5: Request review (optional)
+        model_manifest["status"] = "request-review"
+        response = requests.post(
+            f"{BASE_URL}/public/services/artifact-manager/edit",
+            json={
+                "artifact_id": model_id,
+                "manifest": model_manifest
+            },
+            headers=headers
         )
-    print("File uploaded successfully")
+        print(f"✅ Model ready for review: {model_id}")
+        print(f"View at: https://bioimage.io/#/p/{model_id}")
 
-    # Update model status
-    model_manifest["status"] = "request-review"
+if __name__ == "__main__":
+    upload_new_model()`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+
+            {/* Edit Existing Model */}
+            <div className="mb-8">
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Edit an Existing Model In-Place</h3>
+              <p className="text-gray-600 mb-4">
+                Update metadata or files of an existing model without creating a new version:
+              </p>
+              
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language="python"
+                  style={vscDarkPlus}
+                  showLineNumbers={true}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+{`def edit_existing_model(model_id):
+    # Step 1: Get current model details
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/read",
+        json={"artifact_id": model_id},
+        headers=headers
+    )
+    current_model = response.json()
+    
+    # Step 2: Update metadata
+    updated_manifest = current_model["manifest"]
+    updated_manifest["description"] = "Updated description"
+    updated_manifest["tags"].append("new-tag")
+    
+    # Step 3: Apply edits to staged version
     response = requests.post(
         f"{BASE_URL}/public/services/artifact-manager/edit",
         json={
             "artifact_id": model_id,
-            "version": "stage",
-            "manifest": model_manifest
+            "manifest": updated_manifest,
+            "stage": True  # Edit as staged version
         },
         headers=headers
     )
-    print("Model status updated to request-review")
+    
+    # Step 4: Replace or add files (optional)
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/put_file",
+        json={
+            "artifact_id": model_id,
+            "file_path": "weights_v2.pt"  # New or replacement file
+        },
+        headers=headers
+    )
+    upload_url = response.json()
+    
+    with open("path/to/new/weights.pt", "rb") as f:
+        requests.put(upload_url, data=f, headers={"Content-Type": ""})
+    
+    # Step 5: Commit the changes
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/commit",
+        json={
+            "artifact_id": model_id,
+            "comment": "Updated model weights and metadata"
+        },
+        headers=headers
+    )
+    
+    print(f"✅ Model {model_id} updated successfully!")`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+
+            {/* Create New Version */}
+            <div className="mb-8">
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Create a New Version of a Model</h3>
+              <p className="text-gray-600 mb-4">
+                Create a new version while preserving the previous version:
+              </p>
+              
+              <div className="bg-gray-900 rounded-lg overflow-hidden">
+                <SyntaxHighlighter 
+                  language="python"
+                  style={vscDarkPlus}
+                  showLineNumbers={true}
+                  customStyle={{
+                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                    fontSize: '14px',
+                    background: '#111827',
+                    padding: '1.5rem',
+                    margin: 0,
+                    borderRadius: '0.5rem'
+                  }}
+                >
+{`def create_new_version(model_id, version_name="v2"):
+    # Step 1: Read current model
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/read",
+        json={"artifact_id": model_id},
+        headers=headers
+    )
+    current_model = response.json()
+    
+    # Step 2: Create staged version with updated manifest
+    updated_manifest = current_model["manifest"]
+    updated_manifest["version"] = version_name
+    updated_manifest["description"] += f" - Version {version_name}"
+    
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/edit",
+        json={
+            "artifact_id": model_id,
+            "manifest": updated_manifest,
+            "version": version_name,  # Specify new version
+            "stage": True
+        },
+        headers=headers
+    )
+    
+    # Step 3: Upload new version files
+    files_to_upload = [
+        ("weights_v2.pt", "path/to/new/weights.pt"),
+        ("changelog.md", "path/to/changelog.md")
+    ]
+    
+    for file_name, local_path in files_to_upload:
+        response = requests.post(
+            f"{BASE_URL}/public/services/artifact-manager/put_file",
+            json={
+                "artifact_id": model_id,
+                "file_path": file_name
+            },
+            headers=headers
+        )
+        upload_url = response.json()
+        
+        with open(local_path, "rb") as f:
+            requests.put(upload_url, data=f, headers={"Content-Type": ""})
+    
+    # Step 4: Commit the new version
+    response = requests.post(
+        f"{BASE_URL}/public/services/artifact-manager/commit",
+        json={
+            "artifact_id": model_id,
+            "version": version_name,
+            "comment": f"Release version {version_name}"
+        },
+        headers=headers
+    )
+    
+    print(f"✅ New version {version_name} created for {model_id}")`}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* API Reference Tab */}
+      {activeMainTab === 'api-reference' && (
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">📖 API Reference</h2>
+            <p className="text-gray-600 mb-6">
+              Complete reference for all HTTP endpoints and service methods available in the BioImage Model Zoo API.
+            </p>
+          </div>
+
+          {/* HTTP Endpoints */}
+          <div>
+            <h3 className="text-xl font-medium text-gray-900 mb-4">HTTP REST Endpoints</h3>
+            
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+              <p className="text-sm text-blue-700">
+                <strong>Authentication:</strong> For protected endpoints, include your API token in the Authorization header:
+                <code className="ml-2 px-2 py-1 bg-blue-100 rounded">Authorization: Bearer your-token-here</code>
+              </p>
+            </div>
+
+            <div className="space-y-6">
+              {/* Artifact Operations */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Artifact Operations</h4>
+                
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <code className="text-sm font-mono">/&lt;workspace&gt;/artifacts/&lt;artifact_alias&gt;</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Get artifact metadata and manifest</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Default</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">latest</td>
+                              <td className="p-1">Specific version to retrieve</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>silent</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1">false</td>
+                              <td className="p-1">Don't increment view count</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1">false</td>
+                              <td className="p-1">Get staged version</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <code className="text-sm font-mono">/&lt;workspace&gt;/artifacts/&lt;artifact_alias&gt;/children</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">List child artifacts</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Default</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>keywords</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">-</td>
+                              <td className="p-1">Comma-separated search terms</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>filters</code></td>
+                              <td className="p-1">JSON</td>
+                              <td className="p-1">-</td>
+                              <td className="p-1">Filter criteria (e.g., {`{"type":"model"}`})</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>offset</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1">0</td>
+                              <td className="p-1">Skip first N results</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>limit</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1">100</td>
+                              <td className="p-1">Maximum results (max: 1000)</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>order_by</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">-</td>
+                              <td className="p-1">Sort field: created, downloads, views</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>mode</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">AND</td>
+                              <td className="p-1">Search mode: AND or OR</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">false</td>
+                              <td className="p-1">"true", "false", or "all"</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <code className="text-sm font-mono">/&lt;workspace&gt;/artifacts/&lt;artifact_alias&gt;/files/&lt;path&gt;</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Download or list files</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Default</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">latest</td>
+                              <td className="p-1">Specific version</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>silent</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1">false</td>
+                              <td className="p-1">Don't increment download count</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>use_proxy</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1">auto</td>
+                              <td className="p-1">Serve through API proxy</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1">false</td>
+                              <td className="p-1">Get staged version</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>expires_in</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1">3600</td>
+                              <td className="p-1">URL expiration in seconds</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <code className="text-sm font-mono">/&lt;workspace&gt;/artifacts/&lt;artifact_alias&gt;/create-zip-file</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Download artifact as ZIP</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Default</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>file</code></td>
+                              <td className="p-1">string[]</td>
+                              <td className="p-1">all</td>
+                              <td className="p-1">Specific files to include (repeatable)</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">latest</td>
+                              <td className="p-1">Specific version</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </div>
+
+              {/* Service Endpoints */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Service Endpoints</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  All Artifact Manager methods are accessible via HTTP at:
+                  <code className="ml-2 px-2 py-1 bg-gray-100 rounded">/public/services/artifact-manager/&lt;method&gt;</code>
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/create</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Create new artifact</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>parent_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Parent collection ID</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>type</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">model | dataset | application | collection</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>manifest</code></td>
+                              <td className="p-1">object</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Metadata (name, description, authors)</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>alias</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Custom ID or pattern</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>config</code></td>
+                              <td className="p-1">object</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Additional configuration</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Version or "draft"/"stage"</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Create as staged version</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>overwrite</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Replace if exists</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/read</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Get artifact details</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Artifact identifier</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>silent</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Don't increment view count</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Specific version</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Get staged version</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/edit</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Update artifact</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Artifact identifier</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>manifest</code></td>
+                              <td className="p-1">object</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Updated metadata</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>config</code></td>
+                              <td className="p-1">object</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Updated configuration</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Version to edit</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Edit staged version</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-red-100 text-red-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/delete</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Delete artifact</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Artifact identifier</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>delete_files</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Also delete S3 files</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>recursive</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Delete child artifacts</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Specific version to delete</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/list_children</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">List child artifacts</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>parent_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Parent artifact ID</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>keywords</code></td>
+                              <td className="p-1">string[]</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Search keywords</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>filters</code></td>
+                              <td className="p-1">object</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Filter criteria</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>mode</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">"AND" or "OR" (default: AND)</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>offset</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Skip first N results</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>limit</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Max results (default: 100)</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>order_by</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Sort field</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">bool/string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">true, false, or "all"</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/put_file</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Get upload URL for file</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Target artifact ID</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>file_path</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">File path/name</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>download_weight</code></td>
+                              <td className="p-1">float</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Weight for stats (default: 0)</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>expires_in</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">URL expiration (default: 3600)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/get_file</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">Get download URL for file</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Source artifact ID</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>file_path</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">File path/name</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>silent</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Don't track download</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Specific version</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Get staged version</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>expires_in</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">URL expiration (default: 3600)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">GET</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">POST</span>
+                      <code className="text-sm font-mono">/public/services/artifact-manager/list_files</code>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-12">List files in artifact</p>
+                    <details className="ml-12 mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">Parameters</summary>
+                      <div className="mt-2 bg-gray-50 p-3 rounded">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left font-medium p-1">Parameter</th>
+                              <th className="text-left font-medium p-1">Type</th>
+                              <th className="text-left font-medium p-1">Required</th>
+                              <th className="text-left font-medium p-1">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600">
+                            <tr className="border-b">
+                              <td className="p-1"><code>artifact_id</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1">✓</td>
+                              <td className="p-1">Artifact identifier</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>dir_path</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Directory path</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>limit</code></td>
+                              <td className="p-1">integer</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Max files (default: 1000)</td>
+                            </tr>
+                            <tr className="border-b">
+                              <td className="p-1"><code>version</code></td>
+                              <td className="p-1">string</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">Specific version</td>
+                            </tr>
+                            <tr>
+                              <td className="p-1"><code>stage</code></td>
+                              <td className="p-1">boolean</td>
+                              <td className="p-1"></td>
+                              <td className="p-1">List staged files</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Method Documentation */}
+          <div>
+            <h3 className="text-xl font-medium text-gray-900 mb-4">Method Parameters</h3>
+            <p className="text-gray-600 mb-4">
+              Detailed parameter documentation for key service methods:
+            </p>
+
+            <div className="space-y-4">
+              {/* create method */}
+              <details className="border rounded-lg p-4">
+                <summary className="font-medium text-gray-900 cursor-pointer">
+                  create(parent_id, type, manifest, alias?, config?, version?)
+                </summary>
+                <div className="mt-4 space-y-2 text-sm">
+                  <p className="text-gray-600">Creates a new artifact in the collection.</p>
+                  <div className="bg-gray-50 rounded p-3 mt-3">
+                    <h5 className="font-medium mb-2">Parameters:</h5>
+                    <ul className="space-y-1 text-gray-600">
+                      <li><code className="font-mono">parent_id</code> - Parent collection ID (e.g., "bioimage-io/bioimage.io")</li>
+                      <li><code className="font-mono">type</code> - Artifact type: "model", "dataset", "application", or "collection"</li>
+                      <li><code className="font-mono">manifest</code> - Metadata object with name, description, authors, etc.</li>
+                      <li><code className="font-mono">alias</code> - Custom ID or pattern like <code>{`{animal_adjective}-{animal}`}</code></li>
+                      <li><code className="font-mono">config</code> - Additional configuration (e.g., publish_to settings)</li>
+                      <li><code className="font-mono">version</code> - Version identifier or "draft"/"stage"</li>
+                    </ul>
+                  </div>
+                </div>
+              </details>
+
+              {/* list method */}
+              <details className="border rounded-lg p-4">
+                <summary className="font-medium text-gray-900 cursor-pointer">
+                  list(parent_id?, keywords?, filters?, limit?, offset?, order_by?)
+                </summary>
+                <div className="mt-4 space-y-2 text-sm">
+                  <p className="text-gray-600">Lists and searches artifacts.</p>
+                  <div className="bg-gray-50 rounded p-3 mt-3">
+                    <h5 className="font-medium mb-2">Parameters:</h5>
+                    <ul className="space-y-1 text-gray-600">
+                      <li><code className="font-mono">parent_id</code> - Parent artifact to list children from</li>
+                      <li><code className="font-mono">keywords</code> - Comma-separated search terms</li>
+                      <li><code className="font-mono">filters</code> - JSON object with filter criteria</li>
+                      <li><code className="font-mono">limit</code> - Maximum results (default: 100)</li>
+                      <li><code className="font-mono">offset</code> - Skip first N results</li>
+                      <li><code className="font-mono">order_by</code> - Sort field (e.g., "created", "downloads")</li>
+                    </ul>
+                  </div>
+                </div>
+              </details>
+
+              {/* put_file method */}
+              <details className="border rounded-lg p-4">
+                <summary className="font-medium text-gray-900 cursor-pointer">
+                  put_file(artifact_id, file_path, download_weight?)
+                </summary>
+                <div className="mt-4 space-y-2 text-sm">
+                  <p className="text-gray-600">Gets a pre-signed URL for uploading a file.</p>
+                  <div className="bg-gray-50 rounded p-3 mt-3">
+                    <h5 className="font-medium mb-2">Parameters:</h5>
+                    <ul className="space-y-1 text-gray-600">
+                      <li><code className="font-mono">artifact_id</code> - Target artifact ID</li>
+                      <li><code className="font-mono">file_path</code> - Path/name for the file</li>
+                      <li><code className="font-mono">download_weight</code> - Weight for download statistics</li>
+                    </ul>
+                    <h5 className="font-medium mb-2 mt-3">Returns:</h5>
+                    <p className="text-gray-600">Pre-signed URL for PUT request to upload the file</p>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          {/* Full documentation link */}
+          <div className="bg-gray-50 border rounded-lg p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">📚 Complete Documentation</h3>
+            <p className="text-gray-600 mb-3">
+              For the complete Artifact Manager documentation including advanced features, vector operations, 
+              and publishing workflows, visit:
+            </p>
+            <a 
+              href="https://docs.amun.ai/#/artifact-manager" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              View Full Documentation →
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Hypha RPC Tab */}
+      {activeMainTab === 'hypha-rpc' && (
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">🔌 Hypha RPC Client</h2>
+            <p className="text-gray-600 mb-6">
+              The Hypha RPC client provides a more powerful, WebSocket-based interface for interacting with the BioImage Model Zoo. 
+              It offers real-time communication, better error handling, and native support for Python and JavaScript.
+            </p>
+            
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+              <h3 className="text-lg font-medium text-blue-800 mb-2">✨ Why Use Hypha RPC?</h3>
+              <ul className="list-disc list-inside text-blue-700 space-y-1">
+                <li>Persistent WebSocket connections for better performance</li>
+                <li>Automatic reconnection and session management</li>
+                <li>Type-safe method calls with better error messages</li>
+                <li>Support for large file transfers via WebRTC</li>
+                <li>Real-time updates and event subscriptions</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Installation */}
+          <div>
+            <h3 className="text-xl font-medium text-gray-900 mb-4">Installation</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-medium text-gray-700 mb-2">Python</h4>
+                <div className="bg-gray-900 rounded-lg overflow-hidden">
+                  <SyntaxHighlighter 
+                    language="bash"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                      fontSize: '14px',
+                      background: '#111827',
+                      padding: '1rem',
+                      margin: 0,
+                      borderRadius: '0.5rem'
+                    }}
+                  >
+                    {`pip install hypha-rpc`}
+                  </SyntaxHighlighter>
+                </div>
+              </div>
+              <div>
+                <h4 className="font-medium text-gray-700 mb-2">JavaScript</h4>
+                <div className="bg-gray-900 rounded-lg overflow-hidden">
+                  <SyntaxHighlighter 
+                    language="bash"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                      fontSize: '14px',
+                      background: '#111827',
+                      padding: '1rem',
+                      margin: 0,
+                      borderRadius: '0.5rem'
+                    }}
+                  >
+                    {`npm install hypha-rpc`}
+                  </SyntaxHighlighter>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Complete Examples */}
+          <div>
+            <h3 className="text-xl font-medium text-gray-900 mb-4">Complete Examples</h3>
+            
+            {/* Language tabs */}
+            <div className="border-b border-gray-200 mb-4">
+              <nav className="-mb-px flex space-x-6">
+                <button
+                  onClick={() => setActiveHyphaLanguageTab('python')}
+                  className={`${
+                    activeHyphaLanguageTab === 'python'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  } py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  Python
+                </button>
+                <button
+                  onClick={() => setActiveHyphaLanguageTab('javascript')}
+                  className={`${
+                    activeHyphaLanguageTab === 'javascript'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  } py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  JavaScript
+                </button>
+              </nav>
+            </div>
+
+            <div className="bg-gray-900 rounded-lg overflow-hidden">
+              <SyntaxHighlighter 
+                language={activeHyphaLanguageTab}
+                style={vscDarkPlus}
+                showLineNumbers={true}
+                customStyle={{
+                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                  fontSize: '14px',
+                  background: '#111827',
+                  padding: '1.5rem',
+                  margin: 0,
+                  borderRadius: '0.5rem'
+                }}
+              >
+                {activeHyphaLanguageTab === 'python' ? 
+`import asyncio
+from hypha_rpc import connect_to_server
+
+async def main():
+    # Connect to the Hypha server
+    server = await connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": "your-api-token"  # Optional, for authenticated access
+    })
+    
+    # Get the artifact manager service
+    artifact_manager = await server.get_service("public/artifact-manager")
+    
+    # List available models
+    models = await artifact_manager.list(
+        parent_id="bioimage-io/bioimage.io",
+        keywords="segmentation",
+        limit=5
+    )
+    
+    print(f"Found {len(models)} segmentation models:")
+    for model in models:
+        print(f"  - {model['alias']}: {model['manifest'].get('name', 'N/A')}")
+    
+    # Get details of a specific model
+    model = await artifact_manager.read(
+        artifact_id="bioimage-io/affable-shark"
+    )
+    print(f"\\nModel: {model['manifest']['name']}")
+    print(f"Description: {model['manifest']['description']}")
+    
+    # List files in the model
+    files = await artifact_manager.list_files(
+        artifact_id="bioimage-io/affable-shark"
+    )
+    print(f"\\nModel contains {len(files)} files")
+    
+    # Get download URL for a file
+    download_url = await artifact_manager.get_file(
+        artifact_id="bioimage-io/affable-shark",
+        file_path="weights.pt"
+    )
+    print(f"\\nDownload URL for weights: {download_url[:50]}...")
+    
+    # Create a new model (requires authentication)
+    new_model = await artifact_manager.create(
+        parent_id="bioimage-io/bioimage.io",
+        type="model",
+        manifest={
+            "name": "My Test Model",
+            "description": "A test model for demonstration",
+            "authors": [{"name": "Your Name"}],
+            "tags": ["test", "demo"]
+        },
+        alias="{animal_adjective}-{animal}",  # Auto-generate name
+        version="draft"
+    )
+    print(f"\\nCreated new model: {new_model['id']}")
+    
+    # Upload a file to the model
+    upload_url = await artifact_manager.put_file(
+        artifact_id=new_model['id'],
+        file_path="weights.pt"
+    )
+    print(f"Upload URL: {upload_url[:50]}...")
+    # Now use the upload_url with requests.put() to upload your file
 
 if __name__ == "__main__":
-    download_model_files()
-    upload_model()`}
+    asyncio.run(main())` :
+`import { hyphaWebsocketClient } from 'hypha-rpc';
+
+async function main() {
+    // Connect to the Hypha server
+    const server = await hyphaWebsocketClient.connectToServer({
+        server_url: "https://hypha.aicell.io",
+        token: "your-api-token"  // Optional, for authenticated access
+    });
+    
+    // Get the artifact manager service
+    // Note: case_conversion for automatic snake_case to camelCase conversion
+    const artifactManager = await server.getService(
+        "public/artifact-manager",
+        { case_conversion: "camel" }
+    );
+    
+    // List available models
+    // Note: _rkwargs ensures parameters are passed as keyword arguments
+    const models = await artifactManager.list({
+        parent_id: "bioimage-io/bioimage.io",
+        keywords: "segmentation",
+        limit: 5,
+        _rkwargs: true
+    });
+    
+    console.log(\`Found \${models.length} segmentation models:\`);
+    models.forEach(model => {
+        console.log(\`  - \${model.alias}: \${model.manifest.name || 'N/A'}\`);
+    });
+    
+    // Get details of a specific model
+    const model = await artifactManager.read({
+        artifact_id: "bioimage-io/affable-shark",
+        _rkwargs: true
+    });
+    console.log(\`\\nModel: \${model.manifest.name}\`);
+    console.log(\`Description: \${model.manifest.description}\`);
+    
+    // List files in the model
+    const files = await artifactManager.listFiles({
+        artifact_id: "bioimage-io/affable-shark",
+        _rkwargs: true
+    });
+    console.log(\`\\nModel contains \${files.length} files\`);
+    
+    // Get download URL for a file
+    const downloadUrl = await artifactManager.getFile({
+        artifact_id: "bioimage-io/affable-shark",
+        file_path: "weights.pt",
+        _rkwargs: true
+    });
+    console.log(\`\\nDownload URL: \${downloadUrl.substring(0, 50)}...\`);
+    
+    // Create a new model (requires authentication)
+    const newModel = await artifactManager.create({
+        parent_id: "bioimage-io/bioimage.io",
+        type: "model",
+        manifest: {
+            name: "My Test Model",
+            description: "A test model for demonstration",
+            authors: [{ name: "Your Name" }],
+            tags: ["test", "demo"]
+        },
+        alias: "{animal_adjective}-{animal}",  // Auto-generate name
+        version: "draft",
+        _rkwargs: true
+    });
+    console.log(\`\\nCreated new model: \${newModel.id}\`);
+    
+    // Upload a file to the model
+    const uploadUrl = await artifactManager.putFile({
+        artifact_id: newModel.id,
+        file_path: "weights.pt",
+        _rkwargs: true
+    });
+    console.log(\`Upload URL: \${uploadUrl.substring(0, 50)}...\`);
+    // Now use fetch with PUT method to upload your file
+}
+
+main().catch(console.error);`}
               </SyntaxHighlighter>
             </div>
+          </div>
+
+          {/* Important Notes */}
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+            <h3 className="text-lg font-medium text-yellow-800 mb-2">⚠️ Important Notes</h3>
+            <ul className="list-disc list-inside text-yellow-700 space-y-1 text-sm">
+              <li>JavaScript requires <code>case_conversion: "camel"</code> to convert Python's snake_case to camelCase</li>
+              <li>JavaScript requires <code>_rkwargs: true</code> in each method call for proper parameter passing</li>
+              <li>All methods return Promises and should be awaited</li>
+              <li>Error handling with try-catch blocks is recommended for production code</li>
+              <li>The WebSocket connection automatically reconnects on disconnection</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* FAQs Tab */}
+      {activeMainTab === 'faqs' && (
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">❓ Frequently Asked Questions</h2>
+          </div>
+
+          <div className="space-y-4">
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                What's the difference between HTTP API and Hypha RPC?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p className="mb-2">
+                  <strong>HTTP API</strong> is ideal for simple operations, one-time requests, and when you need compatibility 
+                  with any programming language or tool. It's stateless and uses standard REST conventions.
+                </p>
+                <p>
+                  <strong>Hypha RPC</strong> is better for complex applications, real-time updates, and when you need 
+                  persistent connections. It offers better performance for multiple operations and supports advanced 
+                  features like WebRTC file transfers.
+                </p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                How do I authenticate my API requests?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p className="mb-2">
+                  1. Generate an API token using the button in the "Generate API Token" section above (requires login)
+                </p>
+                <p className="mb-2">
+                  2. For HTTP requests, include the token in the Authorization header:
+                  <code className="block mt-1 p-2 bg-gray-100 rounded">Authorization: Bearer your-token-here</code>
+                </p>
+                <p>
+                  3. For Hypha RPC, pass the token when connecting:
+                  <code className="block mt-1 p-2 bg-gray-100 rounded">{`connect_to_server({"server_url": "...", "token": "your-token"})`}</code>
+                </p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                What are the naming patterns for new artifacts?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p className="mb-2">You can use auto-generated aliases with these patterns:</p>
+                <ul className="list-disc list-inside space-y-1 ml-4">
+                  <li><strong>Models:</strong> <code>{`{animal_adjective}-{animal}`}</code> (e.g., "affable-shark")</li>
+                  <li><strong>Applications:</strong> <code>{`{object_adjective}-{object}`}</code> (e.g., "shiny-hammer")</li>
+                  <li><strong>Datasets:</strong> <code>{`{fruit_adjective}-{fruit}`}</code> (e.g., "sweet-apple")</li>
+                </ul>
+                <p className="mt-2">Or provide your own custom alias that's unique within the workspace.</p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                How do I upload large files efficiently?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p className="mb-2">
+                  1. Use the <code>put_file</code> method to get a pre-signed upload URL
+                </p>
+                <p className="mb-2">
+                  2. Upload directly to the URL using PUT request (this goes directly to S3)
+                </p>
+                <p className="mb-2">
+                  3. For very large files, consider using multipart upload or WebRTC transfer via Hypha RPC
+                </p>
+                <p>
+                  4. Remember to set <code>Content-Type: ""</code> header when uploading to S3 URLs
+                </p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                What's the difference between "stage", and published versions?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <ul className="list-disc list-inside space-y-2">
+                  <li><strong>Stage:</strong> For review, can be tested but not yet public</li>
+                  <li><strong>Published:</strong> Final version, publicly available and immutable</li>
+                </ul>
+                <p className="mt-2">
+                  Use <code>version="draft"</code> when creating, then update status to "request-review" when ready.
+                </p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                How do I search for specific types of models?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p className="mb-2">Use the <code>keywords</code> and <code>filters</code> parameters:</p>
+                <div className="bg-gray-100 rounded p-3 mt-2">
+                  <code className="text-sm">
+                    {`// Search by keywords
+?keywords=segmentation,cell,unet
+
+// Filter by type
+?filters={"type":"model","tags":["3d"]}
+
+// Combine both
+?keywords=nucleus&filters={"format_version":"0.4.0"}`}
+                  </code>
+                </div>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                Can I access private/unpublished models?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p>
+                  Yes, if you have the appropriate permissions. You'll need to:
+                </p>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>Be authenticated with a valid API token</li>
+                  <li>Have been granted access by the model owner</li>
+                  <li>Include your token in all API requests</li>
+                </ul>
+                <p className="mt-2">
+                  Your own models in "draft" or "stage" status are always accessible to you when authenticated.
+                </p>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                What file formats are supported for models?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <p>The BioImage Model Zoo supports various formats including:</p>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>Model weights: .pt, .pth (PyTorch), .h5 (Keras/TensorFlow), .onnx, etc.</li>
+                  <li>Metadata: rdf.yaml (model specification)</li>
+                  <li>Documentation: .md files</li>
+                  <li>Images: .png, .jpg for covers and previews</li>
+                  <li>Sample data: .tif, .tiff, .npy, etc.</li>
+                </ul>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                How can I contribute a model to the zoo?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>Prepare your model following the bioimage.io specification</li>
+                  <li>Create an account and generate an API token</li>
+                  <li>Use the upload example in the "Getting Started" section to create your model</li>
+                  <li>Upload all required files (weights, rdf.yaml, cover image, etc.)</li>
+                  <li>Set status to "request-review" when ready</li>
+                  <li>The BioImage.io team will review and publish your model</li>
+                </ol>
+              </div>
+            </details>
+
+            <details className="border rounded-lg p-4">
+              <summary className="font-medium text-gray-900 cursor-pointer">
+                Where can I get help or report issues?
+              </summary>
+              <div className="mt-3 text-gray-600">
+                <ul className="list-disc list-inside space-y-2">
+                  <li>
+                    <strong>BioImage Model Zoo issues:</strong>{' '}
+                    <a href="https://github.com/bioimage-io/bioimage.io/issues" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                      GitHub Issues
+                    </a>
+                  </li>
+                  <li>
+                    <strong>API/Technical issues:</strong>{' '}
+                    <a href="https://github.com/amun-ai/hypha/issues" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                      Hypha GitHub Issues
+                    </a>
+                  </li>
+                  <li>
+                    <strong>Community forum:</strong>{' '}
+                    <a href="https://forum.image.sc/tag/bioimage-io" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                      Image.sc Forum
+                    </a>
+                  </li>
+                  <li>
+                    <strong>Documentation:</strong>{' '}
+                    <a href="https://docs.amun.ai" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                      Hypha Docs
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </details>
           </div>
         </div>
       )}
@@ -1293,4 +2184,4 @@ if __name__ == "__main__":
   );
 };
 
-export default ApiDocs; 
+export default ApiDocs;
