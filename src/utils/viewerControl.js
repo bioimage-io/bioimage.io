@@ -22,7 +22,11 @@ export class ImagejJsController {
     }
     if (fileName.endsWith(".npy")) {
       let nj = new npyjs();
-      const npyBuffer = await fetch(url).then((res) => res.arrayBuffer());
+      // Add cache-busting parameter to prevent service worker caching issues
+      const cacheBustUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+      const npyBuffer = await fetch(cacheBustUrl, {
+        cache: 'no-store' // Prevent caching
+      }).then((res) => res.arrayBuffer());
       const res = await nj.load(npyBuffer);
       const value = new Uint8Array(res.data.buffer.slice(res.data.byteOffset));
       const imjArr = {

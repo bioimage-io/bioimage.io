@@ -429,10 +429,13 @@ function getNpyDtype(buffer) {
 }
 
 export async function getNpyEndianness(url) {
-  const resp = await fetch(url, {
+  // Add cache-busting parameter to prevent service worker caching issues
+  const cacheBustUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+  const resp = await fetch(cacheBustUrl, {
     headers: {
       Range: "bytes=0-999",
     },
+    cache: 'no-store', // Prevent caching of partial response
   });
   if (!resp.ok) {
     console.error(resp);
