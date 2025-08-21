@@ -697,7 +697,7 @@ const ArtifactDetails = () => {
             sx={{ 
               position: 'relative',
               width: '100%',
-              mt: { xs: 1, sm: 2, md: 4 },
+              mt: "2px",
               mb: { xs: 1, sm: 2, md: 3 },
               borderRadius: { xs: '8px', sm: '12px', md: '16px' },
               overflow: 'hidden',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaContext } from '../HyphaContext';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ImagejJsController } from '../utils/viewerControl';
@@ -138,10 +138,11 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [buttonEnabledInput, setButtonEnabledInput] = useState<boolean>(false);
   const [buttonEnabledOutput, setButtonEnabledOutput] = useState<boolean>(false);
   const [modelInitialized, setModelInitialized] = useState<boolean>(false);
+  const initializingRef = useRef<boolean>(false);
 
   // Auto-initialize when component mounts
   useEffect(() => {
-    if (artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn && !isRunning && !isLoading) {
+    if (artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn && !isRunning && !isLoading && !initializingRef.current) {
       setupRunner();
     }
   }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn]);
@@ -208,7 +209,16 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     updateButtonStates(false, modelRunner);
     
     try {
-      await modelRunner.loadModel(modelId);
+      // Add timeout to prevent infinite waiting
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Model initialization timed out after 30 seconds')), 30000)
+      );
+      
+      await Promise.race([
+        modelRunner.loadModel(modelId),
+        timeoutPromise
+      ]);
+      
       // Update any model parameters if needed
       // This would be similar to the parametersStore.$patch in the Vue example
       
@@ -216,7 +226,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       updateButtonStates(true, modelRunner);
       setInfoPanel("");
     } catch (e) {
-      setInfoPanel(`Failed to load model ${modelId}.`, false, true);
+      const errorMessage = e instanceof Error ? e.message : `Failed to load model ${modelId}.`;
+      setInfoPanel(errorMessage, false, true);
       console.error(e);
     }
   };
@@ -305,6 +316,13 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       return;
     }
 
+    // Prevent multiple simultaneous initializations
+    if (initializingRef.current) {
+      console.log('Setup already in progress, skipping...');
+      return;
+    }
+    
+    initializingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -354,6 +372,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       
       setIsRunning(true);
       setIsLoading(false);
+      initializingRef.current = false;
       
       // Notify parent component if callback provided
       if (onRunStateChange) {
@@ -367,6 +386,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         : "Failed to setup the model runner. See console for details.";
       setInfoPanel(errorMessage, false, true);
       setIsLoading(false);
+      initializingRef.current = false;
     }
   };
 
