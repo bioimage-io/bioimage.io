@@ -816,7 +816,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               <div className="text-base font-medium">
                 {infoMessage || 
                   (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn 
-                    ? "Initializing model..." 
+                    ? "Initializing ImageJ.JS..." 
                     : !isLoggedIn 
                       ? "Please log in to use the model runner"
                       : !hyphaCoreAPI || !isHyphaCoreReady
