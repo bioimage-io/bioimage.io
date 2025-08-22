@@ -104,7 +104,7 @@ jobs:
           echo "| Test Type | Passed | Total | Rate |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|-------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| RDF Validation | $PASSED_RDF | $TOTAL_MODELS | ${RDF_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Model Test Run | $PASSED_MODEL | $TOTAL_MODELS | ${MODEL_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Model Test Run | $PASSED_INFERENCE | $TOTAL_MODELS | ${MODEL_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Reproduce Outputs | $PASSED_REPRODUCE | $TOTAL_MODELS | ${REPRODUCE_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
