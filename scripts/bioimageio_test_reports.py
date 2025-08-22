@@ -485,11 +485,6 @@ def analyze_test_results(
     return test_report
 
 
-def calculate_model_score(test_reports: List[Dict[str, Union[str, int]]]) -> int:
-    """Calculate score for a model based on passed tests (1 point per passed test)"""
-    return sum(1 for report in test_reports if report.get("status") == "passed")
-
-
 def create_test_reports_dict(
     test_reports: List[Dict[str, Union[str, int]]], execution_time: float
 ) -> Dict[str, Union[str, float, List]]:
@@ -499,84 +494,6 @@ def create_test_reports_dict(
         "execution_time": round(execution_time, 2),
         "reports": test_reports,
     }
-
-
-def analyze_existing_test_results(result_dir: Path) -> None:
-    """Analyze existing test results and output summary for GitHub Actions"""
-    if not result_dir.exists():
-        print("TOTAL_MODELS=0")
-        return
-
-    # Find all JSON files in the result directory
-    json_files = list(result_dir.glob("*.json"))
-
-    if not json_files:
-        print("TOTAL_MODELS=0")
-        return
-
-    total_models = len(json_files)
-    passed_rdf = 0
-    passed_model = 0
-    passed_reproduce = 0
-    total_score = 0
-    total_execution_time = 0
-
-    for json_file in json_files:
-        try:
-            with open(json_file, "r") as f:
-                test_result = json.load(f)
-
-            # Analyze the test result
-            test_reports = analyze_test_results(test_result)
-            model_score = calculate_model_score(test_reports)
-
-            # Count passed tests
-            if test_reports[0]["status"] == "passed":
-                passed_rdf += 1
-            if test_reports[1]["status"] == "passed":
-                passed_model += 1
-            if test_reports[2]["status"] == "passed":
-                passed_reproduce += 1
-
-            # Add to total score
-            total_score += model_score
-
-            # Try to extract execution time if available
-            if isinstance(test_result, dict) and "execution_time" in test_result:
-                total_execution_time += test_result["execution_time"]
-
-        except Exception as e:
-            print(f"Error processing {json_file}: {e}", file=sys.stderr)
-
-    # Calculate percentages
-    rdf_rate = round((passed_rdf / total_models) * 100, 1) if total_models > 0 else 0
-    model_rate = (
-        round((passed_model / total_models) * 100, 1) if total_models > 0 else 0
-    )
-    reproduce_rate = (
-        round((passed_reproduce / total_models) * 100, 1) if total_models > 0 else 0
-    )
-
-    # Calculate average score
-    average_score = round(total_score / total_models, 2) if total_models > 0 else 0
-
-    # Calculate average execution time
-    average_execution_time = (
-        round(total_execution_time / total_models, 2) if total_models > 0 else 0
-    )
-
-    # Output variables for GitHub Actions
-    print(f"TOTAL_MODELS={total_models}")
-    print(f"PASSED_RDF={passed_rdf}")
-    print(f"PASSED_MODEL={passed_model}")
-    print(f"PASSED_REPRODUCE={passed_reproduce}")
-    print(f"RDF_RATE={rdf_rate}")
-    print(f"MODEL_RATE={model_rate}")
-    print(f"REPRODUCE_RATE={reproduce_rate}")
-    print(f"TOTAL_SCORE={total_score}")
-    print(f"AVERAGE_SCORE={average_score}")
-    print(f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}")
-    print(f"AVERAGE_EXECUTION_TIME={average_execution_time}")
 
 
 async def test_bmz_models(
@@ -619,9 +536,8 @@ async def test_bmz_models(
 
     # Initialize counters for test results
     total_rdf_passed = 0
-    total_model_test_passed = 0
+    total_inference_passed = 0
     total_reproduce_passed = 0
-    total_collection_score = 0
 
     # Test each model
     for model_id in model_ids:
@@ -646,6 +562,21 @@ async def test_bmz_models(
         with open(test_results_file, "w") as f:
             json.dump(test_results, f, indent=2)
 
+        # Analyze test results
+        test_reports = analyze_test_results(test_results)
+
+        # Count passed tests
+        model_score = 0
+        if test_reports[0]["status"] == "passed":
+            total_rdf_passed += 1
+            model_score += 1
+        if test_reports[1]["status"] == "passed":
+            total_inference_passed += 1
+            model_score += 1
+        if test_reports[2]["status"] == "passed":
+            total_reproduce_passed += 1
+            model_score += 1
+
         # Update artifact with test results
         if update_artifacts:
             artifact_id = f"bioimage-io/{model_id}"
@@ -657,24 +588,11 @@ async def test_bmz_models(
 
                 print(f"Adding test reports to artifact: {artifact_id}")
 
-                # Analyze test results and add test_reports to manifest
-                test_reports = analyze_test_results(test_results)
-                model_score = calculate_model_score(test_reports)
-
                 # Create test_reports dictionary with metadata
                 manifest["test_reports"] = create_test_reports_dict(
                     test_reports, model_execution_time
                 )
                 manifest["score"] = model_score
-
-                # Update counter for test results
-                total_rdf_passed += int(test_reports[0]["status"] == "passed")
-                total_model_test_passed += int(test_reports[1]["status"] == "passed")
-                total_reproduce_passed += int(test_reports[2]["status"] == "passed")
-
-                # Add to collection score if model passes all tests
-                if model_score == 3:  # All tests passed
-                    total_collection_score += 3
 
                 # Edit the artifact and stage it for review
                 artifact = await artifact_manager.edit(
@@ -702,23 +620,15 @@ async def test_bmz_models(
 
             except Exception as e:
                 print(f"Failed to update artifact {artifact_id}: {e}")
-        else:
-            # Still need to analyze results for counting even if not updating artifacts
-            test_reports = analyze_test_results(test_results)
-            model_score = calculate_model_score(test_reports)
-            total_rdf_passed += int(test_reports[0]["status"] == "passed")
-            total_model_test_passed += int(test_reports[1]["status"] == "passed")
-            total_reproduce_passed += int(test_reports[2]["status"] == "passed")
 
-            # Add to collection score if model passes all tests
-            if model_score == 3:  # All tests passed
-                total_collection_score += 3
-
+    total_collection_score = (
+        total_rdf_passed + total_inference_passed + total_reproduce_passed
+    )
     total_execution_time = time.time() - start_time
 
     print(f"Total models tested: {len(model_ids)}")
     print(f"Total models with valid RDF: {total_rdf_passed}")
-    print(f"Total models with passed test run: {total_model_test_passed}")
+    print(f"Total models with passed test run: {total_inference_passed}")
     print(f"Total models with reproducible outputs: {total_reproduce_passed}")
     print(f"Total collection score: {total_collection_score}")
     print(f"Total execution time: {total_execution_time:.2f} seconds")
@@ -740,7 +650,7 @@ async def test_bmz_models(
             },
             {
                 "name": "Model Test Run",
-                "status": f"{total_model_test_passed}/{len(model_ids)}",
+                "status": f"{total_inference_passed}/{len(model_ids)}",
                 "runtime": "bioimageio.core",
             },
             {
@@ -766,6 +676,82 @@ async def test_bmz_models(
             type=collection_artifact["type"],
         )
         print(f"Updated artifact {collection_id} with test reports")
+
+
+def analyze_existing_test_results(result_dir: Path) -> None:
+    """Analyze existing test results and output summary for GitHub Actions"""
+    if not result_dir.exists():
+        print("TOTAL_MODELS=0")
+        return
+
+    # Find all JSON files in the result directory
+    json_files = list(result_dir.glob("*.json"))
+
+    if not json_files:
+        print("TOTAL_MODELS=0")
+        return
+
+    total_models = len(json_files)
+    passed_rdf = 0
+    passed_inference = 0
+    passed_reproduce = 0
+    total_execution_time = 0
+
+    for json_file in json_files:
+        try:
+            with open(json_file, "r") as f:
+                test_result = json.load(f)
+
+            # Analyze the test result
+            test_reports = analyze_test_results(test_result)
+
+            # Count passed tests
+            if test_reports[0]["status"] == "passed":
+                passed_rdf += 1
+            if test_reports[1]["status"] == "passed":
+                passed_inference += 1
+            if test_reports[2]["status"] == "passed":
+                passed_reproduce += 1
+
+            # Try to extract execution time if available
+            if isinstance(test_result, dict) and "execution_time" in test_result:
+                total_execution_time += test_result["execution_time"]
+
+        except Exception as e:
+            print(f"Error processing {json_file}: {e}", file=sys.stderr)
+
+    # Calculate the total score
+    total_score = passed_rdf + passed_inference + passed_reproduce
+
+    # Calculate percentages
+    rdf_rate = round((passed_rdf / total_models) * 100, 1) if total_models > 0 else 0
+    model_rate = (
+        round((passed_inference / total_models) * 100, 1) if total_models > 0 else 0
+    )
+    reproduce_rate = (
+        round((passed_reproduce / total_models) * 100, 1) if total_models > 0 else 0
+    )
+
+    # Calculate average score
+    average_score = round(total_score / total_models, 2) if total_models > 0 else 0
+
+    # Calculate average execution time
+    average_execution_time = (
+        round(total_execution_time / total_models, 2) if total_models > 0 else 0
+    )
+
+    # Output variables for GitHub Actions
+    print(f"TOTAL_MODELS={total_models}")
+    print(f"PASSED_RDF={passed_rdf}")
+    print(f"PASSED_INFERENCE={passed_inference}")
+    print(f"PASSED_REPRODUCE={passed_reproduce}")
+    print(f"RDF_RATE={rdf_rate}")
+    print(f"MODEL_RATE={model_rate}")
+    print(f"REPRODUCE_RATE={reproduce_rate}")
+    print(f"TOTAL_SCORE={total_score}")
+    print(f"AVERAGE_SCORE={average_score}")
+    print(f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}")
+    print(f"AVERAGE_EXECUTION_TIME={average_execution_time}")
 
 
 def main():
