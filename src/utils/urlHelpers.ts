@@ -17,8 +17,8 @@ export const resolveHyphaUrl = (path: string, resourceId: string, use_proxy: boo
   
   // Construct the full URL
   if (use_proxy) {
-    return `https://hypha.aicell.io/ri-scale/artifacts/${id}/files/${path}?use_proxy=true`;
+    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
   } else {
-    return `https://hypha.aicell.io/ri-scale/artifacts/${id}/files/${path}`;
+    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}`;
   }
 }; 

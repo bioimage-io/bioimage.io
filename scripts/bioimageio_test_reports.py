@@ -517,7 +517,7 @@ async def test_bmz_models(
 
     # Fetch all model IDs if not provided
     if model_ids is None:
-        url = "https://hypha.aicell.io/ri-scale/artifacts/bioimage.io/children?limit=10000"
+        url = "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10000"
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             if response.status_code != 200:

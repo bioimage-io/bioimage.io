@@ -341,7 +341,7 @@ const MyArtifacts: React.FC = () => {
                     ...(artifact.manifest?.tags || [])
                   ]}
                   image={artifact.manifest?.cover || undefined}
-                  downloadUrl={`https://hypha.aicell.io/ri-scale/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
+                  downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
                   onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
                   onDelete={() => {
                     setArtifactToDelete(artifact);

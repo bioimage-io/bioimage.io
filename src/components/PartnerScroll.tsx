@@ -72,7 +72,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   useEffect(() => {
     const fetchPartners = async () => {
       try {
-        const response = await fetch('https://hypha.aicell.io/ri-scale/artifacts/bioimage.io');
+        const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
         if (!response.ok) {
           throw new Error('Failed to fetch partners');
         }
