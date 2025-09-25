@@ -1,4 +1,4 @@
-# Cache control for BioImage.IO
+# Cache control for RI-SCALE Model Hub
 # Force browsers to check for updates on the main HTML file
 
 <Files "index.html">

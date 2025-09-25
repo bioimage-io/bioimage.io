@@ -6,7 +6,7 @@ const TermsOfService: React.FC = () => {
   const [content, setContent] = useState<string>('Loading...');
 
   useEffect(() => {
-    fetch('https://raw.githubusercontent.com/bioimage-io/bioimage.io/refs/heads/main/docs/terms_of_service.md')
+    fetch('https://raw.githubusercontent.com/ri-scale/model-hub/refs/heads/main/docs/terms_of_service.md')
       .then(response => response.text())
       .then(text => setContent(text))
       .catch(error => {

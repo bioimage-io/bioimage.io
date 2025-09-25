@@ -1,9 +1,9 @@
 # Code of Conduct
 
 ## Introduction
-This code of conduct applies to all spaces managed by the BioImage.IO project, including all public and private mailing lists, issue trackers, wikis, blogs, Twitter, and any other communication channel used by our community. The BioImage.IO project does not organise in-person events, however events related to our community should have a code of conduct similar in spirit to this one.
+This code of conduct applies to all spaces managed by the RI-SCALE Model Hub project, including all public and private mailing lists, issue trackers, wikis, blogs, Twitter, and any other communication channel used by our community. The RI-SCALE Model Hub project does not organise in-person events, however events related to our community should have a code of conduct similar in spirit to this one.
 
-This code of conduct should be honored by everyone who participates in the BioImage.IO community formally or informally, or claims any affiliation with the project, in any project-related activities and especially when representing the project, in any role.
+This code of conduct should be honored by everyone who participates in the RI-SCALE Model Hub community formally or informally, or claims any affiliation with the project, in any project-related activities and especially when representing the project, in any role.
 
 This code is not exhaustive or complete. It serves to distill our common understanding of a collaborative, shared environment and goals. Please try to follow this code in spirit as much as in letter, to create a friendly and productive environment that enriches the surrounding community.
 

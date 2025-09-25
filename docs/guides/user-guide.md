@@ -27,7 +27,7 @@ This guide is intended for users wanting to consume or use models from the RI-SC
 
 See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a model from the RI-SCALE Model Hub in different software.
 
-<img src="./guides/download_model_packager.jpg" alt="bioimage.io download" width="60%"/>
+<img src="./guides/download_model_packager.jpg" alt="ri-scale model hub download" width="60%"/>
 
 
 ## Using RI-SCALE Model Hub models in different software (Community Partners)
@@ -51,9 +51,9 @@ How you interact with RI-SCALE Model Hub models also depends on your chosen meth
 **Note: deepImageJ supports PyTorch and Tensorflow 1 models**
 
 1. Install the [deepImageJ plugin](https://deepimagej.github.io/download.html) in ImageJ.
-This will give you all the necessary Plugins to run bioimage.io models at the moment.
+This will give you all the necessary Plugins to run ri-scale.github.io/model-hub models at the moment.
 
-2. Install a model from the [RI-SCALE Model Hub](https://bioimage.io/):
+2. Install a model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/):
       1) Download a deepImageJ model from the RI-SCALE Model Hub repository.
       2) Use `DeepImageJ Install Model` in ImageJ to install the `.zip` file that you just downloaded: choose the `Private model` option and `From ZIP file`.
       3) In the `zip` file you just downloaded, there is an `exampleImage.tif`that you can open in ImageJ and process with the model you just downloaded.
@@ -70,7 +70,7 @@ For more detailed information about the connection between the RI-SCALE Model Hu
    - For remote execution, install the TikTorch backend following the instructions in the [TikTorch GitHub repository](https://github.com/ilastik/tiktorch#installation).
 
 2. **Download and set up a model from the RI-SCALE Model Hub**:
-   - Visit the [ilastik Model Zoo on BioImage.IO](https://bioimage.io/#/?partner=ilastik) to find compatible pre-trained models.
+   - Visit the [ilastik Model Zoo on RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/#/?partner=ilastik) to find compatible pre-trained models.
    - To load a model into ilastik:
      - Copy the model's DOI or nickname from the RI-SCALE Model Hub and paste it into the text field in ilastik’s Neural Network Classification workflow. Click the arrow button to download and initialize the model.
      - Alternatively, download the model as a `.zip` archive, then drag and drop it into the text field or use the file dialog to load it.
@@ -91,7 +91,7 @@ For more detailed information about the connection between the RI-SCALE Model Hu
 5. **Learn more**:
    - [Ilastik Documentation](https://www.ilastik.org/documentation)
    - [TikTorch Repository](https://github.com/ilastik/tiktorch)
-   - [RI-SCALE Model Hub](https://bioimage.io/#/?partner=ilastik)
+   - [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/#/?partner=ilastik)
 
 ###  ImJoy
 [ImJoy](https://imjoy.io) is a flexible platform for running computational workflows in the browser or using Python. While it doesn’t directly reference the RI-SCALE Model Hub (BMZ), it supports seamless integration of BMZ models via plugins and Python.
@@ -104,13 +104,13 @@ For more detailed information about the connection between the RI-SCALE Model Hu
             imjoy --start
             ```
 2. Download and Set Up a BMZ Model
-      - Visit the [RI-SCALE Model Hub](https://bioimage.io/) and download a model with its rdf.yaml file.
+      - Visit the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/) and download a model with its rdf.yaml file.
       - Optionally, use `bioimageio.core` to interact with BMZ models:
             ```bash
             pip install bioimageio.core
             ```
 3. Run BMZ Models in  ImJoy
-      - BioImage.IO Plugin: Use the [BioImage.IO plugin](https://bioimage-io.github.io/bioengine-web-client/) for easy integration and execution of BMZ models directly in ImJoy.
+      - RI-SCALE Model Hub Plugin: Use the [RI-SCALE Model Hub plugin](https://bioimage-io.github.io/bioengine-web-client/) for easy integration and execution of BMZ models directly in ImJoy.
       - **Browser-based Plugins**: Install and run plugins compatible with your model. Learn more in the [Quick Start Guide](https://imjoy.io/docs/#/quick-start).
       - **Python-based Execution**: Connect ImJoy to the Plugin Engine and run BMZ models in Python. Example:
       ```python
@@ -121,16 +121,16 @@ For more detailed information about the connection between the RI-SCALE Model Hu
       print(result)
       ```
 4. Learn More
-      - **[BioImage.IO Plugin](https://bioimage-io.github.io/bioengine-web-client/)**: Plugin from ImJoy to the RI-SCALE Model Hub.
+      - **[RI-SCALE Model Hub Plugin](https://bioimage-io.github.io/bioengine-web-client/)**: Plugin from ImJoy to the RI-SCALE Model Hub.
       - **[ImJoy Documentation](https://imjoy.io/docs/)**: Explore the full capabilities of ImJoy.
-      - **[RI-SCALE Model Hub Documentation](https://bioimage.io/docs/)**: Discover more about BMZ models.
+      - **[RI-SCALE Model Hub Documentation](https://ri-scale.github.io/model-hub/docs/)**: Discover more about BMZ models.
       - **[bioimageio.core Library](https://github.com/bioimage-io/core-bioimage-io-python)**: Dive into the Python library for BMZ models.
 
 
 ### ZeroCostDL4Mic
 **Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the RI-SCALE Model Hub or fine-tune existing ones!**
 
-1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://bioimage.io/) repository. 
+1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/) repository. 
 2. Unzip the model `.zip` file so you can use it later in the notebook.
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
@@ -175,11 +175,11 @@ SpotMAX supports models that take a single 2D or 3D input image. There is no lim
 
 1. Install [SpotMAX](https://spotmax.readthedocs.io/en/latest/index.html) by following [this guide](https://spotmax.readthedocs.io/en/latest/install/index.html)
 
-2. Run the SpotMAX GUI (see [this guide](https://spotmax.readthedocs.io/en/latest/run/gui/index.html)). On the parameters list on the right-hand side of the GUI, scroll down to the `Spots channel` section and, at the `Spots segmentation method` parameter, select `BioImage.IO model`. See [here](https://spotmax.readthedocs.io/en/latest/parameters/parameters_description.html#confval-Spots-segmentation-method) for more info about the parameter. 
+2. Run the SpotMAX GUI (see [this guide](https://spotmax.readthedocs.io/en/latest/run/gui/index.html)). On the parameters list on the right-hand side of the GUI, scroll down to the `Spots channel` section and, at the `Spots segmentation method` parameter, select `RI-SCALE Model Hub model`. See [here](https://spotmax.readthedocs.io/en/latest/parameters/parameters_description.html#confval-Spots-segmentation-method) for more info about the parameter. 
 
 3. Click on the button beside the parameter with the "Cog" icon to set up the model. Provide the model location as a DOI, URL, or locally downloaded zip folder. For models that return multiple images, select the index of the output image to be used. 
 
-4. Since running the model is only a part of the analysis, you will need to set up all the other parameters first. SpotMAX will run the BioImage.IO model as part of the spot detection and quantification pipeline. Check out our [documentation](https://spotmax.readthedocs.io/en/latest/parameters/index.html) for more details about the other parameters. 
+4. Since running the model is only a part of the analysis, you will need to set up all the other parameters first. SpotMAX will run the RI-SCALE Model Hub model as part of the spot detection and quantification pipeline. Check out our [documentation](https://spotmax.readthedocs.io/en/latest/parameters/index.html) for more details about the other parameters. 
 
 If you encounter issues, feel free to report your problem either on our [GitHub page](https://github.com/SchmollerLab/SpotMAX) or on the [Image.sc Forum](https://forum.image.sc/)] using the tag `spotmax`.
 

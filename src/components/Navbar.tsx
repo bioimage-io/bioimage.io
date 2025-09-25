@@ -44,7 +44,7 @@ const Navbar: React.FC = () => {
             <Link to="/" className="flex items-center group">
               <img 
                 src="/static/img/bioimage-io-logo.svg"
-                alt="BioImage.IO"
+                alt="RI-SCALE Model Hub"
                 className="h-10 group-hover:scale-105 transition-transform duration-300"
               />
             </Link>
@@ -65,7 +65,7 @@ const Navbar: React.FC = () => {
               Applications
             </Link>
             <a 
-              href="https://bioimage.io/docs" 
+              href="https://ri-scale.github.io/model-hub/docs" 
               className={navLinkClasses("/docs")}
               target="_blank"
               rel="noopener noreferrer"
@@ -165,7 +165,7 @@ const Navbar: React.FC = () => {
               Applications
             </Link>
             <a 
-              href="https://bioimage.io/docs"
+              href="https://ri-scale.github.io/model-hub/docs"
               className={mobileNavLinkClasses("/docs")}
               target="_blank"
               rel="noopener noreferrer"

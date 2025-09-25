@@ -41,7 +41,7 @@ For other types of plugins (e.g. in Javascript), the same `ctx` object will be p
 
 You can do the debugging inside [ImJoy](https://imjoy.io), for more information, please consult https://imjoy.io/docs.
 
-To test with the BioEngine, you can go to https://bioimage.io, on the menu located in the top-right corner, you can load a local ImJoy plugin file to run it with the BioEngine. One additional feature is that the BioEngine will keep track of the local file, if you made new changes with your code editor (e.g. vim, vscode) the engine will try to reload the plugin file. 
+To test with the BioEngine, you can go to https://ri-scale.github.io/model-hub, on the menu located in the top-right corner, you can load a local ImJoy plugin file to run it with the BioEngine. One additional feature is that the BioEngine will keep track of the local file, if you made new changes with your code editor (e.g. vim, vscode) the engine will try to reload the plugin file. 
 
 TIP: if your imjoy plugin is designed for not only work with bioimage.io but also other purposes, you can use an `if` statement to check `ctx.config.type == 'bioengine'`.
 
@@ -55,4 +55,4 @@ For example, [Kaibu](https://kaibu.org) is a standlone web app that compatible w
 
 ## How to submit BioEngine Apps to the website?
 
-If you are one of our [community partners](https://github.com/bioimage-io/bioimage.io/blob/master/docs/join-partners.md), you can add the app url to your model repository. Otherwise, please submit your BioEngine Apps to BioImage.IO by posting the url [here](https://github.com/bioimage-io/bioimage-io-models/issues/26).
+If you are one of our [community partners](https://blob/master/docs/join-partners.md), you can add the app url to your model repository. Otherwise, please submit your BioEngine Apps to RI-SCALE Model Hub by posting the url [here](https://github.com/bioimage-io/bioimage-io-models/issues/26).

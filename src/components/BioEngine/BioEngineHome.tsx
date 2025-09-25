@@ -124,8 +124,8 @@ const BioEngineHome: React.FC = () => {
 
       const defaultService: BioEngineService = {
         id: "bioimage-io/bioengine-worker",
-        name: "BioImage.IO BioEngine Worker",
-        description: "Default BioEngine worker instance for the BioImage.IO community"
+        name: "RI-SCALE Model Hub BioEngine Worker",
+        description: "Default BioEngine worker instance for the RI-SCALE Model Hub community"
       };
 
       const hasDefaultService = services.some((service: BioEngineService) => service.id === defaultService.id);

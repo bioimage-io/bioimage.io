@@ -1,2 +1,2 @@
-# BioImage.IO Chatbot
+# RI-SCALE Model Hub Chatbot
 In progress... 

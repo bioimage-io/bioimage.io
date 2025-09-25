@@ -1,29 +1,29 @@
 # Community Partners Guide
-BioImage.IO is a community-driven open source initiative, providing access to trained deep learning models and related resources contributed by the community members. To help us better disseminate and maintain the resources, we introduced the concepts of **community partner**. 
+RI-SCALE Model Hub is a community-driven open source initiative, providing access to trained deep learning models and related resources contributed by the community members. To help us better disseminate and maintain the resources, we introduced the concepts of **community partner**. 
 
 ## Introduction to Community Partners
 
 ### What is a community partner?
-Usually, a community partner is an organization, a company, a research group, or a software team (of one or more) that can consume and/or produce resources of the BioImage.Io model zoo. Additionally, most partners continuously and openly contribute resources of their own. The first community partners represent open source consumer software of BioImage.IO (e.g. ilastik, Fiji, deepImageJ, ZeroCostDL4Mic, StarDist).
+Usually, a community partner is an organization, a company, a research group, or a software team (of one or more) that can consume and/or produce resources of the RI-SCALE Model Hub. Additionally, most partners continuously and openly contribute resources of their own. The first community partners represent open source consumer software of RI-SCALE Model Hub (e.g. ilastik, Fiji, deepImageJ, ZeroCostDL4Mic, StarDist).
 
 ### Benefits as a community partner
-By joining BioImage.IO as a community partner, you will be able to:
+By joining RI-SCALE Model Hub as a community partner, you will be able to:
  - Participate in decision making process of the model specification.
- - Show your logo in BioImage.IO and enable filtering models by compatibility with your software.
- - Connect CI to automatically test new model compatibility with your software and use other infrastructure features provided by BioImage.IO.
+ - Show your logo in RI-SCALE Model Hub and enable filtering models by compatibility with your software.
+ - Connect CI to automatically test new model compatibility with your software and use other infrastructure features provided by RI-SCALE Model Hub.
  
 ### Responsibilities
 The main responsibilities of a community partner are:
- - Use BioImage.IO as their only primary trained model repository.
+ - Use RI-SCALE Model Hub as their only primary trained model repository.
  - Review resources contributed by others that claim to be compatible with this community partner software.
  - Maintain this community partner's models and other resources in their linked repository, setup continous integration workflows to test models and keep them up-to-date with the latest spec.
  
 ### Who should join as a community partner?
- * A team behind a software which produces or consumes trained models compatible with the BioImage.IO spec.
- * A organization, group, company or team (of one or more) who contributed and will keep contributing more models to BioImage.IO.
+ * A team behind a software which produces or consumes trained models compatible with the RI-SCALE Model Hub spec.
+ * A organization, group, company or team (of one or more) who contributed and will keep contributing more models to RI-SCALE Model Hub.
 
 ### How does it work?
-Community partners can host their own Github repository for storing models and other resources that are relevant. These resources are listed in a [collection RDF](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/collection_spec_latest.md)–a yaml file–which will be dynamically linked to the [central repository of BioImage.IO](https://github.com/bioimage-io/bioimage-io-models). The [continuous integration (CI) service](https://github.com/bioimage-io/bioimage-io-models/actions) configured in the central repo will then pull the resources from partners' repo and compile them into items displayed in the BioImage.IO website. Each community partner is responsible for maintaining the resources that are relevant. 
+Community partners can host their own Github repository for storing models and other resources that are relevant. These resources are listed in a [collection RDF](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/collection_spec_latest.md)–a yaml file–which will be dynamically linked to the [central repository of RI-SCALE Model Hub](https://github.com/bioimage-io/bioimage-io-models). The [continuous integration (CI) service](https://github.com/bioimage-io/bioimage-io-models/actions) configured in the central repo will then pull the resources from partners' repo and compile them into items displayed in the RI-SCALE Model Hub website. Each community partner is responsible for maintaining the resources that are relevant. 
 
 ![bioimage-io-community-partners](./community_partners_guide/bioimage-io-community-partners.png)
 
@@ -40,7 +40,7 @@ Below is a list of our esteemed Community Partners who actively engage with the 
   "ui": "",
   "version": "0.1.0",
   "cover": "",
-  "description": "Create a table for the bioimage.io community partners",
+  "description": "Create a table for the Model Hub community partners",
   "icon": "extension",
   "inputs": null,
   "outputs": null,
@@ -168,20 +168,20 @@ api.export(new ImJoyPlugin())
 
 ## How to join as a community partner?
 
-Note that in order to contribute resources to the BioImage.IO Model Zoo you do not need to become a community partner. How to contribute resources is described [in the developers guide](https://bioimage.io/docs/#/guides/developers-guide). The role of a community partner is described above.
+Note that in order to contribute resources to the RI-SCALE Model Hub you do not need to become a community partner. How to contribute resources is described [in the developers guide](https://ri-scale.github.io/model-hub/docs/#/guides/developers-guide). The role of a community partner is described above.
 
 If you are eligible and willing to join as a community partner, please submit a request issue [here](https://github.com/bioimage-io/collection/issues/new) with relevant information including the following:
 1. Description of your software, organization, company or team.
 2. Description of the resources that you plan to contribute. Please also include the url to your project repo.
 3. Description of future plans on how your project will be maintained.
 
-The admin team of BioImage.IO will discuss the request and decide whether to approve or decline. We will mainly check whether the project are beneficial for the users of BioImage.IO and the requirements for participation are met.
+The admin team of RI-SCALE Model Hub will discuss the request and decide whether to approve or decline. We will mainly check whether the project are beneficial for the users of RI-SCALE Model Hub and the requirements for participation are met.
 
-Upon approval, we will guide you to follow these steps in order to incorporate your contribution to BioImage.IO:
+Upon approval, we will guide you to follow these steps in order to incorporate your contribution to RI-SCALE Model Hub:
 
 1. First, you will need to create a PR to insert relevant metadata into [bioimageio_collection_config.json](https://github.com/bioimage-io/collection/blob/4087336ad00bff0198f5de83c94aa13be357840d/bioimageio_collection_config.json) under `"partners"`. 
 Checkout [ilastik partner entry](https://github.com/bioimage-io/collection/blob/4087336ad00bff0198f5de83c94aa13be357840d/bioimageio_collection_config.json#L283-L301) for an example.
-2. Then, you will need to add the Community Partner Compatibility Checks. Any community partner is invited to add a GitHub Actions workflow in this repo (please make a PR) that generates reports on its software compatibility with new and updated resources in the bioimage.io collection.
+2. Then, you will need to add the Community Partner Compatibility Checks. Any community partner is invited to add a GitHub Actions workflow in this repo (please make a PR) that generates reports on its software compatibility with new and updated resources in the Model Hub collection.
 See [ilastik compatibility checks worfklow](https://github.com/bioimage-io/collection/blob/main/.github/workflows/check_compatibility_ilastik.yaml) for an example.
 
 ## How to register a software or application?
@@ -192,7 +192,7 @@ To see an example, you can find the [source for the ilastik app](https://github.
 
 ## How to setup CI service for a community partners' repo?
 
-The CI service is an useful tool to autotomize the maintenance of the model repo and ensure a high quality for all BioImage.IO resources. 
+The CI service is an useful tool to autotomize the maintenance of the model repo and ensure a high quality for all RI-SCALE Model Hub resources. 
 You basically need to add some testing scripts to your repo and  configure it using CI services such as Github Actions,  Travis or Circle CI etc. The testing script will be triggered by a new commit or pull request to the repo. For simplicity, we recommend Github Actions which can be triggered by adding a yaml file under the folder `.github/workflows`. For example, here is an example file [.github/workflows/compile-manifest.yml](https://github.com/deepimagej/models/blob/master/.github/workflows/compile-manifest.yml) that we used to verify the model spec in the central repo.
 
 There are at least three steps are recommended:
@@ -210,7 +210,7 @@ We provide the analytics service to help consumer software to keep track of thei
 
 ### Report resource downloads
 
-To help us maintain the resource download statistics at BioImage.IO, please send a report to our analytics service when a resource item is downloaded.
+To help us maintain the resource download statistics at RI-SCALE Model Hub, please send a report to our analytics service when a resource item is downloaded.
 
 Under the hood, we use [matomo](https://matomo.org) to track the user downloads. It provide tracking api in various programming languages and frameworks, see here: https://developer.matomo.org/api-reference/tracking-api.
 
@@ -219,7 +219,7 @@ The easiest way to report a model download is to send an http request to matomo.
 
 You need to construct an URL to report the download:
 
-`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://bioimage.io/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
+`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://ri-scale.github.io/model-hub/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
 
 
 In the above URL, you need to provide the following parameters:
@@ -241,15 +241,15 @@ Please note that the reports are not processed in realtime, this means you won't
  - In the report request, we need to configure the date properly. For example, we can change period to `year` and date to `2023-03-01` (see here: https://developer.matomo.org/api-reference/Piwik/Period)
  - The report will only be generated every 15 minutes: https://matomo.org/faq/general/faq_41/ so we won't see the report immediately.
 
-## BioImage.IO Partner Collection
+## RI-SCALE Model Hub Partner Collection
 
-A BioImage.IO partner collection is a YAML file in GitHub repository of a community partner. The file adheres to the collection RDF specification described [here](https://github.com/bioimage-io/spec-bioimage-io#collection-resource-description-file-specification).
+A RI-SCALE Model Hub partner collection is a YAML file in GitHub repository of a community partner. The file adheres to the collection RDF specification described [here](https://github.com/bioimage-io/spec-bioimage-io#collection-resource-description-file-specification).
 
 The appearance of the partner collection on the website can be customized by the `config` field as described in the next section.  
 
-### Customizing appearance on bioimage.io
+### Customizing appearance on ri-scale.github.io/model-hub
 
-Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the bioimage.io website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
+Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the ri-scale.github.io/model-hub website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
 
 A typical partner collection RDF `config` field may look like this:
 
@@ -294,15 +294,15 @@ config:
 
 You can find a complete example [here](https://github.com/ilastik/bioimage-io-models/blob/master/collection.yaml).
 
-If you want to join as a community partner, please send the link to BioImage.IO by following the instructions for [joining community partners](https://github.com/bioimage-io/bioimage.io/blob/master/docs/community_partners/how_to_join.md).
+If you want to join as a community partner, please send the link to RI-SCALE Model Hub by following the instructions for [joining community partners](https://github.com/ri-scale/model-hub/blob/master/docs/community_partners/how_to_join.md).
 
 ## How to contribute tests summaries
 
-We provide community partners with a mechanism to contribute and update compatibiliy checks describing why a given bioimage.io resource is compatible with their tool (or why not).
+We provide community partners with a mechanism to contribute and update compatibiliy checks describing why a given ri-scale.github.io/model-hub resource is compatible with their tool (or why not).
 Details and how to set this up are described [here](https://github.com/bioimage-io/collection?tab=readme-ov-file#add-community-partner-compatibility-checks).
 
 ### Display of partner test summaries
 
-Once a community partner is setup to contribute test summaries, they will show up in the relevant resource card details on bioimage.io.
+Once a community partner is setup to contribute test summaries, they will show up in the relevant resource card details on ri-scale.github.io/model-hub.
 Currently test summaries are rendered like so:
 ![image](https://user-images.githubusercontent.com/15139589/226955477-6f8a8917-423f-4b9e-b08a-17bdb276aa2c.png)

@@ -1,7 +1,7 @@
 Terms of Service 
 =================
 
-Welcome to BioImage.IO! Our website,[ https://bioimage.io](https://bioimage.io/) (the "Site"), is owned and operated by the AI4Life consortium ("AI4Life", website: <https://ai4life.eurobioimaging.eu/>). By accessing or using the Site and related services connected to the Site (collectively, the "Services"), including any underlying infrastructure such as hosted BioEngine, GitHub repositories, and continuous integration services, you ("you" or "User") agree to be legally bound by the following terms and conditions ("Terms of Service" or "Terms").
+Welcome to RI-SCALE Model Hub! Our website,[ https://ri-scale.github.io/model-hub](https://ri-scale.github.io/model-hub/) (the "Site"), is owned and operated by the AI4Life consortium ("AI4Life", website: <https://ai4life.eurobioimaging.eu/>). By accessing or using the Site and related services connected to the Site (collectively, the "Services"), including any underlying infrastructure such as hosted BioEngine, GitHub repositories, and continuous integration services, you ("you" or "User") agree to be legally bound by the following terms and conditions ("Terms of Service" or "Terms").
 
 If you disagree with these Terms, you must not use the Site or Services. Please read these Terms carefully before using the Site or Services.
 
@@ -10,7 +10,7 @@ If you disagree with these Terms, you must not use the Site or Services. Please 
 
 AI4Life provides the Site and Services to Users who are 18 years of age or older. If you are not 18 years or older, you are not authorised to use the Site or Services.
 
-AI4Life reserves the right to modify these Terms at any time. If changes to these Terms are made, BioImage.IO will post the amended Terms on the Site. Your continued access or use of the Site or Services after such posting shall constitute your consent to be bound by the Terms, as amended.
+AI4Life reserves the right to modify these Terms at any time. If changes to these Terms are made, RI-SCALE Model Hub will post the amended Terms on the Site. Your continued access or use of the Site or Services after such posting shall constitute your consent to be bound by the Terms, as amended.
 
 2\. Accessing the Site and Services
 -----------------------------------

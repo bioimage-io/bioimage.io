@@ -240,7 +240,7 @@
 *Software requirements:*
 - **Framework:** *[Deep learning framework version]*
 - **Libraries:** *[Key dependencies and versions]*
-- **BioImage.IO compatibility:** *[Supported consumer software]*
+- **RI-SCALE Model Hub compatibility:** *[Supported consumer software]*
 
 # How to Get Started with the Model
 
@@ -260,11 +260,11 @@
 
 ---
 
-*This model card was created using the RI-SCALE Model Hub template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [bioimage.io](https://bioimage.io).*
+*This model card was created using the RI-SCALE Model Hub template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub).*
 
 ---
 
 **References:**
 - [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated)
-- [RI-SCALE Model Hub Documentation](https://bioimage.io/docs/)
+- [RI-SCALE Model Hub Documentation](https://ri-scale.github.io/model-hub/docs/)
 - [Model Cards for Model Reporting](https://arxiv.org/abs/1810.03993) 

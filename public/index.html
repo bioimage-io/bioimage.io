@@ -31,7 +31,7 @@
     
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     
-    <title>BioImage.IO - Model Zoo</title>
+    <title>RI-SCALE Model Hub</title>
     
     <!-- Service Worker Cleanup -->
     <script>
@@ -40,7 +40,7 @@
           // Register the cleanup service worker that will unregister itself
           navigator.serviceWorker.register('/service-worker.js')
             .then(function(registration) {
-              console.log('BioImage.IO: Cleanup service worker registered');
+              console.log('RI-SCALE Model Hub: Cleanup service worker registered');
               
               // If there's a waiting worker, activate it immediately
               if (registration.waiting) {
@@ -60,20 +60,20 @@
               });
             })
             .catch(function(error) {
-              console.log('BioImage.IO: Service worker registration failed:', error);
+              console.log('RI-SCALE Model Hub: Service worker registration failed:', error);
             });
           
           // Also clear caches manually as a backup
           if ('caches' in window) {
             caches.keys().then(function(cacheNames) {
               if (cacheNames.length > 0) {
-                console.log('BioImage.IO: Manual cache cleanup - found', cacheNames.length, 'cache(s)');
+                console.log('RI-SCALE Model Hub: Manual cache cleanup - found', cacheNames.length, 'cache(s)');
                 Promise.all(
                   cacheNames.map(function(cacheName) {
                     return caches.delete(cacheName);
                   })
                 ).then(function() {
-                  console.log('BioImage.IO: Manual cache cleanup complete');
+                  console.log('RI-SCALE Model Hub: Manual cache cleanup complete');
                 });
               }
             });

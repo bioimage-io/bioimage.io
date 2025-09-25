@@ -645,7 +645,7 @@ const ArtifactDetails = () => {
             >
               <img 
                 src="/static/img/bioimage-io-icon-small.svg" 
-                alt="BioImage.IO"
+                alt="RI-SCALE Model Hub"
                 style={{
                   height: '40px',
                   width: '40px',

@@ -125,7 +125,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
             <h4 className="font-medium mb-2">Reviewer's Responsibility</h4>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Verify that the model meets BioImage.IO technical specifications</li>
+              <li>Verify that the model meets RI-SCALE Model Hub technical specifications</li>
               <li>Check that documentation is clear and complete</li>
               <li>Ensure all required files are present and valid</li>
               <li>Test model functionality with provided sample data</li>
@@ -415,7 +415,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                           </p>
                           <ul className="list-disc ml-5 mt-1 space-y-1">
                             <li>Quality assurance of your model</li>
-                            <li>Compliance with BioImage.IO standards</li>
+                            <li>Compliance with RI-SCALE Model Hub standards</li>
                             <li>Proper documentation and metadata</li>
                             <li>Community feedback and improvements</li>
                           </ul>
@@ -468,7 +468,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               </p>
               <ul className="list-disc pl-4 space-y-2">
                 <li>Our admin team will be notified and will review your submission</li>
-                <li>Reviewers may make changes to your artifact to ensure it meets BioImage.IO standards</li>
+                <li>Reviewers may make changes to your artifact to ensure it meets RI-SCALE Model Hub standards</li>
                 <li>Changes may include:
                   <ul className="list-disc pl-4 mt-1 text-blue-700">
                     <li>Metadata formatting and organization</li>

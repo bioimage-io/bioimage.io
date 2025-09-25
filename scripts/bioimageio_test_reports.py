@@ -756,7 +756,7 @@ def analyze_existing_test_results(result_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Test BioImage.IO models and generate test reports"
+        description="Test RI-SCALE Model Hub models and generate test reports"
     )
     parser.add_argument(
         "--model-ids",

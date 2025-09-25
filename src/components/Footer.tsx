@@ -35,7 +35,7 @@ const footerLinks = [
   },
   {
     label: "Github Repository",
-    href: "https://github.com/bioimage-io/bioimage.io",
+    href: "https://github.com/ri-scale/model-hub",
     icon: "/static/img/github.png",
     caption: "Source Code"
   }
@@ -104,7 +104,7 @@ const Footer: React.FC = () => {
               />
               
               <p className="text-base text-gray-700 leading-relaxed px-4 mb-4 font-medium">
-                BioImage.IO -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
+                RI-SCALE Model Hub -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
               </p>
               
               <p className="text-sm text-gray-600 leading-relaxed px-4">
@@ -138,12 +138,12 @@ const Footer: React.FC = () => {
                 <p className="text-sm text-gray-600">
                   This is the new RI-SCALE Model Hub website released on June 30th, 2025. You can find the legacy website archived at{' '}
                   <a 
-                    href="https://archive.bioimage.io" 
+                    href="https://archive.ri-scale.github.io/model-hub" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-300"
                   >
-                    https://archive.bioimage.io
+                    https://archive.https://ri-scale.github.io/model-hub
                   </a>
                   {' '}|{' '}
                   <Link 
@@ -190,7 +190,7 @@ const Footer: React.FC = () => {
             <div className="text-center">
               <h3 className="text-xl font-semibold text-gray-800 mb-4">📅 Weekly Community Meetings</h3>
               <div className="space-y-3 text-gray-600">
-                <p className="font-medium">🗓️ The BioImage.IO team will meet every Wednesday 4PM CET.</p>
+                <p className="font-medium">🗓️ The RI-SCALE Model Hub team will meet every Wednesday 4PM CET.</p>
                 <p className="font-bold text-blue-600 text-lg">🎉 Everyone is welcome to join! 🎉</p>
                 <p>📢 We will provide community-friendly updates on new features, changes, announcements, discussions etc.</p>
                 
@@ -211,7 +211,7 @@ const Footer: React.FC = () => {
                 
                 <div className="mt-4">
                   <a 
-                    href="https://github.com/bioimage-io/bioimage.io/issues/3" 
+                    href="https://github.com/ri-scale/model-hub/issues/3" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="inline-block bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700 transition-colors duration-300 font-medium"
