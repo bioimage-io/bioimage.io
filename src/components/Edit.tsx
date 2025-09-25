@@ -1534,7 +1534,7 @@ const Edit: React.FC = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
+                      const downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
                       window.open(downloadUrl, '_blank');
                     }}
                     title="Download file"
@@ -2150,7 +2150,7 @@ const Edit: React.FC = () => {
     
     const id = artifactInfo.id.split('/').pop() || '';
     const versionParam = isStaged ? '?version=stage' : '';
-    const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file${versionParam}`;
+    const downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${id}/create-zip-file${versionParam}`;
     
     window.open(downloadUrl, '_blank');
   };

@@ -197,7 +197,7 @@ const ArtifactDetails = () => {
   const handleDownload = () => {
     const artifactId = selectedResource?.id.split('/').pop();
     if (artifactId) {
-      let downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId}/create-zip-file`;
+      let downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${artifactId}/create-zip-file`;
       if (version && version !== 'latest') {
         downloadUrl += `?version=${version}`;
       }
@@ -686,7 +686,7 @@ const ArtifactDetails = () => {
                 onRunStateChange={setShowModelRunner}
                 createContainerCallback={createModelRunnerContainer}
                 className="w-full"
-                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
+                modelUrl={`https://hypha.aicell.io/ri-scale/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
               />
             </Box>
           )}

@@ -83,7 +83,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
     const id = artifact.id.split('/').pop();
-    window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    window.open(`https://hypha.aicell.io/ri-scale/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   const handleCopyId = (e: React.MouseEvent) => {

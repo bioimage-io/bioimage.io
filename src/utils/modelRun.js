@@ -14,7 +14,7 @@ import {
 } from "./imgProcess";
 
 // Base URL for accessing artifact files
-const ARTIFACT_BASE_URL = "https://hypha.aicell.io/bioimage-io/artifacts";
+const ARTIFACT_BASE_URL = "https://hypha.aicell.io/ri-scale/artifacts";
 
 // Helper to construct artifact file URLs
 export const getArtifactFileUrl = (artifactId, filePath) => {
