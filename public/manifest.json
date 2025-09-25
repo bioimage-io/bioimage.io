@@ -1,6 +1,6 @@
 {
   "short_name": "BioImage.IO",
-  "name": "BioImage Model Zoo",
+  "name": "RI-SCALE Model Hub",
   "icons": [
     {
       "src": "static/icons/favicon.ico",

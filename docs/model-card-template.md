@@ -1,6 +1,6 @@
 # Model Card Template
 
-> **Instructions**: This template provides a structured format for documenting your AI model when contributing to the BioImage Model Zoo. It integrates best practices from the [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated) while maintaining bioimage-specific requirements. Replace the placeholder text with information specific to your model. This documentation should be saved as `README.md` in your model folder and helps reviewers and users understand your model's purpose, performance, and appropriate usage.
+> **Instructions**: This template provides a structured format for documenting your AI model when contributing to the RI-SCALE Model Hub. It integrates best practices from the [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated) while maintaining bioimage-specific requirements. Replace the placeholder text with information specific to your model. This documentation should be saved as `README.md` in your model folder and helps reviewers and users understand your model's purpose, performance, and appropriate usage.
 
 ---
 
@@ -260,11 +260,11 @@
 
 ---
 
-*This model card was created using the BioImage Model Zoo template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [bioimage.io](https://bioimage.io).*
+*This model card was created using the RI-SCALE Model Hub template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [bioimage.io](https://bioimage.io).*
 
 ---
 
 **References:**
 - [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated)
-- [BioImage Model Zoo Documentation](https://bioimage.io/docs/)
+- [RI-SCALE Model Hub Documentation](https://bioimage.io/docs/)
 - [Model Cards for Model Reporting](https://arxiv.org/abs/1810.03993) 

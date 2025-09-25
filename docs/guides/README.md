@@ -1,22 +1,22 @@
 # Guides
-The BioImage Model Zoo is intended to be used by different roles in the community as stated in [How to participate in the BioImage Model Zoo](/getting_started/README.md). This section contains guides for the different roles in the community.
+The RI-SCALE Model Hub is intended to be used by different roles in the community as stated in [How to participate in the RI-SCALE Model Hub](/getting_started/README.md). This section contains guides for the different roles in the community.
 
 ## Content
-* **[User Guide](#user-guide)**: Guides for users willing to download and use the models and other resources from the BioImage Model Zoo
-* **[Developers Guide](#developers-guide)**: Guides for who is willing to contribute to the BioImage Model Zoo with models, applications or softwares.
+* **[User Guide](#user-guide)**: Guides for users willing to download and use the models and other resources from the RI-SCALE Model Hub
+* **[Developers Guide](#developers-guide)**: Guides for who is willing to contribute to the RI-SCALE Model Hub with models, applications or softwares.
 * **[Community Partners Guide](#community-partners-guide)**: If you want to join as a Community Partner, this is your place to visit.
 
 ## User Guide
-This guide is intended for users wanting to consume or use models from the BioImage Model Zoo. There are plenty of models in the BioImage Model Zoo that you can use in your own software, in the software of our community partners or you can even download them and use them in a notebook or code of your own.
+This guide is intended for users wanting to consume or use models from the RI-SCALE Model Hub. There are plenty of models in the RI-SCALE Model Hub that you can use in your own software, in the software of our community partners or you can even download them and use them in a notebook or code of your own.
 
-### Downloading and using Models from the BioImage Model Zoo
+### Downloading and using Models from the RI-SCALE Model Hub
 
-See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a model from the BioImage Model Zoo in different software.
+See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a model from the RI-SCALE Model Hub in different software.
 
 <img src="./guides/download_model_packager.jpg" alt="bioimage.io download" width="60%"/>
 
 
-### Using BioImage Model Zoo models in different software
+### Using RI-SCALE Model Hub models in different software
 
 #### BiaPy
 TBD
@@ -28,13 +28,13 @@ TBD
 1. Install the [deepImageJ plugin](https://deepimagej.github.io/download.html) in ImageJ.
 This will give you all the necessary Plugins to run bioimage.io models at the moment.
 
-2. Install a model from the [BioImage Model Zoo](https://bioimage.io/):
-      1) Download a deepImageJ model from the BioImage Model Zoo repository.
+2. Install a model from the [RI-SCALE Model Hub](https://bioimage.io/):
+      1) Download a deepImageJ model from the RI-SCALE Model Hub repository.
       2) Use `DeepImageJ Install Model` in ImageJ to install the `.zip` file that you just downloaded: choose the `Private model` option and `From ZIP file`.
       3) In the `zip` file you just downloaded, there is an `exampleImage.tif`that you can open in ImageJ and process with the model you just downloaded.
       4) See a detailed tutorial [here](https://deepimagej.github.io/tutorials.html).      
 
-For more detailed information about the connection between the BioImage Model Zoo and deepImageJ, see deepImageJ wiki [here](https://github.com/deepimagej/deepimagej-plugin/wiki/BioImage-Model-Zoo-Connection).
+For more detailed information about the connection between the RI-SCALE Model Hub and deepImageJ, see deepImageJ wiki [here](https://github.com/deepimagej/deepimagej-plugin/wiki/BioImage-Model-Zoo-Connection).
 
 #### Fiji
 **Note: Fiji only supports Tensorflow 1 models at the moment!**
@@ -62,9 +62,9 @@ TBD
 
 
 #### ZeroCostDL4Mic
-**Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the BioImage Model Zoo or fine-tune existing ones!**
+**Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the RI-SCALE Model Hub or fine-tune existing ones!**
 
-1. Download a ZeroCostDL4Mic model from the [BioImage Model Zoo](https://bioimage.io/) repository. 
+1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://bioimage.io/) repository. 
 2. Unzip the model `.zip` file so you can use it later in the notebook.
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
@@ -80,7 +80,7 @@ TBD
 
 ## Developers Guide
 
-### Models in the BioImage Model Zoo
+### Models in the RI-SCALE Model Hub
 A BioImage.IO model is a zip file containing all the items, technical description and metadata of the model, together with the trained architecture of the model. Briefly, a BioImage.IO model has at least, the following items:
 * Trained model in the correct format (check the Resource Description File Specifications for the [supported formats](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md))
 * Example input image (numpy array)
@@ -97,7 +97,7 @@ In some cases, the model may need additional files.
 - The model should be well documented (i.e., human readable name and rich description tailored for life-scientists, citations)
 - The model should be public and can be used by anyone under the chosen licensing conditions.
 
-#### Upload a model to the BioImage Model Zoo
+#### Upload a model to the RI-SCALE Model Hub
 
 **1. Create a BioImage.IO model** 
 Two options:
@@ -112,9 +112,9 @@ Two options:
       - Static validation of the model format using the [bioimageio.core python library](https://github.com/bioimage-io/core-bioimage-io-python) library (*e.g.*, in the terminal, `bioimageio validate /../rdf.yaml`).
       - Dynamic validation of the model's deployment (*e.g.*, in the terminal, `bioimageio test-model --weights tensorflow_saved_model_bundle --device cpu /.../rdf.yaml`). It tests that the model generates the expected output.
       
-**2. Upload the model to the BioImage Model Zoo**
+**2. Upload the model to the RI-SCALE Model Hub**
 
-To upload a model to the BioImage Model Zoo, you have a tutorial video of the process step by step available [here](https://oc.embl.de/index.php/s/JBWwJGgsXh0vYM6).
+To upload a model to the RI-SCALE Model Hub, you have a tutorial video of the process step by step available [here](https://oc.embl.de/index.php/s/JBWwJGgsXh0vYM6).
          
 <img src="./guides/contribute_model.png" align="center" width="1000"/>
 
@@ -136,9 +136,9 @@ For a detailed explanation, follow these steps:
 6. Once the model passes all checks and has the approval of a maintainer, it will be added to the BioImage.IO collection and displayed in the webpage (this process may take some minutes). 
 
 #### Upload a model through Zenodo
-**Note:** This tutorial provides a temporary solution for uploading models to the BioImage Model Zoo via Zenodo while the upload feature on the BioImage.IO website is being fixed.
+**Note:** This tutorial provides a temporary solution for uploading models to the RI-SCALE Model Hub via Zenodo while the upload feature on the BioImage.IO website is being fixed.
 
-This tutorial will guide you through the process of uploading a model to the BioImage Model Zoo community on Zenodo. The BioImage Model Zoo project aims to collect and share bioimage analysis models, and your contribution is valuable. Follow the steps below to upload your model.
+This tutorial will guide you through the process of uploading a model to the RI-SCALE Model Hub community on Zenodo. The RI-SCALE Model Hub project aims to collect and share bioimage analysis models, and your contribution is valuable. Follow the steps below to upload your model.
 
 1. Open your web browser and navigate to the Zenodo website at [https://zenodo.org/](https://zenodo.org). You need to create a Zenodo account if you do not have one. 
    <!-- ![Zenodo initial page](contribute_models/zenodo_upload_01.png) -->
@@ -157,9 +157,9 @@ The files in the BioImage.IO zip have to be uploaded one-by-one (See the example
 
 5. Once finished, click on Submit.
    
-6. Your model will be proposed as a new contribution to the BioImage Model Zoo automatically. If the model passes all the tests, it will be automatically displayed in the Zoo. If the model does not pass the test, the GitHub users indicated in `maintainers` in the `rdf.yaml` file will be noitified through GitHub. This process can take 12-24h.
+6. Your model will be proposed as a new contribution to the RI-SCALE Model Hub automatically. If the model passes all the tests, it will be automatically displayed in the Zoo. If the model does not pass the test, the GitHub users indicated in `maintainers` in the `rdf.yaml` file will be noitified through GitHub. This process can take 12-24h.
 
-You've successfully uploaded your model to the BioImage Model Zoo community on Zenodo. Thank you for your contribution to the BioImage Model Zoo project. Remember that this is a temporary solution while the upload feature on the BioImage.IO website is being fixed. We appreciate your patience and support!
+You've successfully uploaded your model to the RI-SCALE Model Hub community on Zenodo. Thank you for your contribution to the RI-SCALE Model Hub project. Remember that this is a temporary solution while the upload feature on the BioImage.IO website is being fixed. We appreciate your patience and support!
 
 
 ####  Model Documentation
@@ -171,14 +171,14 @@ Models are expected to be used by life-scientists, thus, it is expected that the
 
    
 ##### Model Tags
-The tags in the model RDF are used to search for each model in the BioImage Model Zoo. The more informative tags you write, the easier it will be for a potential user to find your model. Example:
+The tags in the model RDF are used to search for each model in the RI-SCALE Model Hub. The more informative tags you write, the easier it will be for a potential user to find your model. Example:
 
    **My model description**: An encoder-decoder trained for denoising of point-scanning super-resolution microsocpy images of HeLa cells microtubules
    
    **Tags**: `denoising`, `PSSR`, `microtubules`, `encoder-decoder`, `deblurring`, `fluorescence`, `2D`, `HeLa cells`, `deepimagej`, `ilastik`, `image restoration`, `trained-model` etc.
 
 ##### Model links
-The BioImage Model Zoo is a software webpage. Each model is displayed with an interactive card that can have datasets, notebooks, applications, consumer-software or test-run buttons linked. Example:
+The RI-SCALE Model Hub is a software webpage. Each model is displayed with an interactive card that can have datasets, notebooks, applications, consumer-software or test-run buttons linked. Example:
     
    **Links**: `imjoy/BioImageIO-Packager`, `ilastik/ilastik`, `deepimagej/deepimagej`, `zero/dataset_fnet_3d_zerocostdl4mic` etc.
 
@@ -402,7 +402,7 @@ Community partners can host their own Github repository for storing models and o
 ![bioimage-io-community-partners](./community_partners_guide/bioimage-io-community-partners.png)
 
 ### Meet our Community Partners
-Below is a list of our esteemed Community Partners who actively engage with the BioImage Model Zoo project, contributing their expertise, resources, and support to enhance the bioimage analysis community.
+Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the bioimage analysis community.
 
 <!-- ImJoyPlugin: {"type": "window", "hide_code_block": true, "startup_mode": "run"} -->
 ```html
@@ -562,7 +562,7 @@ Upon approval, we will guide you to follow these steps in order to incorporate y
 
 ### How to register a software or application?
 
-A community partner can have one or multiple associated software, you can register them in the collection RDF file of your repository (see the previous section about creating a collection repository). A software is categorized as "Application" in the BioImage Model Zoo. The first thing to do is to create an application file in the [ImJoy plugin file format](https://imjoy.io/docs/#/development?id=plugin-file-format). This basically allows you define a landing page for your software with executable features such as download or test run buttons for your software. The most common use case is to create a landing page for your software. Each software will have an unique id, typically in the format of `<community partner id>/<software name>`. Every model can add links (manually when upload or automatically via the CI) to the software. For each model, the user can click the link on top of the model card, and the landing page will be loaded. Through the ImJoy plugin mechanism, the context information contains the current model information will be injected to the landing page, it's up to the developer who made the software app to decided how to use those information.
+A community partner can have one or multiple associated software, you can register them in the collection RDF file of your repository (see the previous section about creating a collection repository). A software is categorized as "Application" in the RI-SCALE Model Hub. The first thing to do is to create an application file in the [ImJoy plugin file format](https://imjoy.io/docs/#/development?id=plugin-file-format). This basically allows you define a landing page for your software with executable features such as download or test run buttons for your software. The most common use case is to create a landing page for your software. Each software will have an unique id, typically in the format of `<community partner id>/<software name>`. Every model can add links (manually when upload or automatically via the CI) to the software. For each model, the user can click the link on top of the model card, and the landing page will be loaded. Through the ImJoy plugin mechanism, the context information contains the current model information will be injected to the landing page, it's up to the developer who made the software app to decided how to use those information.
 
 To see an example, you can find the [source for the ilastik app](https://github.com/ilastik/bioimage-io-resources/blob/main/src/ilastik-app.imjoy.html) and also the corresponding entry in the collection file [here](https://github.com/ilastik/bioimage-io-resources/blob/2d2f1b12b185b1b880bfb679ed2aa981bf88d1ed/collection.yaml#L45-L59).
 

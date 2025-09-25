@@ -391,7 +391,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
               >
                 Model Card Template
               </a>
-              {' '}to help you create thorough documentation that meets BioImage Model Zoo standards.
+              {' '}to help you create thorough documentation that meets RI-SCALE Model Hub standards.
             </p>
           </div>
         </div>

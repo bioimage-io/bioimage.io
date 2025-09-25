@@ -1,34 +1,30 @@
-# How to contribute models to the BioImage Model Zoo
-This guide is intended for developers who want to contribute models to the BioImage Model Zoo. It provides detailed instructions on creating, validating, and uploading models to the platform. By following these steps, you can ensure that your models are compatible with BioImage.IO consumer software and accessible to the broader life-sciences community.
+# How to contribute models to the RI-SCALE Model Hub
+This guide is intended for developers who want to contribute models to the RI-SCALE Model Hub. It provides detailed instructions on creating, validating, and uploading models to the platform. By following these steps, you can ensure that your models are compatible with BioImage.IO consumer software and accessible to the broader life-sciences community.
 
 ## Content
-- [Models in the BioImage Model Zoo](#models-in-the-bioimage-model-zoo)
-  - [Model contribution requirements](#model-contribution-requirements)
-  - [Create a BioImage.IO model](#create-a-bioimageio-model)
-  - [Validate a BioImage.IO model](#validate-a-bioimageio-model)
-  - [Upload the model to the BioImage Model Zoo](#upload-the-model-to-the-bioimage-model-zoo)
-
-- [Model Documentation](#model-documentation)
-  - [Model naming](#model-naming)
-  - [Model Tags](#model-tags)
-  - [Model links](#model-links)
-  - [Representative Covers](#representative-covers)
-
-- [Considerations for the model description file](#considerations-for-the-model-description-file)
-
-- [Model Resource Description File Specification](#model-resource-description-file-specification)
-  - [User-Friendly Documentation](#linking-to-comprehensive-rdf-documentation)
-  - [Developer-Focused Documentation](#developer-focused-documentation)
-  - [JSON Schema](#json-schema)
-  - [Interactive Rendered Documentation](#interactive-rendered-documentation)
-  - [Validation and Examples](#validation-and-examples)
-
-- [Other contributions](#other-contributions)
-  - [Submit to BioImage.IO](#submit-to-bioimageio)
+- [How to contribute models to the RI-SCALE Model Hub](#how-to-contribute-models-to-the-ri-scale-model-hub)
+  - [Content](#content)
+  - [Models in the RI-SCALE Model Hub](#models-in-the-ri-scale-model-hub)
+    - [Model contribution requirements](#model-contribution-requirements)
+    - [Create a BioImage.IO model](#create-a-bioimageio-model)
+      - [1. Using the `bioimageio.core` Python Library](#1-using-the-bioimageiocore-python-library)
+    - [Validate a BioImage.IO model](#validate-a-bioimageio-model)
+      - [2. Through a Community Partner](#2-through-a-community-partner)
+      - [3. Using a Graphical User Interface (GUI)](#3-using-a-graphical-user-interface-gui)
+    - [Upload the model to the RI-SCALE Model Hub](#upload-the-model-to-the-ri-scale-model-hub)
+    - [Model Documentation](#model-documentation)
+      - [Model Card Template](#model-card-template)
+      - [Model naming](#model-naming)
+      - [Model Tags](#model-tags)
+      - [Model links](#model-links)
+      - [Representative Covers](#representative-covers)
+    - [Considerations for the model description file](#considerations-for-the-model-description-file)
+    - [Model Resource Description File Specification](#model-resource-description-file-specification)
+      - [Linking to Comprehensive RDF Documentation](#linking-to-comprehensive-rdf-documentation)
 
 
 
-## Models in the BioImage Model Zoo
+## Models in the RI-SCALE Model Hub
 A BioImage.IO model is a zip file containing all the items, technical description and metadata of the model, together with the trained architecture of the model. Briefly, a BioImage.IO model has at least, the following items:
 * Trained model in the correct format (check the Resource Description File Specifications for the [supported formats](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md))
 * Example input image (numpy array)
@@ -46,7 +42,7 @@ In some cases, the model may need additional files.
 - The model should be public and can be used by anyone under the chosen licensing conditions.
 
 ### Create a BioImage.IO model
-To upload a model to the BioImage Model Zoo, the model must be described in the BioImage.IO metadata format and pass reproducibility tests.
+To upload a model to the RI-SCALE Model Hub, the model must be described in the BioImage.IO metadata format and pass reproducibility tests.
 This ensures compatibility and standardization across the platform. You can find the [latest metadata specifications here](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md).
 Below are the various ways to create a BioImage.IO compatible model description.
 
@@ -56,7 +52,7 @@ This is the most recommended and streamlined method. The library provides tools 
   Use the library to programmatically create a model description in Python, see https://github.com/bioimage-io/core-bioimage-io-python?tab=readme-ov-file#-use-in-python for documentation and examples.
 
 - **Manual Generation:**
-  If you prefer a manual approach, you can create the model resource description file (`rdf.yaml`) yourself. The [BioImage.IO Model Resource Description File Specifications](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md) outline the required and optional fields for the file. Examples of RDF files can be found on the BioImage Model Zoo website.
+  If you prefer a manual approach, you can create the model resource description file (`rdf.yaml`) yourself. The [BioImage.IO Model Resource Description File Specifications](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_latest.md) outline the required and optional fields for the file. Examples of RDF files can be found on the RI-SCALE Model Hub website.
 
 ### Validate a BioImage.IO model
 
@@ -100,14 +96,14 @@ Several community partners provide tools to create models in the BioImage.IO for
 - **[ZeroCostDL4Mic Notebooks](https://github.com/HenriquesLab/ZeroCostDL4Mic):** These notebooks enable retraining or fine-tuning of existing models and export them in the correct format.
 - **[BiaPy](https://biapy.readthedocs.io/en/latest/):** BiaPy also supports model creation in the BioImage.IO format.
 
-In both cases, follow the steps outlined in the respective notebooks to generate your model. Once the process is complete, you can upload the model to the BioImage Model Zoo.
+In both cases, follow the steps outlined in the respective notebooks to generate your model. Once the process is complete, you can upload the model to the RI-SCALE Model Hub.
 
 #### 3. Using a Graphical User Interface (GUI)
 #TODO by Tomaz
 Each method allows flexibility based on your expertise and tools at hand. Always validate your model before uploading to ensure compliance with BioImage.IO specifications.
 
-### Upload the model to the BioImage Model Zoo
-Once you have created a model in the BioImage.IO format, you can upload it to the BioImage Model Zoo. The process is straightforward and involves the following steps:
+### Upload the model to the RI-SCALE Model Hub
+Once you have created a model in the BioImage.IO format, you can upload it to the RI-SCALE Model Hub. The process is straightforward and involves the following steps:
 1. Visit the [bioimageio](https://bioimage.io) website and click the "Upload" button to access the model upload page.
 2. Log in using your Google or GitHub account.
 3. Upload a resource file, which can be a single zip archive containing all necessary files, or you can select/drag and drop individual files. The 'rdf.yaml' file needed for uploading can be created in the next step.
@@ -115,13 +111,13 @@ Once you have created a model in the BioImage.IO format, you can upload it to th
     **Important**: For the model description and information, please check the [model documentation section](#model-documentation).
 5. Once ready, click "Validate" and wait for your model to be reviewed.
 
-All models and resources in the BioImage Model Zoo undergo testing and validation before being accepted for publication. Some modifications may be required to meet the publication specifications after uploading.
+All models and resources in the RI-SCALE Model Hub undergo testing and validation before being accepted for publication. Some modifications may be required to meet the publication specifications after uploading.
 
 
 ###  Model Documentation
 
 #### Model Card Template
-We provide a comprehensive [Model Card Template](../model-card-template.md) to help you create thorough documentation for your model. This template includes structured sections for model description, training details, validation metrics, ethical considerations, and usage guidelines. Using this template ensures your model documentation meets the BioImage Model Zoo standards and helps users understand how to properly use your model.
+We provide a comprehensive [Model Card Template](../model-card-template.md) to help you create thorough documentation for your model. This template includes structured sections for model description, training details, validation metrics, ethical considerations, and usage guidelines. Using this template ensures your model documentation meets the RI-SCALE Model Hub standards and helps users understand how to properly use your model.
 
 **Important**: When uploading your model, include a `README.md` file in your model folder following this template structure.
 
@@ -133,14 +129,14 @@ Models are expected to be used by life-scientists, thus, it is expected that the
 
    
 #### Model Tags
-The tags in the model RDF are used to search for each model in the BioImage Model Zoo. The more informative tags you write, the easier it will be for a potential user to find your model. Example:
+The tags in the model RDF are used to search for each model in the RI-SCALE Model Hub. The more informative tags you write, the easier it will be for a potential user to find your model. Example:
 
    **My model description**: An encoder-decoder trained for denoising of point-scanning super-resolution microsocpy images of HeLa cells microtubules
 
    **Tags**: `denoising`, `PSSR`, `microtubules`, `encoder-decoder`, `deblurring`, `fluorescence`, `2D`, `HeLa cells`, `deepimagej`, `ilastik`, `image restoration`, `trained-model` etc.
 
 #### Model links
-The BioImage Model Zoo is a software webpage. Each model is displayed with an interactive card that can have datasets, notebooks, applications, consumer-software or test-run buttons linked. Example:
+The RI-SCALE Model Hub is a software webpage. Each model is displayed with an interactive card that can have datasets, notebooks, applications, consumer-software or test-run buttons linked. Example:
 
    **Links**: `imjoy/BioImageIO-Packager`, `ilastik/ilastik`, `deepimagej/deepimagej`, `zero/dataset_fnet_3d_zerocostdl4mic` etc.
 
@@ -152,13 +148,13 @@ You can include different cover images that represent the analysed tissue, imagi
 ### Considerations for the model description file
 
 When following the BioImage.IO model RDF specification provided at https://github.com/bioimage-io/spec-bioimage-io, it is important that you pay special attention to the following:
-* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://bioimage.io/docs/#/guides/user-guide?id=using-bioimage-model-zoo-models-in-different-software) can process it.
+* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://bioimage.io/docs/#/guides/user-guide?id=using-ri-scale-model-hub-models-in-different-software) can process it.
 * Pre-processing and post-processing should be always described. You can check which [preprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_v0-5.md#inputspreprocessing-sequence--) and [postprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_v0-5.md#outputspostprocessing-sequence--) functions are supported at the moment and open an [issue here](https://github.com/bioimage-io/spec-bioimage-io/issues) if you are missing a specific operation. 
 * Do not forget to include any additional files needed for the correct execution of the model during the upload process.
 
 ### Model Resource Description File Specification
 
-The Model Resource Description File (RDF) is a standardized YAML file used to describe AI models for the **BioImage Model Zoo**. It ensures compatibility between models and BioImage.IO consumer software, enabling seamless integration and reproducibility. These RDF files include metadata, such as model inputs, outputs, pre/post-processing, authorship, and more.
+The Model Resource Description File (RDF) is a standardized YAML file used to describe AI models for the **RI-SCALE Model Hub**. It ensures compatibility between models and BioImage.IO consumer software, enabling seamless integration and reproducibility. These RDF files include metadata, such as model inputs, outputs, pre/post-processing, authorship, and more.
 
 The RDF specification is essential for defining models with pretrained weights, allowing them to be consumed by various tools (e.g., ilastik, DeepImageJ). By adhering to the RDF standard, your model becomes more accessible to researchers and developers, fostering adoption and collaboration.
 

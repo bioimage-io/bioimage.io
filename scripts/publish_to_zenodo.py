@@ -92,7 +92,7 @@ async def publish_artifact_to_zenodo(artifact_manager, artifact_summary, semapho
                 to=publish_to,
                 metadata={
                     "keywords": tags,
-                    "notes": f"Published automatically by the BioImage Model Zoo (https://bioimage.io), id: {artifact.alias}, version: {artifact.get('versions', [{}])[0].get('version', 'N/A')}"
+                    "notes": f"Published automatically by the RI-SCALE Model Hub (https://bioimage.io), id: {artifact.alias}, version: {artifact.get('versions', [{}])[0].get('version', 'N/A')}"
                 }
             )
             
@@ -187,7 +187,7 @@ async def publish_collection_to_zenodo(publish_to="sandbox_zenodo", artifact_fil
         print(f"ERROR: Failed to process collection - {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Publish BioImage Model Zoo artifacts to Zenodo")
+    parser = argparse.ArgumentParser(description="Publish RI-SCALE Model Hub artifacts to Zenodo")
     parser.add_argument(
         "--target", 
         choices=["sandbox_zenodo", "zenodo"], 

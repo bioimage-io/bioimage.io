@@ -1,5 +1,5 @@
 {
-  "name": "bioimage-model-zoo",
+  "name": "ri-scale-model-hub",
   "version": "0.1.0",
   "private": true,
   "dependencies": {

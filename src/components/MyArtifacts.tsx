@@ -236,7 +236,7 @@ const MyArtifacts: React.FC = () => {
             </div>
             <div className="ml-3 flex-1 md:flex md:justify-between items-center">
               <p className="text-sm text-blue-700">
-                Hey there! As a distinguished member of the BioImage Model Zoo, you have the privilege to review and manage artifacts uploaded by the community.
+                Hey there! As a distinguished member of the RI-SCALE Model Hub, you have the privilege to review and manage artifacts uploaded by the community.
               </p>
               <p className="mt-3 text-sm md:mt-0 md:ml-6">
                 <button

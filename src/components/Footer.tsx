@@ -93,7 +93,7 @@ const Footer: React.FC = () => {
               {/* Made with love */}
               <div className="mb-6">
                 <p className="text-lg font-semibold text-gray-700 mb-4">
-                  Made with <span role="img" aria-label="love" className="text-red-500 animate-pulse">❤️</span> by the BioImage Model Zoo community
+                  Made with <span role="img" aria-label="love" className="text-red-500 animate-pulse">❤️</span> by the RI-SCALE Model Hub community
                 </p>
               </div>
               
@@ -136,7 +136,7 @@ const Footer: React.FC = () => {
                   </Link>
                 </p>
                 <p className="text-sm text-gray-600">
-                  This is the new BioImage Model Zoo website released on June 30th, 2025. You can find the legacy website archived at{' '}
+                  This is the new RI-SCALE Model Hub website released on June 30th, 2025. You can find the legacy website archived at{' '}
                   <a 
                     href="https://archive.bioimage.io" 
                     target="_blank" 

@@ -286,7 +286,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
         {/* Fancy Header */}
         <div className="text-center">
           <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-3">
-            BioImage Model Zoo
+            RI-SCALE Model Hub
           </h2>
           <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-3 rounded-full"></div>
           <p className="mt-4 text-gray-600 text-lg">

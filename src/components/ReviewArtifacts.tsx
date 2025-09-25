@@ -469,8 +469,8 @@ const ReviewArtifacts: React.FC = () => {
                     <p className="mt-1">You have {pendingCount} item{pendingCount !== 1 ? 's' : ''} waiting for review.</p>}
                     <p className="mt-1">
                       {viewMode === 'published' ? 
-                        "As a privileged reviewer, you can edit and manage all published models in the BioImage Model Zoo. Any changes made will be immediately visible to users." : 
-                        "As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the BioImage Model Zoo. Please review each submission carefully according to our guidelines."}
+                        "As a privileged reviewer, you can edit and manage all published models in the RI-SCALE Model Hub. Any changes made will be immediately visible to users." : 
+                        "As a privileged reviewer, your role is crucial in maintaining the quality and reliability of the RI-SCALE Model Hub. Please review each submission carefully according to our guidelines."}
                     </p>
                   </div>
 

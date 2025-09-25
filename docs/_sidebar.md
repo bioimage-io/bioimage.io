@@ -1,8 +1,8 @@
 <!-- docs/_sidebar.md -->
 * [Welcome](/README.md)
 * [Getting Started](/getting_started/README.md)
-* [How to use the BioImage Model Zoo](/guides/user-guide.md)
-* [How to contribute models to the BioImage Model Zoo](/guides/developers-guide.md)
+* [How to use the RI-SCALE Model Hub](/guides/user-guide.md)
+* [How to contribute models to the RI-SCALE Model Hub](/guides/developers-guide.md)
 * [Other contributions](/guides/other-contributions-guide.md)
 * [Community Partners Guide](/guides/community-partners-guide.md)
 * [Tools and Resources](/tools_and_resources/README.md)

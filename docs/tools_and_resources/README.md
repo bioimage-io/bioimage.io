@@ -15,7 +15,7 @@ The Java Deep Learning Library (JDLL) provides a Java library for running Deep L
 Documentation can be foun [here](https://github.com/bioimage-io/JDLL).
 
 ### BioEngine
-A resource that interacts with the BioImage Model Zoo intended for infraestructure developers. 
+A resource that interacts with the RI-SCALE Model Hub intended for infrastructure developers. 
 #### Building BioEngine Apps
 We use BioEngine, a tailored version of [ImJoy](https://imjoy.io) to run models applications. Therefore, you can basically run ImJoy plugins with the BioEngine specific api. 
 
@@ -76,7 +76,7 @@ If you are one of our [community partners](https://github.com/bioimage-io/bioima
 ## User Resources
 
 ### DL4MicEverywhere
-DL4MicEverywhere is a platform that lets users train and implement their models in different computational environments. These environments include Google Colab, personal computational resources such as a desktop or laptop, and HPC systems. This platform provides environments compatible with some BioImage Model Zoo models to be used in different scenarios. It extends ZeroCostDL4Mic capabilities by allowing the execution of notebooks either locally on personal devices like laptops or remotely on diverse computing platofmrs. 
+DL4MicEverywhere is a platform that lets users train and implement their models in different computational environments. These environments include Google Colab, personal computational resources such as a desktop or laptop, and HPC systems. This platform provides environments compatible with some RI-SCALE Model Hub models to be used in different scenarios. It extends ZeroCostDL4Mic capabilities by allowing the execution of notebooks either locally on personal devices like laptops or remotely on diverse computing platofmrs. 
 
 The documentation can be found in [the GitHub Repository](https://github.com/HenriquesLab/DL4MicEverywhere).
 

@@ -15,7 +15,7 @@ AI4Life reserves the right to modify these Terms at any time. If changes to thes
 2\. Accessing the Site and Services
 -----------------------------------
 
-Access to the Site and Services, including the BioImage Model Zoo website, and any underlying services connected to the website, such as the hosted BioEngine instance and deployment toolkit, is permitted on a temporary basis. AI4Life reserves the right to withdraw or amend any service it provides on the Site without notice. AI4Life will not be liable for any reason if the Site or any Service is unavailable at any time or for any period.
+Access to the Site and Services, including the RI-SCALE Model Hub website, and any underlying services connected to the website, such as the hosted BioEngine instance and deployment toolkit, is permitted on a temporary basis. AI4Life reserves the right to withdraw or amend any service it provides on the Site without notice. AI4Life will not be liable for any reason if the Site or any Service is unavailable at any time or for any period.
 
 From time to time, AI4Life may restrict access to some parts of the Site, the entire Site, or any Services.
 

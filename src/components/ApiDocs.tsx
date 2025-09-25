@@ -49,7 +49,7 @@ const ApiDocs: React.FC = () => {
       {user ? (
         <div className="space-y-4">
           <p className="text-gray-600">
-            Generate a personal API token to authenticate your requests to the BioImage Model Zoo API.
+            Generate a personal API token to authenticate your requests to the RI-SCALE Model Hub API.
           </p>
           <div className="flex flex-col space-y-3">
             <button
@@ -108,11 +108,11 @@ const ApiDocs: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-4">
-          BioImage Model Zoo API Documentation
+          RI-SCALE Model Hub API Documentation
         </h1>
         <div className="prose max-w-none">
           <p className="text-gray-600 mb-4">
-            Welcome to the BioImage Model Zoo API! This documentation will guide you through accessing and managing 
+            Welcome to the RI-SCALE Model Hub API! This documentation will guide you through accessing and managing 
             bioimage analysis models, datasets, and applications programmatically.
           </p>
         </div>
@@ -219,7 +219,7 @@ const ApiDocs: React.FC = () => {
                 rel="noopener noreferrer"
                 className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
               >
-                <h4 className="font-medium text-gray-900 mb-1">🌐 BioImage Model Zoo</h4>
+                <h4 className="font-medium text-gray-900 mb-1">🌐 RI-SCALE Model Hub</h4>
                 <p className="text-sm text-gray-600">Main website to browse models visually</p>
                 <code className="text-xs text-blue-600 mt-2 block truncate">
                   https://bioimage.io
@@ -233,7 +233,7 @@ const ApiDocs: React.FC = () => {
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">🚀 Quick Start</h2>
             <div className="prose max-w-none">
               <p className="text-gray-600 mb-4">
-                The BioImage Model Zoo uses the <strong>Artifact Manager</strong> service (part of the Hypha platform) 
+                The RI-SCALE Model Hub uses the <strong>Artifact Manager</strong> service (part of the Hypha platform) 
                 to host and manage models, datasets, and applications. All resources are called <strong>artifacts</strong> 
                 and can be accessed via simple HTTP endpoints.
               </p>
@@ -314,7 +314,7 @@ const ApiDocs: React.FC = () => {
             {/* 1. List all models */}
             <div className="mb-6">
               <h3 className="text-lg font-medium text-gray-900 mb-2">1️⃣ List All Models</h3>
-              <p className="text-gray-600 mb-3">Get a list of all available models in the BioImage Model Zoo:</p>
+              <p className="text-gray-600 mb-3">Get a list of all available models in the RI-SCALE Model Hub:</p>
               <div className="bg-gray-900 rounded-lg overflow-hidden">
                 <SyntaxHighlighter 
                   language={activeLanguageTab === 'curl' ? 'bash' : activeLanguageTab}
@@ -902,7 +902,7 @@ if __name__ == "__main__":
           <div>
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">📖 API Reference</h2>
             <p className="text-gray-600 mb-6">
-              Complete reference for all HTTP endpoints and service methods available in the BioImage Model Zoo API.
+              Complete reference for all HTTP endpoints and service methods available in the RI-SCALE Model Hub API.
             </p>
           </div>
 
@@ -1705,7 +1705,7 @@ if __name__ == "__main__":
           <div>
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">🔌 Hypha RPC Client</h2>
             <p className="text-gray-600 mb-6">
-              The Hypha RPC client provides a more powerful, WebSocket-based interface for interacting with the BioImage Model Zoo. 
+              The Hypha RPC client provides a more powerful, WebSocket-based interface for interacting with the RI-SCALE Model Hub. 
               It offers real-time communication, better error handling, and native support for Python and JavaScript.
             </p>
             
@@ -2117,7 +2117,7 @@ main().catch(console.error);`}
                 What file formats are supported for models?
               </summary>
               <div className="mt-3 text-gray-600">
-                <p>The BioImage Model Zoo supports various formats including:</p>
+                <p>The RI-SCALE Model Hub supports various formats including:</p>
                 <ul className="list-disc list-inside mt-2 space-y-1">
                   <li>Model weights: .pt, .pth (PyTorch), .h5 (Keras/TensorFlow), .onnx, etc.</li>
                   <li>Metadata: rdf.yaml (model specification)</li>
@@ -2151,7 +2151,7 @@ main().catch(console.error);`}
               <div className="mt-3 text-gray-600">
                 <ul className="list-disc list-inside space-y-2">
                   <li>
-                    <strong>BioImage Model Zoo issues:</strong>{' '}
+                    <strong>RI-SCALE Model Hub issues:</strong>{' '}
                     <a href="https://github.com/bioimage-io/bioimage.io/issues" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
                       GitHub Issues
                     </a>

@@ -1,33 +1,39 @@
-# How to use the BioImage Model Zoo
-This guide is intended for users wanting to consume or use models from the BioImage Model Zoo. There are plenty of models in the BioImage Model Zoo that you can use in your own software, in the software of our community partners or you can even download them and use them in a notebook or code of your own.
+# How to use the RI-SCALE Model Hub
+This guide is intended for users wanting to consume or use models from the RI-SCALE Model Hub. There are plenty of models in the RI-SCALE Model Hub that you can use in your own software, in the software of our community partners or you can even download them and use them in a notebook or code of your own.
 
 ## Content
-- [Downloading and using Models from the BioImage Model Zoo](#downloading-and-using-models-from-the-bioimage-model-zoo)
-- [Using BioImage Model Zoo models in different software](#using-bioimage-model-zoo-models-in-different-software)
-  - [BiaPy](#biapy)
-  - [DeepImageJ](#deepimagej)
-  - [Ilastik](#ilastik)
-  - [ImJoy](#imjoy)
-  - [ZeroCostDL4Mic](#zerocostdl4mic)
-  - [DL4MicEverywhere](#dl4miceverywhere)
-  - [CAREamics](#careamics)
-  - [QuPath](#qupath)
-  - [SpotMAX](#spotmax)
-  - [DeepIcy](#deepicy)
-- [Best Practices for Model Usage](#best-practices-for-model-usage)
-- [Use Cases](#use-cases)
+- [How to use the RI-SCALE Model Hub](#how-to-use-the-ri-scale-model-hub)
+  - [Content](#content)
+  - [Downloading and using Models from the RI-SCALE Model Hub](#downloading-and-using-models-from-the-ri-scale-model-hub)
+  - [Using RI-SCALE Model Hub models in different software (Community Partners)](#using-ri-scale-model-hub-models-in-different-software-community-partners)
+    - [BiaPy](#biapy)
+    - [DeepImageJ](#deepimagej)
+    - [Ilastik](#ilastik)
+    - [ImJoy](#imjoy)
+    - [ZeroCostDL4Mic](#zerocostdl4mic)
+    - [DL4MicEverywhere](#dl4miceverywhere)
+    - [CAREamics](#careamics)
+    - [QuPath](#qupath)
+      - [Supported models](#supported-models)
+    - [SpotMAX](#spotmax)
+      - [Instructions](#instructions)
+    - [DeepIcy](#deepicy)
+      - [Supported models](#supported-models-1)
+      - [Instructions](#instructions-1)
+  - [Best Practices for Model Usage](#best-practices-for-model-usage)
+  - [Use Cases](#use-cases)
 
-## Downloading and using Models from the BioImage Model Zoo
+## Downloading and using Models from the RI-SCALE Model Hub
 
-See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a model from the BioImage Model Zoo in different software.
+See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a model from the RI-SCALE Model Hub in different software.
 
 <img src="./guides/download_model_packager.jpg" alt="bioimage.io download" width="60%"/>
 
 
-## Using BioImage Model Zoo models in different software (Community Partners)
+## Using RI-SCALE Model Hub models in different software (Community Partners)
 
 ### BiaPy
-**Note: BiaPy empowers users to train custom models or fine-tune existing ones for bioimaging tasks and upload them to the BioImage Model Zoo. BiaPy supports models exported with PyTorch.**
+**Note: BiaPy empowers users to train custom models or fine-tune existing ones for bioimaging tasks and upload them to the RI-SCALE Model Hub. BiaPy supports models exported with PyTorch.**
 
 BiaPy adapts to users of all expertise levels, offering multiple ways to run and interact with models:
 - Graphical User Interface (GUI): Ideal for beginners.
@@ -35,10 +41,10 @@ BiaPy adapts to users of all expertise levels, offering multiple ways to run and
 - Docker Containers: Ensure reproducibility and isolation.
 - Command Line Interface (CLI): Perfect for advanced users.
 
-How you interact with BioImage Model Zoo models also depends on your chosen method. Get started with the resources below:
+How you interact with RI-SCALE Model Hub models also depends on your chosen method. Get started with the resources below:
 - [BiaPy Landing Page](https://biapyx.github.io/): Your gateway to all things BiaPy.
 - [BiaPy Documentation](https://biapy.readthedocs.io/en/latest/index.html): In-depth guides and tutorials.
-- [BioImage Model Zoo in BiaPy](https://biapy.readthedocs.io/en/latest/get_started/bmz.html): Learn how to work with models from the BioImage Model Zoo.
+- [RI-SCALE Model Hub in BiaPy](https://biapy.readthedocs.io/en/latest/get_started/bmz.html): Learn how to work with models from the RI-SCALE Model Hub.
 
 ### DeepImageJ
 
@@ -47,13 +53,13 @@ How you interact with BioImage Model Zoo models also depends on your chosen meth
 1. Install the [deepImageJ plugin](https://deepimagej.github.io/download.html) in ImageJ.
 This will give you all the necessary Plugins to run bioimage.io models at the moment.
 
-2. Install a model from the [BioImage Model Zoo](https://bioimage.io/):
-      1) Download a deepImageJ model from the BioImage Model Zoo repository.
+2. Install a model from the [RI-SCALE Model Hub](https://bioimage.io/):
+      1) Download a deepImageJ model from the RI-SCALE Model Hub repository.
       2) Use `DeepImageJ Install Model` in ImageJ to install the `.zip` file that you just downloaded: choose the `Private model` option and `From ZIP file`.
       3) In the `zip` file you just downloaded, there is an `exampleImage.tif`that you can open in ImageJ and process with the model you just downloaded.
       4) See a detailed tutorial [here](https://deepimagej.github.io/tutorials.html).      
 
-For more detailed information about the connection between the BioImage Model Zoo and deepImageJ, see deepImageJ wiki [here](https://github.com/deepimagej/deepimagej-plugin/wiki/BioImage-Model-Zoo-Connection).
+For more detailed information about the connection between the RI-SCALE Model Hub and deepImageJ, see deepImageJ wiki [here](https://github.com/deepimagej/deepimagej-plugin/wiki/BioImage-Model-Zoo-Connection).
 
 
 ### Ilastik
@@ -63,10 +69,10 @@ For more detailed information about the connection between the BioImage Model Zo
    - Install ilastik from the [official website](https://www.ilastik.org/).
    - For remote execution, install the TikTorch backend following the instructions in the [TikTorch GitHub repository](https://github.com/ilastik/tiktorch#installation).
 
-2. **Download and set up a model from the BioImage Model Zoo**:
+2. **Download and set up a model from the RI-SCALE Model Hub**:
    - Visit the [ilastik Model Zoo on BioImage.IO](https://bioimage.io/#/?partner=ilastik) to find compatible pre-trained models.
    - To load a model into ilastik:
-     - Copy the model's DOI or nickname from the BioImage Model Zoo and paste it into the text field in ilastik’s Neural Network Classification workflow. Click the arrow button to download and initialize the model.
+     - Copy the model's DOI or nickname from the RI-SCALE Model Hub and paste it into the text field in ilastik’s Neural Network Classification workflow. Click the arrow button to download and initialize the model.
      - Alternatively, download the model as a `.zip` archive, then drag and drop it into the text field or use the file dialog to load it.
 
 3. **Run the model**:
@@ -85,10 +91,10 @@ For more detailed information about the connection between the BioImage Model Zo
 5. **Learn more**:
    - [Ilastik Documentation](https://www.ilastik.org/documentation)
    - [TikTorch Repository](https://github.com/ilastik/tiktorch)
-   - [BioImage Model Zoo](https://bioimage.io/#/?partner=ilastik)
+   - [RI-SCALE Model Hub](https://bioimage.io/#/?partner=ilastik)
 
 ###  ImJoy
-[ImJoy](https://imjoy.io) is a flexible platform for running computational workflows in the browser or using Python. While it doesn’t directly reference the BioImage Model Zoo (BMZ), it supports seamless integration of BMZ models via plugins and Python.
+[ImJoy](https://imjoy.io) is a flexible platform for running computational workflows in the browser or using Python. While it doesn’t directly reference the RI-SCALE Model Hub (BMZ), it supports seamless integration of BMZ models via plugins and Python.
 
 1. Install ImJoy and the Plugin Engine
       - Use the [ImJoy Web App](https://imjoy.io) for browser-based workflows.
@@ -98,7 +104,7 @@ For more detailed information about the connection between the BioImage Model Zo
             imjoy --start
             ```
 2. Download and Set Up a BMZ Model
-      - Visit the [BioImage Model Zoo](https://bioimage.io/) and download a model with its rdf.yaml file.
+      - Visit the [RI-SCALE Model Hub](https://bioimage.io/) and download a model with its rdf.yaml file.
       - Optionally, use `bioimageio.core` to interact with BMZ models:
             ```bash
             pip install bioimageio.core
@@ -115,16 +121,16 @@ For more detailed information about the connection between the BioImage Model Zo
       print(result)
       ```
 4. Learn More
-      - **[BioImage.IO Plugin](https://bioimage-io.github.io/bioengine-web-client/)**: Plugin from ImJoy to the BioImage Model Zoo.
+      - **[BioImage.IO Plugin](https://bioimage-io.github.io/bioengine-web-client/)**: Plugin from ImJoy to the RI-SCALE Model Hub.
       - **[ImJoy Documentation](https://imjoy.io/docs/)**: Explore the full capabilities of ImJoy.
-      - **[BioImage Model Zoo Documentation](https://bioimage.io/docs/)**: Discover more about BMZ models.
+      - **[RI-SCALE Model Hub Documentation](https://bioimage.io/docs/)**: Discover more about BMZ models.
       - **[bioimageio.core Library](https://github.com/bioimage-io/core-bioimage-io-python)**: Dive into the Python library for BMZ models.
 
 
 ### ZeroCostDL4Mic
-**Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the BioImage Model Zoo or fine-tune existing ones!**
+**Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the RI-SCALE Model Hub or fine-tune existing ones!**
 
-1. Download a ZeroCostDL4Mic model from the [BioImage Model Zoo](https://bioimage.io/) repository. 
+1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://bioimage.io/) repository. 
 2. Unzip the model `.zip` file so you can use it later in the notebook.
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
@@ -141,10 +147,10 @@ For more detailed information about the connection between the BioImage Model Zo
 4. **[Full DL4MicEverywhere documentation](https://github.com/HenriquesLab/DL4MicEverywhere)**
 
 ### CAREamics
-*CAREamics is a producer of BioImage Model Zoo models.*
+*CAREamics is a producer of RI-SCALE Model Hub models.*
 
-1. **Create and export models in the BioImage Model Zoo format**:
-   - CAREamics allows you to train models and export them in the BioImage Model Zoo format for sharing and reuse.
+1. **Create and export models in the RI-SCALE Model Hub format**:
+   - CAREamics allows you to train models and export them in the RI-SCALE Model Hub format for sharing and reuse.
    - Refer to the [Noise2Void SEM Example](https://careamics.github.io/0.1/applications/Noise2Void/SEM/#export-the-model) for detailed steps on exporting a model in the BMZ format.
 
 2. **Learn more**:
@@ -186,7 +192,7 @@ If you encounter issues, feel free to report your problem either on our [GitHub 
    - Optionally, install [the Deep Java Library extension](https://github.com/qupath/qupath-extension-djl/)
      and use this extension to download PyTorch and TensorFlow.
 
-2. Download and unzip a model from the BioImage Model Zoo. Version 0.1.0 of QuPath's bioimageio extension only
+2. Download and unzip a model from the RI-SCALE Model Hub. Version 0.1.0 of QuPath's bioimageio extension only
    supported models using the 0.4.x version of the BioImageIO model spec; future versions should also
    support models using 0.5.x formats.
 
@@ -194,7 +200,7 @@ If you encounter issues, feel free to report your problem either on our [GitHub 
 3. Create a pixel classifier for a supported model by running the command
    `Extensions -> Bioimage Model Zoo -> Create pixel classifier (Bioimage Model Zoo)` and locating the previously downloaded model zip.
 
-4. More detailed instructions can be found at [QuPath's readthedocs BioImage Model Zoo page](https://qupath.readthedocs.io/en/latest/docs/deep/bioimage.html)
+4. More detailed instructions can be found at [QuPath's readthedocs RI-SCALE Model Hub page](https://qupath.readthedocs.io/en/latest/docs/deep/bioimage.html)
 
 ### DeepIcy
 #### Supported models
@@ -212,7 +218,7 @@ DeepIcy supports every model with one input image in the following formats: tens
 4. More instructions can be found here: https://icy.bioimageanalysis.org/plugin/deepicy/
 
 ## Best Practices for Model Usage
-To ensure reliable and accurate results when using models from the BioImage Model Zoo, it is crucial to select a model suited to your specific dataset and application. Carefully review the model's documentation, particularly the "Validation" section, which provides steps for testing the model with your data. Quantitatively evaluate the model’s performance to confirm it meets your requirements and identifies potential limitations. 
+To ensure reliable and accurate results when using models from the RI-SCALE Model Hub, it is crucial to select a model suited to your specific dataset and application. Carefully review the model's documentation, particularly the "Validation" section, which provides steps for testing the model with your data. Quantitatively evaluate the model’s performance to confirm it meets your requirements and identifies potential limitations. 
 
 For additional guidance on using deep learning models in microscopy and related fields, refer to the paper [Best practices for scientifically rigorous deep learning in microscopy](https://www.nature.com/articles/s41592-021-01284-3). Adhering to these practices ensures robust and reproducible analyses.
 
