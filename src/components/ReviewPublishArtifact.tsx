@@ -137,7 +137,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               You are about to publish this artifact to:
             </p>
             <ul className="list-disc pl-5 space-y-2">
-              <li>The BioImage Model Zoo website</li>
+              <li>The RI-SCALE Model Hub website</li>
               <li>Zenodo (with DOI assignment)</li>
             </ul>
             <p className="text-red-600 font-medium">
