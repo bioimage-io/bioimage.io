@@ -168,7 +168,7 @@ api.export(new ImJoyPlugin())
 
 ## How to join as a community partner?
 
-Note that in order to contribute resources to the RI-SCALE Model Hub you do not need to become a community partner. How to contribute resources is described [here](/contribute_models/README.md). The role of a community partner is described [here](/community_partners/README.md).
+Note that in order to contribute resources to the RI-SCALE Model Hub you do not need to become a community partner. How to contribute resources is described [here](docs/contribute_models/README.md). The role of a community partner is described [here](docs/community_partners/README.md).
 
 
 If you are eligible and willing to join as a community partner, please submit a request issue [here](https://github.com/bioimage-io/collection/issues/new) with relevant information including the following:
