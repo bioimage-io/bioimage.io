@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 
 const footerLinks = [
   {
-    label: "We receive funding through the AI4Life project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
+    label: "We receive funding through the RI-SCALE project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
     href: "https://ai4life.eurobioimaging.eu/",
     icon: "/static/img/AI4Life-logo-giraffe.png",
-    caption: "AI4Life"
+    caption: "RI-SCALE"
   },
   {
     label: "Ask a question on image.sc forum",
@@ -93,7 +93,7 @@ const Footer: React.FC = () => {
               {/* Made with love */}
               <div className="mb-6">
                 <p className="text-lg font-semibold text-gray-700 mb-4">
-                  Made with <span role="img" aria-label="love" className="text-red-500 animate-pulse">❤️</span> by the RI-SCALE Model Hub community
+                  Made with <span role="img" aria-label="love" className="text-red-500 animate-pulse">❤️</span> by the RI-SCALE community
                 </p>
               </div>
               
@@ -104,7 +104,7 @@ const Footer: React.FC = () => {
               />
               
               <p className="text-base text-gray-700 leading-relaxed px-4 mb-4 font-medium">
-                RI-SCALE Model Hub -- a collaborative effort to bring AI models to the bioimaging community, powered by the AI4Life consortium
+                RI-SCALE Model Hub -- a collaborative effort to bring AI models to the bioimaging community, powered by the RI-SCALE consortium
               </p>
               
               <p className="text-sm text-gray-600 leading-relaxed px-4">

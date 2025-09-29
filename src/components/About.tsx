@@ -9,7 +9,7 @@ const About: React.FC = () => {
         <h2 className="text-2xl font-semibold mb-4 text-gray-800">Our Mission</h2>
         <p className="text-gray-600 leading-relaxed">
           RI-SCALE Model Hub is a collaborative platform bringing AI models to the bioimaging community. 
-          As part of the AI4Life consortium, we provide a community-driven, open resource for 
+          As part of the RI-SCALE consortium, we provide a community-driven, open resource for 
           sharing standardized AI models for bioimage analysis.
         </p>
       </section>
@@ -74,13 +74,13 @@ const About: React.FC = () => {
       <section className="mb-12 bg-white rounded-lg shadow-sm p-8">
         <h2 className="text-2xl font-semibold mb-4 text-gray-800">Funding & Support</h2>
         <p className="text-gray-600 leading-relaxed mb-6">
-          RI-SCALE Model Hub receives funding through the AI4Life project with support from the European Union's 
+          RI-SCALE Model Hub receives funding through the RI-SCALE project with support from the European Union's 
           Horizon Europe research and innovation programme under grant agreement number 101057970.
         </p>
         <div className="flex flex-wrap items-center gap-6 mt-4">
           <img 
             src="/static/img/AI4Life-logo-giraffe.png" 
-            alt="AI4Life Logo" 
+            alt="RI-SCALE Logo" 
             className="h-16 object-contain"
           />
           <img 

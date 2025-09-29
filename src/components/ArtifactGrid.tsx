@@ -324,7 +324,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                      Run BioImage Models with BioEngine
+                      Run Model Hub Models with BioEngine
                     </h3>
                     <p className="text-sm text-gray-600">
                       Bring bioimage models locally, on-premise or in the cloud. We support laptops, workstations, HPC clusters, and cloud platforms.

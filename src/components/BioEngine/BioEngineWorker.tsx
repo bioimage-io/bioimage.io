@@ -758,7 +758,7 @@ const BioEngineWorker: React.FC = () => {
                 BioEngine Worker Dashboard
               </h1>
             </div>
-            <p className="text-gray-600 mt-2">Manage and deploy your bioimage analysis applications</p>
+            <p className="text-gray-600 mt-2">Manage and deploy your model hub analysis applications</p>
           </div>
 
           {serviceId && (
