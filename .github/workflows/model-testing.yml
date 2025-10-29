@@ -6,14 +6,6 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      skip_exists:
-        description: 'Skip models that already have test results'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
       model_ids:
         description: 'Specific model IDs to test (comma-separated, leave empty for all)'
         required: false
@@ -61,16 +53,11 @@ jobs:
         cd scripts
 
         # Set safe defaults for inputs (handle scheduled runs)
-        SKIP_EXISTS="${{ github.event.inputs.skip_exists || 'false' }}"
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
         DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
 
         # Build command arguments
         ARGS=""
-
-        if [ "$SKIP_EXISTS" = "true" ]; then
-          ARGS="$ARGS --skip-exists"
-        fi
 
         if [ -n "$MODEL_IDS" ]; then
           MODEL_IDS_SPACE=$(echo "$MODEL_IDS" | tr ',' ' ')
@@ -117,7 +104,7 @@ jobs:
           echo "| Test Type | Passed | Total | Rate |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|-------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| RDF Validation | $PASSED_RDF | $TOTAL_MODELS | ${RDF_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Model Test Run | $PASSED_MODEL | $TOTAL_MODELS | ${MODEL_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Model Test Run | $PASSED_INFERENCE | $TOTAL_MODELS | ${MODEL_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Reproduce Outputs | $PASSED_REPRODUCE | $TOTAL_MODELS | ${REPRODUCE_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
