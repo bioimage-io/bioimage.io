@@ -12,6 +12,8 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
@@ -36,6 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import TestReportBadge from './TestReportBadge';
 import TestReportDialog from './TestReportDialog';
 import ArtifactFiles from './ArtifactFiles';
+import { useBookmarks } from '../hooks/useBookmarks';
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -65,6 +68,7 @@ const ArtifactDetails = () => {
   const [isStaged, setIsStaged] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
+  const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -258,6 +262,29 @@ const ArtifactDetails = () => {
     setTimeout(() => setShowCopied(false), 2000);
   };
 
+  const handleBookmark = async () => {
+    if (!isLoggedIn || !selectedResource) {
+      alert('Please login to bookmark artifacts');
+      return;
+    }
+    if (!artifactManager) {
+      alert('Please wait for the system to initialize');
+      return;
+    }
+    try {
+      await toggleBookmark({
+        id: selectedResource.id,
+        name: selectedResource.manifest.name,
+        description: selectedResource.manifest.description,
+        covers: selectedResource.manifest.covers,
+        icon: selectedResource.manifest.icon
+      });
+    } catch (error) {
+      console.error('Error toggling bookmark:', error);
+      alert('Failed to toggle bookmark. Please try again.');
+    }
+  };
+
   const handleToggleModelRunner = () => {
     setShowModelRunner(!showModelRunner);
     // Reset container height when toggling off
@@ -401,14 +428,14 @@ const ArtifactDetails = () => {
               onClick={handleCopyId}
               size="small"
               title="Copy ID"
-              sx={{ 
+              sx={{
                 padding: '8px',
                 backgroundColor: 'rgba(255, 255, 255, 0.7)',
                 backdropFilter: 'blur(4px)',
                 border: '1px solid rgba(255, 255, 255, 0.5)',
                 borderRadius: '12px',
                 transition: 'all 0.3s ease',
-                '&:hover': { 
+                '&:hover': {
                   backgroundColor: 'rgba(255, 255, 255, 0.9)',
                   borderColor: 'rgba(59, 130, 246, 0.3)',
                   transform: 'scale(1.05)',
@@ -421,6 +448,32 @@ const ArtifactDetails = () => {
               <span className="text-green-600 text-sm font-medium animate-fade-in">
                 Copied!
               </span>
+            )}
+            {isLoggedIn && (
+              <IconButton
+                onClick={handleBookmark}
+                size="small"
+                title={isBookmarked(selectedResource.id) ? "Remove bookmark" : "Bookmark"}
+                sx={{
+                  padding: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                  backdropFilter: 'blur(4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.5)',
+                  borderRadius: '12px',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    borderColor: 'rgba(251, 191, 36, 0.3)',
+                    transform: 'scale(1.05)',
+                  }
+                }}
+              >
+                {isBookmarked(selectedResource.id) ? (
+                  <StarIcon sx={{ fontSize: 16, color: 'rgba(251, 191, 36, 1)' }} />
+                ) : (
+                  <StarBorderIcon sx={{ fontSize: 16, color: 'rgba(107, 114, 128, 1)' }} />
+                )}
+              </IconButton>
             )}
           </div>
         </Typography>

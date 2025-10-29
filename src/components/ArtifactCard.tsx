@@ -6,12 +6,15 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditIcon from '@mui/icons-material/Edit';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
 import TestReportBadge from './TestReportBadge';
+import { useBookmarks } from '../hooks/useBookmarks';
 
 interface ResourceCardProps {
   artifact: ArtifactInfo;
@@ -26,6 +29,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [canEdit, setCanEdit] = useState(false);
 
   const { setSelectedResource, user, isLoggedIn, artifactManager } = useHyphaStore();
+  const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
 
   // Check if user has edit permissions
   useEffect(() => {
@@ -111,6 +115,31 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     navigate(`/edit/${encodeURIComponent(artifact.id)}`);
   };
 
+  const handleBookmark = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isLoggedIn) {
+      alert('Please login to bookmark artifacts');
+      return;
+    }
+    if (!artifactManager) {
+      alert('Please wait for the system to initialize');
+      return;
+    }
+    try {
+      await toggleBookmark({
+        id: artifact.id,
+        name: artifact.manifest.name,
+        description: artifact.manifest.description,
+        covers: artifact.manifest.covers,
+        icon: artifact.manifest.icon
+      });
+    } catch (error) {
+      console.error('Error toggling bookmark:', error);
+      alert('Failed to toggle bookmark. Please try again.');
+    }
+  };
+
   // Get the resolved cover URL for the current index
   const getCurrentCoverUrl = () => {
     if (covers.length === 0) return '';
@@ -140,6 +169,9 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             opacity: 1,
           },
           '& .edit-button': {
+            opacity: 1,
+          },
+          '& .bookmark-button': {
             opacity: 1,
           },
           '& .download-button': {
@@ -197,6 +229,38 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         >
           <EditIcon fontSize="small" sx={{ color: 'rgba(34, 197, 94, 1)' }} />
         </IconButton>
+      )}
+
+      {isLoggedIn && artifactManager && (
+        <Tooltip title={isBookmarked(artifact.id) ? "Remove bookmark" : "Bookmark"} placement="top">
+          <IconButton
+            className="bookmark-button"
+            onClick={handleBookmark}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              left: canEdit ? 104 : 56, // Position next to edit button if it exists, otherwise next to preview
+              zIndex: 1,
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: '12px',
+              opacity: 0,
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                borderColor: 'rgba(251, 191, 36, 0.3)',
+                transform: 'scale(1.05)',
+              }
+            }}
+          >
+            {isBookmarked(artifact.id) ? (
+              <StarIcon fontSize="small" sx={{ color: 'rgba(251, 191, 36, 1)' }} />
+            ) : (
+              <StarBorderIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
+            )}
+          </IconButton>
+        </Tooltip>
       )}
 
       <PreviewDialog 
