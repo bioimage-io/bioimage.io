@@ -20,6 +20,7 @@ import GavelIcon from '@mui/icons-material/Gavel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import DevicesIcon from '@mui/icons-material/Devices';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
@@ -69,6 +70,11 @@ const ArtifactDetails = () => {
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
+  const [compatibilityData, setCompatibilityData] = useState<any>(null);
+  const [isLoadingCompatibility, setIsLoadingCompatibility] = useState(false);
+  const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
+  const [isCompatibilityDialogOpen, setIsCompatibilityDialogOpen] = useState(false);
+  const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -137,6 +143,44 @@ const ArtifactDetails = () => {
       setLatestVersion(selectedResource.versions[selectedResource.versions.length - 1]);
     }
   }, [selectedResource?.versions]);
+
+  // Fetch compatibility data for model artifacts
+  useEffect(() => {
+    const fetchCompatibilityData = async () => {
+      if (selectedResource?.manifest?.type !== 'model') {
+        return;
+      }
+
+      const artifactAlias = selectedResource.id.split('/').pop();
+      const versionString = version === 'stage' ? 'stage' : (version || latestVersion?.version || 'v0');
+
+      if (!artifactAlias) {
+        return;
+      }
+
+      try {
+        setIsLoadingCompatibility(true);
+        setCompatibilityError(null);
+
+        const compatibilityUrl = `https://bioimage-io.github.io/collection/reports/bioimage-io/${artifactAlias}/${versionString}/summary.json`;
+        const response = await fetch(compatibilityUrl);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch compatibility data: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setCompatibilityData(data);
+      } catch (error) {
+        console.error('Failed to fetch compatibility data:', error);
+        setCompatibilityError(error instanceof Error ? error.message : 'Failed to load compatibility data');
+      } finally {
+        setIsLoadingCompatibility(false);
+      }
+    };
+
+    fetchCompatibilityData();
+  }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
@@ -974,6 +1018,162 @@ const ArtifactDetails = () => {
           {/* Files Card - Always show for all artifact types */}
           <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} version={version} />
 
+          {/* Compatibilities Card - Only show for models */}
+          {selectedResource?.manifest?.type === 'model' && (
+            <Card
+              sx={{
+                mb: { xs: 1, sm: 2, md: 3 },
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
+                    <DevicesIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                    Compatibilities
+                  </Typography>
+                  {compatibilityData?.status && (
+                    <Chip
+                      label={compatibilityData.status}
+                      size="small"
+                      sx={{
+                        backgroundColor: compatibilityData.status === 'passed'
+                          ? 'rgba(34, 197, 94, 0.1)'
+                          : compatibilityData.status === 'failed'
+                          ? 'rgba(239, 68, 68, 0.1)'
+                          : 'rgba(251, 191, 36, 0.1)',
+                        color: compatibilityData.status === 'passed'
+                          ? '#22c55e'
+                          : compatibilityData.status === 'failed'
+                          ? '#ef4444'
+                          : '#f59e0b',
+                        borderRadius: '8px',
+                        fontWeight: 600,
+                        border: `1px solid ${compatibilityData.status === 'passed'
+                          ? 'rgba(34, 197, 94, 0.2)'
+                          : compatibilityData.status === 'failed'
+                          ? 'rgba(239, 68, 68, 0.2)'
+                          : 'rgba(251, 191, 36, 0.2)'}`,
+                        textTransform: 'uppercase',
+                      }}
+                    />
+                  )}
+                </Box>
+
+                {isLoadingCompatibility && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
+                    <CircularProgress size={24} />
+                    <Typography variant="body2" sx={{ ml: 2, color: '#6b7280' }}>
+                      Loading compatibility data...
+                    </Typography>
+                  </Box>
+                )}
+
+                {compatibilityError && !isLoadingCompatibility && (
+                  <Alert severity="info" sx={{ borderRadius: '12px' }}>
+                    Compatibility data not available for this version
+                  </Alert>
+                )}
+
+                {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
+                  <Stack spacing={0.75}>
+                    {/* Test Results - Compact Display */}
+                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (
+                      <>
+                        {Object.entries(compatibilityData.tests).map(([testName, testResult]: [string, any]) => {
+                          const isPassed = testResult.status === 'passed';
+                          return (
+                            <Box
+                              key={testName}
+                              onClick={() => {
+                                setSelectedCompatibilityTest({ name: testName, data: testResult });
+                                setIsCompatibilityDialogOpen(true);
+                              }}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                                p: 1,
+                                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                                backdropFilter: 'blur(4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                                  borderColor: isPassed
+                                    ? 'rgba(34, 197, 94, 0.3)'
+                                    : 'rgba(239, 68, 68, 0.3)',
+                                  transform: 'translateY(-2px)',
+                                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                }
+                              }}
+                            >
+                              {isPassed ? (
+                                <CheckCircleIcon
+                                  sx={{
+                                    color: '#22c55e',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              ) : (
+                                <CancelIcon
+                                  sx={{
+                                    color: '#ef4444',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              )}
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  flex: 1,
+                                  fontWeight: 500,
+                                  color: '#1f2937',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                {testName}
+                              </Typography>
+                              <Chip
+                                label={testResult.status || 'unknown'}
+                                size="small"
+                                sx={{
+                                  backgroundColor: isPassed
+                                    ? 'rgba(34, 197, 94, 0.1)'
+                                    : 'rgba(239, 68, 68, 0.1)',
+                                  color: isPassed
+                                    ? '#22c55e'
+                                    : '#ef4444',
+                                  borderRadius: '8px',
+                                  fontWeight: 600,
+                                  fontSize: '0.7rem',
+                                  border: `1px solid ${isPassed
+                                    ? 'rgba(34, 197, 94, 0.2)'
+                                    : 'rgba(239, 68, 68, 0.2)'}`,
+                                  textTransform: 'capitalize',
+                                  flexShrink: 0
+                                }}
+                              />
+                            </Box>
+                          );
+                        })}
+                      </>
+                    )}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Test Reports Card - Only show for models */}
           {selectedResource?.manifest?.type === 'model' && 
              (() => {
@@ -1453,6 +1653,171 @@ const ArtifactDetails = () => {
         rawErrorContent={rawErrorContent}
         isInvalidJson={isInvalidJson}
       />
+
+      {/* Compatibility Details Dialog */}
+      <Dialog
+        open={isCompatibilityDialogOpen}
+        onClose={() => setIsCompatibilityDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6">Compatibility Test Details</Typography>
+            {selectedCompatibilityTest && (
+              <Chip
+                label={selectedCompatibilityTest.data.status || 'unknown'}
+                size="small"
+                sx={{
+                  backgroundColor: selectedCompatibilityTest.data.status === 'passed'
+                    ? 'rgba(34, 197, 94, 0.1)'
+                    : 'rgba(239, 68, 68, 0.1)',
+                  color: selectedCompatibilityTest.data.status === 'passed'
+                    ? '#22c55e'
+                    : '#ef4444',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  border: `1px solid ${selectedCompatibilityTest.data.status === 'passed'
+                    ? 'rgba(34, 197, 94, 0.2)'
+                    : 'rgba(239, 68, 68, 0.2)'}`,
+                  textTransform: 'uppercase',
+                }}
+              />
+            )}
+          </Box>
+          <IconButton
+            onClick={() => setIsCompatibilityDialogOpen(false)}
+            aria-label="close"
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedCompatibilityTest && (
+            <Box sx={{ p: 2 }}>
+              <Typography variant="h6" sx={{ mb: 2, fontFamily: 'monospace', color: '#1f2937' }}>
+                {selectedCompatibilityTest.name}
+              </Typography>
+
+              {/* Error Message */}
+              {selectedCompatibilityTest.data.error && (
+                <Alert severity="error" sx={{ mb: 2, borderRadius: '12px' }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {selectedCompatibilityTest.data.error}
+                  </Typography>
+                </Alert>
+              )}
+
+              {/* Nested Tests */}
+              {selectedCompatibilityTest.data.tests && typeof selectedCompatibilityTest.data.tests === 'object' && (
+                <Box>
+                  <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
+                    Sub-Tests
+                  </Typography>
+                  <Stack spacing={2}>
+                    {Object.entries(selectedCompatibilityTest.data.tests).map(([subTestName, subTestResult]: [string, any]) => (
+                      <Card
+                        key={subTestName}
+                        sx={{
+                          backgroundColor: subTestResult.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.05)'
+                            : 'rgba(239, 68, 68, 0.05)',
+                          border: `1px solid ${subTestResult.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.2)'
+                            : 'rgba(239, 68, 68, 0.2)'}`,
+                          borderRadius: '12px',
+                        }}
+                      >
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                            {subTestResult.status === 'passed' ? (
+                              <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+                            ) : (
+                              <CancelIcon sx={{ color: '#ef4444', fontSize: 20 }} />
+                            )}
+                            <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                              {subTestName}
+                            </Typography>
+                            <Chip
+                              label={subTestResult.status}
+                              size="small"
+                              sx={{
+                                ml: 'auto',
+                                backgroundColor: subTestResult.status === 'passed'
+                                  ? 'rgba(34, 197, 94, 0.1)'
+                                  : 'rgba(239, 68, 68, 0.1)',
+                                color: subTestResult.status === 'passed'
+                                  ? '#22c55e'
+                                  : '#ef4444',
+                                borderRadius: '8px',
+                                fontWeight: 500,
+                                textTransform: 'capitalize',
+                              }}
+                            />
+                          </Box>
+                          {subTestResult.error && (
+                            <Alert severity="error" sx={{ mt: 1, borderRadius: '8px' }}>
+                              <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                                {subTestResult.error}
+                              </Typography>
+                            </Alert>
+                          )}
+                          {subTestResult.traceback && Array.isArray(subTestResult.traceback) && (
+                            <Box
+                              sx={{
+                                mt: 1,
+                                p: 2,
+                                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                borderRadius: '8px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.75rem',
+                                maxHeight: '200px',
+                                overflow: 'auto',
+                              }}
+                            >
+                              {subTestResult.traceback.map((line: string, idx: number) => (
+                                <Typography key={idx} variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>
+                                  {line}
+                                </Typography>
+                              ))}
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+
+              {/* Raw JSON for debugging */}
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
+                  Raw Data
+                </Typography>
+                <Box
+                  sx={{
+                    p: 2,
+                    backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255, 255, 255, 0.5)',
+                    maxHeight: '300px',
+                    overflow: 'auto',
+                  }}
+                >
+                  <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    {JSON.stringify(selectedCompatibilityTest.data, null, 2)}
+                  </pre>
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
 
       </Box>
       </div>
