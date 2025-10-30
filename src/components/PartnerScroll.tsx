@@ -1,32 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import PartnerTooltip from './PartnerTooltip';
-
-interface Partner {
-  name: string;
-  icon: string;
-  link?: string;
-  id: string;
-  documentation?: string;
-  git_repo?: string;
-  tooltip?: string;
-}
-
-interface ManifestResponse {
-  manifest: {
-    documentation?: string;
-    git_repo?: string;
-    config: {
-      docs?: string;
-      partners: Array<{
-        name: string;
-        icon: string;
-        id: string;
-        docs?: string;
-        splash_subtitle?: string;
-      }>;
-    };
-  };
-}
+import { partnerService, Partner } from '../services/partnerService';
 
 interface PartnerScrollProps {
   onPartnerClick?: (partnerId: string) => void;
@@ -72,21 +46,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   useEffect(() => {
     const fetchPartners = async () => {
       try {
-        const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
-        if (!response.ok) {
-          throw new Error('Failed to fetch partners');
-        }
-        const data: ManifestResponse = await response.json();
-        // Transform the partners data with documentation and links
-        const partnersList = data.manifest.config.partners.map(partner => ({
-          name: partner.name,
-          icon: partner.icon,
-          id: partner.id,
-          // Prioritize docs from config, then documentation, then git_repo
-          link: partner.docs,
-          tooltip: partner.splash_subtitle || partner.name
-        }));
-        
+        const partnersList = await partnerService.fetchPartners();
         setOriginalPartners(partnersList);
         setPartners(partnersList);
       } catch (err) {

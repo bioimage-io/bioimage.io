@@ -28,6 +28,7 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
+import { partnerService } from '../services/partnerService';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -75,6 +76,7 @@ const ArtifactDetails = () => {
   const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
   const [isCompatibilityDialogOpen, setIsCompatibilityDialogOpen] = useState(false);
   const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
+  const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -144,6 +146,18 @@ const ArtifactDetails = () => {
     }
   }, [selectedResource?.versions]);
 
+  // Fetch partner icons
+  useEffect(() => {
+    const loadPartners = async () => {
+      try {
+        await partnerService.fetchPartners();
+      } catch (error) {
+        console.error('Failed to fetch partners:', error);
+      }
+    };
+    loadPartners();
+  }, []);
+
   // Fetch compatibility data for model artifacts
   useEffect(() => {
     const fetchCompatibilityData = async () => {
@@ -171,6 +185,23 @@ const ArtifactDetails = () => {
 
         const data = await response.json();
         setCompatibilityData(data);
+
+        // Build partner icon map from compatibility data
+        if (data.tests) {
+          const iconMap = new Map<string, string>();
+          for (const softwareName of Object.keys(data.tests)) {
+            // Special case for bioimageio.core
+            if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
+              iconMap.set(softwareName, '/static/img/bioimage-io-icon.png');
+            } else {
+              const icon = partnerService.getPartnerIcon(softwareName);
+              if (icon) {
+                iconMap.set(softwareName, icon);
+              }
+            }
+          }
+          setPartnerIcons(iconMap);
+        }
       } catch (error) {
         console.error('Failed to fetch compatibility data:', error);
         setCompatibilityError(error instanceof Error ? error.message : 'Failed to load compatibility data');
@@ -1070,7 +1101,7 @@ const ArtifactDetails = () => {
                               sx={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 1.5,
+                                gap: 0.75,
                                 p: 1,
                                 backgroundColor: 'rgba(255, 255, 255, 0.6)',
                                 backdropFilter: 'blur(4px)',
@@ -1107,10 +1138,40 @@ const ArtifactDetails = () => {
                                   }}
                                 />
                               )}
+                              {partnerIcons.get(softwareName) && (
+                                <Box
+                                  component="img"
+                                  src={partnerIcons.get(softwareName)}
+                                  alt={softwareName}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const partner = partnerService.getPartnerByName(softwareName);
+                                    if (partner?.link) {
+                                      window.open(partner.link, '_blank', 'noopener,noreferrer');
+                                    }
+                                  }}
+                                  sx={{
+                                    width: 20,
+                                    height: 20,
+                                    objectFit: 'contain',
+                                    flexShrink: 0,
+                                    cursor: partnerService.getPartnerByName(softwareName)?.link ? 'pointer' : 'default',
+                                    transition: 'all 0.2s ease',
+                                    '&:hover': {
+                                      transform: partnerService.getPartnerByName(softwareName)?.link ? 'scale(1.2)' : 'none',
+                                      filter: 'brightness(1.1)'
+                                    }
+                                  }}
+                                  onError={(e) => {
+                                    const img = e.target as HTMLImageElement;
+                                    img.style.display = 'none';
+                                  }}
+                                />
+                              )}
                               <Typography
                                 variant="body2"
                                 sx={{
-                                  minWidth: '120px',
+                                  minWidth: '100px',
                                   fontWeight: 500,
                                   color: '#1f2937',
                                   fontFamily: 'monospace',
