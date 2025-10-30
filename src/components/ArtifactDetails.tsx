@@ -1036,32 +1036,6 @@ const ArtifactDetails = () => {
                     <DevicesIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                     Compatibilities
                   </Typography>
-                  {compatibilityData?.status && (
-                    <Chip
-                      label={compatibilityData.status}
-                      size="small"
-                      sx={{
-                        backgroundColor: compatibilityData.status === 'passed'
-                          ? 'rgba(34, 197, 94, 0.1)'
-                          : compatibilityData.status === 'failed'
-                          ? 'rgba(239, 68, 68, 0.1)'
-                          : 'rgba(251, 191, 36, 0.1)',
-                        color: compatibilityData.status === 'passed'
-                          ? '#22c55e'
-                          : compatibilityData.status === 'failed'
-                          ? '#ef4444'
-                          : '#f59e0b',
-                        borderRadius: '8px',
-                        fontWeight: 600,
-                        border: `1px solid ${compatibilityData.status === 'passed'
-                          ? 'rgba(34, 197, 94, 0.2)'
-                          : compatibilityData.status === 'failed'
-                          ? 'rgba(239, 68, 68, 0.2)'
-                          : 'rgba(251, 191, 36, 0.2)'}`,
-                        textTransform: 'uppercase',
-                      }}
-                    />
-                  )}
                 </Box>
 
                 {isLoadingCompatibility && (
