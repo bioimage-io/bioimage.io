@@ -1797,18 +1797,95 @@ const ArtifactDetails = () => {
                   <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
                     Details
                   </Typography>
-                  <Box
-                    sx={{
-                      p: 2,
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(209, 213, 219, 0.5)',
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>
-                      {selectedCompatibilityTest.data.details}
-                    </Typography>
-                  </Box>
+                  {Array.isArray(selectedCompatibilityTest.data.details) ? (
+                    <Stack spacing={1.5}>
+                      {selectedCompatibilityTest.data.details.map((detail: any, idx: number) => (
+                        <Card
+                          key={idx}
+                          sx={{
+                            backgroundColor: detail.status === 'passed'
+                              ? 'rgba(34, 197, 94, 0.05)'
+                              : 'rgba(239, 68, 68, 0.05)',
+                            border: `1px solid ${detail.status === 'passed'
+                              ? 'rgba(34, 197, 94, 0.2)'
+                              : 'rgba(239, 68, 68, 0.2)'}`,
+                            borderRadius: '12px',
+                          }}
+                        >
+                          <CardContent sx={{ p: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              {detail.status === 'passed' ? (
+                                <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 18 }} />
+                              ) : (
+                                <CancelIcon sx={{ color: '#ef4444', fontSize: 18 }} />
+                              )}
+                              <Typography variant="subtitle2" sx={{ fontWeight: 500, flex: 1 }}>
+                                {detail.name || `Test ${idx + 1}`}
+                              </Typography>
+                              <Chip
+                                label={detail.status}
+                                size="small"
+                                sx={{
+                                  backgroundColor: detail.status === 'passed'
+                                    ? 'rgba(34, 197, 94, 0.1)'
+                                    : 'rgba(239, 68, 68, 0.1)',
+                                  color: detail.status === 'passed'
+                                    ? '#22c55e'
+                                    : '#ef4444',
+                                  borderRadius: '6px',
+                                  fontWeight: 600,
+                                  fontSize: '0.7rem',
+                                  textTransform: 'capitalize',
+                                }}
+                              />
+                            </Box>
+                            {detail.errors && Array.isArray(detail.errors) && detail.errors.length > 0 && (
+                              <Box sx={{ mt: 1 }}>
+                                {detail.errors.map((error: string, errorIdx: number) => (
+                                  <Alert key={errorIdx} severity="error" sx={{ mt: 0.5, borderRadius: '8px' }}>
+                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                      {error}
+                                    </Typography>
+                                  </Alert>
+                                ))}
+                              </Box>
+                            )}
+                            {detail.warnings && Array.isArray(detail.warnings) && detail.warnings.length > 0 && (
+                              <Box sx={{ mt: 1 }}>
+                                {detail.warnings.slice(0, 3).map((warning: any, warnIdx: number) => (
+                                  <Alert key={warnIdx} severity="warning" sx={{ mt: 0.5, borderRadius: '8px' }}>
+                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                      {typeof warning === 'string' ? warning : warning.msg || JSON.stringify(warning)}
+                                    </Typography>
+                                  </Alert>
+                                ))}
+                                {detail.warnings.length > 3 && (
+                                  <Typography variant="caption" sx={{ mt: 0.5, color: '#6b7280', display: 'block' }}>
+                                    ... and {detail.warnings.length - 3} more warnings
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Box
+                      sx={{
+                        p: 2,
+                        backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(209, 213, 219, 0.5)',
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>
+                        {typeof selectedCompatibilityTest.data.details === 'string'
+                          ? selectedCompatibilityTest.data.details
+                          : JSON.stringify(selectedCompatibilityTest.data.details, null, 2)}
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               )}
 
