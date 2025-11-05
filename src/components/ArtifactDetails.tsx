@@ -1898,46 +1898,6 @@ const ArtifactDetails = () => {
                 </Alert>
               )}
 
-              {/* Links */}
-              {selectedCompatibilityTest.data.links && Array.isArray(selectedCompatibilityTest.data.links) && selectedCompatibilityTest.data.links.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
-                    Related Links
-                  </Typography>
-                  <Stack spacing={1}>
-                    {selectedCompatibilityTest.data.links.map((link: string, idx: number) => (
-                      <Box
-                        key={idx}
-                        component="a"
-                        href={link.startsWith('http') ? link : `https://github.com/${link}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          p: 1.5,
-                          backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                          border: '1px solid rgba(59, 130, 246, 0.2)',
-                          borderRadius: '8px',
-                          textDecoration: 'none',
-                          color: '#3b82f6',
-                          fontFamily: 'monospace',
-                          fontSize: '0.875rem',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            borderColor: 'rgba(59, 130, 246, 0.3)',
-                          }
-                        }}
-                      >
-                        {link}
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
-              )}
-
               {/* Badge */}
               {selectedCompatibilityTest.data.badge && (
                 <Box sx={{ mb: 2 }}>
