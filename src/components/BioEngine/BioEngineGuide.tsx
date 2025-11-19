@@ -189,26 +189,26 @@ const BioEngineGuide: React.FC = () => {
 
     // Handle cache directory mount
     if (cacheDir) {
-      // User specified a custom cache directory - mount it directly to /tmp/bioengine
+      // User specified a custom cache directory - mount it directly to /.bioengine
       if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-        mounts.push(`--bind ${cacheDir}:/tmp/bioengine`);
+        mounts.push(`--bind ${cacheDir}:/.bioengine`);
       } else {
-        mounts.push(`-v ${cacheDir}:/tmp/bioengine`);
+        mounts.push(`-v ${cacheDir}:/.bioengine`);
       }
     } else {
-      // No custom cache directory - mount default ~/.bioengine to /tmp/bioengine
+      // No custom cache directory - mount default ~/.bioengine to /.bioengine
       if (os === 'windows') {
         const hostCachePath = runAsRoot ? `C:\\.bioengine` : '%USERPROFILE%\\.bioengine';
         if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-          mounts.push(`--bind ${hostCachePath}:/tmp/bioengine`);
+          mounts.push(`--bind ${hostCachePath}:/.bioengine`);
         } else {
-          mounts.push(`-v ${hostCachePath}:/tmp/bioengine`);
+          mounts.push(`-v ${hostCachePath}:/.bioengine`);
         }
       } else {
         if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-          mounts.push(`--bind $HOME/.bioengine:/tmp/bioengine`);
+          mounts.push(`--bind $HOME/.bioengine:/.bioengine`);
         } else {
-          mounts.push(`-v $HOME/.bioengine:/tmp/bioengine`);
+          mounts.push(`-v $HOME/.bioengine:/.bioengine`);
         }
       }
     }
@@ -1236,12 +1236,12 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   let mountInfo = '\n\n# Volume mounts:';
 
                   if (cacheDir) {
-                    mountInfo += `\n# - ${cacheDir} → /tmp/bioengine (cache)`;
+                    mountInfo += `\n# - ${cacheDir} → /.bioengine (cache)`;
                   } else {
                     const hostPath = os === 'windows'
                       ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine')
                       : '$HOME/.bioengine';
-                    mountInfo += `\n# - ${hostPath} → /tmp/bioengine (cache)`;
+                    mountInfo += `\n# - ${hostPath} → /.bioengine (cache)`;
                   }
 
                   if (dataDir) {
@@ -1345,7 +1345,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   )}
                   {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
                   {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
-                  <li>A directory will be created in your home directory for cache storage and mounted to /tmp/bioengine in the container</li>
+                  <li>A directory will be created in your home directory for cache storage and mounted to /.bioengine in the container</li>
                   {dataDir && mode !== 'slurm' && <li>
                     Your specified data directory ({dataDir}) will be mounted to /data in the container
                   </li>}
