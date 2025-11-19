@@ -181,7 +181,7 @@ const BioEngineGuide: React.FC = () => {
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
-    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.2.2';
+    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.5.4';
 
     // Build volume mounts
     let volumeMounts = '';
@@ -276,7 +276,7 @@ const BioEngineGuide: React.FC = () => {
         }
       }
 
-      const pythonCmd = `python -m bioengine_worker ${argsString}`;
+      const pythonCmd = `python -m bioengine.worker ${argsString}`;
 
       return {
         createDirCmd,
@@ -290,14 +290,14 @@ const BioEngineGuide: React.FC = () => {
         // Both Apptainer and Singularity use 'exec' command for single execution
         const cacheEnv = getContainerCacheDir() ? `${containerRuntime.toUpperCase()}_CACHEDIR=${getContainerCacheDir()} ` : '';
         if (os === 'windows') {
-          dockerCmd = `cmd /c "${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine_worker ${argsString}"`;
+          dockerCmd = `cmd /c "${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine.worker ${argsString}"`;
         } else {
-          dockerCmd = `${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine_worker ${argsString}`;
+          dockerCmd = `${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine.worker ${argsString}`;
         }
       } else if (os === 'windows') {
-        dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${volumeMounts} ${imageToUse} python -m bioengine_worker ${argsString}"`;
+        dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
       } else {
-        dockerCmd = `${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${userFlag}${volumeMounts} ${imageToUse} python -m bioengine_worker ${argsString}`;
+        dockerCmd = `${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${userFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}`;
       }
 
       return {
@@ -393,103 +393,182 @@ ${commandText}
 ## Complete BioEngine Worker Help Reference
 
 \`\`\`
-python -m bioengine_worker --help
-usage: __main__.py [-h] [--mode {slurm,single-machine,external-cluster}] [--admin_users ADMIN_USERS [ADMIN_USERS ...]] [--cache_dir CACHE_DIR] [--data_dir DATA_DIR]
-                   [--startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]] [--server_url SERVER_URL] [--workspace WORKSPACE] [--token TOKEN] [--client_id CLIENT_ID]
-                   [--head_node_address HEAD_NODE_ADDRESS] [--head_node_port HEAD_NODE_PORT] [--node_manager_port NODE_MANAGER_PORT] [--object_manager_port OBJECT_MANAGER_PORT]
-                   [--redis_shard_port REDIS_SHARD_PORT] [--serve_port SERVE_PORT] [--dashboard_port DASHBOARD_PORT] [--client_server_port CLIENT_SERVER_PORT] [--redis_password REDIS_PASSWORD]
-                   [--head_num_cpus HEAD_NUM_CPUS] [--head_num_gpus HEAD_NUM_GPUS] [--runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB] [--skip_cleanup]
-                   [--status_interval_seconds STATUS_INTERVAL_SECONDS] [--max_status_history_length MAX_STATUS_HISTORY_LENGTH] [--image IMAGE] [--worker_cache_dir WORKER_CACHE_DIR]
-                   [--worker_data_dir WORKER_DATA_DIR] [--default_num_gpus DEFAULT_NUM_GPUS] [--default_num_cpus DEFAULT_NUM_CPUS] [--default_mem_per_cpu DEFAULT_MEM_PER_CPU]
-                   [--default_time_limit DEFAULT_TIME_LIMIT] [--further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]] [--min_workers MIN_WORKERS] [--max_workers MAX_WORKERS]
-                   [--scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS] [--scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS] [--scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS]
-                   [--dashboard_url DASHBOARD_URL] [--debug]
+python -m bioengine.worker --help
+usage: __main__.py [-h] --mode MODE [--admin_users EMAIL [EMAIL ...]] [--cache_dir PATH]
+                   [--ray_cache_dir PATH] [--startup_applications JSON [JSON ...]]
+                   [--monitoring_interval_seconds SECONDS] [--dashboard_url URL]
+                   [--log_file PATH] [--debug] [--graceful_shutdown_timeout SECONDS]
+                   [--server_url URL] [--workspace NAME] [--token TOKEN] [--client_id ID]
+                   [--head_node_address ADDRESS] [--head_node_port PORT]
+                   [--node_manager_port PORT] [--object_manager_port PORT]
+                   [--redis_shard_port PORT] [--serve_port PORT] [--dashboard_port PORT]
+                   [--client_server_port PORT] [--redis_password PASSWORD]
+                   [--head_num_cpus COUNT] [--head_num_gpus COUNT]
+                   [--head_memory_in_gb GB] [--runtime_env_pip_cache_size_gb GB]
+                   [--no_ray_cleanup] [--image IMAGE] [--worker_cache_dir PATH]
+                   [--default_num_gpus COUNT] [--default_num_cpus COUNT]
+                   [--default_mem_in_gb_per_cpu GB] [--default_time_limit TIME]
+                   [--further_slurm_args ARG [ARG ...]] [--min_workers COUNT]
+                   [--max_workers COUNT] [--scale_up_cooldown_seconds SECONDS]
+                   [--scale_down_check_interval_seconds SECONDS]
+                   [--scale_down_threshold_seconds SECONDS]
 
-BioEngine Worker Registration
+BioEngine Worker - Enterprise AI Model Deployment Platform
 
 options:
   -h, --help            show this help message and exit
-  --mode {slurm,single-machine,external-cluster}
-                        Mode of operation: 'slurm' for managing a Ray cluster with SLURM jobs, 'single-machine' for local Ray cluster, 'external-cluster' for connecting to an existing Ray cluster.
-  --admin_users ADMIN_USERS [ADMIN_USERS ...]
-                        List of admin users for BioEngine apps and datasets. If not set, defaults to the logged-in user.
-  --cache_dir CACHE_DIR
-                        BioEngine cache directory. This should be a mounted directory if running in container.
-  --data_dir DATA_DIR   Data directory served by the dataset manager. This should be a mounted directory if running in container.
-  --startup_deployments STARTUP_DEPLOYMENTS [STARTUP_DEPLOYMENTS ...]
-                        List of artifact IDs to deploy on worker startup
-  --dashboard_url DASHBOARD_URL
-                        URL of the BioEngine dashboard
-  --debug               Set logger to debug level
+
+Core Options:
+  Basic worker configuration
+
+  --mode MODE           Deployment mode: 'single-machine' for local Ray cluster, 'slurm'
+                        for HPC clusters with SLURM job scheduling, 'external-cluster' for
+                        connecting to an existing Ray cluster
+  --admin_users EMAIL [EMAIL ...]
+                        List of user emails/IDs with administrative privileges for worker
+                        management. If not specified, defaults to the authenticated user
+                        from Hypha login.
+  --cache_dir PATH      Directory for worker cache, temporary files, and Ray data storage.
+                        Also used to detect running data servers for dataset access.
+                        Should be accessible across worker nodes in distributed
+                        deployments.
+  --ray_cache_dir PATH  Directory for Ray cluster cache when connecting to an external Ray
+                        cluster. Only used in 'external-cluster' mode. This allows the
+                        remote Ray cluster to use a different cache directory than the
+                        local machine. If not specified, uses the same directory as
+                        --cache_dir. Not applicable for 'single-machine' or 'slurm' modes.
+  --startup_applications JSON [JSON ...]
+                        List of applications to deploy automatically during worker
+                        startup. Each element should be a JSON string with deployment
+                        configuration. Example: '{"artifact_id": "my_model",
+                        "application_id": "my_app"}'
+  --monitoring_interval_seconds SECONDS
+                        Interval in seconds for worker status monitoring and health
+                        checks. Lower values provide faster response but increase
+                        overhead.
+  --dashboard_url URL   Base URL of the BioEngine dashboard for worker management
+                        interfaces.
+  --log_file PATH       Path to the log file. If set to 'off', logging will only go to
+                        console. If not specified (None), a log file will be created in
+                        '<cache_dir>/logs'.
+  --debug               Enable debug-level logging for detailed troubleshooting and
+                        development. Increases log verbosity significantly.
+  --graceful_shutdown_timeout SECONDS
+                        Timeout in seconds for graceful shutdown operations.
 
 Hypha Options:
-  --server_url SERVER_URL
-                        URL of the Hypha server
-  --workspace WORKSPACE
-                        Hypha workspace to connect to. If not set, the workspace associated with the token will be used.
-  --token TOKEN         Authentication token for Hypha server. If not set, the environment variable 'HYPHA_TOKEN' will be used, otherwise the user will be prompted to log in.
-  --client_id CLIENT_ID
-                        Client ID for the worker. If not set, a client ID will be generated automatically.
+  Server connection and authentication
 
-Ray Cluster Manager Options:
-  --head_node_address HEAD_NODE_ADDRESS
-                        Address of head node. If not set, the first system IP will be used.
-  --head_node_port HEAD_NODE_PORT
-                        Port for Ray head node and GCS server
-  --node_manager_port NODE_MANAGER_PORT
-                        Port for Ray node manager services
-  --object_manager_port OBJECT_MANAGER_PORT
-                        Port for object manager service
-  --redis_shard_port REDIS_SHARD_PORT
-                        Port for Redis sharding
-  --serve_port SERVE_PORT
-                        Port for Ray Serve
-  --dashboard_port DASHBOARD_PORT
-                        Port for Ray dashboard
-  --client_server_port CLIENT_SERVER_PORT
-                        Port for Ray client server
-  --redis_password REDIS_PASSWORD
-                        Redis password for Ray cluster. If not set, a random password will be generated.
-  --head_num_cpus HEAD_NUM_CPUS
-                        Number of CPUs for head node if starting locally
-  --head_num_gpus HEAD_NUM_GPUS
-                        Number of GPUs for head node if starting locally
-  --runtime_env_pip_cache_size_gb RUNTIME_ENV_PIP_CACHE_SIZE_GB
-                        Size of the pip cache in GB for Ray runtime environment
-  --skip_cleanup        Skip cleanup of previous Ray cluster
-  --status_interval_seconds STATUS_INTERVAL_SECONDS
-                        Interval in seconds to check the status of the Ray cluster
-  --max_status_history_length MAX_STATUS_HISTORY_LENGTH
-                        Maximum length of the status history for the Ray cluster
+  --server_url URL      URL of the Hypha server for service registration and remote
+                        access. Must be accessible from the deployment environment.
+  --workspace NAME      Hypha workspace name for service isolation and organization. If
+                        not specified, uses the workspace associated with the
+                        authentication token.
+  --token TOKEN         Authentication token for Hypha server access. If not provided,
+                        will use the HYPHA_TOKEN environment variable or prompt for
+                        interactive login. Recommend using a long-lived token for
+                        production deployments.
+  --client_id ID        Unique client identifier for Hypha connection. If not specified,
+                        an identifier will be generated automatically to ensure unique
+                        registration.
+
+Ray Cluster Options:
+  Cluster networking and resource configuration
+
+  --head_node_address ADDRESS
+                        IP address of the Ray head node. For external-cluster mode, this
+                        specifies the cluster to connect to. If not set in other modes,
+                        uses the first available system IP address.
+  --head_node_port PORT
+                        Port for Ray head node and GCS (Global Control Service) server.
+                        Must be accessible from all worker nodes.
+  --node_manager_port PORT
+                        Port for Ray node manager services. Used for inter-node
+                        communication and coordination.
+  --object_manager_port PORT
+                        Port for Ray object manager service. Handles distributed object
+                        storage and transfer between nodes.
+  --redis_shard_port PORT
+                        Port for Redis sharding in Ray's internal metadata storage. Used
+                        for cluster state management.
+  --serve_port PORT     Port for Ray Serve HTTP endpoint serving deployed models and
+                        applications. This is where model inference requests are handled.
+  --dashboard_port PORT
+                        Port for Ray dashboard web interface. Provides cluster monitoring
+                        and debugging capabilities.
+  --client_server_port PORT
+                        Port for Ray client server connections. Used by external Ray
+                        clients to connect to the cluster.
+  --redis_password PASSWORD
+                        Password for Ray cluster Redis authentication. If not specified, a
+                        secure random password will be generated automatically.
+  --head_num_cpus COUNT
+                        Number of CPU cores allocated to the head node for task execution.
+                        Set to 0 to reserve head node for coordination only.
+  --head_num_gpus COUNT
+                        Number of GPU devices allocated to the head node for task
+                        execution. Typically 0 to reserve GPUs for worker nodes.
+  --head_memory_in_gb GB
+                        Memory allocation in GB for head node task execution. If not
+                        specified, Ray will auto-detect available memory.
+  --runtime_env_pip_cache_size_gb GB
+                        Size limit in GB for Ray runtime environment pip package cache.
+                        Larger cache improves environment setup time.
+  --no_ray_cleanup      Skip cleanup of previous Ray cluster processes and data. Use with
+                        caution as it may cause port conflicts or resource issues.
 
 SLURM Job Options:
-  --image IMAGE         Worker image for SLURM job
-  --worker_cache_dir WORKER_CACHE_DIR
-                        Cache directory mounted to the container when starting a worker. Required in SLURM mode.
-  --worker_data_dir WORKER_DATA_DIR
-                        Data directory mounted to the container when starting a worker. Required in SLURM mode.
-  --default_num_gpus DEFAULT_NUM_GPUS
-                        Default number of GPUs per worker
-  --default_num_cpus DEFAULT_NUM_CPUS
-                        Default number of CPUs per worker
-  --default_mem_per_cpu DEFAULT_MEM_PER_CPU
-                        Default memory per CPU in GB
-  --default_time_limit DEFAULT_TIME_LIMIT
-                        Default time limit for workers
-  --further_slurm_args FURTHER_SLURM_ARGS [FURTHER_SLURM_ARGS ...]
-                        Additional arguments for SLURM job script
+  HPC job scheduling and worker deployment
+
+  --image IMAGE         Container image for SLURM worker jobs. Should include all required
+                        dependencies and be accessible on compute nodes.
+  --worker_cache_dir PATH
+                        Cache directory path mounted to worker containers in SLURM jobs.
+                        Must be accessible from compute nodes. Required for SLURM mode.
+  --default_num_gpus COUNT
+                        Default number of GPU devices to request per SLURM worker job. Can
+                        be overridden per deployment.
+  --default_num_cpus COUNT
+                        Default number of CPU cores to request per SLURM worker job.
+                        Should match typical model inference requirements.
+  --default_mem_in_gb_per_cpu GB
+                        Default memory allocation in GB per CPU core for SLURM workers.
+                        Total memory = num_cpus * mem_per_cpu.
+  --default_time_limit TIME
+                        Default time limit for SLURM worker jobs in "HH:MM:SS" format.
+                        Jobs will be terminated after this duration.
+  --further_slurm_args ARG [ARG ...]
+                        Additional SLURM sbatch arguments for specialized cluster
+                        configurations. Example: "--partition=gpu" "--qos=high-priority"
 
 Ray Autoscaler Options:
-  --min_workers MIN_WORKERS
-                        Minimum number of worker nodes
-  --max_workers MAX_WORKERS
-                        Maximum number of worker nodes
-  --scale_up_cooldown_seconds SCALE_UP_COOLDOWN_SECONDS
-                        Cooldown period between scaling up operations
-  --scale_down_check_interval_seconds SCALE_DOWN_CHECK_INTERVAL_SECONDS
-                        Interval in seconds to check for scale down
-  --scale_down_threshold_seconds SCALE_DOWN_THRESHOLD_SECONDS
-                        Time threshold before scaling down idle nodes
+  Automatic worker scaling behavior
+
+  --min_workers COUNT   Minimum number of worker nodes to maintain in the cluster. Workers
+                        below this threshold will be started immediately.
+  --max_workers COUNT   Maximum number of worker nodes allowed in the cluster. Prevents
+                        unlimited scaling and controls costs.
+  --scale_up_cooldown_seconds SECONDS
+                        Cooldown period in seconds between scaling up operations. Prevents
+                        rapid scaling oscillations.
+  --scale_down_check_interval_seconds SECONDS
+                        Interval in seconds between checks for scaling down idle workers.
+                        More frequent checks enable faster response to load changes.
+  --scale_down_threshold_seconds SECONDS
+                        Time threshold in seconds before scaling down idle worker nodes.
+                        Longer thresholds reduce churn but may waste resources.
+
+Examples:
+  # SLURM HPC deployment with autoscaling
+  __main__.py --mode slurm --max_workers 10 --admin_users admin@institution.edu
+
+  # Single-machine development deployment
+  __main__.py --mode single-machine --debug --cache_dir ./cache
+
+  # Connect to existing Ray cluster
+  __main__.py --mode external-cluster --head_node_address 10.0.0.100
+
+For detailed documentation, visit: https://github.com/aicell-lab/bioengine-worker
 \`\`\`
 
 ## Troubleshooting Chain of Thought
@@ -1046,7 +1125,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   type="text"
                   value={customImage}
                   onChange={(e) => setCustomImage(e.target.value)}
-                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.2.2"
+                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.5.4"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom container image to use. Leave empty for default bioengine-worker image</p>
