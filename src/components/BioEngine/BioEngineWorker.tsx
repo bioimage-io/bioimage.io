@@ -140,6 +140,7 @@ const BioEngineWorker: React.FC = () => {
 
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [workerMcpCopied, setWorkerMcpCopied] = useState(false);
 
   // Update current time every second for live uptime calculation
   useEffect(() => {
@@ -730,17 +731,52 @@ const BioEngineWorker: React.FC = () => {
     fetchStatus(false);
   };
 
-  // Helper function to format cluster mode
-  const formatClusterMode = (mode: string): string => {
-    switch (mode) {
-      case 'slurm':
-        return 'SLURM';
-      case 'single-machine':
-        return 'Single Machine';
-      case 'external-cluster':
-        return 'External Cluster';
-      default:
-        return mode;
+  // Helper function to get worker service info URL
+  const getWorkerServiceInfoUrl = (): string | null => {
+    if (!serviceId) return null;
+
+    const baseUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+
+    // Parse the service ID to get workspace and service identifier
+    // Format: "workspace/client_id:service_name"
+    const slashIndex = serviceId.indexOf('/');
+    if (slashIndex !== -1) {
+      const workspace = serviceId.substring(0, slashIndex);
+      const serviceIdentifier = serviceId.substring(slashIndex + 1); // client_id:service_name
+      return `${baseUrl}/${workspace}/services/${serviceIdentifier}`;
+    }
+
+    return null;
+  };
+
+  // Helper function to get worker MCP URL
+  const getWorkerMcpUrl = (): string | null => {
+    if (!serviceId) return null;
+
+    const baseUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+
+    // Parse the service ID to get workspace and service identifier
+    // Format: "workspace/client_id:service_name"
+    const slashIndex = serviceId.indexOf('/');
+    if (slashIndex !== -1) {
+      const workspace = serviceId.substring(0, slashIndex);
+      const serviceIdentifier = serviceId.substring(slashIndex + 1); // client_id:service_name
+      return `${baseUrl}/${workspace}/mcp/${serviceIdentifier}/mcp`;
+    }
+
+    return null;
+  };
+
+  const handleCopyWorkerMcpUrl = async () => {
+    const mcpUrl = getWorkerMcpUrl();
+    if (mcpUrl) {
+      try {
+        await navigator.clipboard.writeText(mcpUrl);
+        setWorkerMcpCopied(true);
+        setTimeout(() => setWorkerMcpCopied(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy MCP URL:', err);
+      }
     }
   };
 
@@ -802,17 +838,6 @@ const BioEngineWorker: React.FC = () => {
     );
   }
 
-  const deployments = Object.entries(status?.bioengine_apps || {})
-    .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
-    .map(([key, value]) => ({
-      artifact_id: key,
-      ...(value as any)
-    } as DeploymentType));
-
-  const hasDeployments = deployments.length > 0;
-  const deploymentServiceId = status?.bioengine_apps?.service_id;
-  const deploymentNote = status?.bioengine_apps?.note;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <style>{styles}</style>
@@ -852,8 +877,8 @@ const BioEngineWorker: React.FC = () => {
           )}
         </div>
 
-        {/* Service Status */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        {/* Service Information */}
+        <div className="mb-8">
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 hover:shadow-md transition-all duration-200">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -877,20 +902,25 @@ const BioEngineWorker: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Service ID from URL */}
+                {serviceId && (
+                  <div className="md:col-span-2">
+                    <span className="text-xs font-medium text-gray-500 block">Service ID</span>
+                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceId}</span>
+                  </div>
+                )}
                 {/* Use new workspace and client_id fields if available */}
                 {status?.workspace && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Workspace:</span>
-                    <span className="text-gray-900 font-mono">{status.workspace}</span>
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 block">Workspace</span>
+                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.workspace}</span>
                   </div>
                 )}
                 {status?.client_id && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Client ID:</span>
-                    <span className="text-gray-900 font-mono text-sm truncate max-w-[200px]" title={status.client_id}>
-                      {status.client_id}
-                    </span>
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 block">Client ID</span>
+                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.client_id}</span>
                   </div>
                 )}
                 {/* Fallback to parsing service ID if new fields not available */}
@@ -898,114 +928,106 @@ const BioEngineWorker: React.FC = () => {
                   const { workspace, clientId, serviceName } = getCompleteServiceInfo(serviceId, status?.bioengine_apps?.service_id);
                   return (
                     <>
-                      <div className="flex justify-between">
-                        <span className="font-medium text-gray-700">Workspace:</span>
-                        <span className="text-gray-900 font-mono">{workspace}</span>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 block">Workspace</span>
+                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{workspace}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="font-medium text-gray-700">Client ID:</span>
-                        <span className="text-gray-900 font-mono">{clientId}</span>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 block">Client ID</span>
+                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{clientId}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="font-medium text-gray-700">Service Name:</span>
-                        <span className="text-gray-900 font-mono">{serviceName}</span>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 block">Service Name</span>
+                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceName}</span>
                       </div>
                     </>
                   );
                 })()}
                 {status?.service_start_time && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Start Time:</span>
-                    <span className="text-gray-900">
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 block">Start Time</span>
+                    <span className="text-sm font-semibold text-gray-900">
                       {formatTimeInfo(status.service_start_time).formattedTime}
                     </span>
                   </div>
                 )}
                 {/* Use service_uptime if available, otherwise calculate from start_time */}
                 {status?.service_uptime !== undefined ? (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Uptime:</span>
-                    <span className="text-gray-900">{formatUptime(status.service_uptime)}</span>
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 block">Uptime</span>
+                    <span className="text-sm font-semibold text-gray-900">{formatUptime(status.service_uptime)}</span>
                   </div>
                 ) : status?.service_start_time && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Uptime:</span>
-                    <span className="text-gray-900">
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 block">Uptime</span>
+                    <span className="text-sm font-semibold text-gray-900">
                       {formatTimeInfo(status.service_start_time).uptime}
                     </span>
                   </div>
                 )}
                 {/* Admin users */}
                 {status?.admin_users && status.admin_users.length > 0 && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <span className="font-medium text-gray-700 block mb-1">Admin Users:</span>
+                  <div className="md:col-span-2">
+                    <span className="text-xs font-medium text-gray-500 block mb-1">Admin Users</span>
                     <div className="flex flex-wrap gap-1">
                       {status.admin_users.map((user, index) => (
                         <span
                           key={index}
                           className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"
-                          title={user}
                         >
-                          {user === '*' ? 'All Users' : user.length > 20 ? `${user.slice(0, 20)}...` : user}
+                          {user === '*' ? 'All Users' : user}
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 hover:shadow-md transition-all duration-200">
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
-              </div>
-              <div className="space-y-3">
-                {/* Use worker_mode from top level, fallback to ray_cluster.mode */}
-                {(status?.worker_mode || status?.ray_cluster?.mode) && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Mode:</span>
-                    <span className="text-gray-900">{formatClusterMode(status.worker_mode || status.ray_cluster?.mode || '')}</span>
-                  </div>
-                )}
-                {status?.ray_cluster?.head_address && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Head Address:</span>
-                    <span className="text-gray-900 font-mono text-sm truncate max-w-[200px]" title={status.ray_cluster.head_address}>
-                      {status.ray_cluster.head_address}
-                    </span>
-                  </div>
-                )}
-                {/* Only show cluster start time if it's a valid number */}
-                {status?.ray_cluster?.start_time &&
-                 status.ray_cluster.start_time !== "N/A" &&
-                 typeof status.ray_cluster.start_time === 'number' && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Cluster Start:</span>
-                      <span className="text-gray-900">
-                        {formatTimeInfo(status.ray_cluster.start_time).formattedTime}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Cluster Uptime:</span>
-                      <span className="text-gray-900">
-                        {formatTimeInfo(status.ray_cluster.start_time).uptime}
-                      </span>
-                    </div>
-                  </>
-                )}
-                {/* Show node count if available */}
-                {status?.ray_cluster?.nodes && Object.keys(status.ray_cluster.nodes).length > 0 && (
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Worker Nodes:</span>
-                    <span className="text-gray-900">{Object.keys(status.ray_cluster.nodes).length}</span>
+                {/* Service Info and Copy Worker MCP URL buttons */}
+                {(getWorkerServiceInfoUrl() || getWorkerMcpUrl()) && (
+                  <div className="md:col-span-2 pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+                    {getWorkerServiceInfoUrl() && (
+                      <a
+                        href={getWorkerServiceInfoUrl()!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300"
+                        title="View service information"
+                      >
+                        <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Service Info
+                        <svg className="w-3 h-3 ml-1 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    )}
+                    {getWorkerMcpUrl() && (
+                      <button
+                        onClick={handleCopyWorkerMcpUrl}
+                        className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 ${
+                          workerMcpCopied
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300'
+                        }`}
+                        title="Copy MCP Server URL for this worker"
+                      >
+                        {workerMcpCopied ? (
+                          <>
+                            <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy Worker MCP URL
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1013,10 +1035,11 @@ const BioEngineWorker: React.FC = () => {
           </div>
         </div>
 
-        {/* Cluster Resources - Use BioEngineClusterResources component */}
+        {/* Cluster Status - Use BioEngineClusterResources component */}
         {status?.ray_cluster && (
           <BioEngineClusterResources
             rayCluster={status.ray_cluster}
+            workerMode={status.worker_mode}
             currentTime={currentTime}
             formatTimeInfo={formatTimeInfo}
           />

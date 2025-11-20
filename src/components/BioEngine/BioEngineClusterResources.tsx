@@ -37,11 +37,12 @@ interface ClusterData {
 
 interface BioEngineClusterResourcesProps {
   rayCluster: ClusterData;
+  workerMode?: string;
   currentTime: number;
   formatTimeInfo: (timestamp: number) => { formattedTime: string, uptime: string };
 }
 
-const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, currentTime, formatTimeInfo }) => {
+const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, workerMode, currentTime, formatTimeInfo }) => {
   const [nodesExpanded, setNodesExpanded] = useState(false);
   const [pendingExpanded, setPendingExpanded] = useState(false);
 
@@ -89,6 +90,20 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     );
   };
 
+  // Helper function to format cluster mode
+  const formatClusterMode = (mode: string): string => {
+    switch (mode) {
+      case 'slurm':
+        return 'SLURM';
+      case 'single-machine':
+        return 'Single Machine';
+      case 'external-cluster':
+        return 'External Cluster';
+      default:
+        return mode;
+    }
+  };
+
   const ResourceCard: React.FC<{
     title: string;
     available: number;
@@ -133,8 +148,42 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2v-8a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-800">Cluster Resources</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Cluster Status</h3>
           </div>
+        </div>
+
+        {/* Cluster Information */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
+          {/* Mode */}
+          {(workerMode || rayCluster.mode) && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Mode</span>
+              <span className="text-sm font-semibold text-gray-900">{formatClusterMode(workerMode || rayCluster.mode || '')}</span>
+            </div>
+          )}
+          {/* Head Address */}
+          {rayCluster.head_address && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Head Address</span>
+              <span className="text-sm font-mono text-gray-900 truncate block" title={rayCluster.head_address}>
+                {rayCluster.head_address}
+              </span>
+            </div>
+          )}
+          {/* Cluster Uptime */}
+          {rayCluster.start_time && rayCluster.start_time !== "N/A" && typeof rayCluster.start_time === 'number' && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Cluster Uptime</span>
+              <span className="text-sm font-semibold text-gray-900">{formatTimeInfo(rayCluster.start_time).uptime}</span>
+            </div>
+          )}
+          {/* Worker Nodes */}
+          {rayCluster.nodes && Object.keys(rayCluster.nodes).length > 0 && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Worker Nodes</span>
+              <span className="text-sm font-semibold text-gray-900">{Object.keys(rayCluster.nodes).length}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
