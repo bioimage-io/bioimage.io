@@ -34,10 +34,16 @@ const styles = `
 
 type ServiceStatus = {
   service_start_time: number;
+  service_uptime?: number;
+  worker_mode?: string;
+  workspace?: string;
+  client_id?: string;
+  admin_users?: string[];
+  is_ready?: boolean;
   ray_cluster: {
     head_address: string;
     start_time: number | "N/A";
-    mode: string;
+    mode?: string;  // Legacy, now use worker_mode at top level
     cluster: {
       total_gpu: number;
       available_gpu: number;
@@ -72,7 +78,7 @@ type ServiceStatus = {
     service_id: string | null;
     [key: string]: any;
   };
-  bioengine_datasets: {
+  bioengine_datasets?: {
     available_datasets: Record<string, any>;
     loaded_datasets: Record<string, any>;
   };
@@ -265,6 +271,45 @@ const BioEngineWorker: React.FC = () => {
       const bioengineWorker = await server.getService(serviceId, {mode: "last"});
       let statusData = await bioengineWorker.get_status();
 
+      // Fetch deployed applications using new get_application_status API
+      try {
+        const appStatus = await bioengineWorker.get_application_status({ _rkwargs: true });
+        console.log('Application status:', appStatus);
+
+        // Merge application status into statusData.bioengine_apps
+        if (appStatus && typeof appStatus === 'object') {
+          statusData.bioengine_apps = statusData.bioengine_apps || {};
+
+          // appStatus is a dict of application_id -> status
+          for (const [appId, appData] of Object.entries(appStatus)) {
+            if (typeof appData === 'object' && appData !== null) {
+              const app = appData as any;
+              console.log(`App ${appId} service_ids:`, app.service_ids);
+
+              // service_ids is an array, get the first element
+              const serviceIds = Array.isArray(app.service_ids) && app.service_ids.length > 0
+                ? app.service_ids[0]
+                : app.service_ids || {};
+
+              statusData.bioengine_apps[appId] = {
+                ...app,
+                application_id: appId,
+                artifact_id: app.artifact_id || appId,
+                deployment_name: app.deployment_name || appId,
+                status: app.status || 'UNKNOWN',
+                start_time: app.start_time,
+                service_ids: serviceIds,
+                available_methods: app.available_methods || app.methods,
+                replica_states: app.replica_states,
+                resources: app.resources
+              };
+            }
+          }
+        }
+      } catch (appErr) {
+        console.warn('Failed to fetch application status:', appErr);
+      }
+
       // Preserve existing manifests before processing new status data
       const existingManifests: Record<string, any> = {};
       if (status?.bioengine_apps) {
@@ -286,33 +331,36 @@ const BioEngineWorker: React.FC = () => {
 
         for (const [key, deployment] of Object.entries(statusData.bioengine_apps)) {
           if (key !== 'service_id' && key !== 'note' && typeof deployment === 'object' && deployment !== null) {
-            (deployment as any).artifact_id = key;
+            const app = deployment as any;
+            // Use artifact_id if available, otherwise use key
+            const artifactId = app.artifact_id || key;
+            app.artifact_id = artifactId;
 
             // First, try to use existing manifest if available
             if (existingManifests[key]) {
-              (deployment as any).manifest = existingManifests[key];
+              app.manifest = existingManifests[key];
               console.log(`Using existing manifest for deployed artifact: ${key}`);
-            } else if (currentManifestCache[key]) {
+            } else if (currentManifestCache[artifactId]) {
               // Use cached manifest from available artifacts
-              (deployment as any).manifest = currentManifestCache[key];
+              app.manifest = currentManifestCache[artifactId];
               console.log(`Using cached manifest for deployed artifact: ${key}`);
             } else if (artifactManager) {
               // Only fetch if not in cache and not in existing manifests
               const manifestPromise = (async (): Promise<{ key: string, manifest: any }> => {
                 try {
-                  console.log(`Fetching manifest for deployed artifact: ${key}`);
-                  const artifact = await artifactManager.read({ artifact_id: `bioimage-io/${key}`, _rkwargs: true });
+                  console.log(`Fetching manifest for deployed artifact: ${artifactId}`);
+                  const artifact = await artifactManager.read({ artifact_id: artifactId, _rkwargs: true });
                   if (artifact && artifact.manifest) {
-                    console.log(`Successfully fetched manifest for ${key}:`, artifact.manifest);
+                    console.log(`Successfully fetched manifest for ${artifactId}:`, artifact.manifest);
                     // Add to local cache immediately
-                    currentManifestCache[key] = artifact.manifest;
+                    currentManifestCache[artifactId] = artifact.manifest;
                     return { key, manifest: artifact.manifest };
                   } else {
-                    console.warn(`No manifest found for deployed artifact ${key}`);
+                    console.warn(`No manifest found for deployed artifact ${artifactId}`);
                     return { key, manifest: null };
                   }
                 } catch (err) {
-                  console.error(`Failed to fetch manifest for deployed artifact ${key}:`, err);
+                  console.error(`Failed to fetch manifest for deployed artifact ${artifactId}:`, err);
                   return { key, manifest: null };
                 }
               })();
@@ -385,11 +433,16 @@ const BioEngineWorker: React.FC = () => {
 
       const bioengineWorker = await server.getService(serviceId);
 
-      if (deployMode) {
-        await bioengineWorker.deploy_artifact(artifactId, deployMode);
-      } else {
-        await bioengineWorker.deploy_artifact(artifactId);
-      }
+      // Use new run_application API
+      // deployMode 'cpu' means disable_gpu=true, 'gpu' means disable_gpu=false
+      const disable_gpu = deployMode === 'cpu';
+
+      await bioengineWorker.run_application({
+        artifact_id: artifactId,
+        disable_gpu: disable_gpu,
+        max_ongoing_requests: 10,
+        _rkwargs: true
+      });
 
       // Immediately fetch status to check for deployment
       await fetchStatus(false);
@@ -399,20 +452,20 @@ const BioEngineWorker: React.FC = () => {
     } catch (err) {
       console.error('Deployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
-      
+
       // Check if the error indicates the service is not available
-      const isServiceUnavailable = errorMessage.includes('Service not found') || 
+      const isServiceUnavailable = errorMessage.includes('Service not found') ||
                                    errorMessage.includes('not found') ||
                                    errorMessage.includes('does not exist') ||
                                    errorMessage.includes('No service found') ||
                                    errorMessage.includes('Service is not available');
-      
+
       if (isServiceUnavailable) {
         console.warn(`BioEngine worker service ${serviceId} is no longer available, redirecting to home`);
         navigate('/bioengine');
         return;
       }
-      
+
       setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
       setDeployingArtifactId(null);
     }
@@ -459,39 +512,43 @@ const BioEngineWorker: React.FC = () => {
     return 'Deploy';
   };
 
-  const handleUndeployArtifact = async (artifactId: string) => {
+  const handleUndeployArtifact = async (applicationId: string) => {
     if (!serviceId || !isLoggedIn) return;
 
     try {
       setUndeploymentError(null); // Clear any previous errors
-      setUndeployingArtifactId(artifactId);
+      setUndeployingArtifactId(applicationId);
 
       const bioengineWorker = await server.getService(serviceId);
-      await bioengineWorker.undeploy_artifact(artifactId);
+      // Use new stop_application API
+      await bioengineWorker.stop_application({
+        application_id: applicationId,
+        _rkwargs: true
+      });
 
       await fetchStatus();
 
       setUndeployingArtifactId(null);
 
-      console.log(`Successfully undeployed ${artifactId}`);
+      console.log(`Successfully stopped application ${applicationId}`);
     } catch (err) {
-      console.error('Undeployment failed:', err);
+      console.error('Stop application failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
-      
+
       // Check if the error indicates the service is not available
-      const isServiceUnavailable = errorMessage.includes('Service not found') || 
+      const isServiceUnavailable = errorMessage.includes('Service not found') ||
                                    errorMessage.includes('not found') ||
                                    errorMessage.includes('does not exist') ||
                                    errorMessage.includes('No service found') ||
                                    errorMessage.includes('Service is not available');
-      
+
       if (isServiceUnavailable) {
         console.warn(`BioEngine worker service ${serviceId} is no longer available, redirecting to home`);
         navigate('/bioengine');
         return;
       }
-      
-      setUndeploymentError(`Failed to undeploy ${artifactId}: ${errorMessage}`);
+
+      setUndeploymentError(`Failed to stop application ${applicationId}: ${errorMessage}`);
       setUndeployingArtifactId(null);
     }
   };
@@ -687,6 +744,25 @@ const BioEngineWorker: React.FC = () => {
     }
   };
 
+  // Helper function to format uptime from seconds
+  const formatUptime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${Math.floor(seconds)}s`;
+    } else if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${minutes}m ${secs}s`;
+    } else if (seconds < 86400) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${hours}h ${minutes}m`;
+    } else {
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      return `${days}d ${hours}h`;
+    }
+  };
+
   // Loading overlay component
   const LoadingOverlay = () => (
     <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
@@ -780,32 +856,45 @@ const BioEngineWorker: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 hover:shadow-md transition-all duration-200">
             <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mr-3">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center">
+                  <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mr-3">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">Service Information</h3>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-800">Service Information</h3>
+                {/* Status indicator */}
+                {status?.is_ready !== undefined && (
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                    status.is_ready
+                      ? 'bg-green-100 text-green-700 border border-green-200'
+                      : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full mr-1.5 ${status.is_ready ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                    {status.is_ready ? 'Ready' : 'Initializing'}
+                  </span>
+                )}
               </div>
               <div className="space-y-3">
-                {status?.service_start_time && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Start Time:</span>
-                      <span className="text-gray-900">
-                        {formatTimeInfo(status.service_start_time).formattedTime}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Uptime:</span>
-                      <span className="text-gray-900">
-                        {formatTimeInfo(status.service_start_time).uptime}
-                      </span>
-                    </div>
-                  </>
+                {/* Use new workspace and client_id fields if available */}
+                {status?.workspace && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Workspace:</span>
+                    <span className="text-gray-900 font-mono">{status.workspace}</span>
+                  </div>
                 )}
-                {serviceId && (() => {
+                {status?.client_id && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Client ID:</span>
+                    <span className="text-gray-900 font-mono text-sm truncate max-w-[200px]" title={status.client_id}>
+                      {status.client_id}
+                    </span>
+                  </div>
+                )}
+                {/* Fallback to parsing service ID if new fields not available */}
+                {!status?.workspace && serviceId && (() => {
                   const { workspace, clientId, serviceName } = getCompleteServiceInfo(serviceId, status?.bioengine_apps?.service_id);
                   return (
                     <>
@@ -824,6 +913,45 @@ const BioEngineWorker: React.FC = () => {
                     </>
                   );
                 })()}
+                {status?.service_start_time && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Start Time:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.service_start_time).formattedTime}
+                    </span>
+                  </div>
+                )}
+                {/* Use service_uptime if available, otherwise calculate from start_time */}
+                {status?.service_uptime !== undefined ? (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-900">{formatUptime(status.service_uptime)}</span>
+                  </div>
+                ) : status?.service_start_time && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Uptime:</span>
+                    <span className="text-gray-900">
+                      {formatTimeInfo(status.service_start_time).uptime}
+                    </span>
+                  </div>
+                )}
+                {/* Admin users */}
+                {status?.admin_users && status.admin_users.length > 0 && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <span className="font-medium text-gray-700 block mb-1">Admin Users:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {status.admin_users.map((user, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"
+                          title={user}
+                        >
+                          {user === '*' ? 'All Users' : user.length > 20 ? `${user.slice(0, 20)}...` : user}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -839,44 +967,47 @@ const BioEngineWorker: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-800">Cluster Information</h3>
               </div>
               <div className="space-y-3">
-                {status?.ray_cluster?.mode && (
+                {/* Use worker_mode from top level, fallback to ray_cluster.mode */}
+                {(status?.worker_mode || status?.ray_cluster?.mode) && (
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Mode:</span>
-                    <span className="text-gray-900">{formatClusterMode(status.ray_cluster.mode)}</span>
+                    <span className="text-gray-900">{formatClusterMode(status.worker_mode || status.ray_cluster?.mode || '')}</span>
                   </div>
                 )}
-                {status?.ray_cluster?.start_time && status.ray_cluster.start_time !== "N/A" && (
+                {status?.ray_cluster?.head_address && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Head Address:</span>
+                    <span className="text-gray-900 font-mono text-sm truncate max-w-[200px]" title={status.ray_cluster.head_address}>
+                      {status.ray_cluster.head_address}
+                    </span>
+                  </div>
+                )}
+                {/* Only show cluster start time if it's a valid number */}
+                {status?.ray_cluster?.start_time &&
+                 status.ray_cluster.start_time !== "N/A" &&
+                 typeof status.ray_cluster.start_time === 'number' && (
                   <>
                     <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Start Time:</span>
+                      <span className="font-medium text-gray-700">Cluster Start:</span>
                       <span className="text-gray-900">
-                        {formatTimeInfo(status.ray_cluster.start_time as number).formattedTime}
+                        {formatTimeInfo(status.ray_cluster.start_time).formattedTime}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Uptime:</span>
+                      <span className="font-medium text-gray-700">Cluster Uptime:</span>
                       <span className="text-gray-900">
-                        {formatTimeInfo(status.ray_cluster.start_time as number).uptime}
+                        {formatTimeInfo(status.ray_cluster.start_time).uptime}
                       </span>
                     </div>
                   </>
                 )}
-                {status?.ray_cluster?.start_time === "N/A" && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Start Time:</span>
-                      <span className="text-gray-500">N/A</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Uptime:</span>
-                      <span className="text-gray-500">N/A</span>
-                    </div>
-                  </>
+                {/* Show node count if available */}
+                {status?.ray_cluster?.nodes && Object.keys(status.ray_cluster.nodes).length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Worker Nodes:</span>
+                    <span className="text-gray-900">{Object.keys(status.ray_cluster.nodes).length}</span>
+                  </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-700">Head Address:</span>
-                  <span className="text-gray-900 font-mono">{status?.ray_cluster?.head_address}</span>
-                </div>
               </div>
             </div>
           </div>

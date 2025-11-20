@@ -3,6 +3,7 @@ import React from 'react';
 interface DeploymentCardProps {
   deployment: {
     artifact_id: string;
+    application_id?: string;  // New: unique deployment instance ID
     display_name?: string;
     description?: string;
     deployment_name: string;
@@ -15,10 +16,14 @@ interface DeploymentCardProps {
       num_gpus?: number;
       memory?: number;
     };
+    service_ids?: {  // New: independent service IDs
+      websocket_service_id?: string;
+      webrtc_service_id?: string;
+    };
   };
   serviceId?: string;
   isUndeploying?: boolean;
-  onUndeploy: (artifactId: string) => void;
+  onUndeploy: (applicationId: string) => void;  // Changed: uses application_id
   formatTimeInfo?: (timestamp: number) => { formattedTime: string; uptime: string };
 }
 
@@ -29,14 +34,62 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   onUndeploy,
   formatTimeInfo
 }) => {
+  const [mcpCopied, setMcpCopied] = React.useState(false);
+  const [isHovered, setIsHovered] = React.useState(false);
+
   // Helper function to format bytes to GB
   const formatMemoryToGB = (bytes: number): string => {
     const gb = bytes / (1024 * 1024 * 1024);
     return gb < 1 ? `${Math.round(gb * 1024)} MB` : `${gb.toFixed(1)} GB`;
   };
 
+  // Get MCP URL from websocket service ID
+  const getMcpUrl = (): string | null => {
+    const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
+    if (!wsServiceId) return null;
+
+    const parts = wsServiceId.split('/');
+    if (parts.length >= 2) {
+      const workspace = parts[0];
+      const serviceIdentifier = parts.slice(1).join('/');
+      return `https://hypha.aicell.io/${workspace}/mcp/${serviceIdentifier}`;
+    }
+    return null;
+  };
+
+  // Get Service Info URL from websocket service ID
+  const getServiceInfoUrl = (): string | null => {
+    const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
+    if (!wsServiceId) return null;
+
+    const parts = wsServiceId.split('/');
+    if (parts.length >= 2) {
+      const workspace = parts[0];
+      const serviceIdentifier = parts.slice(1).join('/');
+      return `https://hypha.aicell.io/${workspace}/services/${serviceIdentifier}`;
+    }
+    return null;
+  };
+
+  const handleCopyMcpUrl = async () => {
+    const mcpUrl = getMcpUrl();
+    if (!mcpUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(mcpUrl);
+      setMcpCopied(true);
+      setTimeout(() => setMcpCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy MCP URL:', err);
+    }
+  };
+
   return (
-    <div className="p-6 bg-gradient-to-r from-white to-gray-50 border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+    <div
+      className="p-6 bg-gradient-to-r from-white to-gray-50 border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="flex justify-between items-start mb-4">
         <div>
           <div className="flex items-center mb-2">
@@ -63,7 +116,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
           )}
         </div>
 
-        <div>
+        <div className={`transition-opacity duration-200 ${isHovered || isUndeploying || deployment.status === "DELETING" ? 'opacity-100' : 'opacity-0'}`}>
           {isUndeploying ? (
             <button
               disabled={true}
@@ -82,7 +135,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </button>
           ) : (
             <button
-              onClick={() => onUndeploy(deployment.artifact_id)}
+              onClick={() => onUndeploy(deployment.application_id || deployment.artifact_id)}
               className="px-4 py-2 text-sm bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 shadow-sm hover:shadow-md transition-all duration-200"
             >
               {deployment.status === "DEPLOYING" ? "Cancel Deployment" : "Undeploy"}
@@ -165,15 +218,47 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               </div>
             )}
 
+          {/* Service Info and Copy MCP Server Buttons */}
+          {(getServiceInfoUrl() || getMcpUrl()) && deployment.status !== "DEPLOYING" && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {getServiceInfoUrl() && (
+                <a
+                  href={getServiceInfoUrl()!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"
+                >
+                  <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Service Info
+                </a>
+              )}
+              {getMcpUrl() && (
+                <button
+                  onClick={handleCopyMcpUrl}
+                  className="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 hover:text-purple-800 transition-colors cursor-pointer"
+                >
+                  <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  {mcpCopied ? 'Copied!' : 'Copy MCP Server URL'}
+                </button>
+              )}
+            </div>
+          )}
+
           {deployment.available_methods && deployment.available_methods.length > 0 && deployment.status !== "DEPLOYING" && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
               <div className="flex flex-wrap gap-1">
-                {deployment.available_methods.map((method: string) => (
-                  serviceId ? (
+                {deployment.available_methods.map((method: string) => {
+                  // Use new service_ids structure, fallback to legacy serviceId
+                  const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
+                  return wsServiceId ? (
                     <a
                       key={method}
-                      href={`https://hypha.aicell.io/${serviceId.split('/')[0]}/services/${serviceId.split('/')[1]}/${deployment.deployment_name}.${method}`}
+                      href={`https://hypha.aicell.io/${wsServiceId.split('/')[0]}/services/${wsServiceId.split('/')[1]}/${method}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"
@@ -188,8 +273,8 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                     >
                       {method}
                     </span>
-                  )
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 interface ClusterData {
   head_address: string;
   start_time: number | "N/A";
-  mode: string;
+  mode?: string;
   cluster: {
     total_gpu: number;
     available_gpu: number;
@@ -51,10 +51,19 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     return (bytes / 1024 / 1024 / 1024).toFixed(1);
   };
 
+  // Format numbers with reasonable precision (for CPU/GPU counts)
+  const formatNumber = (value: number): string => {
+    if (Number.isInteger(value)) {
+      return value.toString();
+    }
+    // Show up to 2 decimal places, but remove trailing zeros
+    return parseFloat(value.toFixed(2)).toString();
+  };
+
   const ResourceBar: React.FC<{ available: number; total: number; color: string; unit?: string }> = ({ available, total, color, unit = "" }) => {
     const used = total - available;
-    const displayUsed = unit === "GB" ? formatBytes(used) : used;
-    const displayTotal = unit === "GB" ? formatBytes(total) : total;
+    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+    const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     if (total === 0) {
       return (
@@ -90,8 +99,8 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
   }> = ({ title, available, total, color, bgColor, unit = "" }) => {
     const used = total - available;
     const percentage = total > 0 ? Math.round((used / total) * 100) : 0;
-    const displayUsed = unit === "GB" ? formatBytes(used) : used;
-    const displayTotal = unit === "GB" ? formatBytes(total) : total;
+    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+    const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     return (
       <div className={`${bgColor} rounded-xl p-4`}>

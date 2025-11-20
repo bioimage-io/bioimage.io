@@ -3,8 +3,8 @@ import DeploymentCard from './DeploymentCard';
 
 interface DeployedBioEngineAppsProps {
   status?: any;
-  undeployingArtifactId?: string | null;
-  onUndeployArtifact: (artifactId: string) => void;
+  undeployingArtifactId?: string | null;  // Now actually application_id
+  onUndeployArtifact: (applicationId: string) => void;  // Changed: uses application_id
   formatTimeInfo?: (timestamp: number) => { formattedTime: string; uptime: string };
   undeploymentError?: string | null;
   setUndeploymentError?: (error: string | null) => void;
@@ -129,13 +129,13 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           <p className="text-gray-500">{deploymentNote}</p>
         </div>
       ) : hasDeployments ? (
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {deployments.map((deployment, index) => (
             <DeploymentCard
-              key={index}
+              key={deployment.application_id || index}
               deployment={deployment}
               serviceId={deploymentServiceId}
-              isUndeploying={undeployingArtifactId === deployment.artifact_id}
+              isUndeploying={undeployingArtifactId === (deployment.application_id || deployment.artifact_id)}
               onUndeploy={onUndeployArtifact}
               formatTimeInfo={formatTimeInfo}
             />
