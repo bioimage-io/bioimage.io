@@ -745,7 +745,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                 </div>
               </div>
 
-              {/* Connect to Existing Option */}
+              {/* Kubernetes Cluster Option */}
               <div
                 className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${mode === 'external-cluster'
                     ? 'border-orange-500 bg-orange-50 shadow-md'
@@ -761,48 +761,107 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     checked={mode === 'external-cluster'}
                     onChange={(e) => setMode(e.target.value as ModeType)}
                     className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 focus:ring-orange-500"
-                    aria-label="Connect to existing cluster deployment mode"
+                    aria-label="Kubernetes cluster deployment mode"
                   />
-                  <span className="ml-2 font-medium text-gray-800">🔗 Connect to Ray Cluster</span>
+                  <span className="ml-2 font-medium text-gray-800">☸️ Kubernetes Cluster</span>
                 </div>
                 <p className="text-sm text-gray-600 ml-6">
-                  Connect to an existing Ray cluster that's already running.
-                  BioEngine won't manage the cluster - you provide the Ray address.
+                  Deploy on Kubernetes with KubeRay. Creates a Ray cluster on K8s
+                  and connects BioEngine to it for scalable, cloud-native deployment.
                 </p>
                 <div className="mt-2 ml-6">
                   <span className="inline-block px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded">
-                    External Cluster
+                    Cloud Native
                   </span>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Ray Address Input for External-Cluster Mode */}
-            {mode === 'external-cluster' && (
-              <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
-                <label className="block text-sm font-medium text-orange-800 mb-2">
-                  Ray Cluster Address (Required)
-                </label>
+          {/* Kubernetes Cluster Setup Instructions - Outside the mode selection box */}
+          {mode === 'external-cluster' && (
+            <div className="space-y-4">
+              {/* Step 1: Create Ray Cluster */}
+              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+                <h5 className="text-sm font-medium text-orange-800 mb-3 flex items-center">
+                  <span className="w-5 h-5 bg-orange-600 text-white rounded-full flex items-center justify-center text-xs mr-2">1</span>
+                  Create a Ray Cluster on Kubernetes
+                </h5>
+                <div className="text-sm text-orange-700 space-y-2">
+                  <p>First, deploy a Ray cluster on your Kubernetes cluster using KubeRay:</p>
+                  <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
+                    <li>Install the KubeRay operator: <code className="bg-orange-100 px-1 rounded">helm install kuberay-operator kuberay/kuberay-operator</code></li>
+                    <li>Deploy a RayCluster: <code className="bg-orange-100 px-1 rounded">kubectl apply -f raycluster.yaml</code></li>
+                    <li>Get the Ray head service address: <code className="bg-orange-100 px-1 rounded">kubectl get svc</code></li>
+                  </ol>
+                  <a
+                    href="https://docs.ray.io/en/master/cluster/kubernetes/getting-started/raycluster-quick-start.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-orange-600 hover:text-orange-800 font-medium mt-2"
+                  >
+                    📚 KubeRay Quick Start Guide
+                    <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              </div>
+
+              {/* Step 2: Ray Cluster Address */}
+              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+                <h5 className="text-sm font-medium text-orange-800 mb-3 flex items-center">
+                  <span className="w-5 h-5 bg-orange-600 text-white rounded-full flex items-center justify-center text-xs mr-2">2</span>
+                  Enter Ray Cluster Address
+                </h5>
                 <input
                   type="text"
                   value={rayAddress}
                   onChange={(e) => setRayAddress(e.target.value)}
-                  placeholder="ray://head-node-ip"
+                  placeholder="ray://raycluster-head-svc:10001"
                   className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                   aria-label="Ray cluster address"
                 />
                 <p className="text-xs text-orange-700 mt-1">
-                  Enter the address of your existing Ray cluster. The cluster must be running and accessible from your network.
+                  Enter the Ray head service address from your Kubernetes cluster (e.g., <code className="bg-orange-100 px-1 rounded">ray://raycluster-head-svc:10001</code>)
                 </p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* System Configuration */}
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Kubernetes basic options */}
+            {mode === 'external-cluster' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Users</label>
+                  <input
+                    type="text"
+                    value={adminUsers}
+                    onChange={(e) => setAdminUsers(e.target.value)}
+                    placeholder="user1,user2 or *"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Users who can manage the worker (use * for all)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Client ID</label>
+                  <input
+                    type="text"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    placeholder="bioengine-worker-123"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Custom client ID (auto-generated if empty)</p>
+                </div>
+              </>
+            )}
+
             {/* Operating System */}
-            {(mode === 'single-machine' || mode === 'external-cluster') && (
+            {mode === 'single-machine' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Operating System</label>
                 <select
@@ -822,7 +881,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Container Runtime */}
-            {(mode === 'single-machine' || mode === 'external-cluster') && (
+            {mode === 'single-machine' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Container Runtime</label>
                 <select
@@ -849,41 +908,43 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Data Directory */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Data Directory (Optional)</label>
-              <input
-                type="text"
-                value={dataDir}
-                onChange={(e) => {
-                  let value = e.target.value;
-                  // Validate path format based on OS
-                  if (value) {
-                    if (os === 'windows') {
-                      // Windows: must start with C:\
-                      if (!value.startsWith('C:\\')) {
-                        if (value.startsWith('/')) {
-                          // Convert Unix-style to Windows
-                          value = 'C:' + value.replace(/\//g, '\\');
-                        } else if (!value.startsWith('C:')) {
-                          value = 'C:\\' + value;
+            {(mode === 'single-machine' || mode === 'slurm') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Data Directory (Optional)</label>
+                <input
+                  type="text"
+                  value={dataDir}
+                  onChange={(e) => {
+                    let value = e.target.value;
+                    // Validate path format based on OS
+                    if (value) {
+                      if (os === 'windows') {
+                        // Windows: must start with C:\
+                        if (!value.startsWith('C:\\')) {
+                          if (value.startsWith('/')) {
+                            // Convert Unix-style to Windows
+                            value = 'C:' + value.replace(/\//g, '\\');
+                          } else if (!value.startsWith('C:')) {
+                            value = 'C:\\' + value;
+                          }
+                        }
+                      } else {
+                        // Unix: must start with /
+                        if (!value.startsWith('/')) {
+                          value = '/' + value;
                         }
                       }
-                    } else {
-                      // Unix: must start with /
-                      if (!value.startsWith('/')) {
-                        value = '/' + value;
-                      }
                     }
-                  }
-                  setDataDir(value);
-                }}
-                placeholder={os === 'windows' ? 'C:\\path\\to\\data' : '/path/to/data'}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Optional directory to mount as /data in the container. {os === 'windows' ? 'Windows path starting with C:\\' : 'Absolute path starting with /'}
-              </p>
-            </div>
+                    setDataDir(value);
+                  }}
+                  placeholder={os === 'windows' ? 'C:\\path\\to\\data' : '/path/to/data'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Optional directory to mount as /data in the container. {os === 'windows' ? 'Windows path starting with C:\\' : 'Absolute path starting with /'}
+                </p>
+              </div>
+            )}
 
             {/* Shared Memory Size */}
             {mode === 'single-machine' && (
@@ -964,7 +1025,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Run as Root */}
-            {(mode === 'single-machine' || mode === 'external-cluster') && (containerRuntime === 'docker' || containerRuntime === 'podman') && (
+            {mode === 'single-machine' && (containerRuntime === 'docker' || containerRuntime === 'podman') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
                 <label className="flex items-center">
@@ -983,7 +1044,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             )}
 
             {/* Interactive Mode */}
-            {(mode === 'single-machine' || mode === 'external-cluster') && (
+            {mode === 'single-machine' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Execution Mode</label>
                 <label className="flex items-center">
@@ -1072,30 +1133,6 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Workspace</label>
-                <input
-                  type="text"
-                  value={workspace}
-                  onChange={(e) => setWorkspace(e.target.value)}
-                  placeholder="your-workspace"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">Hypha workspace to connect to (optional)</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Token</label>
-                <input
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="your-auth-token"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">Authentication token for private workspaces</p>
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Client ID</label>
                 <input
                   type="text"
@@ -1117,6 +1154,32 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom Hypha server URL (defaults to public server)</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Workspace</label>
+                <input
+                  type="text"
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value)}
+                  placeholder="my-workspace"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Hypha workspace name (optional, uses token's workspace if not set)</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Token</label>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Enter token"
+                  autoComplete="new-password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Hypha authentication token (optional, will prompt for login if not set)</p>
               </div>
 
               <div>
@@ -1181,7 +1244,149 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             </div>
           )}
 
-          {/* Generated Command */}
+          {/* Kubernetes Deployment YAML - Only for Kubernetes mode */}
+          {mode === 'external-cluster' && (
+            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+              <h5 className="text-sm font-medium text-blue-800 mb-3 flex items-center">
+                <span className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs mr-2">3</span>
+                Deploy BioEngine Worker on Kubernetes
+              </h5>
+              <p className="text-sm text-blue-700 mb-3">
+                Deploy BioEngine as a Kubernetes Deployment alongside your Ray cluster. Configure options above then copy the generated YAML:
+              </p>
+              <div className="bg-gray-900 rounded-lg p-3 relative">
+                <button
+                  onClick={async () => {
+                    // Build optional args
+                    let optionalArgs = '';
+                    if (serverUrl) {
+                      optionalArgs += `        - "--server_url"\n        - "${serverUrl}"\n`;
+                    }
+                    if (workspace) {
+                      optionalArgs += `        - "--workspace"\n        - "${workspace}"\n`;
+                    }
+                    if (token) {
+                      optionalArgs += `        - "--token"\n        - "${token}"\n`;
+                    }
+                    if (adminUsers) {
+                      optionalArgs += `        - "--admin_users"\n        - "${adminUsers}"\n`;
+                    }
+                    if (clientId) {
+                      optionalArgs += `        - "--client_id"\n        - "${clientId}"\n`;
+                    }
+
+                    const yaml = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bioengine-worker
+  labels:
+    app: bioengine-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bioengine-worker
+  template:
+    metadata:
+      labels:
+        app: bioengine-worker
+    spec:
+      containers:
+      - name: bioengine-worker
+        image: ghcr.io/aicell-lab/bioengine-worker:0.5.4
+        args:
+        - "python"
+        - "-m"
+        - "bioengine.worker"
+        - "--mode"
+        - "external-cluster"
+        - "--connection_address"
+        - "${rayAddress || 'ray://raycluster-head-svc:10001'}"
+${optionalArgs}        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: bioengine-cache
+          mountPath: /.bioengine
+      volumes:
+      - name: bioengine-cache
+        persistentVolumeClaim:
+          claimName: bioengine-cache-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bioengine-cache-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi`;
+                    try {
+                      await navigator.clipboard.writeText(yaml);
+                    } catch (err) {
+                      console.error('Failed to copy:', err);
+                    }
+                  }}
+                  className="absolute top-2 right-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors duration-200"
+                >
+                  Copy YAML
+                </button>
+                <pre className="text-green-400 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto">
+{`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bioengine-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bioengine-worker
+  template:
+    spec:
+      containers:
+      - name: bioengine-worker
+        image: ghcr.io/aicell-lab/bioengine-worker:0.5.4
+        args:
+        - "python"
+        - "-m"
+        - "bioengine.worker"
+        - "--mode"
+        - "external-cluster"
+        - "--connection_address"
+        - "${rayAddress || 'ray://raycluster-head-svc:10001'}"${serverUrl ? `
+        - "--server_url"
+        - "${serverUrl}"` : ''}${workspace ? `
+        - "--workspace"
+        - "${workspace}"` : ''}${token ? `
+        - "--token"
+        - "${token}"` : ''}${adminUsers ? `
+        - "--admin_users"
+        - "${adminUsers}"` : ''}${clientId ? `
+        - "--client_id"
+        - "${clientId}"` : ''}
+        volumeMounts:
+        - name: bioengine-cache
+          mountPath: /.bioengine
+      volumes:
+      - name: bioengine-cache
+        persistentVolumeClaim:
+          claimName: bioengine-cache-pvc`}
+                </pre>
+              </div>
+              <p className="text-xs text-blue-700 mt-2">
+                Save this as <code className="bg-blue-100 px-1 rounded">bioengine-deployment.yaml</code> and apply with: <code className="bg-blue-100 px-1 rounded">kubectl apply -f bioengine-deployment.yaml</code>
+              </p>
+            </div>
+          )}
+
+          {/* Generated Command - Hidden for Kubernetes mode */}
+          {mode !== 'external-cluster' && (
           <div className="bg-gray-900 rounded-xl p-4 relative">
             <div className="flex justify-between items-start mb-2">
               <h4 className="text-sm font-medium text-gray-300">
@@ -1255,6 +1460,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               })()}
             </code>
           </div>
+          )}
 
           {/* SLURM-specific information */}
           {mode === 'slurm' && (
@@ -1289,7 +1495,8 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
             </div>
           )}
 
-          {/* Login Instructions */}
+          {/* Login Instructions - Hidden for Kubernetes mode */}
+          {mode !== 'external-cluster' && (
           <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
             <div className="flex items-start">
               <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1318,8 +1525,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
             </div>
           </div>
+          )}
 
-          {/* Additional Info */}
+          {/* Additional Info - Hidden for Kubernetes mode */}
+          {mode !== 'external-cluster' && (
           <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
             <div className="flex items-start">
               <svg className="w-5 h-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1340,7 +1549,6 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     <>
                       <li>{containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1)} must be installed and running{(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? ' (or available on your system)' : ''}</li>
                       {mode === 'single-machine' && hasGpu && <li>NVIDIA {containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : 'drivers'} required for GPU support</li>}
-                      {mode === 'external-cluster' && <li>Existing Ray cluster must be running and accessible</li>}
                     </>
                   )}
                   {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
@@ -1352,14 +1560,15 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                   <li>After running, the worker will be available at the service ID shown in the terminal</li>
                   <li>Use the service ID to connect to your BioEngine worker from this interface</li>
-                  {mode === 'external-cluster' && <li>Make sure the Ray address is accessible from your network</li>}
                   {mode === 'slurm' && <li>The script will automatically handle SLURM job submission and container management</li>}
                 </ul>
               </div>
             </div>
           </div>
+          )}
 
-          {/* Troubleshooting Button */}
+          {/* Troubleshooting Button - Hidden for Kubernetes mode */}
+          {mode !== 'external-cluster' && (
           <div className="flex justify-center pt-4 border-t border-gray-200">
             <button
               onClick={() => setShowTroubleshooting(true)}
@@ -1371,6 +1580,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               Need Help? Get AI Troubleshooting Prompt
             </button>
           </div>
+          )}
         </div>
       )}
 
