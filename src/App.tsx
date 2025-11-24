@@ -19,6 +19,7 @@ import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/BioEngine/BioEngineHome';
 import BioEngineWorker from './components/BioEngine/BioEngineWorker';
+import ColabPage from './components/Colab/ColabPage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -88,6 +89,7 @@ const AppContent: React.FC = () => {
           <Route path="/toc" element={<TermsOfService />} />
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
+          <Route path="/colab" element={<ColabPage />} />
         </Routes>
       </main>
       <Footer />
