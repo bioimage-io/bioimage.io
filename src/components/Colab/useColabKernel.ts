@@ -22,6 +22,7 @@ interface KernelManager {
   restartKernel: () => Promise<void>;
   interruptKernel: () => Promise<boolean>;
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
+  syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   kernelManager: any;
 }
 
@@ -341,16 +342,34 @@ export const useColabKernel = (): KernelManager => {
   // Mount native filesystem directory using web-python-kernel's built-in mountFS
   const mountDirectory = useCallback(async (mountPoint: string, dirHandle: FileSystemDirectoryHandle) => {
     const kernel = currentKernelRef.current;
+    const manager = kernelManagerRef.current?.manager;
+    const kernelId = currentKernelIdRef.current;
+
     if (!kernel || !dirHandle) {
       console.error('[Colab Kernel] No kernel or directory handle available');
+      console.log('[Colab Kernel] Debug - kernel:', !!kernel, 'dirHandle:', !!dirHandle);
       return false;
     }
 
     try {
       console.log(`[Colab Kernel] Mounting directory to ${mountPoint}...`);
+      console.log(`[Colab Kernel] Kernel type:`, typeof kernel);
+      console.log(`[Colab Kernel] Has kernel.kernel?:`, !!kernel.kernel);
+      console.log(`[Colab Kernel] Has kernel.mountFS?:`, !!kernel.mountFS);
+      console.log(`[Colab Kernel] Manager:`, !!manager);
 
       // Use web-python-kernel's built-in mountFS API
-      const nativefs = await kernel.kernel.mountFS(mountPoint, dirHandle, 'readwrite');
+      // Try different access patterns
+      let nativefs;
+      if (kernel.kernel && typeof kernel.kernel.mountFS === 'function') {
+        nativefs = await kernel.kernel.mountFS(mountPoint, dirHandle, 'readwrite');
+      } else if (typeof kernel.mountFS === 'function') {
+        nativefs = await kernel.mountFS(mountPoint, dirHandle, 'readwrite');
+      } else if (manager && typeof manager.mountFS === 'function') {
+        nativefs = await manager.mountFS(kernelId, mountPoint, dirHandle, 'readwrite');
+      } else {
+        throw new Error('mountFS function not found on kernel or manager');
+      }
 
       console.log(`[Colab Kernel] Successfully mounted directory to ${mountPoint}`);
 
@@ -375,6 +394,40 @@ else:
     }
   }, [executeCode]);
 
+  // Sync filesystem from Python VFS to native browser filesystem
+  const syncFileSystem = useCallback(async (mountPath: string) => {
+    const kernel = currentKernelRef.current;
+
+    if (!kernel) {
+      console.error('[Colab Kernel] No kernel available for filesystem sync');
+      return { success: false, error: 'No kernel available' };
+    }
+
+    try {
+      console.log(`[Colab Kernel] Syncing filesystem at ${mountPath}...`);
+
+      // Try to access syncFileSystem on the kernel object (web-python-kernel 0.1.8+)
+      // The actual kernel instance is in kernel.kernel
+      const actualKernel = kernel.kernel || kernel;
+
+      if (typeof actualKernel.syncFileSystem === 'function') {
+        console.log(`[Colab Kernel] Calling syncFileSystem for ${mountPath}...`);
+        const result = await actualKernel.syncFileSystem(mountPath);
+        console.log(`[Colab Kernel] FileSystem synced successfully:`, result);
+        return result || { success: true };
+      }
+
+      console.warn('[Colab Kernel] syncFileSystem not available, filesystem should auto-sync');
+      return { success: false, error: 'syncFileSystem not available' };
+    } catch (error) {
+      console.error('[Colab Kernel] Error syncing filesystem:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }, []);
+
   return {
     isReady,
     kernelStatus,
@@ -382,6 +435,7 @@ else:
     restartKernel,
     interruptKernel,
     mountDirectory,
+    syncFileSystem,
     kernelManager: kernelManagerRef.current
   };
 };

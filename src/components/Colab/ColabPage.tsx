@@ -7,7 +7,7 @@ import ShareModal from './ShareModal';
 
 const ColabPage: React.FC = () => {
   const { user, server } = useHyphaStore();
-  const { isReady, kernelStatus, executeCode, mountDirectory } = useColabKernel();
+  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem } = useColabKernel();
 
   // File system state
   const [imageFolderHandle, setImageFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -34,6 +34,12 @@ const ColabPage: React.FC = () => {
       const dirHandle = await (window as any).showDirectoryPicker();
       setImageFolderHandle(dirHandle);
     } catch (error) {
+      // User cancelled the picker - this is normal, don't show error
+      if ((error as Error).name === 'AbortError') {
+        console.log('User cancelled folder selection');
+        return;
+      }
+      // Show error for other types of errors
       console.error('Error accessing folder:', error);
       alert('An error occurred while accessing the folder: ' + (error as Error).message);
     }
@@ -71,8 +77,25 @@ const ColabPage: React.FC = () => {
       setAnnotationsFolderHandle(null);
       setAnnotationsList([]);
       setAnnotationURL('');
+      // Clear any existing refresh interval when changing folders
+      const refreshInterval = (window as any).__colabRefreshInterval;
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+        (window as any).__colabRefreshInterval = null;
+      }
     }
   }, [imageFolderHandle]);
+
+  // Cleanup refresh interval on unmount
+  useEffect(() => {
+    return () => {
+      const refreshInterval = (window as any).__colabRefreshInterval;
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+        (window as any).__colabRefreshInterval = null;
+      }
+    };
+  }, []);
 
   const updateImages = async () => {
     if (imageFolderHandle) {
@@ -82,6 +105,15 @@ const ColabPage: React.FC = () => {
 
   const updateAnnotations = async () => {
     if (annotationsFolderHandle) {
+      // First sync filesystem from Python VFS to native browser filesystem
+      if (syncFileSystem) {
+        console.log('[Manual Refresh] Syncing filesystem...');
+        const syncResult = await syncFileSystem('/mnt');
+        if (syncResult.success) {
+          console.log('[Manual Refresh] FileSystem synced');
+        }
+      }
+      // Then update the file list
       await updateFileList(annotationsFolderHandle, setAnnotationsList, setIsLoadingAnnotations);
     }
   };
@@ -356,6 +388,7 @@ const ColabPage: React.FC = () => {
           setIsRunning={setIsRunning}
           executeCode={executeCode}
           mountDirectory={mountDirectory}
+          syncFileSystem={syncFileSystem}
           supportedFileTypes={supportedFileTypes}
           setAnnotationURL={setAnnotationURL}
           server={server}

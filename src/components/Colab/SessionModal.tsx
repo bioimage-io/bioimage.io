@@ -14,6 +14,7 @@ interface SessionModalProps {
   setIsRunning: (running: boolean) => void;
   executeCode: ((code: string, callbacks?: any) => Promise<void>) | null;
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
+  syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   supportedFileTypes: string[];
   setAnnotationURL: (url: string) => void;
   server: any;
@@ -30,6 +31,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   setIsRunning,
   executeCode,
   mountDirectory,
+  syncFileSystem,
   supportedFileTypes,
   setAnnotationURL,
   server,
@@ -103,11 +105,33 @@ print("Required packages installed successfully")
       // Mount the image folder to pyodide virtual filesystem
       if (mountDirectory && imageFolderHandle) {
         console.log('Mounting folder to Python virtual filesystem...');
+        console.log('  Folder name:', imageFolderHandle.name);
+        console.log('  Mount point: /mnt');
         const mounted = await mountDirectory('/mnt', imageFolderHandle);
         if (!mounted) {
           throw new Error('Failed to mount directory to Python environment');
         }
-        console.log('Successfully mounted folder to /mnt');
+        console.log('✓ Successfully mounted folder to /mnt');
+
+        // Verify mount by listing directory in Python
+        console.log('Verifying mount...');
+        await executeCode(`
+import os
+print("Mount verification:")
+print(f"  /mnt exists: {os.path.exists('/mnt')}")
+print(f"  /mnt is directory: {os.path.isdir('/mnt')}")
+if os.path.exists('/mnt'):
+    items = os.listdir('/mnt')
+    print(f"  Items in /mnt: {len(items)}")
+    print(f"  Items: {items[:10]}")
+print(f"  /mnt/annotations exists: {os.path.exists('/mnt/annotations')}")
+if os.path.exists('/mnt/annotations'):
+    print(f"  /mnt/annotations is directory: {os.path.isdir('/mnt/annotations')}")
+`, {
+          onOutput: (output: any) => {
+            console.log('[Mount Verification]', output.content);
+          },
+        });
       } else {
         console.warn('Mount directory function not available or no folder handle');
       }
@@ -125,6 +149,10 @@ import json
 # Note: In browser environment, file access is done through FileSystem API
 # The service will be adapted to work with browser file handles
 
+print("\\n" + "="*50)
+print("REGISTERING DATA PROVIDER SERVICE")
+print("="*50)
+
 service_info = await register_service(
     "${serverUrl}",
     "${token}",
@@ -135,6 +163,10 @@ service_info = await register_service(
     "/mnt",
     "/mnt/annotations"
 )
+
+print("\\n" + "="*50)
+print("SERVICE REGISTRATION COMPLETE")
+print("="*50 + "\\n")
 
 # Extract and print the actual service ID returned by Hypha
 actual_service_id = service_info.get("id", "unknown")
@@ -175,7 +207,7 @@ service_info
 
       // Generate annotation URL
       const pluginUrl =
-        'https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/main/plugins/bioimageio-colab-annotator.imjoy.html';
+        'https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/e765431/plugins/bioimageio-colab-annotator.imjoy.html';
       const configStr = JSON.stringify({
         serverUrl: serverUrl,
         imageProviderId: serviceId,
@@ -187,30 +219,66 @@ service_info
       console.log('Annotation URL:', annotatorUrl);
       setAnnotationURL(annotatorUrl);
 
+      // Set up periodic refresh of annotations list
+      console.log('Setting up annotation monitoring...');
+      const refreshInterval = setInterval(async () => {
+        try {
+          // First, sync the filesystem from Python VFS to native browser filesystem
+          if (syncFileSystem) {
+            const syncResult = await syncFileSystem('/mnt');
+            if (syncResult.success) {
+              console.log('[Refresh] FileSystem synced');
+            } else if (syncResult.error) {
+              console.log('[Refresh] Sync not available:', syncResult.error);
+            }
+          }
+
+          // Then get fresh handle to annotations folder to force browser to see latest files
+          if (imageFolderHandle) {
+            const freshAnnotationsFolder = await imageFolderHandle.getDirectoryHandle('annotations', {
+              create: false,
+            });
+            await updateFileList(freshAnnotationsFolder, setAnnotationsList, setIsLoadingAnnotations);
+            console.log('[Refresh] Updated annotations list');
+          }
+        } catch (error) {
+          console.error('Error refreshing annotations:', error);
+        }
+      }, 2000); // Refresh every 2 seconds
+
+      // Store interval ID so it can be cleared later if needed
+      (window as any).__colabRefreshInterval = refreshInterval;
+      console.log('Annotation monitoring active - checking every 2 seconds');
+
       // Start event loop to keep service running
       console.log('Starting event loop...');
       executeCode(
         `
 import asyncio
+from js import console
 try:
     loop = asyncio.get_event_loop()
     # Create a never-ending task to keep the service alive
     async def keep_alive():
         while True:
             await asyncio.sleep(60)
-            print("Service still running...")
+            console.log("Service still running...")
 
     asyncio.create_task(keep_alive())
-    print("Event loop task created, service is now running")
+    console.log("Event loop task created, service is now running")
+    console.log("Ready to receive annotation requests!")
 except Exception as e:
-    print(f"Event loop setup: {e}")
+    console.log(f"Event loop setup: {e}")
 `,
         {
           onOutput: (output: any) => {
-            console.log('[Event Loop]', output.content);
+            console.log('[Python Service]', output.content);
           },
         }
       );
+
+      console.log('✓ Session created successfully!');
+      console.log('Annotation URL:', annotatorUrl);
 
       setShowSessionModal(false);
     } catch (error) {
