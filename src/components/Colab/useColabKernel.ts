@@ -362,11 +362,11 @@ export const useColabKernel = (): KernelManager => {
       // Try different access patterns
       let nativefs;
       if (kernel.kernel && typeof kernel.kernel.mountFS === 'function') {
-        nativefs = await kernel.kernel.mountFS(mountPoint, dirHandle, 'readwrite');
+        nativefs = await kernel.kernel.mountFS(mountPoint, dirHandle, 'read');
       } else if (typeof kernel.mountFS === 'function') {
-        nativefs = await kernel.mountFS(mountPoint, dirHandle, 'readwrite');
+        nativefs = await kernel.mountFS(mountPoint, dirHandle, 'read');
       } else if (manager && typeof manager.mountFS === 'function') {
-        nativefs = await manager.mountFS(kernelId, mountPoint, dirHandle, 'readwrite');
+        nativefs = await manager.mountFS(kernelId, mountPoint, dirHandle, 'read');
       } else {
         throw new Error('mountFS function not found on kernel or manager');
       }
