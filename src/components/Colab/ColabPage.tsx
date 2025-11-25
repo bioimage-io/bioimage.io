@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { useColabKernel } from './useColabKernel';
 import ColabGuide from './ColabGuide';
@@ -6,7 +6,7 @@ import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
 
 const ColabPage: React.FC = () => {
-  const { user, server } = useHyphaStore();
+  const { user, server, artifactManager } = useHyphaStore();
   const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem } = useColabKernel();
 
   // File system state
@@ -20,11 +20,34 @@ const ColabPage: React.FC = () => {
   // Session state
   const [isRunning, setIsRunning] = useState(false);
   const [annotationURL, setAnnotationURL] = useState('');
+  const [dataArtifactId, setDataArtifactId] = useState<string | null>(null);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
   // Supported file types
-  const supportedFileTypes = ['.tiff', '.tif', '.png', '.jpg', '.jpeg'];
+  const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadSupportedTypes = async () => {
+      try {
+        const response = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
+        const text = await response.text();
+        const match = text.match(/class ImageFormat\(str, Enum\):([\s\S]*?)(?=\n\n|\n[a-zA-Z])/);
+        if (match) {
+          const enumContent = match[1];
+          const typeMatches = enumContent.matchAll(/=\s*"([^"]+)"/g);
+          const types = Array.from(typeMatches).map(m => '.' + m[1]);
+          setSupportedFileTypes(types);
+        } else {
+          throw new Error('Could not find ImageFormat enum in colab_service.py');
+        }
+      } catch (error) {
+        console.error('Failed to load supported file types:', error);
+        alert('Failed to load supported file types: ' + (error as Error).message);
+      }
+    };
+    loadSupportedTypes();
+  }, []);
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
@@ -54,7 +77,7 @@ const ColabPage: React.FC = () => {
     setLoading(true);
     try {
       const files: string[] = [];
-      for await (const entry of dirHandle.values()) {
+      for await (const entry of (dirHandle as any).values()) {
         if (entry.kind === 'file') {
           const fileType = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
           if (supportedFileTypes.includes(fileType)) {
@@ -72,11 +95,12 @@ const ColabPage: React.FC = () => {
 
   // Update images when folder is mounted
   useEffect(() => {
-    if (imageFolderHandle) {
+    if (imageFolderHandle && supportedFileTypes.length > 0) {
       updateFileList(imageFolderHandle, setImageList, setIsLoadingImages);
       setAnnotationsFolderHandle(null);
       setAnnotationsList([]);
       setAnnotationURL('');
+      setDataArtifactId(null);
       // Clear any existing refresh interval when changing folders
       const refreshInterval = (window as any).__colabRefreshInterval;
       if (refreshInterval) {
@@ -84,7 +108,7 @@ const ColabPage: React.FC = () => {
         (window as any).__colabRefreshInterval = null;
       }
     }
-  }, [imageFolderHandle]);
+  }, [imageFolderHandle, supportedFileTypes]);
 
   // Cleanup refresh interval on unmount
   useEffect(() => {
@@ -115,8 +139,46 @@ const ColabPage: React.FC = () => {
       }
       // Then update the file list
       await updateFileList(annotationsFolderHandle, setAnnotationsList, setIsLoadingAnnotations);
+    } else if (dataArtifactId && artifactManager) {
+      setIsLoadingAnnotations(true);
+      try {
+        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const fileNames = files.map((f: any) => f.name).sort();
+        setAnnotationsList(fileNames);
+      } catch (error) {
+        console.error('Error refreshing remote annotations:', error);
+      } finally {
+        setIsLoadingAnnotations(false);
+      }
     }
   };
+
+  // Poll for remote annotations
+  useEffect(() => {
+    if (!dataArtifactId || !artifactManager) return;
+
+    const fetchRemoteAnnotations = async () => {
+      try {
+        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const fileNames = files.map((f: any) => f.name).sort();
+        setAnnotationsList(fileNames);
+      } catch (error) {
+        console.error('Error fetching remote annotations:', error);
+      }
+    };
+
+    // Initial fetch
+    fetchRemoteAnnotations();
+
+    // Set up interval
+    const intervalId = setInterval(fetchRemoteAnnotations, 2000);
+    (window as any).__colabRefreshInterval = intervalId;
+
+    return () => {
+      clearInterval(intervalId);
+      (window as any).__colabRefreshInterval = null;
+    };
+  }, [dataArtifactId, artifactManager]);
 
   const createAnnotationSession = () => {
     if (!user?.email) {
@@ -184,7 +246,7 @@ const ColabPage: React.FC = () => {
       {/* Guide Section */}
       <div className="max-w-6xl mx-auto mb-8">
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
-          <ColabGuide />
+          <ColabGuide supportedFileTypes={supportedFileTypes} />
         </div>
       </div>
 
@@ -301,15 +363,22 @@ const ColabPage: React.FC = () => {
             </div>
 
             {/* Annotations Panel */}
-            {annotationsFolderHandle && (
+            {(annotationsFolderHandle || dataArtifactId) && (
               <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-2xl shadow-sm border border-white/20 p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                    <svg className="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Annotations ({annotationsList.length})
-                  </h2>
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-800 flex items-center">
+                      <svg className="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Annotations ({annotationsList.length})
+                    </h2>
+                    {dataArtifactId && (
+                      <div className="text-xs text-gray-500 mt-1 ml-8">
+                        Artifact ID: <span className="font-mono select-all">{dataArtifactId}</span>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={updateAnnotations}
                     className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
@@ -345,7 +414,7 @@ const ColabPage: React.FC = () => {
           </div>
 
           {/* Progress Bar */}
-          {annotationsFolderHandle && imageList.length > 0 && (
+          {(annotationsFolderHandle || dataArtifactId) && imageList.length > 0 && (
             <div className="mt-6">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-medium text-gray-700">
@@ -381,18 +450,14 @@ const ColabPage: React.FC = () => {
         <SessionModal
           setShowSessionModal={setShowSessionModal}
           imageFolderHandle={imageFolderHandle}
-          setAnnotationsFolderHandle={setAnnotationsFolderHandle}
-          updateFileList={updateFileList}
-          setAnnotationsList={setAnnotationsList}
-          setIsLoadingAnnotations={setIsLoadingAnnotations}
           setIsRunning={setIsRunning}
           executeCode={executeCode}
           mountDirectory={mountDirectory}
-          syncFileSystem={syncFileSystem}
-          supportedFileTypes={supportedFileTypes}
           setAnnotationURL={setAnnotationURL}
+          setDataArtifactId={setDataArtifactId}
           server={server}
           user={user}
+          artifactManager={artifactManager}
         />
       )}
 

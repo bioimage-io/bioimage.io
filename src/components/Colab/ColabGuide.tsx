@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 
-const ColabGuide: React.FC = () => {
+interface ColabGuideProps {
+  supportedFileTypes: string[];
+}
+
+const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const formatList = supportedFileTypes.map(ext => ext.replace('.', '').toUpperCase()).join(', ');
 
   return (
     <div>
@@ -42,7 +48,7 @@ const ColabGuide: React.FC = () => {
                 <h4 className="font-semibold text-gray-800 mb-1">Mount a Local Folder</h4>
                 <p className="text-sm text-gray-600">
                   Select a folder containing images you want to annotate. The images stay on your computer and are
-                  accessed directly through your browser. Supported formats: TIFF, PNG, JPG, JPEG.
+                  accessed directly through your browser. Supported formats: {formatList}.
                 </p>
               </div>
             </div>
@@ -58,7 +64,7 @@ const ColabGuide: React.FC = () => {
                 </p>
                 <ul className="text-sm text-gray-600 list-disc list-inside ml-4 mt-1">
                   <li>Start a Python kernel in your browser</li>
-                  <li>Create an "annotations" folder in your selected directory</li>
+                  <li>Create a cloud artifact to store your annotations</li>
                   <li>Register a service with Hypha for collaborative access</li>
                   <li>Generate a shareable annotation URL</li>
                 </ul>
@@ -73,7 +79,7 @@ const ColabGuide: React.FC = () => {
                 <h4 className="font-semibold text-gray-800 mb-1">Share and Collaborate</h4>
                 <p className="text-sm text-gray-600">
                   Share the generated URL with collaborators. They can annotate images using Kaibu, and annotations
-                  will be automatically saved back to your local "annotations" folder.
+                  will be automatically saved to the cloud artifact.
                 </p>
               </div>
             </div>
@@ -88,7 +94,7 @@ const ColabGuide: React.FC = () => {
                 <p className="font-semibold text-amber-800 mb-1">Important Notes:</p>
                 <ul className="text-sm text-amber-700 space-y-1">
                   <li>• Keep this browser tab open while collaborators are annotating</li>
-                  <li>• Your data never leaves your computer - it's processed entirely in your browser</li>
+                  <li>• Annotations are stored securely in the cloud (Hypha Artifacts)</li>
                   <li>• The first time you create a session, Python packages will be downloaded (this may take a few moments)</li>
                   <li>• You must be logged in to create and share annotation sessions</li>
                 </ul>

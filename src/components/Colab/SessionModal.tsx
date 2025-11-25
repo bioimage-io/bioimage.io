@@ -1,41 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 interface SessionModalProps {
   setShowSessionModal: (show: boolean) => void;
   imageFolderHandle: FileSystemDirectoryHandle | null;
-  setAnnotationsFolderHandle: (handle: FileSystemDirectoryHandle) => void;
-  updateFileList: (
-    dirHandle: FileSystemDirectoryHandle,
-    setFileList: React.Dispatch<React.SetStateAction<string[]>>,
-    setLoading: React.Dispatch<React.SetStateAction<boolean>>
-  ) => Promise<void>;
-  setAnnotationsList: React.Dispatch<React.SetStateAction<string[]>>;
-  setIsLoadingAnnotations: React.Dispatch<React.SetStateAction<boolean>>;
   setIsRunning: (running: boolean) => void;
   executeCode: ((code: string, callbacks?: any) => Promise<void>) | null;
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
-  syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
-  supportedFileTypes: string[];
   setAnnotationURL: (url: string) => void;
+  setDataArtifactId: (id: string) => void;
   server: any;
   user: any;
+  artifactManager: any;
 }
 
 const SessionModal: React.FC<SessionModalProps> = ({
   setShowSessionModal,
   imageFolderHandle,
-  setAnnotationsFolderHandle,
-  updateFileList,
-  setAnnotationsList,
-  setIsLoadingAnnotations,
   setIsRunning,
   executeCode,
   mountDirectory,
-  syncFileSystem,
-  supportedFileTypes,
   setAnnotationURL,
+  setDataArtifactId,
   server,
   user,
+  artifactManager,
 }) => {
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [sessionName, setSessionName] = useState(
@@ -44,7 +32,31 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [sessionDescription, setSessionDescription] = useState(
     localStorage.getItem('colabSessionDescription') || ''
   );
+  const [artifactAlias, setArtifactAlias] = useState('');
+  const [userArtifacts, setUserArtifacts] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const pluginCommitHash = '315803f';
+
+  React.useEffect(() => {
+    const fetchArtifacts = async () => {
+      if (!artifactManager || !user) return;
+      try {
+        const artifacts = await artifactManager.list({
+          parent_id: "bioimage-io/colab-annotations",
+          stage: true,
+          _rkwargs: true
+        });
+        const myArtifacts = artifacts.filter((a: any) => {
+           return a.manifest?.owner?.id === user.id || a.manifest?.created_by === user.id;
+        });
+        setUserArtifacts(myArtifacts);
+      } catch (e) {
+        console.error("Failed to fetch artifacts", e);
+      }
+    };
+    fetchArtifacts();
+  }, [artifactManager, user]);
 
   const handleCreateSession = async () => {
     if (!imageFolderHandle || !executeCode) {
@@ -60,19 +72,31 @@ const SessionModal: React.FC<SessionModalProps> = ({
       localStorage.setItem('colabSessionName', sessionName);
       localStorage.setItem('colabSessionDescription', sessionDescription);
 
-      // Create annotations folder
-      const annotationsFolder = await imageFolderHandle.getDirectoryHandle('annotations', {
-        create: true,
-      });
-      setAnnotationsFolderHandle(annotationsFolder);
-      await updateFileList(annotationsFolder, setAnnotationsList, setIsLoadingAnnotations);
-      console.log('Created annotations folder:', annotationsFolder.name);
-
       setIsRunning(true);
 
       // Get token from server
       const token = localStorage.getItem('token') || '';
       const serverUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+
+      // Install required packages if not already installed
+      console.log('Installing required Python packages...');
+      const installCode = `
+import micropip
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc==0.20.83', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+print("Required packages installed successfully", end='')
+`;
+
+      let hasError = false;
+      await executeCode(installCode, {
+        onOutput: (output: any) => {
+          console.log('[Install Output]', output.content);
+          if (output.type === 'error') hasError = true;
+        },
+      });
+
+      if (hasError) {
+        throw new Error('Failed to install required packages. See console for details.');
+      }
 
       // Load and execute the Python service code
       console.log('Loading Python service code...');
@@ -83,24 +107,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
       await executeCode(serviceCode, {
         onOutput: (output: any) => {
           console.log('[Python Output]', output.content);
+          if (output.type === 'error') hasError = true;
         },
       });
 
-      // Install required packages if not already installed
-      console.log('Installing required Python packages...');
-      const installCode = `
-import micropip
-await micropip.install(['hypha-rpc', 'tifffile', 'imageio', 'numpy', 'scikit-image'])
+      if (hasError) {
+        throw new Error('Failed to execute service code. See console for details.');
+      }
 
-# Note: kaibu_utils will be imported inline when needed, or we'll use scikit-image as fallback
-print("Required packages installed successfully")
-`;
-
-      await executeCode(installCode, {
-        onOutput: (output: any) => {
-          console.log('[Install Output]', output.content);
-        },
-      });
 
       // Mount the image folder to pyodide virtual filesystem
       if (mountDirectory && imageFolderHandle) {
@@ -116,139 +130,119 @@ print("Required packages installed successfully")
         // Verify mount by listing directory in Python
         console.log('Verifying mount...');
         await executeCode(`
-import os
-print("Mount verification:")
-print(f"  /mnt exists: {os.path.exists('/mnt')}")
-print(f"  /mnt is directory: {os.path.isdir('/mnt')}")
-if os.path.exists('/mnt'):
-    items = os.listdir('/mnt')
-    print(f"  Items in /mnt: {len(items)}")
-    print(f"  Items: {items[:10]}")
-print(f"  /mnt/annotations exists: {os.path.exists('/mnt/annotations')}")
-if os.path.exists('/mnt/annotations'):
-    print(f"  /mnt/annotations is directory: {os.path.isdir('/mnt/annotations')}")
+from pathlib import Path
+files = list_image_files(Path("/mnt"))
+print(f"Found {len(files)} images in /mnt")
 `, {
           onOutput: (output: any) => {
             console.log('[Mount Verification]', output.content);
+            if (output.type === 'error') hasError = true;
           },
         });
+        
+        if (hasError) {
+          throw new Error('Failed to verify mount. See console for details.');
+        }
       } else {
         console.warn('Mount directory function not available or no folder handle');
       }
 
       // Register the service with Hypha
       console.log('Registering service with Hypha...');
-      // Default to TIFF files - the most common format for bioimage analysis
-      const defaultSupportedTypes = ['.tif', '.tiff', '.TIF', '.TIFF'];
-      const supportedFileTypesJson = JSON.stringify(defaultSupportedTypes);
+
+      const serviceIdStartMarker = '===SERVICE_ID_START===';
+      const serviceIdEndMarker = '===SERVICE_ID_END===';
+      const dataArtifactIdStartMarker = '===DATA_ARTIFACT_ID_START===';
+      const dataArtifactIdEndMarker = '===DATA_ARTIFACT_ID_END===';
+      
+      const artifactIdParam = artifactAlias.trim() 
+        ? (artifactAlias.trim().startsWith('bioimage-io/') 
+            ? `"${artifactAlias.trim()}"` 
+            : `"bioimage-io/${artifactAlias.trim()}"`)
+        : 'None';
+
+      const finalDescription = user?.email 
+        ? `${sessionDescription} (Owner: ${user.email})`
+        : sessionDescription;
 
       const registerCode = `
-import asyncio
-import json
-
-# Note: In browser environment, file access is done through FileSystem API
-# The service will be adapted to work with browser file handles
-
-print("\\n" + "="*50)
-print("REGISTERING DATA PROVIDER SERVICE")
-print("="*50)
-
-service_info = await register_service(
-    "${serverUrl}",
-    "${token}",
-    '${supportedFileTypesJson}',
-    "${sessionName}",
-    "${sessionDescription}",
-    None,
-    "/mnt",
-    "/mnt/annotations"
+service_info, data_artifact = await register_service(
+    server_url="${serverUrl}",
+    token="${token}",
+    name="${sessionName}",
+    description="${finalDescription}",
+    images_path="/mnt",
+    artifact_id=${artifactIdParam},
 )
 
-print("\\n" + "="*50)
-print("SERVICE REGISTRATION COMPLETE")
-print("="*50 + "\\n")
+# Extract and print the service ID
+service_id = service_info.get("id", "unknown")
+print("${serviceIdStartMarker}" + service_id + "${serviceIdEndMarker}")
 
-# Extract and print the actual service ID returned by Hypha
-actual_service_id = service_info.get("id", "unknown")
-print("===SERVICE_ID_START===")
-print(actual_service_id)
-print("===SERVICE_ID_END===")
-service_info
+# Extract the data artifact ID
+data_artifact_id = data_artifact.get("id", "unknown")
+print("${dataArtifactIdStartMarker}" + data_artifact_id + "${dataArtifactIdEndMarker}")
 `;
 
       let serviceId = '';
+      let dataArtifactId = '';
       let allOutput = '';
 
       await executeCode(registerCode, {
         onOutput: (output: any) => {
           console.log('[Register Output]', output.content);
+          if (output.type === 'error') hasError = true;
           // Accumulate all output
           allOutput += output.content;
         },
       });
 
-      // After execution, extract service ID from accumulated output
-      if (allOutput.includes('===SERVICE_ID_START===') && allOutput.includes('===SERVICE_ID_END===')) {
-        const startMarker = '===SERVICE_ID_START===';
-        const endMarker = '===SERVICE_ID_END===';
-        const startIdx = allOutput.indexOf(startMarker) + startMarker.length;
-        const endIdx = allOutput.indexOf(endMarker);
+      if (hasError) {
+        throw new Error('Failed to register service. See console for details.');
+      }
+
+      // After execution, extract service ID and data artifact ID from accumulated output
+      if (allOutput.includes(serviceIdStartMarker) && allOutput.includes(serviceIdEndMarker)) {
+        const startIdx = allOutput.indexOf(serviceIdStartMarker) + serviceIdStartMarker.length;
+        const endIdx = allOutput.indexOf(serviceIdEndMarker);
         const extractedId = allOutput.substring(startIdx, endIdx).trim();
         // Remove any ANSI codes
         serviceId = extractedId.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim();
         console.log('Extracted service ID:', serviceId);
       }
 
+      if (allOutput.includes(dataArtifactIdStartMarker) && allOutput.includes(dataArtifactIdEndMarker)) {
+        const startIdx = allOutput.indexOf(dataArtifactIdStartMarker) + dataArtifactIdStartMarker.length;
+        const endIdx = allOutput.indexOf(dataArtifactIdEndMarker);
+        const extractedId = allOutput.substring(startIdx, endIdx).trim();
+        // Remove any ANSI codes
+        dataArtifactId = extractedId.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim();
+        console.log('Extracted data artifact ID:', dataArtifactId);
+      }
+
       if (!serviceId) {
         throw new Error('Failed to extract service ID from registration. Check console for details.');
       }
+      if (!dataArtifactId) {
+        throw new Error('Failed to extract data artifact ID from registration. Check console for details.');
+      }
 
-      console.log('Using service ID:', serviceId);
+      // Set the data artifact ID in the parent component
+      setDataArtifactId(dataArtifactId);
 
       // Generate annotation URL
       const pluginUrl =
-        'https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/e765431/plugins/bioimageio-colab-annotator.imjoy.html';
+        `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
       const configStr = JSON.stringify({
         serverUrl: serverUrl,
         imageProviderId: serviceId,
-        token: token,
+        // token: token,
       });
       const encodedConfig = encodeURIComponent(configStr);
       const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
 
       console.log('Annotation URL:', annotatorUrl);
       setAnnotationURL(annotatorUrl);
-
-      // Set up periodic refresh of annotations list
-      console.log('Setting up annotation monitoring...');
-      const refreshInterval = setInterval(async () => {
-        try {
-          // First, sync the filesystem from Python VFS to native browser filesystem
-          if (syncFileSystem) {
-            const syncResult = await syncFileSystem('/mnt');
-            if (syncResult.success) {
-              console.log('[Refresh] FileSystem synced');
-            } else if (syncResult.error) {
-              console.log('[Refresh] Sync not available:', syncResult.error);
-            }
-          }
-
-          // Then get fresh handle to annotations folder to force browser to see latest files
-          if (imageFolderHandle) {
-            const freshAnnotationsFolder = await imageFolderHandle.getDirectoryHandle('annotations', {
-              create: false,
-            });
-            await updateFileList(freshAnnotationsFolder, setAnnotationsList, setIsLoadingAnnotations);
-            console.log('[Refresh] Updated annotations list');
-          }
-        } catch (error) {
-          console.error('Error refreshing annotations:', error);
-        }
-      }, 2000); // Refresh every 2 seconds
-
-      // Store interval ID so it can be cleared later if needed
-      (window as any).__colabRefreshInterval = refreshInterval;
-      console.log('Annotation monitoring active - checking every 2 seconds');
 
       // Start event loop to keep service running
       console.log('Starting event loop...');
@@ -345,6 +339,31 @@ except Exception as e:
             <span className="text-sm text-blue-700">
               Public session (visible to all logged-in users)
             </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Data Artifact ID (Optional)
+            </label>
+            <input
+              list="user-artifacts"
+              type="text"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+              value={artifactAlias}
+              onChange={(e) => setArtifactAlias(e.target.value)}
+              placeholder="Select an existing artifact or type a new alias"
+              disabled={isCreatingSession}
+            />
+            <datalist id="user-artifacts">
+              {userArtifacts.map((artifact) => (
+                <option key={artifact.id} value={artifact.id}>
+                  {artifact.alias || artifact.id}
+                </option>
+              ))}
+            </datalist>
+            <p className="mt-1 text-xs text-gray-500">
+              Select an existing artifact ID or type a new alias (will be prefixed with <code>bioimage-io/</code> if not a full ID).
+            </p>
           </div>
 
           {error && (

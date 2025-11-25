@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains the implementation of the BioImage.IO Colab page - a browser-based collaborative image annotation platform. The implementation uses web-python-kernel to run Python code directly in the browser via WebAssembly (Pyodide), allowing users to mount local folders, create annotation sessions, and collaborate with others without uploading any data to a server.
+This directory contains the implementation of the BioImage.IO Colab page - a browser-based collaborative image annotation platform. The implementation uses web-python-kernel to run Python code directly in the browser via WebAssembly (Pyodide), allowing users to mount local folders, create annotation sessions, and collaborate with others. Images are temporarily stored in Hypha Artifacts during the session to enable collaboration.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ This directory contains the implementation of the BioImage.IO Colab page - a bro
    - User clicks "Mount Local Folder"
    - Browser File System API prompts for folder selection
    - Images are scanned and displayed (supports: TIFF, PNG, JPG, JPEG)
-   - Data never leaves the user's computer
+   - Images remain local until requested for annotation
 
 2. **Create Session** (Step 2)
    - User must be logged in to Hypha
@@ -90,7 +90,7 @@ This directory contains the implementation of the BioImage.IO Colab page - a bro
    - Modal displays QR code and URL
    - URL can be copied or opened in new tab
    - Collaborators use URL to access Kaibu annotation interface
-   - Annotations are automatically saved back to local folder
+   - Annotations are saved to the cloud artifact and synced back to the local folder
    - User must keep browser tab open during annotation session
 
 ## Technical Details
@@ -98,7 +98,7 @@ This directory contains the implementation of the BioImage.IO Colab page - a bro
 ### File System Access
 - Uses File System Access API (requires HTTPS or localhost)
 - Direct access to local files through browser
-- No data upload - everything stays local
+- Images are uploaded to Hypha Artifacts on-demand for collaboration
 
 ### Python Environment
 - Runs in Pyodide (Python compiled to WebAssembly)
@@ -109,9 +109,10 @@ This directory contains the implementation of the BioImage.IO Colab page - a bro
 ### Hypha Integration
 - Registers browser as a service provider
 - Uses user's login token for authentication
+- Uses Artifact Manager for temporary storage
 - Service provides two endpoints:
-  - `get_random_image()` - Serves random image from folder
-  - `save_annotation()` - Saves annotation mask to local folder
+  - `get_image()` - Uploads a random image to the artifact and returns the URL
+  - `save_annotation()` - Saves annotation mask to the artifact
 
 ### Styling
 - Follows BioEngine component design patterns
