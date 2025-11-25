@@ -355,11 +355,17 @@ except Exception as e:
               disabled={isCreatingSession}
             />
             <datalist id="user-artifacts">
-              {userArtifacts.map((artifact) => (
-                <option key={artifact.id} value={artifact.id}>
-                  {artifact.alias || artifact.id}
-                </option>
-              ))}
+              {userArtifacts.map((artifact) => {
+                const description = artifact.manifest?.description || '';
+                const cleanDescription = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
+                const name = artifact.manifest?.name || artifact.alias || 'Untitled';
+                const label = cleanDescription ? `${name} - ${cleanDescription}` : name;
+                return (
+                  <option key={artifact.id} value={artifact.id}>
+                    {label}
+                  </option>
+                );
+              })}
             </datalist>
             <p className="mt-1 text-xs text-gray-500">
               Select an existing artifact ID or type a new alias (will be prefixed with <code>bioimage-io/</code> if not a full ID).
