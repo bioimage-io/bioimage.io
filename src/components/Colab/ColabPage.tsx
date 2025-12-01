@@ -21,6 +21,7 @@ const ColabPage: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [annotationURL, setAnnotationURL] = useState('');
   const [dataArtifactId, setDataArtifactId] = useState<string | null>(null);
+  const [label, setLabel] = useState<string>('');
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
@@ -142,7 +143,12 @@ const ColabPage: React.FC = () => {
     } else if (dataArtifactId && artifactManager) {
       setIsLoadingAnnotations(true);
       try {
-        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const dirPath = label ? `masks_${label}` : "annotations";
+        const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: dirPath,
+            _rkwargs: true
+        });
         const fileNames = files.map((f: any) => f.name).sort();
         setAnnotationsList(fileNames);
       } catch (error) {
@@ -159,7 +165,12 @@ const ColabPage: React.FC = () => {
 
     const fetchRemoteAnnotations = async () => {
       try {
-        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const dirPath = label ? `masks_${label}` : "annotations";
+        const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: dirPath,
+            _rkwargs: true
+        });
         const fileNames = files.map((f: any) => f.name).sort();
         setAnnotationsList(fileNames);
       } catch (error) {
@@ -178,7 +189,7 @@ const ColabPage: React.FC = () => {
       clearInterval(intervalId);
       (window as any).__colabRefreshInterval = null;
     };
-  }, [dataArtifactId, artifactManager]);
+  }, [dataArtifactId, artifactManager, label]);
 
   const createAnnotationSession = () => {
     if (!user?.email) {
@@ -371,7 +382,7 @@ const ColabPage: React.FC = () => {
                       <svg className="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Annotations ({annotationsList.length})
+                      Annotations for {label && <span className="mx-1 text-green-700 bg-green-100 px-2 py-0.5 rounded text-lg">{label}</span>} ({annotationsList.length})
                     </h2>
                     {dataArtifactId && (
                       <div className="text-xs text-gray-500 mt-1 ml-8">
@@ -455,6 +466,7 @@ const ColabPage: React.FC = () => {
           mountDirectory={mountDirectory}
           setAnnotationURL={setAnnotationURL}
           setDataArtifactId={setDataArtifactId}
+          setSessionLabel={setLabel}
           server={server}
           user={user}
           artifactManager={artifactManager}
@@ -464,6 +476,7 @@ const ColabPage: React.FC = () => {
       {showShareModal && annotationURL && (
         <ShareModal
           annotationURL={annotationURL}
+          label={label}
           setShowShareModal={setShowShareModal}
         />
       )}

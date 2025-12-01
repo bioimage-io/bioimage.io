@@ -8,6 +8,7 @@ interface SessionModalProps {
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
   setAnnotationURL: (url: string) => void;
   setDataArtifactId: (id: string) => void;
+  setSessionLabel: (label: string) => void;
   server: any;
   user: any;
   artifactManager: any;
@@ -21,6 +22,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   mountDirectory,
   setAnnotationURL,
   setDataArtifactId,
+  setSessionLabel,
   server,
   user,
   artifactManager,
@@ -34,6 +36,10 @@ const SessionModal: React.FC<SessionModalProps> = ({
   );
   const [artifactId, setArtifactId] = useState('');
   const [userArtifacts, setUserArtifacts] = useState<any[]>([]);
+  const [label, setLabel] = useState('');
+  const [isNewLabel, setIsNewLabel] = useState(false);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [maskCounts, setMaskCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
 
   const pluginCommitHash = '6a18797';
@@ -58,9 +64,32 @@ const SessionModal: React.FC<SessionModalProps> = ({
     fetchArtifacts();
   }, [artifactManager, user]);
 
+  const fetchMaskCounts = async (artId: string, labels: string[]) => {
+    if (!artifactManager) return;
+    const counts: Record<string, number> = {};
+    for (const lbl of labels) {
+      try {
+        const files = await artifactManager.list_files({
+          artifact_id: artId,
+          dir_path: `masks_${lbl}`,
+          stage: true,
+          _rkwargs: true
+        });
+        counts[lbl] = files.length;
+      } catch (e) {
+        counts[lbl] = 0;
+      }
+    }
+    setMaskCounts(counts);
+  };
+
   const handleArtifactChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedId = e.target.value;
     setArtifactId(selectedId);
+    setLabel('');
+    setIsNewLabel(false);
+    setNewLabelName('');
+    setMaskCounts({});
 
     if (selectedId) {
       const artifact = userArtifacts.find((a) => a.id === selectedId);
@@ -74,10 +103,19 @@ const SessionModal: React.FC<SessionModalProps> = ({
         let description = artifact.manifest.description || '';
         description = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
         setSessionDescription(description);
+
+        const labels = artifact.manifest.labels || [];
+        if (labels.length > 0) {
+          setLabel(labels[0]);
+          fetchMaskCounts(selectedId, labels);
+        } else {
+          setIsNewLabel(true);
+        }
       }
     } else {
       setSessionName('');
       setSessionDescription('');
+      setIsNewLabel(true);
     }
   };
 
@@ -89,6 +127,17 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
     if (!user || !artifactManager) {
       setError('You must be logged in to create a session.');
+      return;
+    }
+
+    // Validate label
+    const finalLabel = isNewLabel ? newLabelName : label;
+    if (!finalLabel) {
+      setError('Please specify a label for the annotation.');
+      return;
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(finalLabel)) {
+      setError('Label must contain only letters, numbers, dots, underscores, or hyphens (no spaces).');
       return;
     }
 
@@ -112,13 +161,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
         ? `${sessionDescription} (Owner: ${user.email})`
         : sessionDescription;
       
-      const manifest = {
+      const manifest: any = {
           name: `Annotation Session ${sessionName}`,
           description: finalDescription,
           owner: {
               id: user.id,
               email: user.email,
           },
+          labels: [finalLabel],
       };
 
       if (!targetArtifactId) {
@@ -140,7 +190,9 @@ const SessionModal: React.FC<SessionModalProps> = ({
         console.log('Updating existing artifact:', targetArtifactId);
         try {
            const artifact = await artifactManager.read({artifact_id: targetArtifactId, stage: true, _rkwargs: true});
-           const updatedManifest = { ...artifact.manifest, ...manifest };
+           const existingLabels = artifact.manifest.labels || [];
+           const updatedLabels = existingLabels.includes(finalLabel) ? existingLabels : [...existingLabels, finalLabel];
+           const updatedManifest = { ...artifact.manifest, ...manifest, labels: updatedLabels };
            await artifactManager.edit({
                artifact_id: targetArtifactId,
                manifest: updatedManifest,
@@ -241,6 +293,7 @@ service_info, data_artifact = await register_service(
     description="${finalDescription}",
     artifact_id="${targetArtifactId}",
     images_path="/mnt",
+    label="${finalLabel}",
 )
 
 # Extract and print the service ID
@@ -297,6 +350,7 @@ print("${dataArtifactIdStartMarker}" + data_artifact_id + "${dataArtifactIdEndMa
 
       // Set the data artifact ID in the parent component
       setDataArtifactId(dataArtifactId);
+      setSessionLabel(finalLabel);
 
       // Generate annotation URL
       const pluginUrl =
@@ -304,12 +358,14 @@ print("${dataArtifactIdStartMarker}" + data_artifact_id + "${dataArtifactIdEndMa
       const configStr = JSON.stringify({
         serverUrl: serverUrl,
         imageProviderId: serviceId,
+        label: finalLabel,
         // token: token,
       });
       const encodedConfig = encodeURIComponent(configStr);
       const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
 
       console.log('Annotation URL:', annotatorUrl);
+      console.log('Selected Label:', finalLabel);
       setAnnotationURL(annotatorUrl);
 
       // Start event loop to keep service running
@@ -431,6 +487,65 @@ except Exception as e:
             <p className="mt-1 text-xs text-gray-500">
               Select an existing artifact to resume or update, or create a new one.
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Annotation Label *
+            </label>
+            {artifactId && !isNewLabel ? (
+              <div className="flex space-x-2">
+                <select
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                  value={label}
+                  onChange={(e) => {
+                    if (e.target.value === '__new__') {
+                      setIsNewLabel(true);
+                      setLabel('');
+                    } else {
+                      setLabel(e.target.value);
+                    }
+                  }}
+                  disabled={isCreatingSession}
+                >
+                  {userArtifacts.find(a => a.id === artifactId)?.manifest?.labels?.map((lbl: string) => (
+                    <option key={lbl} value={lbl}>
+                      {lbl} {maskCounts[lbl] !== undefined ? `(${maskCounts[lbl]} mask${maskCounts[lbl] === 1 ? '' : 's'})` : ''}
+                    </option>
+                  ))}
+                  <option value="__new__">+ Add new label</option>
+                </select>
+              </div>
+            ) : (
+              <div className="flex flex-col space-y-2">
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  value={isNewLabel ? newLabelName : label}
+                  onChange={(e) => isNewLabel ? setNewLabelName(e.target.value) : setLabel(e.target.value)}
+                  placeholder="e.g., nuclei, cells (no spaces)"
+                  disabled={isCreatingSession}
+                />
+                {artifactId && isNewLabel && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNewLabel(false);
+                      const art = userArtifacts.find(a => a.id === artifactId);
+                      if (art?.manifest?.labels?.length) {
+                        setLabel(art.manifest.labels[0]);
+                      }
+                    }}
+                    className="text-sm text-purple-600 hover:text-purple-700 text-left"
+                  >
+                    ← Back to existing labels
+                  </button>
+                )}
+                <p className="text-xs text-gray-500">
+                  Use a short, descriptive name (letters, numbers, underscores only).
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center p-3 bg-blue-50 border border-blue-200 rounded-lg">

@@ -159,7 +159,7 @@ async def get_image(
 
     try:
         existing_images = await artifact_manager.list_files(
-            artifact_id, dir_path="images", stage=True
+            artifact_id, dir_path="input_images", stage=True
         )
         image_exists = any(f["name"] == image_name for f in existing_images)
     except Exception:
@@ -169,14 +169,14 @@ async def get_image(
         console.log(f"Uploading image {image_name} to artifact...")
 
         upload_url = await artifact_manager.put_file(
-            artifact_id, file_path=f"images/{image_name}"
+            artifact_id, file_path=f"input_images/{image_name}"
         )
 
         await pyodide.http.pyfetch(upload_url, method="PUT", body=img_bytes)
 
     artifact_alias = artifact_id.split("/")[-1]
     image_url = (
-        f"{server_url}/{WORKSPACE}/artifacts/{artifact_alias}/files/images/{image_name}"
+        f"{server_url}/{WORKSPACE}/artifacts/{artifact_alias}/files/input_images/{image_name}"
     )
 
     console.log(f"🔵 get_image returned url: {image_url}")
@@ -187,6 +187,7 @@ async def get_image(
 async def save_annotation(
     artifact_manager: ObjectProxy,
     artifact_id: str,
+    label: str,
     image_name: str,
     features: list,
     image_shape: tuple,
@@ -196,6 +197,7 @@ async def save_annotation(
     console.log(f"🟢 SAVE_ANNOTATION CALLED FROM PLUGIN")
     console.log(f"{'='*60}")
     console.log(f"   - image_name: {image_name}")
+    console.log(f"   - label: {label}")
 
     try:
         mask = features_to_mask(features, image_shape[:2])
@@ -204,7 +206,7 @@ async def save_annotation(
 
         try:
             files = await artifact_manager.list_files(
-                artifact_id, dir_path="annotations", stage=True
+                artifact_id, dir_path=f"masks_{label}", stage=True
             )
             existing_masks = [f for f in files if f["name"].startswith(image_name)]
             n_image_masks = len(existing_masks)
@@ -212,7 +214,7 @@ async def save_annotation(
             n_image_masks = 0
 
         mask_filename = f"{image_name}_mask_{n_image_masks + 1}.png"
-        upload_path = f"annotations/{mask_filename}"
+        upload_path = f"masks_{label}/{mask_filename}"
 
         console.log(f"Saving mask to artifact: {upload_path}")
 
@@ -248,6 +250,7 @@ async def register_service(
     description: str,
     artifact_id: str,
     images_path: str,
+    label: str,
 ):
     """Register the data providing service with Hypha."""
 
@@ -306,7 +309,7 @@ async def register_service(
                 artifact_id=artifact.id,
                 images_path=images_path,
             ),
-            "save_annotation": partial(save_annotation, artifact_manager, artifact.id),
+            "save_annotation": partial(save_annotation, artifact_manager, artifact.id, label),
         }
     )
 
