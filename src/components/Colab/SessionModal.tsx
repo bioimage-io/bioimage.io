@@ -82,7 +82,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       console.log('Installing required Python packages...');
       const installCode = `
 import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc==0.20.83', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
 print("Required packages installed successfully", end='')
 `;
 
