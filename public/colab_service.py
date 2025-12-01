@@ -159,7 +159,7 @@ async def get_image(
 
     try:
         existing_images = await artifact_manager.list_files(
-            artifact_id, dir_path="images"
+            artifact_id, dir_path="images", stage=True
         )
         image_exists = any(f["name"] == image_name for f in existing_images)
     except Exception:
@@ -204,7 +204,7 @@ async def save_annotation(
 
         try:
             files = await artifact_manager.list_files(
-                artifact_id, dir_path="annotations"
+                artifact_id, dir_path="annotations", stage=True
             )
             existing_masks = [f for f in files if f["name"].startswith(image_name)]
             n_image_masks = len(existing_masks)
@@ -241,93 +241,13 @@ async def save_annotation(
         raise
 
 
-async def create_artifact(
-    client: RemoteService,
-    artifact_manager: ObjectProxy,
-    name: str,
-    description: str,
-    artifact_id: str = None,
-) -> ObjectProxy:
-
-    if not artifact_id:
-        console.log(f"Creating artifact for session: {name}")
-        parent_id = COLLECTION_ID
-        manifest = {
-            "name": f"Annotation Session {name}",
-            "description": description,
-            "owner": {
-                "id": client.config.user["id"],
-                "email": client.config.user["email"],
-            },
-        }
-
-        artifact = await artifact_manager.create(
-            parent_id=parent_id,
-            manifest=manifest,
-            type="dataset",
-            stage=True,
-        )
-        console.log(f"New data artifact created with ID {artifact.id}")
-    else:
-        console.log(f"Using existing artifact ID: {artifact_id}")
-        try:
-            artifact = await artifact_manager.read(artifact_id)
-        except KeyError as e:
-            console.log(f"Artifact with ID {artifact_id} not found.")
-            raise e
-        except PermissionError as e:
-            console.log(f"Permission denied to read artifact with ID {artifact_id}.")
-            raise e
-        except Exception as e:
-            console.log(f"Failed to read artifact with ID {artifact_id}: {e}")
-            raise e
-
-        if artifact.type != "dataset":
-            console.log(f"Artifact with ID {artifact_id} is not a dataset.")
-            raise ValueError(f"Artifact {artifact_id} is not a dataset.")
-
-        if artifact.parent_id != COLLECTION_ID:
-            console.log(
-                f"Artifact with ID {artifact_id} is not part of the expected collection {COLLECTION_ID}."
-            )
-            raise ValueError(
-                f"Artifact {artifact_id} is not part of the expected collection {COLLECTION_ID}."
-            )
-
-        manifest = artifact.manifest
-        manifest.update(
-            {
-                "owner": {
-                    "id": client.config.user["id"],
-                    "email": client.config.user["email"],
-                }
-            }
-        )
-
-        try:
-            artifact = await artifact_manager.edit(
-                artifact_id=artifact_id,
-                manifest=manifest,
-                stage=True,
-            )
-            console.log(f"Existing data artifact {artifact.id} put into staging mode.")
-        except PermissionError as e:
-            console.log(f"Permission denied to edit artifact with ID {artifact_id}.")
-            raise e
-        except Exception as e:
-            console.log(f"Failed to edit artifact with ID {artifact_id}: {e}")
-            raise e
-
-    return artifact
-
-
 async def register_service(
     server_url: str,
     token: str,
     name: str,
     description: str,
-    images_path: str = "/mnt",
-    artifact_id: str = None,  # TODO: allow re-using existing artifact
+    artifact_id: str,
+    images_path: str,
 ):
     """Register the data providing service with Hypha."""
 
@@ -342,15 +262,30 @@ async def register_service(
     client = await connect_to_server({"server_url": server_url, "token": token})
     artifact_manager = await client.get_service("public/artifact-manager")
 
-    # Create artifact
-    artifact = await create_artifact(
-        client=client,
-        artifact_manager=artifact_manager,
-        name=name,
-        description=description,
-        artifact_id=artifact_id,
-    )
-    # TODO: Commit the artifact when the service is stopped
+    # Ensure the artifact exists and is in staging mode
+    try:
+        artifact = await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+    except KeyError as e:
+        console.log(f"Artifact with ID {artifact_id} not found.")
+        raise e
+    except PermissionError as e:
+        console.log(f"Permission denied to edit artifact with ID {artifact_id}.")
+        raise e
+    except Exception as e:
+        console.log(f"Failed to edit artifact with ID {artifact_id}: {e}")
+        raise e
+
+    if artifact.type != "dataset":
+        console.log(f"Artifact with ID {artifact_id} is not a dataset.")
+        raise ValueError(f"Artifact {artifact_id} is not a dataset.")
+
+    if artifact.parent_id != COLLECTION_ID:
+        console.log(
+            f"Artifact with ID {artifact_id} is not part of the expected collection {COLLECTION_ID}."
+        )
+        raise ValueError(
+            f"Artifact {artifact_id} is not part of the expected collection {COLLECTION_ID}."
+        )
 
     # Register the service
     console.log(f"Registering service: {name}")

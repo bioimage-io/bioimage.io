@@ -32,7 +32,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [sessionDescription, setSessionDescription] = useState(
     localStorage.getItem('colabSessionDescription') || ''
   );
-  const [artifactAlias, setArtifactAlias] = useState('');
+  const [artifactId, setArtifactId] = useState('');
   const [userArtifacts, setUserArtifacts] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,9 +58,37 @@ const SessionModal: React.FC<SessionModalProps> = ({
     fetchArtifacts();
   }, [artifactManager, user]);
 
+  const handleArtifactChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    setArtifactId(selectedId);
+
+    if (selectedId) {
+      const artifact = userArtifacts.find((a) => a.id === selectedId);
+      if (artifact && artifact.manifest) {
+        let name = artifact.manifest.name || '';
+        if (name.startsWith('Annotation Session ')) {
+          name = name.substring('Annotation Session '.length);
+        }
+        setSessionName(name);
+
+        let description = artifact.manifest.description || '';
+        description = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
+        setSessionDescription(description);
+      }
+    } else {
+      setSessionName('');
+      setSessionDescription('');
+    }
+  };
+
   const handleCreateSession = async () => {
     if (!imageFolderHandle || !executeCode) {
       setError('Image folder not mounted or kernel not ready');
+      return;
+    }
+
+    if (!user || !artifactManager) {
+      setError('You must be logged in to create a session.');
       return;
     }
 
@@ -78,11 +106,61 @@ const SessionModal: React.FC<SessionModalProps> = ({
       const token = localStorage.getItem('token') || '';
       const serverUrl = server?.config?.server_url || 'https://hypha.aicell.io';
 
+      // Create or update artifact
+      let targetArtifactId = artifactId;
+      const finalDescription = user?.email 
+        ? `${sessionDescription} (Owner: ${user.email})`
+        : sessionDescription;
+      
+      const manifest = {
+          name: `Annotation Session ${sessionName}`,
+          description: finalDescription,
+          owner: {
+              id: user.id,
+              email: user.email,
+          },
+      };
+
+      if (!targetArtifactId) {
+        console.log('Creating new artifact...');
+        try {
+          const artifact = await artifactManager.create({
+              parent_id: "bioimage-io/colab-annotations",
+              manifest: manifest,
+              type: "dataset",
+              stage: true,
+              _rkwargs: true
+          });
+          targetArtifactId = artifact.id;
+          console.log('Created artifact:', targetArtifactId);
+        } catch (e: any) {
+           throw new Error('Failed to create artifact: ' + e.message);
+        }
+      } else {
+        console.log('Updating existing artifact:', targetArtifactId);
+        try {
+           const artifact = await artifactManager.read({artifact_id: targetArtifactId, stage: true, _rkwargs: true});
+           const updatedManifest = { ...artifact.manifest, ...manifest };
+           await artifactManager.edit({
+               artifact_id: targetArtifactId,
+               manifest: updatedManifest,
+               stage: true,
+               _rkwargs: true
+           });
+           // Make sure changes are committed
+           await artifactManager.commit({artifact_id: targetArtifactId, _rkwargs: true});
+           // Set the artifact to staged again
+           await artifactManager.edit({artifact_id: targetArtifactId, stage: true, _rkwargs: true});
+        } catch (e: any) {
+           throw new Error('Failed to update artifact: ' + e.message);
+        }
+      }
+
       // Install required packages if not already installed
       console.log('Installing required Python packages...');
       const installCode = `
 import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc==0.20.83', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
 print("Required packages installed successfully", end='')
 `;
 
@@ -154,16 +232,6 @@ print(f"Found {len(files)} images in /mnt")
       const serviceIdEndMarker = '===SERVICE_ID_END===';
       const dataArtifactIdStartMarker = '===DATA_ARTIFACT_ID_START===';
       const dataArtifactIdEndMarker = '===DATA_ARTIFACT_ID_END===';
-      
-      const artifactIdParam = artifactAlias.trim() 
-        ? (artifactAlias.trim().startsWith('bioimage-io/') 
-            ? `"${artifactAlias.trim()}"` 
-            : `"bioimage-io/${artifactAlias.trim()}"`)
-        : 'None';
-
-      const finalDescription = user?.email 
-        ? `${sessionDescription} (Owner: ${user.email})`
-        : sessionDescription;
 
       const registerCode = `
 service_info, data_artifact = await register_service(
@@ -171,8 +239,8 @@ service_info, data_artifact = await register_service(
     token="${token}",
     name="${sessionName}",
     description="${finalDescription}",
+    artifact_id="${targetArtifactId}",
     images_path="/mnt",
-    artifact_id=${artifactIdParam},
 )
 
 # Extract and print the service ID
@@ -334,42 +402,42 @@ except Exception as e:
             ></textarea>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Data Artifact
+            </label>
+            <select
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+              value={artifactId}
+              onChange={handleArtifactChange}
+              disabled={isCreatingSession}
+            >
+              <option value="">Create new artifact</option>
+              {userArtifacts.map((artifact) => {
+                const description = artifact.manifest?.description || '';
+                const cleanDescription = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
+                let name = artifact.manifest?.name || artifact.alias || 'Untitled';
+                if (name.startsWith('Annotation Session ')) {
+                  name = name.substring('Annotation Session '.length);
+                }
+                const label = cleanDescription ? `${name} - ${cleanDescription}` : name;
+                return (
+                  <option key={artifact.id} value={artifact.id}>
+                    {label} ({artifact.id})
+                  </option>
+                );
+              })}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Select an existing artifact to resume or update, or create a new one.
+            </p>
+          </div>
+
           <div className="flex items-center p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <input type="checkbox" checked disabled className="mr-2" />
             <span className="text-sm text-blue-700">
               Public session (visible to all logged-in users)
             </span>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Data Artifact ID (Optional)
-            </label>
-            <input
-              list="user-artifacts"
-              type="text"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
-              value={artifactAlias}
-              onChange={(e) => setArtifactAlias(e.target.value)}
-              placeholder="Select an existing artifact or type a new alias"
-              disabled={isCreatingSession}
-            />
-            <datalist id="user-artifacts">
-              {userArtifacts.map((artifact) => {
-                const description = artifact.manifest?.description || '';
-                const cleanDescription = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
-                const name = artifact.manifest?.name || artifact.alias || 'Untitled';
-                const label = cleanDescription ? `${name} - ${cleanDescription}` : name;
-                return (
-                  <option key={artifact.id} value={artifact.id}>
-                    {label}
-                  </option>
-                );
-              })}
-            </datalist>
-            <p className="mt-1 text-xs text-gray-500">
-              Select an existing artifact ID or type a new alias (will be prefixed with <code>bioimage-io/</code> if not a full ID).
-            </p>
           </div>
 
           {error && (
