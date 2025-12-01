@@ -313,7 +313,7 @@ const BioEngineHome: React.FC = () => {
             </svg>
           </div>
           <p className="text-gray-600 font-medium mb-2 text-center">No BioEngine instances found</p>
-          <p className="text-gray-500 text-sm text-center mb-4">No instances available in workspace <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{server?.config?.workspace || 'current'}</span></p>
+          <p className="text-gray-500 text-sm text-center mb-4">No instances available in workspace <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{server.config.workspace || 'current'}</span></p>
           {defaultServiceOnline === false && (
             <p className="text-sm text-gray-400 text-center">
               Note: Default BioEngine service is currently offline

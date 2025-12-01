@@ -153,7 +153,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
       // Get token from server
       const token = localStorage.getItem('token') || '';
-      const serverUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+      const serverUrl = server.config.publicBaseUrl;
 
       // Create or update artifact
       let targetArtifactId = artifactId;

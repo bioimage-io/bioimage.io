@@ -63,7 +63,7 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
     if (parts.length >= 2) {
       const workspace = parts[0];
       const alias = parts[1];
-      const baseUrl = server?.config?.server_url || 'https://hypha.aicell.io';
+      const baseUrl = server.config.publicBaseUrl;
       return `${baseUrl}/${workspace}/artifacts/${alias}/files/${docPath}`;
     }
 
