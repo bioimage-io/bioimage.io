@@ -4,6 +4,7 @@ import { useColabKernel } from './useColabKernel';
 import ColabGuide from './ColabGuide';
 import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
+import DeleteArtifactModal from './DeleteArtifactModal';
 
 const ColabPage: React.FC = () => {
   const { user, server, artifactManager } = useHyphaStore();
@@ -24,6 +25,7 @@ const ColabPage: React.FC = () => {
   const [label, setLabel] = useState<string>('');
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -203,6 +205,13 @@ const ColabPage: React.FC = () => {
     setShowSessionModal(true);
   };
 
+  const handleDeleteSuccess = () => {
+    setDataArtifactId(null);
+    setAnnotationsList([]);
+    setAnnotationURL('');
+    setLabel('');
+  };
+
   const progressPercentage = annotationsList.length > 0 && imageList.length > 0
     ? Math.round((annotationsList.length / imageList.length) * 100)
     : 0;
@@ -341,15 +350,28 @@ const ColabPage: React.FC = () => {
                   </svg>
                   Images ({imageList.length})
                 </h2>
-                <button
-                  onClick={updateImages}
-                  className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-                  title="Refresh images"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
+                <div className="flex items-center">
+                  {dataArtifactId && (
+                    <button
+                      onClick={() => setShowDeleteModal(true)}
+                      className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors mr-2"
+                      title="Delete cloud artifact"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={updateImages}
+                    className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                    title="Refresh images"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div className="bg-white/50 rounded-xl p-4 max-h-96 overflow-y-auto">
                 {isLoadingImages ? (
@@ -493,6 +515,15 @@ const ColabPage: React.FC = () => {
           annotationURL={annotationURL}
           label={label}
           setShowShareModal={setShowShareModal}
+        />
+      )}
+
+      {showDeleteModal && dataArtifactId && (
+        <DeleteArtifactModal
+          setShowDeleteModal={setShowDeleteModal}
+          dataArtifactId={dataArtifactId}
+          artifactManager={artifactManager}
+          onDeleteSuccess={handleDeleteSuccess}
         />
       )}
     </div>
