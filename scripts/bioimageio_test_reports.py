@@ -265,34 +265,45 @@ def parse_installed_package(content: str) -> List[str]:
     return [name, version, build, channel]
 
 
+def create_failed_test_result(
+    model_id: str, error_msg: str
+) -> Dict[str, Union[str, None, list]]:
+    """
+    Create a standard failed test result dictionary.
+
+    Args:
+        model_id: The model ID being tested
+        error_msg: The error message to include
+
+    Returns:
+        Dictionary with standard failed test result structure
+    """
+    return {
+        "name": "bioimageio format validation",
+        "source_name": None,
+        "id": model_id,
+        "type": None,
+        "format_version": None,
+        "status": "failed",
+        "details": [{"errors": [{"msg": error_msg}]}],
+        "env": None,
+        "conda_list": None,
+    }
+
+
 def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, bool]]:
     """
     Parse error messages from bioengine service and extract clean error information.
 
     Args:
         model_id: The model ID being tested
-        error_str: The error string from the exception or a dict with test results
+        error_str: The error string from the exception
 
     Returns:
         Dictionary with parsed error information or extracted test result in standard format
     """
     if not isinstance(error_str, str):
-        raise ValueError(
-            f"Expected error_str to be a string, got {type(error_str)} for model {model_id}"
-        )
-
-    if not isinstance(error_str, str):
-        return {
-            "name": "bioimageio format validation",
-            "source_name": None,
-            "id": model_id,
-            "type": None,
-            "format_version": None,
-            "status": "failed",
-            "details": [{"errors": [{"msg": "Unknown error"}]}],
-            "env": None,
-            "conda_list": None,
-        }
+        return create_failed_test_result(model_id, f"Invalid error type: {type(error_str).__name__}")
 
     # Case 1: Look for embedded partial test result (like serious-lobster)
     # Pattern: model_id is invalid: name='...' source_name='...' id='...' type='...' format_version='...' status='...' details=[...]
@@ -390,32 +401,11 @@ def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, b
     match = re.search(simple_json_pattern, error_str)
     if match:
         error_msg = match.group(1)
-
-        return {
-            "name": "bioimageio format validation",
-            "source_name": None,
-            "id": model_id,
-            "type": None,
-            "format_version": None,
-            "status": "failed",
-            "details": [{"errors": [{"msg": error_msg}]}],
-            "env": None,
-            "conda_list": None,
-        }
+        return create_failed_test_result(model_id, error_msg)
 
     # Case 3: Fallback for any other error format
     print(f"WARNING: Unknown error format for model {model_id}: {error_str}")
-    return {
-        "name": "bioimageio format validation",
-        "source_name": None,
-        "id": model_id,
-        "type": None,
-        "format_version": None,
-        "status": "failed",
-        "details": [{"errors": [{"msg": "Parse error - unknown format"}]}],
-        "env": None,
-        "conda_list": None,
-    }
+    return create_failed_test_result(model_id, error_str)
 
 
 def analyze_test_results(
@@ -548,13 +538,20 @@ async def test_bmz_models(
 
         try:
             print(f"Testing model: {model_id}")
-            test_results = await runner.test(
-                model_id=model_id,
-                stage=False,
-                skip_cache=False,  # New download automatically checks for updates
+            test_results = await asyncio.wait_for(
+                runner.test(
+                    model_id=model_id,
+                    stage=False,
+                    skip_cache=False,  # New download automatically checks for updates
+                ),
+                timeout=300,  # 5 minutes timeout
             )
             model_execution_time = time.time() - model_start_time
             print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")
+        except asyncio.TimeoutError:
+            model_execution_time = time.time() - model_start_time
+            print(f"Model {model_id} timed out after {model_execution_time:.2f} seconds")
+            test_results = create_failed_test_result(model_id, "Test timed out after 5 minutes")
         except Exception as e:
             # Parse the error message to extract clean error information
             test_results = parse_error_message(model_id, str(e))
