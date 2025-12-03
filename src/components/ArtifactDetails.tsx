@@ -3,7 +3,7 @@ import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert, Accordion, AccordionSummary, AccordionDetails, Paper } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
@@ -21,6 +21,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import WarningIcon from '@mui/icons-material/Warning';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
@@ -1090,10 +1092,32 @@ const ArtifactDetails = () => {
                     {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (
                       <>
                         {Object.entries(compatibilityData.tests).map(([softwareName, versions]: [string, any]) => {
-                          // Check if all versions passed
+                          // Check status across all versions
                           const versionEntries = Object.entries(versions);
+                          
+                          // Sort versions to find the latest one (semantic version sorting)
+                          const sortedVersions = [...versionEntries].sort((a, b) => {
+                            const parseVersion = (v: string) => {
+                              const parts = v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
+                              return parts;
+                            };
+                            const aParts = parseVersion(a[0]);
+                            const bParts = parseVersion(b[0]);
+                            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                              const aVal = aParts[i] || 0;
+                              const bVal = bParts[i] || 0;
+                              if (aVal !== bVal) return bVal - aVal; // Descending order (latest first)
+                            }
+                            return 0;
+                          });
+                          
+                          // Get the latest version's status
+                          const latestVersionData = sortedVersions.length > 0 ? sortedVersions[0][1] as any : null;
+                          const latestPassed = latestVersionData?.status === 'passed';
+                          
                           const allPassed = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'passed');
                           const anyPassed = versionEntries.some(([_, versionData]: [string, any]) => versionData.status === 'passed');
+                          const allNotApplicable = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'not-applicable');
 
                           return (
                             <Box
@@ -1113,7 +1137,7 @@ const ArtifactDetails = () => {
                                 }
                               }}
                             >
-                              {allPassed ? (
+                              {allPassed || latestPassed ? (
                                 <CheckCircleIcon
                                   sx={{
                                     color: '#22c55e',
@@ -1125,6 +1149,14 @@ const ArtifactDetails = () => {
                                 <CheckCircleIcon
                                   sx={{
                                     color: '#f59e0b',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              ) : allNotApplicable ? (
+                                <CancelIcon
+                                  sx={{
+                                    color: '#9ca3af',
                                     fontSize: 20,
                                     flexShrink: 0
                                   }}
@@ -1145,6 +1177,11 @@ const ArtifactDetails = () => {
                                   alt={softwareName}
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    // Special case for bioimageio.core
+                                    if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
+                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/bioimageio/core.html', '_blank', 'noopener,noreferrer');
+                                      return;
+                                    }
                                     const partner = partnerService.getPartnerByName(softwareName);
                                     if (partner?.link) {
                                       window.open(partner.link, '_blank', 'noopener,noreferrer');
@@ -1155,10 +1192,10 @@ const ArtifactDetails = () => {
                                     height: 20,
                                     objectFit: 'contain',
                                     flexShrink: 0,
-                                    cursor: partnerService.getPartnerByName(softwareName)?.link ? 'pointer' : 'default',
+                                    cursor: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'pointer' : 'default',
                                     transition: 'all 0.2s ease',
                                     '&:hover': {
-                                      transform: partnerService.getPartnerByName(softwareName)?.link ? 'scale(1.2)' : 'none',
+                                      transform: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'scale(1.2)' : 'none',
                                       filter: 'brightness(1.1)'
                                     }
                                   }}
@@ -1183,6 +1220,35 @@ const ArtifactDetails = () => {
                               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
                                 {Object.entries(versions).map(([version, versionData]: [string, any]) => {
                                   const isPassed = versionData.status === 'passed';
+                                  const isNotApplicable = versionData.status === 'not-applicable';
+                                  
+                                  // Determine colors based on status
+                                  const getChipColors = () => {
+                                    if (isPassed) {
+                                      return {
+                                        bg: 'rgba(34, 197, 94, 0.15)',
+                                        color: '#16a34a',
+                                        border: '#22c55e',
+                                        hoverBg: 'rgba(34, 197, 94, 0.25)'
+                                      };
+                                    } else if (isNotApplicable) {
+                                      return {
+                                        bg: 'rgba(156, 163, 175, 0.15)',
+                                        color: '#6b7280',
+                                        border: '#9ca3af',
+                                        hoverBg: 'rgba(156, 163, 175, 0.25)'
+                                      };
+                                    } else {
+                                      return {
+                                        bg: 'rgba(239, 68, 68, 0.15)',
+                                        color: '#dc2626',
+                                        border: '#ef4444',
+                                        hoverBg: 'rgba(239, 68, 68, 0.25)'
+                                      };
+                                    }
+                                  };
+                                  const chipColors = getChipColors();
+                                  
                                   return (
                                     <Chip
                                       key={version}
@@ -1198,18 +1264,12 @@ const ArtifactDetails = () => {
                                       }}
                                       sx={{
                                         height: '20px',
-                                        backgroundColor: isPassed
-                                          ? 'rgba(34, 197, 94, 0.15)'
-                                          : 'rgba(239, 68, 68, 0.15)',
-                                        color: isPassed
-                                          ? '#16a34a'
-                                          : '#dc2626',
+                                        backgroundColor: chipColors.bg,
+                                        color: chipColors.color,
                                         borderRadius: '4px',
                                         fontWeight: 600,
                                         fontSize: '0.65rem',
-                                        border: `1.5px solid ${isPassed
-                                          ? '#22c55e'
-                                          : '#ef4444'}`,
+                                        border: `1.5px solid ${chipColors.border}`,
                                         cursor: 'pointer',
                                         transition: 'all 0.2s ease',
                                         '& .MuiChip-label': {
@@ -1217,9 +1277,7 @@ const ArtifactDetails = () => {
                                           py: 0
                                         },
                                         '&:hover': {
-                                          backgroundColor: isPassed
-                                            ? 'rgba(34, 197, 94, 0.25)'
-                                            : 'rgba(239, 68, 68, 0.25)',
+                                          backgroundColor: chipColors.hoverBg,
                                           transform: 'scale(1.05)',
                                         }
                                       }}
@@ -1724,184 +1782,490 @@ const ArtifactDetails = () => {
         onClose={() => setIsCompatibilityDialogOpen(false)}
         maxWidth="lg"
         fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.5)',
+            borderRadius: '16px',
+            maxHeight: '90vh',
+          }
+        }}
       >
-        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6">Compatibility Test Details</Typography>
-            {selectedCompatibilityTest && (
-              <Chip
-                label={selectedCompatibilityTest.data.status || 'unknown'}
-                size="small"
-                sx={{
-                  backgroundColor: selectedCompatibilityTest.data.status === 'passed'
-                    ? 'rgba(34, 197, 94, 0.1)'
-                    : 'rgba(239, 68, 68, 0.1)',
-                  color: selectedCompatibilityTest.data.status === 'passed'
-                    ? '#22c55e'
-                    : '#ef4444',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  border: `1px solid ${selectedCompatibilityTest.data.status === 'passed'
-                    ? 'rgba(34, 197, 94, 0.2)'
-                    : 'rgba(239, 68, 68, 0.2)'}`,
-                  textTransform: 'uppercase',
-                }}
-              />
-            )}
-          </Box>
+        <DialogTitle 
+          sx={{ 
+            m: 0, 
+            p: 3, 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.3)',
+          }}
+        >
+          <Typography variant="h5" sx={{ fontWeight: 300, color: '#1f2937' }}>
+            Compatibility Test Details
+          </Typography>
           <IconButton
             onClick={() => setIsCompatibilityDialogOpen(false)}
             aria-label="close"
             sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: '12px',
+              color: '#dc2626',
+              '&:hover': {
+                backgroundColor: 'rgba(239, 68, 68, 0.2)',
+              },
             }}
           >
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ p: 0 }}>
           {selectedCompatibilityTest && (
-            <Box sx={{ p: 2 }}>
-              <Typography variant="h6" sx={{ mb: 2, fontFamily: 'monospace', color: '#1f2937' }}>
-                {selectedCompatibilityTest.name}
-              </Typography>
-
-              {/* Score */}
-              {selectedCompatibilityTest.data.score !== undefined && (
-                <Box sx={{ mb: 2 }}>
+            <Box sx={{ p: 3 }}>
+              {/* Report Header */}
+              <Paper
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.5)',
+                  borderRadius: '12px',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  {selectedCompatibilityTest.data.status === 'passed' ? (
+                    <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+                  ) : selectedCompatibilityTest.data.status === 'not-applicable' ? (
+                    <CancelIcon sx={{ color: '#9ca3af', fontSize: 20 }} />
+                  ) : (
+                    <CancelIcon sx={{ color: '#ef4444', fontSize: 20 }} />
+                  )}
+                  <Typography variant="h6" sx={{ fontWeight: 500 }}>
+                    {selectedCompatibilityTest.name}
+                  </Typography>
                   <Chip
-                    label={`Score: ${selectedCompatibilityTest.data.score.toFixed(2)}`}
-                    size="medium"
+                    label={selectedCompatibilityTest.data.status || 'unknown'}
                     sx={{
-                      backgroundColor: selectedCompatibilityTest.data.score > 0.5
-                        ? 'rgba(34, 197, 94, 0.1)'
+                      backgroundColor: selectedCompatibilityTest.data.status === 'passed' 
+                        ? 'rgba(34, 197, 94, 0.1)' 
+                        : selectedCompatibilityTest.data.status === 'not-applicable'
+                        ? 'rgba(156, 163, 175, 0.1)'
                         : 'rgba(239, 68, 68, 0.1)',
-                      color: selectedCompatibilityTest.data.score > 0.5
-                        ? '#22c55e'
+                      color: selectedCompatibilityTest.data.status === 'passed' 
+                        ? '#22c55e' 
+                        : selectedCompatibilityTest.data.status === 'not-applicable'
+                        ? '#6b7280'
                         : '#ef4444',
-                      fontWeight: 600,
                       borderRadius: '8px',
-                      border: `1px solid ${selectedCompatibilityTest.data.score > 0.5
-                        ? 'rgba(34, 197, 94, 0.2)'
+                      fontWeight: 500,
+                      border: `1px solid ${selectedCompatibilityTest.data.status === 'passed' 
+                        ? 'rgba(34, 197, 94, 0.2)' 
+                        : selectedCompatibilityTest.data.status === 'not-applicable'
+                        ? 'rgba(156, 163, 175, 0.2)'
                         : 'rgba(239, 68, 68, 0.2)'}`,
+                      textTransform: 'uppercase',
                     }}
                   />
                 </Box>
-              )}
-
-              {/* Details */}
-              {selectedCompatibilityTest.data.details && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
-                    Details
+                
+                {/* Score */}
+                {selectedCompatibilityTest.data.score !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Score:</strong> {selectedCompatibilityTest.data.score.toFixed(2)}
                   </Typography>
-                  {Array.isArray(selectedCompatibilityTest.data.details) ? (
-                    <Stack spacing={1.5}>
-                      {selectedCompatibilityTest.data.details.map((detail: any, idx: number) => (
-                        <Card
-                          key={idx}
-                          sx={{
-                            backgroundColor: detail.status === 'passed'
-                              ? 'rgba(34, 197, 94, 0.05)'
-                              : 'rgba(239, 68, 68, 0.05)',
-                            border: `1px solid ${detail.status === 'passed'
-                              ? 'rgba(34, 197, 94, 0.2)'
-                              : 'rgba(239, 68, 68, 0.2)'}`,
-                            borderRadius: '12px',
-                          }}
-                        >
-                          <CardContent sx={{ p: 2 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                              {detail.status === 'passed' ? (
-                                <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 18 }} />
-                              ) : (
-                                <CancelIcon sx={{ color: '#ef4444', fontSize: 18 }} />
-                              )}
-                              <Typography variant="subtitle2" sx={{ fontWeight: 500, flex: 1 }}>
-                                {detail.name || `Test ${idx + 1}`}
-                              </Typography>
-                              <Chip
-                                label={detail.status}
-                                size="small"
-                                sx={{
-                                  backgroundColor: detail.status === 'passed'
-                                    ? 'rgba(34, 197, 94, 0.1)'
-                                    : 'rgba(239, 68, 68, 0.1)',
-                                  color: detail.status === 'passed'
-                                    ? '#22c55e'
-                                    : '#ef4444',
-                                  borderRadius: '6px',
-                                  fontWeight: 600,
-                                  fontSize: '0.7rem',
-                                  textTransform: 'capitalize',
-                                }}
-                              />
-                            </Box>
-                            {detail.errors && Array.isArray(detail.errors) && detail.errors.length > 0 && (
-                              <Box sx={{ mt: 1 }}>
-                                {detail.errors.map((error: string, errorIdx: number) => (
-                                  <Alert key={errorIdx} severity="error" sx={{ mt: 0.5, borderRadius: '8px' }}>
-                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                      {error}
-                                    </Typography>
-                                  </Alert>
-                                ))}
-                              </Box>
-                            )}
-                            {detail.warnings && Array.isArray(detail.warnings) && detail.warnings.length > 0 && (
-                              <Box sx={{ mt: 1 }}>
-                                {detail.warnings.slice(0, 3).map((warning: any, warnIdx: number) => (
-                                  <Alert key={warnIdx} severity="warning" sx={{ mt: 0.5, borderRadius: '8px' }}>
-                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                      {typeof warning === 'string' ? warning : warning.msg || JSON.stringify(warning)}
-                                    </Typography>
-                                  </Alert>
-                                ))}
-                                {detail.warnings.length > 3 && (
-                                  <Typography variant="caption" sx={{ mt: 0.5, color: '#6b7280', display: 'block' }}>
-                                    ... and {detail.warnings.length - 3} more warnings
-                                  </Typography>
-                                )}
-                              </Box>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Box
-                      sx={{
-                        p: 2,
-                        backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                        borderRadius: '12px',
-                        border: '1px solid rgba(209, 213, 219, 0.5)',
-                      }}
-                    >
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>
-                        {typeof selectedCompatibilityTest.data.details === 'string'
-                          ? selectedCompatibilityTest.data.details
-                          : JSON.stringify(selectedCompatibilityTest.data.details, null, 2)}
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
-              )}
+                )}
+              </Paper>
 
-              {/* Error Message */}
-              {selectedCompatibilityTest.data.error && (
-                <Alert severity="error" sx={{ mb: 2, borderRadius: '12px' }}>
+              {/* Error Message at top level - only show if no test details items */}
+              {selectedCompatibilityTest.data.error && (() => {
+                const detailsData = selectedCompatibilityTest.data.details;
+                const detailsArray = Array.isArray(detailsData) 
+                  ? detailsData 
+                  : (detailsData && typeof detailsData === 'object' && Array.isArray(detailsData.details) 
+                    ? detailsData.details 
+                    : null);
+                // Only show top-level error if there are no detail items
+                return !detailsArray || detailsArray.length === 0;
+              })() && (
+                <Alert severity="error" sx={{ mb: 3, borderRadius: '12px' }}>
                   <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
                     {selectedCompatibilityTest.data.error}
                   </Typography>
                 </Alert>
               )}
 
+              {/* Details with Accordions */}
+              {(() => {
+                // Handle nested structure: details can be an object with a details array inside
+                const detailsData = selectedCompatibilityTest.data.details;
+                const detailsArray = Array.isArray(detailsData) 
+                  ? detailsData 
+                  : (detailsData && typeof detailsData === 'object' && Array.isArray(detailsData.details) 
+                    ? detailsData.details 
+                    : null);
+                
+                if (!detailsArray || detailsArray.length === 0) return null;
+                
+                return (
+                  <>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                      Test Details ({detailsArray.length} {detailsArray.length === 1 ? 'item' : 'items'})
+                    </Typography>
+                    
+                    <Stack spacing={2}>
+                      {detailsArray.map((detail: any, idx: number) => {
+                      // Determine if this is a test detail with status or a generic dictionary
+                      const hasStatus = detail && typeof detail === 'object' && 'status' in detail;
+                      const isPassed = hasStatus && detail.status === 'passed';
+                      const detailName = detail?.name || (hasStatus ? `Test ${idx + 1}` : `Item ${idx + 1}`);
+                      
+                      return (
+                        <Accordion
+                          key={idx}
+                          sx={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                            border: '1px solid rgba(255, 255, 255, 0.5)',
+                            borderRadius: '12px !important',
+                            '&:before': { display: 'none' },
+                            '&.Mui-expanded': {
+                              borderColor: hasStatus 
+                                ? (isPassed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)')
+                                : 'rgba(59, 130, 246, 0.3)',
+                            }
+                          }}
+                        >
+                          <AccordionSummary
+                            expandIcon={<ExpandMoreIcon />}
+                            sx={{
+                              borderRadius: '12px',
+                              '&.Mui-expanded': {
+                                borderBottomLeftRadius: '0',
+                                borderBottomRightRadius: '0',
+                              }
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                              {hasStatus ? (
+                                isPassed ? (
+                                  <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+                                ) : (
+                                  <CancelIcon sx={{ color: '#ef4444', fontSize: 20 }} />
+                                )
+                              ) : (
+                                <Box sx={{ 
+                                  width: 20, 
+                                  height: 20, 
+                                  borderRadius: '50%', 
+                                  backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  color: '#3b82f6'
+                                }}>
+                                  {idx + 1}
+                                </Box>
+                              )}
+                              <Typography sx={{ fontWeight: 500, flex: 1 }}>
+                                {detailName}
+                              </Typography>
+                              {hasStatus && (
+                                <Chip
+                                  label={detail.status}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: isPassed 
+                                      ? 'rgba(34, 197, 94, 0.1)' 
+                                      : 'rgba(239, 68, 68, 0.1)',
+                                    color: isPassed ? '#22c55e' : '#ef4444',
+                                    borderRadius: '8px',
+                                    fontWeight: 500,
+                                    border: `1px solid ${isPassed 
+                                      ? 'rgba(34, 197, 94, 0.2)' 
+                                      : 'rgba(239, 68, 68, 0.2)'}`,
+                                    textTransform: 'capitalize',
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          </AccordionSummary>
+                          
+                          <AccordionDetails sx={{ pt: 0 }}>
+                            {/* Location */}
+                            {detail.loc && Array.isArray(detail.loc) && detail.loc.length > 0 && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
+                                  Location:
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                  {detail.loc.map((loc: string, locIndex: number) => (
+                                    <Chip
+                                      key={locIndex}
+                                      label={loc}
+                                      size="small"
+                                      sx={{
+                                        backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                                        border: '1px solid rgba(255, 255, 255, 0.5)',
+                                        borderRadius: '8px',
+                                      }}
+                                    />
+                                  ))}
+                                </Box>
+                              </Box>
+                            )}
+
+                            {/* Errors */}
+                            {detail.errors && Array.isArray(detail.errors) && detail.errors.length > 0 && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
+                                  Errors ({detail.errors.length}):
+                                </Typography>
+                                <Stack spacing={2}>
+                                  {detail.errors.map((error: any, errorIndex: number) => (
+                                    <Alert
+                                      key={errorIndex}
+                                      severity="error"
+                                      sx={{
+                                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                                        borderRadius: '12px',
+                                      }}
+                                    >
+                                      <Box>
+                                        {typeof error === 'object' && error.type && (
+                                          <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                                            {error.type}
+                                          </Typography>
+                                        )}
+                                        <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                                          {typeof error === 'string' ? error : (error.msg || JSON.stringify(error))}
+                                        </Typography>
+                                        
+                                        {typeof error === 'object' && error.loc && Array.isArray(error.loc) && error.loc.length > 0 && (
+                                          <Box sx={{ mb: 1 }}>
+                                            <Typography variant="caption" sx={{ fontWeight: 500 }}>
+                                              Location: 
+                                            </Typography>
+                                            <Typography variant="caption">
+                                              {error.loc.join(' → ')}
+                                            </Typography>
+                                          </Box>
+                                        )}
+                                        
+                                        {typeof error === 'object' && error.traceback_md && (
+                                          <Box
+                                            sx={{
+                                              mt: 2,
+                                              p: 2,
+                                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                              borderRadius: '8px',
+                                              border: '1px solid rgba(0, 0, 0, 0.1)',
+                                            }}
+                                          >
+                                            <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: 1 }}>
+                                              Traceback:
+                                            </Typography>
+                                            <pre style={{ 
+                                              margin: 0, 
+                                              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                              color: 'white',
+                                              padding: '12px',
+                                              borderRadius: '8px',
+                                              overflow: 'auto',
+                                              fontSize: '0.875rem',
+                                              lineHeight: 1.4,
+                                            }}>
+                                              {error.traceback_md}
+                                            </pre>
+                                          </Box>
+                                        )}
+                                      </Box>
+                                    </Alert>
+                                  ))}
+                                </Stack>
+                              </Box>
+                            )}
+
+                            {/* Warnings */}
+                            {detail.warnings && Array.isArray(detail.warnings) && detail.warnings.length > 0 && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
+                                  <WarningIcon sx={{ fontSize: 'small', mr: 0.5, verticalAlign: 'middle' }} />
+                                  Warnings ({detail.warnings.length}):
+                                </Typography>
+                                <Stack spacing={1}>
+                                  {detail.warnings.map((warning: any, warningIndex: number) => (
+                                    <Alert
+                                      key={warningIndex}
+                                      severity="warning"
+                                      sx={{
+                                        backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                                        border: '1px solid rgba(245, 158, 11, 0.2)',
+                                        borderRadius: '8px',
+                                      }}
+                                    >
+                                      <Typography variant="body2">
+                                        {typeof warning === 'string' ? warning : (warning.msg || JSON.stringify(warning))}
+                                      </Typography>
+                                    </Alert>
+                                  ))}
+                                </Stack>
+                              </Box>
+                            )}
+
+                            {/* Recommended Environment */}
+                            {detail.recommended_env && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
+                                  Recommended Environment:
+                                </Typography>
+                                <Paper
+                                  sx={{
+                                    p: 2,
+                                    backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                                    border: '1px solid rgba(255, 255, 255, 0.5)',
+                                    borderRadius: '8px',
+                                  }}
+                                >
+                                  <pre style={{ margin: 0, fontSize: '0.875rem', overflow: 'auto' }}>
+                                    {JSON.stringify(detail.recommended_env, null, 2)}
+                                  </pre>
+                                </Paper>
+                              </Box>
+                            )}
+
+                            {/* Generic key-value pairs for other fields not handled above */}
+                            {typeof detail === 'object' && detail !== null && (
+                              <Box>
+                                {Object.entries(detail)
+                                  .filter(([key]) => !['name', 'status', 'loc', 'errors', 'warnings', 'recommended_env', 'context', 'conda_compare'].includes(key))
+                                  .map(([key, value]: [string, any]) => (
+                                    <Box key={key} sx={{ mb: 2 }}>
+                                      <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1, textTransform: 'capitalize' }}>
+                                        {key.replace(/_/g, ' ')}:
+                                      </Typography>
+                                      {typeof value === 'string' ? (
+                                        <Typography variant="body2" sx={{ color: '#4b5563' }}>
+                                          {value}
+                                        </Typography>
+                                      ) : typeof value === 'number' || typeof value === 'boolean' ? (
+                                        <Chip
+                                          label={String(value)}
+                                          size="small"
+                                          sx={{
+                                            backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                                            border: '1px solid rgba(255, 255, 255, 0.5)',
+                                            borderRadius: '8px',
+                                          }}
+                                        />
+                                      ) : (
+                                        <Paper
+                                          sx={{
+                                            p: 2,
+                                            backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                                            border: '1px solid rgba(255, 255, 255, 0.5)',
+                                            borderRadius: '8px',
+                                            maxHeight: '200px',
+                                            overflow: 'auto',
+                                          }}
+                                        >
+                                          <pre style={{ margin: 0, fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                                            {JSON.stringify(value, null, 2)}
+                                          </pre>
+                                        </Paper>
+                                      )}
+                                    </Box>
+                                  ))}
+                              </Box>
+                            )}
+                          </AccordionDetails>
+                        </Accordion>
+                      );
+                    })}
+                  </Stack>
+                </>
+                );
+              })()}
+
+              {/* Environment Section - includes env and conda list */}
+              {(() => {
+                const detailsData = selectedCompatibilityTest.data.details;
+                const envData = (detailsData && typeof detailsData === 'object' && !Array.isArray(detailsData) && detailsData.env)
+                  ? detailsData.env
+                  : selectedCompatibilityTest.data.env;
+                const condaList = (detailsData && typeof detailsData === 'object' && !Array.isArray(detailsData) && detailsData.saved_conda_list)
+                  ? detailsData.saved_conda_list
+                  : null;
+                
+                const hasEnv = envData && Array.isArray(envData) && envData.length > 0;
+                const hasCondaList = !!condaList;
+                
+                if (!hasEnv && !hasCondaList) return null;
+                
+                return (
+                  <Box sx={{ mt: 4, mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                      Environment
+                    </Typography>
+                    
+                    {/* Env packages */}
+                    {hasEnv && (
+                      <Paper
+                        sx={{
+                          p: 2,
+                          mb: hasCondaList ? 2 : 0,
+                          backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                          borderRadius: '12px',
+                          border: '1px solid rgba(209, 213, 219, 0.5)',
+                        }}
+                      >
+                        <pre style={{ margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>
+                          {envData.map((e: any) => Array.isArray(e) ? e.join(' ') : JSON.stringify(e)).join('\n')}
+                        </pre>
+                      </Paper>
+                    )}
+                    
+                    {/* Conda List */}
+                    {hasCondaList && (
+                      <Accordion
+                        sx={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                          border: '1px solid rgba(255, 255, 255, 0.5)',
+                          borderRadius: '12px !important',
+                          '&:before': { display: 'none' },
+                        }}
+                      >
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Typography sx={{ fontWeight: 500 }}>Conda List</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <Paper
+                            sx={{
+                              p: 2,
+                              backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                              borderRadius: '8px',
+                              maxHeight: '300px',
+                              overflow: 'auto',
+                            }}
+                          >
+                            <pre style={{ margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                              {condaList}
+                            </pre>
+                          </Paper>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                  </Box>
+                );
+              })()}
+
               {/* Badge */}
               {selectedCompatibilityTest.data.badge && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
                     Badge
                   </Typography>
                   <img
@@ -1912,25 +2276,43 @@ const ArtifactDetails = () => {
                 </Box>
               )}
 
-              {/* Raw JSON for debugging */}
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 500 }}>
-                  Raw Data
+              {/* Additional Information Section */}
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 500, color: 'text.secondary' }}>
+                  Additional Information
                 </Typography>
-                <Box
+                
+                {/* Raw JSON for debugging - collapsible */}
+                <Accordion
                   sx={{
-                    p: 2,
                     backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                    borderRadius: '12px',
                     border: '1px solid rgba(255, 255, 255, 0.5)',
-                    maxHeight: '300px',
-                    overflow: 'auto',
+                    borderRadius: '12px !important',
+                    '&:before': { display: 'none' },
                   }}
                 >
-                  <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                    {JSON.stringify(selectedCompatibilityTest.data, null, 2)}
-                  </pre>
-                </Box>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+                      Raw Data
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box
+                      sx={{
+                        p: 2,
+                        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(0, 0, 0, 0.1)',
+                        maxHeight: '300px',
+                        overflow: 'auto',
+                      }}
+                    >
+                      <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                        {JSON.stringify(selectedCompatibilityTest.data, null, 2)}
+                      </pre>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
               </Box>
             </Box>
           )}
