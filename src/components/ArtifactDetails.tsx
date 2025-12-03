@@ -1896,6 +1896,27 @@ const ArtifactDetails = () => {
                 </Alert>
               )}
 
+              {/* Details as string - show directly */}
+              {selectedCompatibilityTest.data.details && typeof selectedCompatibilityTest.data.details === 'string' && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                    Test Details
+                  </Typography>
+                  <Paper
+                    sx={{
+                      p: 2,
+                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(209, 213, 219, 0.5)',
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                      {selectedCompatibilityTest.data.details}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+
               {/* Details with Accordions */}
               {(() => {
                 // Handle nested structure: details can be an object with a details array inside
