@@ -192,7 +192,7 @@ const ArtifactDetails = () => {
           for (const softwareName of Object.keys(data.tests)) {
             // Special case for bioimageio.core
             if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
-              iconMap.set(softwareName, '/static/img/bioimage-io-icon.png');
+              iconMap.set(softwareName, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg');
             } else {
               const icon = partnerService.getPartnerIcon(softwareName);
               if (icon) {
