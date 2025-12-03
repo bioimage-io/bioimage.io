@@ -197,7 +197,7 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
               
               <Stack spacing={1}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Source:</strong> {testReport.source_name}
+                  <strong>ID:</strong> {testReport.id}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   <strong>Type:</strong> {testReport.type}
@@ -205,9 +205,11 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
                 <Typography variant="body2" color="text.secondary">
                   <strong>Format Version:</strong> {testReport.format_version}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>ID:</strong> {testReport.id}
-                </Typography>
+                {testReport.metadata_completeness !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Metadata Completeness:</strong> {(testReport.metadata_completeness * 100).toFixed(1)}%
+                  </Typography>
+                )}
               </Stack>
             </Paper>
 
