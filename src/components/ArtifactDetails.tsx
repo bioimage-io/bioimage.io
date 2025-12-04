@@ -1179,7 +1179,7 @@ const ArtifactDetails = () => {
                                     e.stopPropagation();
                                     // Special case for bioimageio.core
                                     if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
-                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/bioimageio/core.html', '_blank', 'noopener,noreferrer');
+                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/', '_blank', 'noopener,noreferrer');
                                       return;
                                     }
                                     const partner = partnerService.getPartnerByName(softwareName);
