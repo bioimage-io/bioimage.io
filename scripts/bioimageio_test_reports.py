@@ -7,14 +7,21 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 from hypha_rpc import connect_to_server, login
 
 
-def parse_error_entry(content: str) -> Dict[str, Union[str, list]]:
-    """Parse ErrorEntry objects"""
+def parse_error_entry(content: str) -> Dict[str, Union[str, List[str], bool]]:
+    """Parse ErrorEntry objects from string representation.
+
+    Args:
+        content: String representation of an ErrorEntry object.
+
+    Returns:
+        Dictionary containing parsed error entry fields (loc, msg, type, etc.).
+    """
     error_dict = {}
 
     # Extract loc
@@ -53,8 +60,18 @@ def parse_error_entry(content: str) -> Dict[str, Union[str, list]]:
     return error_dict
 
 
-def parse_validation_context_summary(content: str) -> Dict[str, Union[str, bool, dict]]:
-    """Parse ValidationContextSummary objects"""
+def parse_validation_context_summary(
+    content: str,
+) -> Dict[str, Union[str, bool, Dict[str, str]]]:
+    """Parse ValidationContextSummary objects from string representation.
+
+    Args:
+        content: String representation of a ValidationContextSummary object.
+
+    Returns:
+        Dictionary containing parsed context fields (file_name, perform_io_checks,
+        known_files, update_hashes, root).
+    """
     context_dict = {}
 
     # Extract file_name
@@ -91,8 +108,16 @@ def parse_validation_context_summary(content: str) -> Dict[str, Union[str, bool,
     return context_dict
 
 
-def parse_validation_detail(content: str) -> Dict[str, Union[str, list, dict, None]]:
-    """Parse ValidationDetail objects"""
+def parse_validation_detail(content: str) -> Dict[str, Any]:
+    """Parse ValidationDetail objects from string representation.
+
+    Args:
+        content: String representation of a ValidationDetail object.
+
+    Returns:
+        Dictionary containing parsed validation detail fields (name, status,
+        loc, errors, warnings, context, recommended_env, conda_compare).
+    """
     detail_dict = {}
 
     # Extract name
@@ -245,7 +270,14 @@ def parse_validation_detail(content: str) -> Dict[str, Union[str, list, dict, No
 
 
 def parse_installed_package(content: str) -> List[str]:
-    """Parse InstalledPackage objects"""
+    """Parse InstalledPackage objects from string representation.
+
+    Args:
+        content: String representation of an InstalledPackage object.
+
+    Returns:
+        List of [name, version, build, channel] strings.
+    """
     # Extract name
     name_match = re.search(r"name='([^']+)'", content)
     name = name_match.group(1) if name_match else ""
@@ -291,19 +323,27 @@ def create_failed_test_result(
     }
 
 
-def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, bool]]:
-    """
-    Parse error messages from bioengine service and extract clean error information.
+def parse_error_message(model_id: str, error_str: str) -> Dict[str, Any]:
+    """Parse error messages from bioengine service and extract clean error information.
+
+    Handles multiple error formats:
+    - Embedded partial test results (ValidationDetail objects)
+    - Simple JSON error patterns
+    - Fallback for unknown formats
 
     Args:
-        model_id: The model ID being tested
-        error_str: The error string from the exception
+        model_id: The model ID being tested.
+        error_str: The error string from the exception.
 
     Returns:
-        Dictionary with parsed error information or extracted test result in standard format
+        Dictionary with parsed error information in standard test result format,
+        containing keys: name, source_name, id, type, format_version, status,
+        details, env, conda_list.
     """
     if not isinstance(error_str, str):
-        return create_failed_test_result(model_id, f"Invalid error type: {type(error_str).__name__}")
+        return create_failed_test_result(
+            model_id, f"Invalid error type: {type(error_str).__name__}"
+        )
 
     # Case 1: Look for embedded partial test result (like serious-lobster)
     # Pattern: model_id is invalid: name='...' source_name='...' id='...' type='...' format_version='...' status='...' details=[...]
@@ -409,24 +449,36 @@ def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, b
 
 
 def analyze_test_results(
-    test_result: Union[str, dict],
-) -> List[Dict[str, Union[str, int]]]:
-    """Analyze test results and create test_reports field for manifest"""
+    test_results: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Analyze test results and create test_reports field for manifest.
+
+    Examines the test results to determine pass/fail status for:
+    - RDF validation (bioimageio.spec format validation)
+    - Model inference test run
+    - Reproduce outputs from test inputs
+
+    Args:
+        test_results: Dictionary containing test results with 'details' field.
+
+    Returns:
+        List of test report dictionaries, each with 'name', 'status', and 'runtime' keys.
+    """
     test_report = [
         {"name": "RDF validation", "status": "failed", "runtime": "bioimageio.core"},
         {"name": "Model Test Run", "status": "failed", "runtime": "bioimageio.core"},
         {"name": "Reproduce Outputs", "status": "failed", "runtime": "bioimageio.core"},
     ]
 
-    # If test_result is not a dict, assume all failed
-    if not isinstance(test_result, dict):
+    # If test_results is not a dict, assume all failed
+    if not isinstance(test_results, dict):
         return test_report
 
     # Handle test results with details (both successful and failed)
-    if "details" not in test_result:
+    if "details" not in test_results:
         return test_report
 
-    details = test_result["details"]
+    details = test_results["details"]
 
     # Check RDF validation (bioimageio.spec format validation)
     format_validation_pattern = (
@@ -478,9 +530,18 @@ def analyze_test_results(
 
 
 def create_test_reports_dict(
-    test_reports: List[Dict[str, Union[str, int]]], execution_time: float
-) -> Dict[str, Union[str, float, List]]:
-    """Create test_reports dictionary with metadata"""
+    test_reports: List[Dict[str, str]], execution_time: float
+) -> Dict[str, Union[str, float, List[Dict[str, str]]]]:
+    """Create test_reports dictionary with metadata.
+
+    Args:
+        test_reports: List of test report dictionaries with name, status, runtime.
+        execution_time: Total execution time in seconds.
+
+    Returns:
+        Dictionary with 'created_at' (ISO timestamp), 'execution_time' (rounded),
+        and 'reports' (the test reports list).
+    """
     return {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "execution_time": round(execution_time, 2),
@@ -489,11 +550,26 @@ def create_test_reports_dict(
 
 
 async def test_bmz_models(
-    model_ids: List[str] = None,
-    result_dir: Path = None,
+    model_ids: Optional[List[str]] = None,
+    result_dir: Optional[Path] = None,
     update_artifacts: bool = True,
     update_collection: bool = True,
-):
+) -> None:
+    """Test BioImage.IO models and generate test reports.
+
+    Connects to the Hypha server, runs tests on specified models (or all models
+    if none specified), and optionally updates artifact manifests with results.
+
+    Args:
+        model_ids: List of model IDs to test. If None, fetches all models.
+        result_dir: Directory to store JSON test results. Defaults to
+            ../bioimageio_test_reports relative to this script.
+        update_artifacts: Whether to update individual model artifacts.
+        update_collection: Whether to update the collection artifact.
+
+    Raises:
+        RuntimeError: If fetching model IDs fails.
+    """
     start_time = time.time()
 
     server_url = "https://hypha.aicell.io"
@@ -550,8 +626,12 @@ async def test_bmz_models(
             print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")
         except asyncio.TimeoutError:
             model_execution_time = time.time() - model_start_time
-            print(f"Model {model_id} timed out after {model_execution_time:.2f} seconds")
-            test_results = create_failed_test_result(model_id, "Test timed out after 5 minutes")
+            print(
+                f"Model {model_id} timed out after {model_execution_time:.2f} seconds"
+            )
+            test_results = create_failed_test_result(
+                model_id, "Test timed out after 5 minutes"
+            )
         except Exception as e:
             # Parse the error message to extract clean error information
             test_results = parse_error_message(model_id, str(e))
@@ -678,7 +758,19 @@ async def test_bmz_models(
 
 
 def analyze_existing_test_results(result_dir: Path) -> None:
-    """Analyze existing test results and output summary for GitHub Actions"""
+    """Analyze existing test results and output summary for GitHub Actions.
+
+    Reads all JSON test result files from the given directory, calculates
+    statistics, and prints environment variables suitable for GitHub Actions.
+
+    Args:
+        result_dir: Path to directory containing test result JSON files.
+
+    Outputs (printed to stdout):
+        TOTAL_MODELS, PASSED_RDF, PASSED_INFERENCE, PASSED_REPRODUCE,
+        RDF_RATE, MODEL_RATE, REPRODUCE_RATE, TOTAL_SCORE, AVERAGE_SCORE,
+        TOTAL_EXECUTION_TIME, AVERAGE_EXECUTION_TIME
+    """
     if not result_dir.exists():
         print("TOTAL_MODELS=0")
         return
@@ -695,14 +787,15 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     passed_inference = 0
     passed_reproduce = 0
     total_execution_time = 0
+    n = 0
 
     for json_file in json_files:
         try:
             with open(json_file, "r") as f:
-                test_result = json.load(f)
+                test_results = json.load(f)
 
             # Analyze the test result
-            test_reports = analyze_test_results(test_result)
+            test_reports = analyze_test_results(test_results)
 
             # Count passed tests
             if test_reports[0]["status"] == "passed":
@@ -713,8 +806,9 @@ def analyze_existing_test_results(result_dir: Path) -> None:
                 passed_reproduce += 1
 
             # Try to extract execution time if available
-            if isinstance(test_result, dict) and "execution_time" in test_result:
-                total_execution_time += test_result["execution_time"]
+            if isinstance(test_results, dict) and "execution_time" in test_results:
+                total_execution_time += test_results["execution_time"]
+                n += 1
 
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
@@ -735,9 +829,11 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     average_score = round(total_score / total_models, 2) if total_models > 0 else 0
 
     # Calculate average execution time
-    average_execution_time = (
-        round(total_execution_time / total_models, 2) if total_models > 0 else 0
-    )
+    if n == 0:
+        average_execution_time = float("nan")
+        total_execution_time = float("nan")
+    else:
+        average_execution_time = round(total_execution_time / n, 2)
 
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
@@ -749,8 +845,10 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     print(f"REPRODUCE_RATE={reproduce_rate}")
     print(f"TOTAL_SCORE={total_score}")
     print(f"AVERAGE_SCORE={average_score}")
-    print(f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}")
-    print(f"AVERAGE_EXECUTION_TIME={average_execution_time}")
+    print(
+        f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}s ({n} models with time info)"
+    )
+    print(f"AVERAGE_EXECUTION_TIME={average_execution_time:.2f}s")
 
 
 def main():
