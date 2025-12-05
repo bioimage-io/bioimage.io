@@ -8,6 +8,8 @@ interface SessionModalProps {
   setAnnotationURL: (url: string) => void;
   setDataArtifactId: (id: string | null) => void;
   setSessionLabel: (label: string) => void;
+  setSessionName: (name: string) => void;
+  setDataSourceType: (type: 'local' | 'upload' | 'resume') => void;
   setImageFolderHandle: (handle: FileSystemDirectoryHandle | null) => void;
   server: any;
   user: any;
@@ -24,6 +26,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
   setAnnotationURL,
   setDataArtifactId,
   setSessionLabel,
+  setSessionName: setParentSessionName,
+  setDataSourceType: setParentDataSourceType,
   setImageFolderHandle,
   server,
   user,
@@ -586,6 +590,8 @@ print("===DATA_ARTIFACT_ID_START===" + data_artifact_id + "===DATA_ARTIFACT_ID_E
       setAnnotationURL(annotatorUrl);
       setDataArtifactId(dataArtifactId);
       setSessionLabel(label);
+      setParentSessionName(sessionName);
+      setParentDataSourceType(dataSourceType);
       // Only set image folder handle if we actually mounted a local folder
       if (shouldMountLocal && localFolderHandle) {
         setImageFolderHandle(localFolderHandle);

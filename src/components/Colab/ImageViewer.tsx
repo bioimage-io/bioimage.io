@@ -9,6 +9,12 @@ interface ImageViewerProps {
   serverUrl: string;
   isLoadingImages: boolean;
   isLoadingAnnotations: boolean;
+  sessionName?: string;
+  dataSourceType?: 'local' | 'upload' | 'resume';
+  imageFolderHandle?: FileSystemDirectoryHandle | null;
+  executeCode?: ((code: string, callbacks?: any) => Promise<void>) | null;
+  onDelete?: () => void;
+  onUploadAll?: () => Promise<void>;
 }
 
 const ImageViewer: React.FC<ImageViewerProps> = ({
@@ -20,11 +26,19 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   serverUrl,
   isLoadingImages,
   isLoadingAnnotations,
+  sessionName,
+  dataSourceType = 'upload',
+  imageFolderHandle,
+  executeCode,
+  onDelete,
+  onUploadAll,
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'raw' | 'annotated'>('raw');
   const [imageUrl, setImageUrl] = useState<string>('');
   const [annotationUrl, setAnnotationUrl] = useState<string>('');
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Check if an image is annotated
   const isAnnotated = (imageName: string) => {
@@ -47,13 +61,78 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       try {
         const artifactAlias = dataArtifactId.split('/').pop();
         const baseName = selectedImage.substring(0, selectedImage.lastIndexOf('.')) || selectedImage;
+        const annotated = isAnnotated(selectedImage);
 
-        // Raw image URL
-        const rawUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/input_images/${baseName}.png`;
-        setImageUrl(rawUrl);
+        // For raw image: check if it's available in artifact or needs to be read from local
+        // Images are in artifact if: (1) data source is 'upload', or (2) image has been annotated
+        const imageInArtifact = dataSourceType === 'upload' || dataSourceType === 'resume' || annotated;
 
-        // Annotation URL (if exists)
-        if (isAnnotated(selectedImage)) {
+        if (imageInArtifact) {
+          // Raw image from artifact
+          const rawUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/input_images/${baseName}.png`;
+          setImageUrl(rawUrl);
+        } else {
+          // Raw image needs to be read from local folder via Python service
+          // For now, we'll use a data URL approach
+          if (imageFolderHandle && executeCode) {
+            try {
+              // Read file from local folder
+              const fileHandle = await imageFolderHandle.getFileHandle(selectedImage);
+              const file = await fileHandle.getFile();
+              const arrayBuffer = await file.arrayBuffer();
+              const uint8Array = new Uint8Array(arrayBuffer);
+              const base64 = btoa(String.fromCharCode(...Array.from(uint8Array)));
+
+              // Convert to PNG via Python
+              const convertCode = `
+from PIL import Image
+import io
+import base64
+
+try:
+    input_data = base64.b64decode('${base64}')
+    img = Image.open(io.BytesIO(input_data))
+
+    # Convert to RGB if needed
+    if img.mode != 'RGB':
+        if img.mode == 'RGBA':
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+            img = background
+        else:
+            img = img.convert('RGB')
+
+    # Save as PNG
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    png_bytes = buffer.getvalue()
+    print(base64.b64encode(png_bytes).decode('ascii'), end='')
+except Exception as e:
+    print(f"ERROR: {e}")
+`;
+
+              let pngBase64 = '';
+              await executeCode(convertCode, {
+                onOutput: (output: any) => {
+                  const trimmed = output.content?.trim() || '';
+                  if (trimmed && !trimmed.startsWith('ERROR:')) {
+                    pngBase64 = trimmed;
+                  }
+                }
+              });
+
+              if (pngBase64) {
+                setImageUrl(`data:image/png;base64,${pngBase64}`);
+              }
+            } catch (error) {
+              console.error('Error reading local image:', error);
+              setImageUrl('');
+            }
+          }
+        }
+
+        // Annotation URL (if exists) - always from artifact
+        if (annotated) {
           const maskFolder = label ? `masks_${label}` : 'annotations';
           const annUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/${maskFolder}/${baseName}.png`;
           setAnnotationUrl(annUrl);
@@ -66,7 +145,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     };
 
     loadImageUrls();
-  }, [selectedImage, dataArtifactId, label, serverUrl, annotationsList]);
+  }, [selectedImage, dataArtifactId, label, serverUrl, annotationsList, dataSourceType, imageFolderHandle, executeCode]);
 
   // Calculate statistics
   const totalImages = imageList.length;
@@ -242,15 +321,147 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     );
   };
 
+  // Determine data source icon and label
+  const getDataSourceInfo = () => {
+    if (dataSourceType === 'local') {
+      return {
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+        ),
+        label: 'Local',
+        color: 'text-purple-600'
+      };
+    } else {
+      return {
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+          </svg>
+        ),
+        label: 'Cloud',
+        color: 'text-blue-600'
+      };
+    }
+  };
+
+  const sourceInfo = getDataSourceInfo();
+  const displayName = sessionName || 'Annotation Session';
+
   return (
     <div className="flex h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       {/* Sidebar - File List */}
       <div className="w-80 border-r border-gray-200 flex flex-col bg-gray-50">
-        <div className="p-4 border-b border-gray-200 bg-white">
-          <h3 className="text-lg font-semibold text-gray-800">Images</h3>
-          <p className="text-xs text-gray-500 mt-1">
-            {imageList.length} total · {annotatedImages} annotated
-          </p>
+        <div className="border-b border-gray-200 bg-white">
+          <button
+            onClick={() => setShowDashboard(!showDashboard)}
+            className="p-3 hover:bg-gray-50 transition-colors text-left w-full"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <div className={sourceInfo.color}>
+                {sourceInfo.icon}
+              </div>
+              <h3 className="text-sm font-semibold text-gray-800 truncate flex-1">{displayName}</h3>
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showDashboard ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] flex-wrap">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-medium ${
+                dataSourceType === 'local' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+              }`}>
+                {sourceInfo.label}
+              </span>
+              {label && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded font-medium bg-purple-100 text-purple-700">
+                  <svg className="w-2.5 h-2.5 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  {label}
+                </span>
+              )}
+              <span className="text-gray-500">
+                {imageList.length} total · {annotatedImages} annotated
+              </span>
+            </div>
+            {dataArtifactId && (
+              <div className="text-[9px] text-gray-400 mt-1 font-mono truncate">
+                {dataArtifactId}
+              </div>
+            )}
+          </button>
+
+          {/* Action buttons */}
+          <div className="px-3 pb-2 flex items-center gap-1.5 flex-wrap">
+            {dataSourceType === 'local' && onUploadAll && (
+              <button
+                onClick={async () => {
+                  setIsUploading(true);
+                  try {
+                    await onUploadAll();
+                  } finally {
+                    setIsUploading(false);
+                  }
+                }}
+                disabled={isUploading}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center border ${
+                  isUploading
+                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                    : 'text-blue-600 hover:bg-blue-50 border-blue-200'
+                }`}
+                title="Upload all images to cloud"
+              >
+                {isUploading ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Upload All to Cloud
+                  </>
+                )}
+              </button>
+            )}
+            {annotatedImages > 0 && dataArtifactId && (
+              <a
+                href={`${serverUrl}/${dataArtifactId.split('/')[0]}/artifacts/${dataArtifactId.split('/').slice(1).join('/')}/create-zip-file`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors flex items-center border border-green-200"
+                title="Download annotations as ZIP"
+              >
+                <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download ZIP
+              </a>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center border border-red-200"
+                title="Delete cloud artifact"
+              >
+                <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -308,7 +519,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
       {/* Main Area - Preview or Dashboard */}
       <div className="flex-1 flex flex-col">
-        {selectedImage ? renderImagePreview() : renderDashboard()}
+        {showDashboard || !selectedImage ? renderDashboard() : renderImagePreview()}
       </div>
     </div>
   );
