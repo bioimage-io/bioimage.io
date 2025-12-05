@@ -6,6 +6,7 @@ import ColabGuide from './ColabGuide';
 import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
+import TrainingModal from './TrainingModal';
 
 const ColabPage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ const ColabPage: React.FC = () => {
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -335,6 +337,28 @@ const ColabPage: React.FC = () => {
                 Share Annotation URL
               </button>
             </div>
+
+            <span className="mx-2 text-xl text-gray-400">→</span>
+
+            <div className="flex items-center">
+              <div className="text-xl font-semibold mr-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white w-8 h-8 rounded-full flex items-center justify-center">
+                4
+              </div>
+              <button
+                onClick={() => setShowTrainingModal(true)}
+                disabled={!dataArtifactId || !user?.email}
+                className={`px-6 py-3 ${
+                  dataArtifactId && user?.email
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
+                    : 'bg-gray-400 cursor-not-allowed'
+                } text-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
+              >
+                <svg className="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Train AI Model
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -543,6 +567,20 @@ const ColabPage: React.FC = () => {
           dataArtifactId={dataArtifactId}
           artifactManager={artifactManager}
           onDeleteSuccess={handleDeleteSuccess}
+        />
+      )}
+
+      {showTrainingModal && (
+        <TrainingModal
+          setShowTrainingModal={setShowTrainingModal}
+          imageFolderHandle={imageFolderHandle}
+          annotationsFolderHandle={annotationsFolderHandle}
+          dataArtifactId={dataArtifactId}
+          label={label}
+          setIsRunning={setIsRunning}
+          executeCode={executeCode}
+          artifactManager={artifactManager}
+          server={server}
         />
       )}
     </div>
