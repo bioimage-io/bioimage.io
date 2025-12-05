@@ -204,17 +204,22 @@ async def save_annotation(
 
         console.log(f"Created mask shape: {mask.shape}, dtype: {mask.dtype}")
 
+        # Extract stem from image_name (remove extension if present)
+        # This handles both "image.png" -> "image" and "image" -> "image"
+        image_stem = Path(image_name).stem
+
         try:
             files = await artifact_manager.list_files(
                 artifact_id, dir_path=f"masks_{label}", stage=True
             )
-            existing_masks = [f for f in files if f["name"].startswith(image_name)]
+            # Look for masks with this image stem
+            existing_masks = [f for f in files if f["name"].startswith(f"{image_stem}_mask_")]
             n_image_masks = len(existing_masks)
         except Exception:
             n_image_masks = 0
 
-        mask_filename = f"{image_name}_mask_{n_image_masks + 1}.png"
-        upload_path = f"masks_{label}/{mask_filename}"
+        mask_filename = f"{image_stem}_mask_{n_image_masks + 1}.png"
+        upload_path = f"annotations/{mask_filename}"
 
         console.log(f"Saving mask to artifact: {upload_path}")
 
