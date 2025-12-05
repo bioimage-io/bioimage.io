@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { useColabKernel } from './useColabKernel';
 import ColabGuide from './ColabGuide';
 import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
 import TrainingModal from './TrainingModal';
+import DeleteArtifactModal from './DeleteArtifactModal';
 
 const ColabPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user, server, artifactManager } = useHyphaStore();
   const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem } = useColabKernel();
 
@@ -22,9 +25,11 @@ const ColabPage: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [annotationURL, setAnnotationURL] = useState('');
   const [dataArtifactId, setDataArtifactId] = useState<string | null>(null);
+  const [label, setLabel] = useState<string>('');
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -144,7 +149,12 @@ const ColabPage: React.FC = () => {
     } else if (dataArtifactId && artifactManager) {
       setIsLoadingAnnotations(true);
       try {
-        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const dirPath = label ? `masks_${label}` : "annotations";
+        const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: dirPath,
+            _rkwargs: true
+        });
         const fileNames = files.map((f: any) => f.name).sort();
         setAnnotationsList(fileNames);
       } catch (error) {
@@ -161,7 +171,12 @@ const ColabPage: React.FC = () => {
 
     const fetchRemoteAnnotations = async () => {
       try {
-        const files = await artifactManager.list_files(dataArtifactId, "annotations");
+        const dirPath = label ? `masks_${label}` : "annotations";
+        const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: dirPath,
+            _rkwargs: true
+        });
         const fileNames = files.map((f: any) => f.name).sort();
         setAnnotationsList(fileNames);
       } catch (error) {
@@ -180,7 +195,7 @@ const ColabPage: React.FC = () => {
       clearInterval(intervalId);
       (window as any).__colabRefreshInterval = null;
     };
-  }, [dataArtifactId, artifactManager]);
+  }, [dataArtifactId, artifactManager, label]);
 
   const createAnnotationSession = () => {
     if (!user?.email) {
@@ -192,6 +207,13 @@ const ColabPage: React.FC = () => {
       return;
     }
     setShowSessionModal(true);
+  };
+
+  const handleDeleteSuccess = () => {
+    setDataArtifactId(null);
+    setAnnotationsList([]);
+    setAnnotationURL('');
+    setLabel('');
   };
 
   const progressPercentage = annotationsList.length > 0 && imageList.length > 0
@@ -354,15 +376,28 @@ const ColabPage: React.FC = () => {
                   </svg>
                   Images ({imageList.length})
                 </h2>
-                <button
-                  onClick={updateImages}
-                  className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-                  title="Refresh images"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
+                <div className="flex items-center">
+                  {dataArtifactId && (
+                    <button
+                      onClick={() => setShowDeleteModal(true)}
+                      className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors mr-2"
+                      title="Delete cloud artifact"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={updateImages}
+                    className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                    title="Refresh images"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div className="bg-white/50 rounded-xl p-4 max-h-96 overflow-y-auto">
                 {isLoadingImages ? (
@@ -395,7 +430,7 @@ const ColabPage: React.FC = () => {
                       <svg className="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Annotations ({annotationsList.length})
+                      Annotations for {label && <span className="mx-1 text-green-700 bg-green-100 px-2 py-0.5 rounded text-lg">{label}</span>} ({annotationsList.length})
                     </h2>
                     {dataArtifactId && (
                       <div className="text-xs text-gray-500 mt-1 ml-8">
@@ -403,15 +438,30 @@ const ColabPage: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={updateAnnotations}
-                    className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                    title="Refresh annotations"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
+                  <div className="flex space-x-2">
+                    {annotationsList.length > 0 && dataArtifactId && (
+                      <a
+                        href={`${server.config.publicBaseUrl}/${dataArtifactId.split('/')[0]}/artifacts/${dataArtifactId.split('/').slice(1).join('/')}/create-zip-file`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                        title="Download annotations as ZIP"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </a>
+                    )}
+                    <button
+                      onClick={updateAnnotations}
+                      className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                      title="Refresh annotations"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div className="bg-white/50 rounded-xl p-4 max-h-96 overflow-y-auto">
                   {isLoadingAnnotations ? (
@@ -454,6 +504,23 @@ const ColabPage: React.FC = () => {
                   style={{ width: `${progressPercentage}%` }}
                 ></div>
               </div>
+
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={() => navigate('/finetune-cellpose')}
+                  disabled={annotationsList.length < 1}
+                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 flex items-center ${
+                    annotationsList.length >= 1
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white hover:from-blue-700 hover:to-cyan-700 shadow-sm hover:shadow-md'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  </svg>
+                  Finetune Cellpose
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -479,6 +546,7 @@ const ColabPage: React.FC = () => {
           mountDirectory={mountDirectory}
           setAnnotationURL={setAnnotationURL}
           setDataArtifactId={setDataArtifactId}
+          setSessionLabel={setLabel}
           server={server}
           user={user}
           artifactManager={artifactManager}
@@ -488,6 +556,7 @@ const ColabPage: React.FC = () => {
       {showShareModal && annotationURL && (
         <ShareModal
           annotationURL={annotationURL}
+          label={label}
           setShowShareModal={setShowShareModal}
         />
       )}
@@ -502,6 +571,14 @@ const ColabPage: React.FC = () => {
           executeCode={executeCode}
           artifactManager={artifactManager}
           server={server}
+         />
+       )}
+      {showDeleteModal && dataArtifactId && (
+        <DeleteArtifactModal
+          setShowDeleteModal={setShowDeleteModal}
+          dataArtifactId={dataArtifactId}
+          artifactManager={artifactManager}
+          onDeleteSuccess={handleDeleteSuccess}
         />
       )}
     </div>

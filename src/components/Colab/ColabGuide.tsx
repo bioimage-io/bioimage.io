@@ -50,6 +50,9 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes }) => {
                   Select a folder containing images you want to annotate. The images stay on your computer and are
                   accessed directly through your browser. Supported formats: {formatList}.
                 </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  Don't have images? <a href="https://github.com/bioimage-io/bioimageio-colab/releases/download/v0.1/hpa-dataset-v2-98-rgb.zip" className="text-purple-600 hover:text-purple-800 underline" target="_blank" rel="noopener noreferrer">Download an example dataset</a> to try it out.
+                </p>
               </div>
             </div>
 

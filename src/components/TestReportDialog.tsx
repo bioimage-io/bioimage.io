@@ -197,7 +197,7 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
               
               <Stack spacing={1}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Source:</strong> {testReport.source_name}
+                  <strong>ID:</strong> {testReport.id}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   <strong>Type:</strong> {testReport.type}
@@ -205,9 +205,11 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
                 <Typography variant="body2" color="text.secondary">
                   <strong>Format Version:</strong> {testReport.format_version}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>ID:</strong> {testReport.id}
-                </Typography>
+                {testReport.metadata_completeness !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Metadata Completeness:</strong> {(testReport.metadata_completeness * 100).toFixed(1)}%
+                  </Typography>
+                )}
               </Stack>
             </Paper>
 
@@ -445,6 +447,45 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
                 </Paper>
               </Box>
             )}
+
+            {/* Additional Information Section */}
+            <Box sx={{ mt: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 500, color: 'text.secondary' }}>
+                Additional Information
+              </Typography>
+              
+              {/* Raw JSON for debugging - collapsible */}
+              <Accordion
+                sx={{
+                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.5)',
+                  borderRadius: '12px !important',
+                  '&:before': { display: 'none' },
+                }}
+              >
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+                    Raw Data
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(0, 0, 0, 0.1)',
+                      maxHeight: '300px',
+                      overflow: 'auto',
+                    }}
+                  >
+                    <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                      {JSON.stringify(testReport, null, 2)}
+                    </pre>
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            </Box>
           </Box>
         ) : (
           <Box sx={{ p: 4, textAlign: 'center' }}>

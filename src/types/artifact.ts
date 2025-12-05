@@ -54,6 +54,7 @@ export interface DetailedTestReport {
   type: string;
   format_version: string;
   status: 'passed' | 'failed';
+  metadata_completeness?: number;
   details: TestDetail[];
   env: string[][];
   conda_list: any;

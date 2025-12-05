@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 
 interface ShareModalProps {
   annotationURL: string;
+  label: string;
   setShowShareModal: (show: boolean) => void;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, setShowShareModal }) => {
+const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowShareModal }) => {
   const [copyFeedback, setCopyFeedback] = useState('Copy URL');
   const qrCodeRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +74,14 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, setShowShareModa
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Label Info */}
+          <div className="text-center mb-2">
+            <span className="text-sm text-gray-500">Annotation Label:</span>
+            <span className="ml-2 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+              {label}
+            </span>
+          </div>
+
           {/* QR Code */}
           <div className="flex justify-center">
             <div
