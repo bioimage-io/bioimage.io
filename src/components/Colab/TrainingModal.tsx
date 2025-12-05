@@ -39,6 +39,8 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
   const [nTrain, setNTrain] = useState<number | null>(null);
   const [nTest, setNTest] = useState<number | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportedArtifactId, setExportedArtifactId] = useState<string | null>(null);
 
   const availableModels = [
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
@@ -70,9 +72,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         if (status.status_type === 'completed') {
           setIsTraining(false);
           setIsRunning(false);
-          setTimeout(() => {
-            setShowTrainingModal(false);
-          }, 3000);
+          // Don't auto-close the modal - let users export the model
         } else if (status.status_type === 'failed') {
           setIsTraining(false);
           setIsRunning(false);
@@ -159,6 +159,32 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       setTrainingProgress('');
       setIsTraining(false);
       setIsRunning(false);
+    }
+  };
+
+  const handleExportModel = async () => {
+    if (!sessionId || !server) {
+      setError('No training session available to export.');
+      return;
+    }
+
+    setIsExporting(true);
+    setError(null);
+
+    try {
+      console.log('Exporting model from session:', sessionId);
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning');
+      const result = await cellposeService.export_model(sessionId, { _rkwargs: true });
+
+      const artifactId = result.artifact_id || result;
+      setExportedArtifactId(artifactId);
+
+      console.log('✓ Model exported successfully to artifact:', artifactId);
+    } catch (error) {
+      console.error('Error exporting model:', error);
+      setError(`Failed to export model: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -299,6 +325,54 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                   {elapsedSeconds != null && (
                     <div className="mt-2 text-xs text-gray-600">
                       Elapsed: {Math.floor(elapsedSeconds / 60)}m {Math.floor(elapsedSeconds % 60)}s
+                    </div>
+                  )}
+                  {statusType === 'completed' && (
+                    <div className="mt-3 pt-3 border-t border-green-200">
+                      {!exportedArtifactId ? (
+                        <button
+                          onClick={handleExportModel}
+                          disabled={isExporting}
+                          className="w-full px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                        >
+                          {isExporting ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Exporting Model...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Export Model
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center text-xs text-green-700">
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Model exported successfully!
+                          </div>
+                          <a
+                            href={`${server?.config?.publicBaseUrl || 'https://hypha.bioimage.io'}/public/services/hypha-login/artifact-download/${exportedArtifactId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                          >
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Model ZIP
+                          </a>
+                          <p className="text-xs text-gray-600 font-mono break-all">
+                            {exportedArtifactId}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
