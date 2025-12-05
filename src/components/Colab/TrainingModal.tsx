@@ -120,14 +120,14 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
       // Convert all parameters to plain values to avoid ObjectProxy issues
       // Pattern matching: * must capture the same string in both patterns
-      // input_images/47746_1370_G11_1.png → masks_nuclei/47746_1370_G11_1_mask_1.png
+      // input_images/47746_1370_G11_1.png → masks_nuclei/47746_1370_G11_1.png
       // Both * capture "47746_1370_G11_1" (the stem without extension)
       const maskFolder = label ? `masks_${label}` : 'annotations';
       const sessionStatus = await cellposeService.start_training({
         artifact: String(dataArtifactId),
         model: String(selectedModel),
         train_images: 'input_images/*.png',  // Matches: input_images/47746_1370_G11_1.png
-        train_annotations: `${maskFolder}/*_mask_*.png`,  // Matches: masks_nuclei/47746_1370_G11_1_mask_1.png
+        train_annotations: `${maskFolder}/*.png`,  // Matches: masks_nuclei/47746_1370_G11_1.png
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
         weight_decay: Number(weightDecay),

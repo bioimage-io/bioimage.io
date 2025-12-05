@@ -208,17 +208,8 @@ async def save_annotation(
         # This handles both "image.png" -> "image" and "image" -> "image"
         image_stem = Path(image_name).stem
 
-        try:
-            files = await artifact_manager.list_files(
-                artifact_id, dir_path=f"masks_{label}", stage=True
-            )
-            # Look for masks with this image stem
-            existing_masks = [f for f in files if f["name"].startswith(f"{image_stem}_mask_")]
-            n_image_masks = len(existing_masks)
-        except Exception:
-            n_image_masks = 0
-
-        mask_filename = f"{image_stem}_mask_{n_image_masks + 1}.png"
+        # Simple naming: just use image_stem.png (will overwrite if exists)
+        mask_filename = f"{image_stem}.png"
         upload_path = f"masks_{label}/{mask_filename}"
 
         console.log(f"Saving mask to artifact: {upload_path}")
