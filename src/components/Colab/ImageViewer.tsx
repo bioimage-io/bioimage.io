@@ -112,10 +112,13 @@ except Exception as e:
 `;
 
               let pngBase64 = '';
+
               await executeCode(convertCode, {
                 onOutput: (output: any) => {
                   const trimmed = output.content?.trim() || '';
-                  if (trimmed && !trimmed.startsWith('ERROR:')) {
+                  if (trimmed.startsWith('ERROR:')) {
+                    console.error('Python conversion error:', trimmed);
+                  } else if (trimmed) {
                     pngBase64 = trimmed;
                   }
                 }
@@ -123,6 +126,9 @@ except Exception as e:
 
               if (pngBase64) {
                 setImageUrl(`data:image/png;base64,${pngBase64}`);
+              } else {
+                console.error('Failed to convert local image to PNG - no output received');
+                setImageUrl(''); // Clear to show error state
               }
             } catch (error) {
               console.error('Error reading local image:', error);
@@ -153,38 +159,44 @@ except Exception as e:
   const progress = totalImages > 0 ? Math.round((annotatedImages / totalImages) * 100) : 0;
 
   const renderDashboard = () => (
-    <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="flex items-center justify-center h-full bg-gradient-to-br from-purple-50/30 via-pink-50/20 to-blue-50/30">
       <div className="max-w-2xl p-8">
         <div className="text-center mb-8">
-          <svg className="w-20 h-20 mx-auto mb-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center shadow-lg">
+            <svg className="w-12 h-12 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">Annotation Progress</h3>
+            </svg>
+          </div>
+          <h3 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">Annotation Progress</h3>
           <p className="text-gray-600">Select an image from the sidebar to view and annotate</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-6 border border-blue-200/60 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-600">Total Images</span>
-              <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <span className="text-sm font-medium text-gray-700">Total Images</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+                </svg>
+              </div>
             </div>
-            <div className="text-3xl font-bold text-gray-900">{totalImages}</div>
+            <div className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">{totalImages}</div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-6 border border-green-200/60 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-600">Annotated</span>
-              <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <span className="text-sm font-medium text-gray-700">Annotated</span>
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+                </svg>
+              </div>
             </div>
-            <div className="text-3xl font-bold text-gray-900">{annotatedImages}</div>
+            <div className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">{annotatedImages}</div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-6 border border-purple-200/60 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-600">Remaining</span>
               <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -350,9 +362,9 @@ except Exception as e:
   const displayName = sessionName || 'Annotation Session';
 
   return (
-    <div className="flex h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div className="flex h-full bg-white/80 backdrop-blur-sm rounded-2xl shadow-md border border-gray-200/60 overflow-hidden">
       {/* Sidebar - File List */}
-      <div className="w-80 border-r border-gray-200 flex flex-col bg-gray-50">
+      <div className="w-80 border-r border-gray-200/60 flex flex-col bg-gradient-to-b from-gray-50 to-purple-50/20">
         <div className="border-b border-gray-200 bg-white">
           <button
             onClick={() => setShowDashboard(!showDashboard)}
@@ -410,10 +422,10 @@ except Exception as e:
                   }
                 }}
                 disabled={isUploading}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center border ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center border shadow-sm ${
                   isUploading
                     ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                    : 'text-blue-600 hover:bg-blue-50 border-blue-200'
+                    : 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 hover:from-blue-100 hover:to-indigo-100 border-blue-200 hover:shadow-md'
                 }`}
                 title="Upload all images to cloud"
               >
@@ -440,7 +452,7 @@ except Exception as e:
                 href={`${serverUrl}/${dataArtifactId.split('/')[0]}/artifacts/${dataArtifactId.split('/').slice(1).join('/')}/create-zip-file`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors flex items-center border border-green-200"
+                className="px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 hover:from-green-100 hover:to-emerald-100 rounded-lg transition-all flex items-center border border-green-200 shadow-sm hover:shadow-md"
                 title="Download annotations as ZIP"
               >
                 <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

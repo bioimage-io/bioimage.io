@@ -284,216 +284,231 @@ except Exception as e:
     : 0;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 py-4">
-      {/* Header with Kernel Status */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex-1"></div>
-          <div className="flex items-center justify-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
+      <div className="max-w-[1400px] mx-auto px-6 py-6">
+        {/* Vibrant Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex-1" />
+            <div className="text-center">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight mb-1">
+                BioImage.IO Colab
+              </h1>
+              <p className="text-sm text-gray-600">
+                Collaborative Image Annotation Platform
+              </p>
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 bg-clip-text text-transparent leading-tight">
-              BioImage.IO Colab
-            </h1>
-          </div>
-          {/* Kernel Status - Right Side */}
-          <div className="flex-1 flex justify-end">
-            <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-white/20 px-3 py-1.5">
-              <div className="flex items-center gap-2">
+            {/* Kernel Status */}
+            <div className="flex-1 flex justify-end">
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm transition-all ${
+                kernelStatus === 'idle' ? 'bg-emerald-50 border-emerald-200' :
+                kernelStatus === 'busy' ? 'bg-amber-50 border-amber-200' :
+                kernelStatus === 'starting' ? 'bg-blue-50 border-blue-200' :
+                'bg-red-50 border-red-200'
+              }`}>
                 <div className={`w-2 h-2 rounded-full ${
-                  kernelStatus === 'idle' ? 'bg-green-500' :
-                  kernelStatus === 'busy' ? 'bg-yellow-500 animate-pulse' :
-                  kernelStatus === 'starting' ? 'bg-blue-500 animate-pulse' :
-                  'bg-red-500'
-                }`}></div>
-                <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
-                  {kernelStatus === 'idle' ? 'Python: Ready' :
-                   kernelStatus === 'busy' ? 'Python: Busy' :
-                   kernelStatus === 'starting' ? 'Python: Starting...' :
-                   'Python: Error'}
+                  kernelStatus === 'idle' ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm' :
+                  kernelStatus === 'busy' ? 'bg-amber-500 animate-pulse shadow-amber-500/50 shadow-sm' :
+                  kernelStatus === 'starting' ? 'bg-blue-500 animate-pulse shadow-blue-500/50 shadow-sm' :
+                  'bg-red-500 shadow-red-500/50 shadow-sm'
+                }`} />
+                <span className={`text-xs font-medium ${
+                  kernelStatus === 'idle' ? 'text-emerald-700' :
+                  kernelStatus === 'busy' ? 'text-amber-700' :
+                  kernelStatus === 'starting' ? 'text-blue-700' :
+                  'text-red-700'
+                }`}>
+                  {kernelStatus === 'idle' ? 'Ready' :
+                   kernelStatus === 'busy' ? 'Busy' :
+                   kernelStatus === 'starting' ? 'Starting...' :
+                   'Error'}
                 </span>
               </div>
             </div>
           </div>
         </div>
-        <p className="text-sm text-gray-600 font-medium text-center">
-          Collaborative Image Annotation Platform
-        </p>
-      </div>
 
-      {/* Login Required Info Box */}
-      {!user?.email && (
-        <div className="max-w-6xl mx-auto mb-3">
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg shadow-sm p-3">
-            <div className="flex items-start">
-              <div className="flex-shrink-0">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-3 flex-1">
-                <h3 className="text-sm font-semibold text-blue-900 mb-1">
-                  Login Required
-                </h3>
-                <p className="text-xs text-blue-800 mb-1">
-                  Please log in to start using BioImage.IO Colab. You need to authenticate to create annotation sessions, share work with collaborators, and train AI models.
-                </p>
-                <p className="text-xs text-blue-700">
-                  Click the <strong>Login</strong> button in the navigation bar at the top of the page to get started.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Action Steps */}
-      <div className="max-w-6xl mx-auto mb-4">
-        <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-white/20 p-4">
-          <div className="flex items-center mb-4 flex-wrap gap-3">
-            {/* Step 0 - Learn How It Works */}
-            <div className="flex items-center">
-              <div className="text-sm font-semibold mr-2 bg-gradient-to-r from-gray-500 to-gray-600 text-white w-6 h-6 rounded-full flex items-center justify-center">
-                0
-              </div>
-              <button
-                onClick={() => setShowGuideModal(true)}
-                className="px-4 py-2 text-sm bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium"
-              >
-                <svg className="w-4 h-4 inline-block mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Learn How It Works
-              </button>
-            </div>
-
-            <span className="mx-1.5 text-lg text-gray-400">→</span>
-
-            <div className="flex items-center">
-              <div className="text-sm font-semibold mr-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white w-6 h-6 rounded-full flex items-center justify-center">
-                1
-              </div>
-              <button
-                onClick={createAnnotationSession}
-                disabled={!isReady || !user?.email}
-                className={`px-4 py-2 text-sm ${
-                  isReady && user?.email
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
-                    : 'bg-gray-400 cursor-not-allowed'
-                } text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
-              >
-                <svg className="w-4 h-4 inline-block mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-                Start Annotation Session
-              </button>
-            </div>
-
-            <span className="mx-1.5 text-lg text-gray-400">→</span>
-
-            <div className="flex items-center">
-              <div className="text-sm font-semibold mr-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white w-6 h-6 rounded-full flex items-center justify-center">
-                2
-              </div>
-              <button
-                onClick={() => setShowShareModal(true)}
-                disabled={!annotationURL || !user?.email}
-                className={`px-4 py-2 text-sm ${
-                  annotationURL && user?.email
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
-                    : 'bg-gray-400 cursor-not-allowed'
-                } text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
-              >
-                <svg className="w-4 h-4 inline-block mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                </svg>
-                Share Annotation URL
-              </button>
-            </div>
-
-            <span className="mx-1.5 text-lg text-gray-400">→</span>
-
-            <div className="flex items-center">
-              <div className="text-sm font-semibold mr-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center">
-                3
-              </div>
-              <button
-                onClick={() => setShowTrainingModal(true)}
-                disabled={!dataArtifactId || !user?.email}
-                className={`px-4 py-2 text-sm ${
-                  dataArtifactId && user?.email
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
-                    : 'bg-gray-400 cursor-not-allowed'
-                } text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
-              >
-                <svg className="w-4 h-4 inline-block mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                Train AI Model
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Image Viewer or Placeholder */}
-      <div className="max-w-7xl mx-auto mb-4 h-[600px]" ref={servicesRef}>
-        {dataArtifactId ? (
-          <ImageViewer
-            imageList={imageList}
-            annotationsList={annotationsList}
-            dataArtifactId={dataArtifactId}
-            label={label}
-            artifactManager={artifactManager}
-            serverUrl={server.config.publicBaseUrl}
-            isLoadingImages={isLoadingImages}
-            isLoadingAnnotations={isLoadingAnnotations}
-            sessionName={sessionName}
-            dataSourceType={dataSourceType}
-            imageFolderHandle={imageFolderHandle}
-            executeCode={executeCode}
-            onDelete={() => setShowDeleteModal(true)}
-            onUploadAll={handleUploadAll}
-          />
-        ) : (
-          <div className="h-full bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg shadow-sm border border-gray-200 flex items-center justify-center">
-            <div className="text-center max-w-md px-6">
-              <div className="mb-6">
-                <svg className="w-32 h-32 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={0.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">Ready to Start Annotating</h3>
-              <p className="text-gray-500 mb-6">
-                Create an annotation session to begin working with your images. You can mount local folders, upload to the cloud, or resume an existing session.
-              </p>
-              <div className="flex flex-col gap-2 text-sm text-gray-600">
-                <div className="flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        {/* Login Info - Vibrant */}
+        {!user?.email && (
+          <div className="max-w-3xl mx-auto mb-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 rounded-xl p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span>Collaborative annotation with Kaibu</span>
                 </div>
-                <div className="flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>AI model training with Cellpose-SAM</span>
-                </div>
-                <div className="flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Secure cloud storage for annotations</span>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-700">
+                    <strong className="font-semibold text-blue-900">Login required</strong> to create annotation sessions, collaborate, and train AI models.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         )}
-      </div>
+
+        {/* Workflow Steps - Vibrant & Dynamic */}
+        <div className="max-w-4xl mx-auto mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md p-6">
+            <div className="grid grid-cols-3 gap-4">
+              {/* Step 1 */}
+              <button
+                onClick={createAnnotationSession}
+                disabled={!isReady || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  isReady && user?.email
+                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    isReady && user?.email
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    1
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Start Session</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Create or resume an annotation session
+                </p>
+              </button>
+
+              {/* Step 2 */}
+              <button
+                onClick={() => setShowShareModal(true)}
+                disabled={!annotationURL || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  annotationURL && user?.email
+                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    annotationURL && user?.email
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    2
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Collaborate</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Share URL and annotate together
+                </p>
+              </button>
+
+              {/* Step 3 */}
+              <button
+                onClick={() => setShowTrainingModal(true)}
+                disabled={!dataArtifactId || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  dataArtifactId && user?.email
+                    ? 'border-blue-200/60 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-100 bg-gradient-to-br from-white to-blue-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    dataArtifactId && user?.email
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    3
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Train Model</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Train AI on your annotations
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="max-w-7xl mx-auto h-[600px]" ref={servicesRef}>
+          {dataArtifactId ? (
+            <ImageViewer
+              imageList={imageList}
+              annotationsList={annotationsList}
+              dataArtifactId={dataArtifactId}
+              label={label}
+              artifactManager={artifactManager}
+              serverUrl={server.config.publicBaseUrl}
+              isLoadingImages={isLoadingImages}
+              isLoadingAnnotations={isLoadingAnnotations}
+              sessionName={sessionName}
+              dataSourceType={dataSourceType}
+              imageFolderHandle={imageFolderHandle}
+              executeCode={executeCode}
+              onDelete={() => setShowDeleteModal(true)}
+              onUploadAll={handleUploadAll}
+            />
+          ) : (
+            <div className="h-full bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md flex flex-col overflow-hidden">
+              {/* Empty State */}
+              <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
+                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-purple-100 via-pink-100 to-blue-100 flex items-center justify-center mb-6 shadow-lg">
+                  <svg className="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-2">
+                  No Active Session
+                </h3>
+                <p className="text-gray-600 mb-8 max-w-md">
+                  Click "Start Session" above to create a new annotation session or resume an existing one.
+                </p>
+
+                {/* Guide Link */}
+                <button
+                  onClick={() => setShowGuideModal(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Learn how it works
+                </button>
+              </div>
+
+              {/* Footer Feature List */}
+              <div className="border-t border-gray-200/60 bg-gradient-to-r from-gray-50 to-purple-50/30 px-8 py-4">
+                <div className="flex items-center justify-center gap-8 text-sm">
+                  <div className="flex items-center gap-2 text-purple-600">
+                    <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">Collaborative</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-pink-600">
+                    <div className="w-6 h-6 rounded-lg bg-pink-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">AI-Powered</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">Browser-Based</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
       {/* Loading Overlay */}
       {isRunning && (
@@ -554,12 +569,13 @@ except Exception as e:
         />
       )}
 
-      {showGuideModal && (
-        <ColabGuide
-          supportedFileTypes={supportedFileTypes}
-          onClose={() => setShowGuideModal(false)}
-        />
-      )}
+        {showGuideModal && (
+          <ColabGuide
+            supportedFileTypes={supportedFileTypes}
+            onClose={() => setShowGuideModal(false)}
+          />
+        )}
+      </div>
     </div>
   );
 };

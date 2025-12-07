@@ -301,16 +301,24 @@ async def register_service(
             raise ValueError(f"Cannot access images: local folder {images_path} doesn't exist and artifact has no input_images/. Error: {e}")
 
     # Ensure the artifact exists and is in staging mode
+    # Only try to edit if we're using local folder (need to upload images)
+    # For cloud-only mode, we can just read the artifact without editing
     try:
-        artifact = await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+        if use_local_folder:
+            console.log(f"Using local folder mode - editing artifact for write access")
+            artifact = await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+        else:
+            # For cloud-only mode, just get the artifact info without editing
+            console.log(f"Cloud-only mode - reading artifact (no write access needed)")
+            artifact = await artifact_manager.read(artifact_id=artifact_id, stage=True)
     except KeyError as e:
         console.log(f"Artifact with ID {artifact_id} not found.")
         raise e
     except PermissionError as e:
-        console.log(f"Permission denied to edit artifact with ID {artifact_id}.")
+        console.log(f"Permission denied to access artifact with ID {artifact_id}.")
         raise e
     except Exception as e:
-        console.log(f"Failed to edit artifact with ID {artifact_id}: {e}")
+        console.log(f"Failed to access artifact with ID {artifact_id}: {e}")
         raise e
 
     if artifact.type != "dataset":
