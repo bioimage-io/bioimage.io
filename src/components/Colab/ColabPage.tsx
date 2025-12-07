@@ -6,6 +6,8 @@ import ColabGuide from './ColabGuide';
 import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
+import TrainingModal from './TrainingModal';
+import ImageViewer from './ImageViewer';
 
 const ColabPage: React.FC = () => {
   const navigate = useNavigate();
@@ -25,9 +27,13 @@ const ColabPage: React.FC = () => {
   const [annotationURL, setAnnotationURL] = useState('');
   const [dataArtifactId, setDataArtifactId] = useState<string | null>(null);
   const [label, setLabel] = useState<string>('');
+  const [sessionName, setSessionName] = useState<string>('');
+  const [dataSourceType, setDataSourceType] = useState<'local' | 'upload' | 'resume'>('upload');
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -56,22 +62,6 @@ const ColabPage: React.FC = () => {
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
-  // Mount local folder
-  const mountFolder = async () => {
-    try {
-      const dirHandle = await (window as any).showDirectoryPicker();
-      setImageFolderHandle(dirHandle);
-    } catch (error) {
-      // User cancelled the picker - this is normal, don't show error
-      if ((error as Error).name === 'AbortError') {
-        console.log('User cancelled folder selection');
-        return;
-      }
-      // Show error for other types of errors
-      console.error('Error accessing folder:', error);
-      alert('An error occurred while accessing the folder: ' + (error as Error).message);
-    }
-  };
 
   // Update file list
   const updateFileList = async (
@@ -98,20 +88,12 @@ const ColabPage: React.FC = () => {
     }
   };
 
-  // Update images when folder is mounted
+  // Update images when folder is mounted (for local mode only)
   useEffect(() => {
     if (imageFolderHandle && supportedFileTypes.length > 0) {
       updateFileList(imageFolderHandle, setImageList, setIsLoadingImages);
-      setAnnotationsFolderHandle(null);
-      setAnnotationsList([]);
-      setAnnotationURL('');
-      setDataArtifactId(null);
-      // Clear any existing refresh interval when changing folders
-      const refreshInterval = (window as any).__colabRefreshInterval;
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-        (window as any).__colabRefreshInterval = null;
-      }
+      // Note: Don't clear annotationURL/dataArtifactId here anymore
+      // as they're managed by the session modal
     }
   }, [imageFolderHandle, supportedFileTypes]);
 
@@ -214,293 +196,319 @@ const ColabPage: React.FC = () => {
     setLabel('');
   };
 
+  const handleUploadAll = async () => {
+    if (!imageFolderHandle || !executeCode || !dataArtifactId || !artifactManager) {
+      console.error('Missing required dependencies for upload');
+      return;
+    }
+
+    try {
+      console.log(`Uploading ${imageList.length} images to cloud...`);
+
+      for (let i = 0; i < imageList.length; i++) {
+        const imageName = imageList[i];
+        const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
+
+        try {
+          // Read file from local folder
+          const fileHandle = await imageFolderHandle.getFileHandle(imageName);
+          const file = await fileHandle.getFile();
+          const arrayBuffer = await file.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          const base64 = btoa(String.fromCharCode(...Array.from(uint8Array)));
+
+          // Convert to PNG via Python
+          const convertCode = `
+from PIL import Image
+import io
+import base64
+
+try:
+    input_data = base64.b64decode('${base64}')
+    img = Image.open(io.BytesIO(input_data))
+
+    # Convert to RGB if needed
+    if img.mode != 'RGB':
+        if img.mode == 'RGBA':
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+            img = background
+        else:
+            img = img.convert('RGB')
+
+    # Save as PNG
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    png_bytes = buffer.getvalue()
+    print(base64.b64encode(png_bytes).decode('ascii'), end='')
+except Exception as e:
+    print(f"ERROR: {e}")
+`;
+
+          let pngBase64 = '';
+          await executeCode(convertCode, {
+            onOutput: (output: any) => {
+              const trimmed = output.content?.trim() || '';
+              if (trimmed && !trimmed.startsWith('ERROR:')) {
+                pngBase64 = trimmed;
+              }
+            }
+          });
+
+          if (pngBase64) {
+            // Upload to artifact
+            const pngBuffer = Uint8Array.from(atob(pngBase64), c => c.charCodeAt(0));
+            const blob = new Blob([pngBuffer], { type: 'image/png' });
+            await artifactManager.put_file(
+              `${dataArtifactId}/input_images/${baseName}.png`,
+              blob
+            );
+            console.log(`Uploaded ${i + 1}/${imageList.length}: ${imageName}`);
+          }
+        } catch (error) {
+          console.error(`Error uploading ${imageName}:`, error);
+        }
+      }
+
+      // Update data source type to 'upload'
+      setDataSourceType('upload');
+      console.log('All images uploaded successfully. Session converted to cloud mode.');
+    } catch (error) {
+      console.error('Error during upload all:', error);
+      alert('Failed to upload images. Check console for details.');
+    }
+  };
+
   const progressPercentage = annotationsList.length > 0 && imageList.length > 0
     ? Math.round((annotationsList.length / imageList.length) * 100)
     : 0;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="text-center mb-12">
-        <div className="flex items-center justify-center gap-4 mb-4">
-          <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-          </div>
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 bg-clip-text text-transparent leading-tight">
-            BioImage.IO Colab
-          </h1>
-        </div>
-        <div className="w-24 h-1 bg-gradient-to-r from-purple-500 to-pink-500 mx-auto mt-4 rounded-full"></div>
-        <p className="mt-4 text-xl text-gray-600 font-medium">
-          Collaborative Image Annotation Platform
-        </p>
-      </div>
-
-      {/* Kernel Status Indicator */}
-      <div className="max-w-6xl mx-auto mb-6">
-        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-white/20 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
+      <div className="max-w-[1400px] mx-auto px-6 py-6">
+        {/* Vibrant Header */}
+        <div className="mb-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${
-                kernelStatus === 'idle' ? 'bg-green-500' :
-                kernelStatus === 'busy' ? 'bg-yellow-500 animate-pulse' :
-                kernelStatus === 'starting' ? 'bg-blue-500 animate-pulse' :
-                'bg-red-500'
-              }`}></div>
-              <span className="text-sm font-medium text-gray-700">
-                Python Kernel: {kernelStatus === 'idle' ? 'Ready' :
-                              kernelStatus === 'busy' ? 'Busy' :
-                              kernelStatus === 'starting' ? 'Starting...' :
-                              'Error'}
-              </span>
+            <div className="flex-1" />
+            <div className="text-center">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight mb-1">
+                BioImage.IO Colab
+              </h1>
+              <p className="text-sm text-gray-600">
+                Collaborative Image Annotation Platform
+              </p>
             </div>
-            {kernelStatus === 'starting' && (
-              <div className="text-sm text-gray-500 animate-pulse">
-                Initializing Python environment...
+            {/* Kernel Status */}
+            <div className="flex-1 flex justify-end">
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm transition-all ${
+                kernelStatus === 'idle' ? 'bg-emerald-50 border-emerald-200' :
+                kernelStatus === 'busy' ? 'bg-amber-50 border-amber-200' :
+                kernelStatus === 'starting' ? 'bg-blue-50 border-blue-200' :
+                'bg-red-50 border-red-200'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  kernelStatus === 'idle' ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm' :
+                  kernelStatus === 'busy' ? 'bg-amber-500 animate-pulse shadow-amber-500/50 shadow-sm' :
+                  kernelStatus === 'starting' ? 'bg-blue-500 animate-pulse shadow-blue-500/50 shadow-sm' :
+                  'bg-red-500 shadow-red-500/50 shadow-sm'
+                }`} />
+                <span className={`text-xs font-medium ${
+                  kernelStatus === 'idle' ? 'text-emerald-700' :
+                  kernelStatus === 'busy' ? 'text-amber-700' :
+                  kernelStatus === 'starting' ? 'text-blue-700' :
+                  'text-red-700'
+                }`}>
+                  {kernelStatus === 'idle' ? 'Ready' :
+                   kernelStatus === 'busy' ? 'Busy' :
+                   kernelStatus === 'starting' ? 'Starting...' :
+                   'Error'}
+                </span>
               </div>
-            )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Guide Section */}
-      <div className="max-w-6xl mx-auto mb-8">
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
-          <ColabGuide supportedFileTypes={supportedFileTypes} />
-        </div>
-      </div>
-
-      {/* Action Steps */}
-      <div className="max-w-6xl mx-auto mb-8">
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6">
-          <div className="flex items-center mb-6 flex-wrap gap-4">
-            <div className="flex items-center">
-              <div className="text-xl font-semibold mr-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white w-8 h-8 rounded-full flex items-center justify-center">
-                1
+        {/* Login Info - Vibrant */}
+        {!user?.email && (
+          <div className="max-w-3xl mx-auto mb-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 rounded-xl p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-700">
+                    <strong className="font-semibold text-blue-900">Login required</strong> to create annotation sessions, collaborate, and train AI models.
+                  </p>
+                </div>
               </div>
-              <button
-                onClick={mountFolder}
-                disabled={!isReady}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed"
-              >
-                <svg className="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-                Mount Local Folder
-              </button>
             </div>
+          </div>
+        )}
 
-            <span className="mx-2 text-xl text-gray-400">→</span>
-
-            <div className="flex items-center">
-              <div className="text-xl font-semibold mr-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white w-8 h-8 rounded-full flex items-center justify-center">
-                2
-              </div>
+        {/* Workflow Steps - Vibrant & Dynamic */}
+        <div className="max-w-4xl mx-auto mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md p-6">
+            <div className="grid grid-cols-3 gap-4">
+              {/* Step 1 */}
               <button
                 onClick={createAnnotationSession}
-                disabled={imageList.length === 0 || !isReady}
-                className={`px-6 py-3 ${
-                  imageList.length > 0 && isReady
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
-                    : 'bg-gray-400 cursor-not-allowed'
-                } text-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
+                disabled={!isReady || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  isReady && user?.email
+                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
               >
-                <svg className="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-                Create Annotation Session
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    isReady && user?.email
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    1
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Start Session</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Create or resume an annotation session
+                </p>
               </button>
-            </div>
 
-            <span className="mx-2 text-xl text-gray-400">→</span>
-
-            <div className="flex items-center">
-              <div className="text-xl font-semibold mr-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white w-8 h-8 rounded-full flex items-center justify-center">
-                3
-              </div>
+              {/* Step 2 */}
               <button
                 onClick={() => setShowShareModal(true)}
-                disabled={!annotationURL}
-                className={`px-6 py-3 ${
-                  annotationURL
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
-                    : 'bg-gray-400 cursor-not-allowed'
-                } text-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 font-medium`}
+                disabled={!annotationURL || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  annotationURL && user?.email
+                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
               >
-                <svg className="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                </svg>
-                Share Annotation URL
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    annotationURL && user?.email
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    2
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Collaborate</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Share URL and annotate together
+                </p>
+              </button>
+
+              {/* Step 3 */}
+              <button
+                onClick={() => setShowTrainingModal(true)}
+                disabled={!dataArtifactId || !user?.email}
+                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  dataArtifactId && user?.email
+                    ? 'border-blue-200/60 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-100 bg-gradient-to-br from-white to-blue-50/30'
+                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
+                    dataArtifactId && user?.email
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    3
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Train Model</h3>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Train AI on your annotations
+                </p>
               </button>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Files Display */}
-      {imageFolderHandle && (
-        <div className="max-w-6xl mx-auto mb-8" ref={servicesRef}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Images Panel */}
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-sm border border-white/20 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                  <svg className="w-6 h-6 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        {/* Main Content Area */}
+        <div className="max-w-7xl mx-auto h-[600px]" ref={servicesRef}>
+          {dataArtifactId ? (
+            <ImageViewer
+              imageList={imageList}
+              annotationsList={annotationsList}
+              dataArtifactId={dataArtifactId}
+              label={label}
+              artifactManager={artifactManager}
+              serverUrl={server.config.publicBaseUrl}
+              isLoadingImages={isLoadingImages}
+              isLoadingAnnotations={isLoadingAnnotations}
+              sessionName={sessionName}
+              dataSourceType={dataSourceType}
+              imageFolderHandle={imageFolderHandle}
+              executeCode={executeCode}
+              onDelete={() => setShowDeleteModal(true)}
+              onUploadAll={handleUploadAll}
+            />
+          ) : (
+            <div className="h-full bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md flex flex-col overflow-hidden">
+              {/* Empty State */}
+              <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
+                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-purple-100 via-pink-100 to-blue-100 flex items-center justify-center mb-6 shadow-lg">
+                  <svg className="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  Images ({imageList.length})
-                </h2>
-                <div className="flex items-center">
-                  {dataArtifactId && (
-                    <button
-                      onClick={() => setShowDeleteModal(true)}
-                      className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors mr-2"
-                      title="Delete cloud artifact"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
-                  <button
-                    onClick={updateImages}
-                    className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-                    title="Refresh images"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
                 </div>
-              </div>
-              <div className="bg-white/50 rounded-xl p-4 max-h-96 overflow-y-auto">
-                {isLoadingImages ? (
-                  <div className="flex justify-center items-center h-32">
-                    <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                ) : imageList.length > 0 ? (
-                  <ul className="space-y-2">
-                    {imageList.map((file, index) => (
-                      <li key={index} className="flex items-center text-gray-700 text-sm">
-                        <svg className="w-4 h-4 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        {file}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 text-center py-8">No images found</p>
-                )}
-              </div>
-            </div>
+                <h3 className="text-2xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-2">
+                  No Active Session
+                </h3>
+                <p className="text-gray-600 mb-8 max-w-md">
+                  Click "Start Session" above to create a new annotation session or resume an existing one.
+                </p>
 
-            {/* Annotations Panel */}
-            {(annotationsFolderHandle || dataArtifactId) && (
-              <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-2xl shadow-sm border border-white/20 p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                      <svg className="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Annotations for {label && <span className="mx-1 text-green-700 bg-green-100 px-2 py-0.5 rounded text-lg">{label}</span>} ({annotationsList.length})
-                    </h2>
-                    {dataArtifactId && (
-                      <div className="text-xs text-gray-500 mt-1 ml-8">
-                        Artifact ID: <span className="font-mono select-all">{dataArtifactId}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex space-x-2">
-                    {annotationsList.length > 0 && dataArtifactId && (
-                      <a
-                        href={`${server.config.publicBaseUrl}/${dataArtifactId.split('/')[0]}/artifacts/${dataArtifactId.split('/').slice(1).join('/')}/create-zip-file`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                        title="Download annotations as ZIP"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                      </a>
-                    )}
-                    <button
-                      onClick={updateAnnotations}
-                      className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                      title="Refresh annotations"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-white/50 rounded-xl p-4 max-h-96 overflow-y-auto">
-                  {isLoadingAnnotations ? (
-                    <div className="flex justify-center items-center h-32">
-                      <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : annotationsList.length > 0 ? (
-                    <ul className="space-y-2">
-                      {annotationsList.map((file, index) => (
-                        <li key={index} className="flex items-center text-gray-700 text-sm">
-                          <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          {file}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-gray-500 text-center py-8">No annotations yet</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Progress Bar */}
-          {(annotationsFolderHandle || dataArtifactId) && imageList.length > 0 && (
-            <div className="mt-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium text-gray-700">
-                  Progress: {annotationsList.length} / {imageList.length} images annotated
-                </span>
-                <span className="text-sm font-semibold text-purple-600">
-                  {progressPercentage}%
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div
-                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all duration-300"
-                  style={{ width: `${progressPercentage}%` }}
-                ></div>
-              </div>
-
-              <div className="mt-6 flex justify-center">
+                {/* Guide Link */}
                 <button
-                  onClick={() => navigate('/finetune-cellpose')}
-                  disabled={annotationsList.length < 1}
-                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 flex items-center ${
-                    annotationsList.length >= 1
-                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white hover:from-blue-700 hover:to-cyan-700 shadow-sm hover:shadow-md'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
+                  onClick={() => setShowGuideModal(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
                 >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Finetune Cellpose
+                  Learn how it works
                 </button>
+              </div>
+
+              {/* Footer Feature List */}
+              <div className="border-t border-gray-200/60 bg-gradient-to-r from-gray-50 to-purple-50/30 px-8 py-4">
+                <div className="flex items-center justify-center gap-8 text-sm">
+                  <div className="flex items-center gap-2 text-purple-600">
+                    <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">Collaborative</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-pink-600">
+                    <div className="w-6 h-6 rounded-lg bg-pink-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">AI-Powered</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium">Browser-Based</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
         </div>
-      )}
 
       {/* Loading Overlay */}
       {isRunning && (
@@ -516,13 +524,15 @@ const ColabPage: React.FC = () => {
       {showSessionModal && (
         <SessionModal
           setShowSessionModal={setShowSessionModal}
-          imageFolderHandle={imageFolderHandle}
           setIsRunning={setIsRunning}
           executeCode={executeCode}
           mountDirectory={mountDirectory}
           setAnnotationURL={setAnnotationURL}
           setDataArtifactId={setDataArtifactId}
           setSessionLabel={setLabel}
+          setSessionName={setSessionName}
+          setDataSourceType={setDataSourceType}
+          setImageFolderHandle={setImageFolderHandle}
           server={server}
           user={user}
           artifactManager={artifactManager}
@@ -532,7 +542,6 @@ const ColabPage: React.FC = () => {
       {showShareModal && annotationURL && (
         <ShareModal
           annotationURL={annotationURL}
-          label={label}
           setShowShareModal={setShowShareModal}
         />
       )}
@@ -545,6 +554,28 @@ const ColabPage: React.FC = () => {
           onDeleteSuccess={handleDeleteSuccess}
         />
       )}
+
+      {showTrainingModal && (
+        <TrainingModal
+          setShowTrainingModal={setShowTrainingModal}
+          imageFolderHandle={imageFolderHandle}
+          annotationsFolderHandle={annotationsFolderHandle}
+          dataArtifactId={dataArtifactId}
+          label={label}
+          setIsRunning={setIsRunning}
+          executeCode={executeCode}
+          artifactManager={artifactManager}
+          server={server}
+        />
+      )}
+
+        {showGuideModal && (
+          <ColabGuide
+            supportedFileTypes={supportedFileTypes}
+            onClose={() => setShowGuideModal(false)}
+          />
+        )}
+      </div>
     </div>
   );
 };

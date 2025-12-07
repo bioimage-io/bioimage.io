@@ -137,42 +137,64 @@ def read_image(file_path: Path) -> np.ndarray:
 async def get_image(
     server_url: str, artifact_manager: ObjectProxy, artifact_id: str, images_path: Path
 ) -> str:
-    """Get a random image from the folder and upload it to the artifact."""
+    """Get a random image from the folder or artifact and return its URL."""
     console.log(f"\n🔵 get_image called")
 
-    filenames = list_image_files(images_path)
-    if not filenames:
-        raise ValueError(f"No images found with supported types in {images_path}")
+    # Check if we should use local folder or remote artifact
+    use_local_folder = images_path.exists() and images_path.is_dir()
 
-    r = np.random.randint(max(len(filenames) - 1, 1))
-    image_path = filenames[r]
+    if use_local_folder:
+        # Local folder mode: read from /mnt and upload to artifact
+        console.log(f"Using local folder: {images_path}")
+        filenames = list_image_files(images_path)
+        if not filenames:
+            raise ValueError(f"No images found with supported types in {images_path}")
 
-    # Read image
-    image = read_image(image_path)
+        r = np.random.randint(max(len(filenames) - 1, 1))
+        image_path = filenames[r]
 
-    pil_image = Image.fromarray(image)
-    img_byte_arr = io.BytesIO()
-    pil_image.save(img_byte_arr, format="PNG")
-    img_bytes = img_byte_arr.getvalue()
+        # Read image from local folder
+        image = read_image(image_path)
 
-    image_name = image_path.stem + ".png"
+        pil_image = Image.fromarray(image)
+        img_byte_arr = io.BytesIO()
+        pil_image.save(img_byte_arr, format="PNG")
+        img_bytes = img_byte_arr.getvalue()
 
-    try:
-        existing_images = await artifact_manager.list_files(
-            artifact_id, dir_path="input_images", stage=True
-        )
-        image_exists = any(f["name"] == image_name for f in existing_images)
-    except Exception:
-        image_exists = False
+        image_name = image_path.stem + ".png"
 
-    if not image_exists:
-        console.log(f"Uploading image {image_name} to artifact...")
+        # Upload to artifact if not already there
+        try:
+            existing_images = await artifact_manager.list_files(
+                artifact_id, dir_path="input_images", stage=True
+            )
+            image_exists = any(f["name"] == image_name for f in existing_images)
+        except Exception:
+            image_exists = False
 
-        upload_url = await artifact_manager.put_file(
-            artifact_id, file_path=f"input_images/{image_name}"
-        )
+        if not image_exists:
+            console.log(f"Uploading image {image_name} to artifact...")
+            upload_url = await artifact_manager.put_file(
+                artifact_id, file_path=f"input_images/{image_name}"
+            )
+            await pyodide.http.pyfetch(upload_url, method="PUT", body=img_bytes)
+    else:
+        # Remote mode: get random image from artifact's input_images/
+        console.log(f"Local folder not found, using artifact images")
+        try:
+            remote_files = await artifact_manager.list_files(
+                artifact_id, dir_path="input_images", stage=True
+            )
+            if not remote_files:
+                raise ValueError(f"No images found in artifact {artifact_id}/input_images")
 
-        await pyodide.http.pyfetch(upload_url, method="PUT", body=img_bytes)
+            # Pick a random image from the artifact
+            r = np.random.randint(len(remote_files))
+            image_name = remote_files[r]["name"]
+            console.log(f"Selected remote image: {image_name}")
+        except Exception as e:
+            console.log(f"Error accessing artifact images: {e}")
+            raise ValueError(f"Cannot access images from artifact {artifact_id}/input_images: {e}")
 
     artifact_alias = artifact_id.split("/")[-1]
     image_url = (
@@ -204,16 +226,12 @@ async def save_annotation(
 
         console.log(f"Created mask shape: {mask.shape}, dtype: {mask.dtype}")
 
-        try:
-            files = await artifact_manager.list_files(
-                artifact_id, dir_path=f"masks_{label}", stage=True
-            )
-            existing_masks = [f for f in files if f["name"].startswith(image_name)]
-            n_image_masks = len(existing_masks)
-        except Exception:
-            n_image_masks = 0
+        # Extract stem from image_name (remove extension if present)
+        # This handles both "image.png" -> "image" and "image" -> "image"
+        image_stem = Path(image_name).stem
 
-        mask_filename = f"{image_name}_mask_{n_image_masks + 1}.png"
+        # Simple naming: just use image_stem.png (will overwrite if exists)
+        mask_filename = f"{image_stem}.png"
         upload_path = f"masks_{label}/{mask_filename}"
 
         console.log(f"Saving mask to artifact: {upload_path}")
@@ -254,28 +272,53 @@ async def register_service(
 ):
     """Register the data providing service with Hypha."""
 
-    # Check if the images folder exists
-    images_path = Path(images_path)
-    image_files = list_image_files(images_path)
-    if not image_files:
-        raise ValueError(f"No images found with supported types in {images_path}")
-
-    # Connect to the server
+    # Connect to the server first
     console.log(f"Connecting to server: {server_url}")
     client = await connect_to_server({"server_url": server_url, "token": token})
     artifact_manager = await client.get_service("public/artifact-manager")
 
+    # Check if images are in local folder or artifact
+    images_path = Path(images_path)
+    use_local_folder = images_path.exists() and images_path.is_dir()
+
+    if use_local_folder:
+        # Local folder mode: check for images in /mnt
+        console.log(f"Using local folder: {images_path}")
+        image_files = list_image_files(images_path)
+        if not image_files:
+            raise ValueError(f"No images found with supported types in {images_path}")
+    else:
+        # Remote mode: check for images in artifact
+        console.log(f"Local folder not found, checking artifact for images...")
+        try:
+            remote_files = await artifact_manager.list_files(
+                artifact_id, dir_path="input_images", stage=True
+            )
+            if not remote_files:
+                raise ValueError(f"No images found in artifact {artifact_id}/input_images and no local folder mounted")
+            console.log(f"Found {len(remote_files)} images in artifact")
+        except Exception as e:
+            raise ValueError(f"Cannot access images: local folder {images_path} doesn't exist and artifact has no input_images/. Error: {e}")
+
     # Ensure the artifact exists and is in staging mode
+    # Only try to edit if we're using local folder (need to upload images)
+    # For cloud-only mode, we can just read the artifact without editing
     try:
-        artifact = await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+        if use_local_folder:
+            console.log(f"Using local folder mode - editing artifact for write access")
+            artifact = await artifact_manager.edit(artifact_id=artifact_id, stage=True)
+        else:
+            # For cloud-only mode, just get the artifact info without editing
+            console.log(f"Cloud-only mode - reading artifact (no write access needed)")
+            artifact = await artifact_manager.read(artifact_id=artifact_id, stage=True)
     except KeyError as e:
         console.log(f"Artifact with ID {artifact_id} not found.")
         raise e
     except PermissionError as e:
-        console.log(f"Permission denied to edit artifact with ID {artifact_id}.")
+        console.log(f"Permission denied to access artifact with ID {artifact_id}.")
         raise e
     except Exception as e:
-        console.log(f"Failed to edit artifact with ID {artifact_id}: {e}")
+        console.log(f"Failed to access artifact with ID {artifact_id}: {e}")
         raise e
 
     if artifact.type != "dataset":
