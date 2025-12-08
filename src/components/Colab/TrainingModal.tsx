@@ -53,7 +53,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     setError(null);
 
     try {
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
       const models = await cellposeService.list_models_by_dataset(
         dataArtifactId,
         {
@@ -88,7 +88,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
     try {
       console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
       console.log('Starting training with artifact:', dataArtifactId);
 

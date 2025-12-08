@@ -62,7 +62,6 @@ const TrainingPage: React.FC = () => {
       dataArtifactId={dataArtifactId}
       label={label}
       server={server}
-      onBack={() => navigate('/colab')}
     />
   );
 };

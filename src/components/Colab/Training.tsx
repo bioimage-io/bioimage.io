@@ -41,30 +41,36 @@ const Training: React.FC<TrainingProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportedArtifactId, setExportedArtifactId] = useState<string | null>(null);
   const [showTrainingDialog, setShowTrainingDialog] = useState(false);
+  const [isContinueMode, setIsContinueMode] = useState(false);
   const [trainingConfig, setTrainingConfig] = useState<{
     model: string;
     epochs: number;
     learningRate: number;
     weightDecay: number;
   } | null>(null);
-  const [storedArtifactId, setStoredArtifactId] = useState<string | null>(dataArtifactId || null);
+  const [storedArtifactId, setStoredArtifactId] = useState<string | null>(null);
   const [datasetInfo, setDatasetInfo] = useState<any>(null);
 
-  // Keep storedArtifactId in sync with prop and fetch dataset info
+  // Initialize storedArtifactId from dataArtifactId prop (for new training sessions)
   useEffect(() => {
-    if (dataArtifactId && !storedArtifactId) {
+    if (dataArtifactId && !storedArtifactId && !sessionId) {
+      // Only set from prop if we don't have a session ID (new training)
       setStoredArtifactId(dataArtifactId);
     }
-  }, [dataArtifactId, storedArtifactId]);
+  }, [dataArtifactId, storedArtifactId, sessionId]);
 
   // Fetch dataset artifact info when storedArtifactId changes
   useEffect(() => {
-    if (!storedArtifactId || !server || datasetInfo) return;
+    if (!storedArtifactId || !server) return;
 
     const fetchDatasetInfo = async () => {
       try {
         const artifactManager = await server.getService('bioimage-io/artifact-manager');
-        const datasetArtifact = await artifactManager.read(storedArtifactId);
+        const datasetArtifact = await artifactManager.read({
+          artifact_id: storedArtifactId,
+          stage: true,
+          _rkwargs: true
+        });
         setDatasetInfo(datasetArtifact);
         console.log('Loaded dataset artifact info:', datasetArtifact);
       } catch (error) {
@@ -73,7 +79,7 @@ const Training: React.FC<TrainingProps> = ({
     };
 
     fetchDatasetInfo();
-  }, [storedArtifactId, server, datasetInfo]);
+  }, [storedArtifactId, server]);
 
   // Load Plotly.js from CDN
   useEffect(() => {
@@ -97,50 +103,25 @@ const Training: React.FC<TrainingProps> = ({
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
   ];
 
-  // Fetch training dataset ID from artifact config when sessionId is available
-  useEffect(() => {
-    if (!sessionId || !server || storedArtifactId) return;
-
-    const fetchDatasetId = async () => {
-      try {
-        const artifactManager = await server.getService('public/artifact-manager');
-        const artifact = await artifactManager.read("bioimage-io/" + sessionId);
-
-        if (artifact && artifact.config && artifact.config.training_dataset_id) {
-          const datasetId = artifact.config.training_dataset_id;
-          setStoredArtifactId(datasetId);
-          console.log('Found training_dataset_id in artifact config:', datasetId);
-
-          // Now fetch the dataset artifact information
-          try {
-            const datasetArtifact = await artifactManager.read(datasetId);
-            setDatasetInfo(datasetArtifact);
-            console.log('Loaded dataset artifact info:', datasetArtifact);
-          } catch (err) {
-            console.error('Error fetching dataset artifact:', err);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching artifact config:', error);
-      }
-    };
-
-    fetchDatasetId();
-  }, [sessionId, server, storedArtifactId]);
-
-  // Poll for training status
+  // Poll for training status (only poll if training is ongoing)
   useEffect(() => {
     if (!sessionId || !server) return;
 
-    let intervalId: NodeJS.Timeout;
+    let intervalId: NodeJS.Timeout | null = null;
 
-    const pollStatus = async () => {
+    const fetchStatus = async () => {
       try {
-        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
         const status = await cellposeService.get_training_status(sessionId);
 
         setStatusType(status.status_type);
         setTrainingProgress(status.message);
+
+        // Get dataset artifact ID from training status (backend now provides this)
+        if (status.dataset_artifact_id && !storedArtifactId) {
+          setStoredArtifactId(status.dataset_artifact_id);
+          console.log('Found dataset_artifact_id in training status:', status.dataset_artifact_id);
+        }
 
         // Update metrics
         if (status.train_losses) setTrainLosses(status.train_losses);
@@ -151,20 +132,40 @@ const Training: React.FC<TrainingProps> = ({
         if (status.n_train != null) setNTrain(status.n_train);
         if (status.n_test != null) setNTest(status.n_test);
 
+        // Check if training is in a terminal state
+        const isTerminalState = ['completed', 'failed', 'stopped'].includes(status.status_type);
+
         if (status.status_type === 'completed') {
           setIsTraining(false);
+          console.log('Training completed');
         } else if (status.status_type === 'failed') {
           setIsTraining(false);
           setError(status.message);
+          console.log('Training failed');
+        } else if (status.status_type === 'stopped') {
+          setIsTraining(false);
+          console.log('Training stopped');
+        }
+
+        // If in terminal state, stop polling
+        if (isTerminalState && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+          console.log('Stopped polling - training finished');
+        }
+
+        // If not in terminal state and not polling yet, start polling
+        if (!isTerminalState && !intervalId) {
+          intervalId = setInterval(fetchStatus, 2000);
+          console.log('Started polling - training ongoing');
         }
       } catch (error) {
-        console.error('Error polling training status:', error);
+        console.error('Error fetching training status:', error);
       }
     };
 
-    // Start polling every 2 seconds
-    intervalId = setInterval(pollStatus, 2000);
-    pollStatus(); // Initial poll
+    // Initial fetch
+    fetchStatus();
 
     return () => {
       if (intervalId) {
@@ -245,11 +246,17 @@ const Training: React.FC<TrainingProps> = ({
       return;
     }
 
-    const artifactToUse = storedArtifactId || dataArtifactId;
-    if (!artifactToUse) {
-      setError('No data artifact available. Please create an annotation session first.');
+    // Artifact ID should always come from storedArtifactId (populated from training status)
+    if (!storedArtifactId) {
+      if (continueFromSession) {
+        setError('Loading dataset information from training session...');
+      } else {
+        setError('No data artifact available. Please create an annotation session first.');
+      }
       return;
     }
+
+    const artifactToUse = storedArtifactId;
 
     setIsTraining(true);
     setError(null);
@@ -258,7 +265,7 @@ const Training: React.FC<TrainingProps> = ({
 
     try {
       console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
       console.log('Starting training with artifact:', dataArtifactId);
       setTrainingProgress('Starting training...');
@@ -284,9 +291,9 @@ const Training: React.FC<TrainingProps> = ({
       const newSessionId = sessionStatus.session_id;
       setSessionId(newSessionId);
 
-      // Store the artifact ID for future use
-      if (!storedArtifactId) {
-        setStoredArtifactId(artifactToUse);
+      // Store the artifact ID from the session status if not already set
+      if (!storedArtifactId && sessionStatus.dataset_artifact_id) {
+        setStoredArtifactId(sessionStatus.dataset_artifact_id);
       }
 
       // Save training configuration
@@ -333,7 +340,7 @@ const Training: React.FC<TrainingProps> = ({
 
     try {
       console.log('Exporting model from session:', sessionId);
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
       const result = await cellposeService.export_model(sessionId, { _rkwargs: true });
 
       const artifactId = result.artifact_id || result;
@@ -351,9 +358,9 @@ const Training: React.FC<TrainingProps> = ({
   const handleBack = () => {
     if (onBack) {
       onBack();
-    } else if (dataArtifactId) {
-      // Navigate back to the specific colab session
-      navigate(`/colab/${dataArtifactId}`);
+    } else if (storedArtifactId) {
+      // Navigate back to the specific dataset annotation session
+      navigate(`/colab/${storedArtifactId}`);
     } else {
       // Fallback to colab home if no artifact ID
       navigate('/colab');
@@ -478,8 +485,8 @@ const Training: React.FC<TrainingProps> = ({
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-amber-700 text-sm">
                     <strong>Note:</strong> Training will use annotations from your data artifact{' '}
-                    {(storedArtifactId || dataArtifactId) && (
-                      <span className="font-mono text-xs">({(storedArtifactId || dataArtifactId)!.split('/').pop()})</span>
+                    {storedArtifactId && (
+                      <span className="font-mono text-xs">({storedArtifactId.split('/').pop()})</span>
                     )}
                   </p>
                 </div>
@@ -487,7 +494,7 @@ const Training: React.FC<TrainingProps> = ({
                 <button
                   type="button"
                   onClick={() => handleStartTraining(false)}
-                  disabled={isTraining || (!dataArtifactId && !storedArtifactId)}
+                  disabled={isTraining || !storedArtifactId}
                   className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   {isTraining ? (
@@ -533,22 +540,28 @@ const Training: React.FC<TrainingProps> = ({
                       <p className="text-sm font-medium text-gray-800">{trainingConfig?.weightDecay || weightDecay}</p>
                     </div>
                     <div className="col-span-2">
-                      <p className="text-xs text-gray-600 mb-1">Dataset</p>
-                      <p className="text-sm font-medium text-gray-800 font-mono text-xs">
-                        {(storedArtifactId || dataArtifactId) ? (storedArtifactId || dataArtifactId)!.split('/').pop() : 'N/A'}
+                      <p className="text-xs text-gray-600 mb-1">Dataset Artifact ID</p>
+                      <p className="text-sm font-medium text-gray-800 font-mono text-xs break-all">
+                        {storedArtifactId || 'Loading...'}
                       </p>
-                      {datasetInfo?.config?.name && (
-                        <p className="text-xs text-gray-600 mt-1">{datasetInfo.config.name}</p>
+                      {datasetInfo?.manifest?.name && (
+                        <p className="text-xs text-gray-600 mt-1">{datasetInfo.manifest.name}</p>
                       )}
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Annotation Label</p>
-                      <p className="text-sm font-medium text-gray-800">{label || datasetInfo?.config?.annotation_label || 'default'}</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {label || (datasetInfo?.manifest?.labels && datasetInfo.manifest.labels[0]) || 'default'}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Images in Dataset</p>
                       <p className="text-sm font-medium text-gray-800">
-                        {datasetInfo?.manifest?.files ? Object.keys(datasetInfo.manifest.files).filter((f: string) => f.startsWith('input_images/')).length : 'Loading...'}
+                        {datasetInfo ? (
+                          datasetInfo.manifest?.files
+                            ? Object.keys(datasetInfo.manifest.files).filter((f: string) => f.startsWith('input_images/')).length
+                            : 'N/A'
+                        ) : 'Loading...'}
                       </p>
                     </div>
                   </div>
@@ -664,14 +677,27 @@ const Training: React.FC<TrainingProps> = ({
 
                     {/* Continue Training Button */}
                     <button
-                      onClick={() => setShowTrainingDialog(true)}
-                      disabled={isTraining}
+                      onClick={() => {
+                        setIsContinueMode(true);
+                        setSelectedModel('continue');
+                        setShowTrainingDialog(true);
+                      }}
+                      disabled={isTraining || !storedArtifactId}
                       className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
                     >
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Continue Training
+                      {!storedArtifactId ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Loading Dataset Info...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Continue Training
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -707,9 +733,14 @@ const Training: React.FC<TrainingProps> = ({
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-bold text-gray-800">Configure Training</h2>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    {isContinueMode ? 'Continue Training' : 'Configure Training'}
+                  </h2>
                   <button
-                    onClick={() => setShowTrainingDialog(false)}
+                    onClick={() => {
+                      setShowTrainingDialog(false);
+                      setIsContinueMode(false);
+                    }}
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -720,42 +751,57 @@ const Training: React.FC<TrainingProps> = ({
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Model Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Training Mode
-                  </label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => setSelectedModel('cpsam')}
-                      className={`p-4 rounded-lg border-2 transition-all ${
-                        selectedModel === 'cpsam'
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      <div className="text-left">
-                        <p className="font-semibold text-gray-800">Start New Training</p>
-                        <p className="text-xs text-gray-600 mt-1">Train from pretrained Cellpose-SAM model</p>
-                      </div>
-                    </button>
-                    {sessionId && (
+                {/* Model Selection - only show if not in continue mode */}
+                {!isContinueMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Training Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
                       <button
-                        onClick={() => setSelectedModel('continue')}
+                        onClick={() => setSelectedModel('cpsam')}
                         className={`p-4 rounded-lg border-2 transition-all ${
-                          selectedModel === 'continue'
-                            ? 'border-purple-500 bg-purple-50'
+                          selectedModel === 'cpsam'
+                            ? 'border-blue-500 bg-blue-50'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
                         <div className="text-left">
-                          <p className="font-semibold text-gray-800">Continue Training</p>
-                          <p className="text-xs text-gray-600 mt-1">Continue from this session's weights</p>
+                          <p className="font-semibold text-gray-800">Start New Training</p>
+                          <p className="text-xs text-gray-600 mt-1">Train from pretrained Cellpose-SAM model</p>
                         </div>
                       </button>
-                    )}
+                      {sessionId && (
+                        <button
+                          onClick={() => setSelectedModel('continue')}
+                          className={`p-4 rounded-lg border-2 transition-all ${
+                            selectedModel === 'continue'
+                              ? 'border-purple-500 bg-purple-50'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <div className="text-left">
+                            <p className="font-semibold text-gray-800">Continue Training</p>
+                            <p className="text-xs text-gray-600 mt-1">Continue from this session's weights</p>
+                          </div>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Show continue mode indicator when in continue mode */}
+                {isContinueMode && (
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="flex items-center text-purple-700">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      <p className="font-semibold">Continue Training Mode</p>
+                    </div>
+                    <p className="text-sm text-purple-600 mt-1">Training will continue from the current model weights.</p>
+                  </div>
+                )}
 
                 {/* Training Parameters */}
                 <div className="grid grid-cols-3 gap-4">
@@ -808,8 +854,8 @@ const Training: React.FC<TrainingProps> = ({
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-amber-700 text-sm">
                     <strong>Note:</strong> {selectedModel === 'continue' ? 'Training will continue from the current model weights.' : 'Training will start from the pretrained Cellpose-SAM model.'}
-                    {' '}Dataset: {(storedArtifactId || dataArtifactId) && (
-                      <span className="font-mono text-xs">({(storedArtifactId || dataArtifactId)!.split('/').pop()})</span>
+                    {' '}Dataset: {storedArtifactId && (
+                      <span className="font-mono text-xs">({storedArtifactId.split('/').pop()})</span>
                     )}
                   </p>
                 </div>
@@ -817,7 +863,10 @@ const Training: React.FC<TrainingProps> = ({
                 {/* Action Buttons */}
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setShowTrainingDialog(false)}
+                    onClick={() => {
+                      setShowTrainingDialog(false);
+                      setIsContinueMode(false);
+                    }}
                     className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
                   >
                     Cancel
