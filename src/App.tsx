@@ -20,7 +20,7 @@ import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/BioEngine/BioEngineHome';
 import BioEngineWorker from './components/BioEngine/BioEngineWorker';
 import ColabPage from './components/Colab/ColabPage';
-import FinetuneCellposePage from './pages/FinetuneCellposePage';
+import TrainingPage from './pages/TrainingPage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -91,7 +91,7 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
-          <Route path="/finetune-cellpose/:sessionId?" element={<FinetuneCellposePage />} />
+          <Route path="/training/:sessionId?" element={<TrainingPage />} />
         </Routes>
       </main>
       <Footer />

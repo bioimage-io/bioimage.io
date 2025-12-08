@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import CellposeFinetune from '../components/Colab/CellposeFinetune';
+import Training from '../components/Colab/Training';
 import { useHyphaStore } from '../store/hyphaStore';
 
-const FinetuneCellposePage: React.FC = () => {
+const TrainingPage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -57,7 +57,7 @@ const FinetuneCellposePage: React.FC = () => {
   }
 
   return (
-    <CellposeFinetune
+    <Training
       sessionId={sessionId}
       dataArtifactId={dataArtifactId}
       label={label}
@@ -67,4 +67,4 @@ const FinetuneCellposePage: React.FC = () => {
   );
 };
 
-export default FinetuneCellposePage;
+export default TrainingPage;

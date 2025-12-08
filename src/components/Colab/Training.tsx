@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 // Declare Plotly as a global variable
 declare const Plotly: any;
 
-interface CellposeFinetuneProps {
+interface TrainingProps {
   sessionId?: string;
   dataArtifactId?: string;
   label?: string;
@@ -12,7 +12,7 @@ interface CellposeFinetuneProps {
   onBack?: () => void;
 }
 
-const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
+const Training: React.FC<TrainingProps> = ({
   sessionId: initialSessionId,
   dataArtifactId,
   label,
@@ -40,6 +40,40 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
   const [nTest, setNTest] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportedArtifactId, setExportedArtifactId] = useState<string | null>(null);
+  const [showTrainingDialog, setShowTrainingDialog] = useState(false);
+  const [trainingConfig, setTrainingConfig] = useState<{
+    model: string;
+    epochs: number;
+    learningRate: number;
+    weightDecay: number;
+  } | null>(null);
+  const [storedArtifactId, setStoredArtifactId] = useState<string | null>(dataArtifactId || null);
+  const [datasetInfo, setDatasetInfo] = useState<any>(null);
+
+  // Keep storedArtifactId in sync with prop and fetch dataset info
+  useEffect(() => {
+    if (dataArtifactId && !storedArtifactId) {
+      setStoredArtifactId(dataArtifactId);
+    }
+  }, [dataArtifactId, storedArtifactId]);
+
+  // Fetch dataset artifact info when storedArtifactId changes
+  useEffect(() => {
+    if (!storedArtifactId || !server || datasetInfo) return;
+
+    const fetchDatasetInfo = async () => {
+      try {
+        const artifactManager = await server.getService('bioimage-io/artifact-manager');
+        const datasetArtifact = await artifactManager.read(storedArtifactId);
+        setDatasetInfo(datasetArtifact);
+        console.log('Loaded dataset artifact info:', datasetArtifact);
+      } catch (error) {
+        console.error('Error fetching dataset artifact:', error);
+      }
+    };
+
+    fetchDatasetInfo();
+  }, [storedArtifactId, server, datasetInfo]);
 
   // Load Plotly.js from CDN
   useEffect(() => {
@@ -62,6 +96,37 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
   const availableModels = [
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
   ];
+
+  // Fetch training dataset ID from artifact config when sessionId is available
+  useEffect(() => {
+    if (!sessionId || !server || storedArtifactId) return;
+
+    const fetchDatasetId = async () => {
+      try {
+        const artifactManager = await server.getService('public/artifact-manager');
+        const artifact = await artifactManager.read("bioimage-io/" + sessionId);
+
+        if (artifact && artifact.config && artifact.config.training_dataset_id) {
+          const datasetId = artifact.config.training_dataset_id;
+          setStoredArtifactId(datasetId);
+          console.log('Found training_dataset_id in artifact config:', datasetId);
+
+          // Now fetch the dataset artifact information
+          try {
+            const datasetArtifact = await artifactManager.read(datasetId);
+            setDatasetInfo(datasetArtifact);
+            console.log('Loaded dataset artifact info:', datasetArtifact);
+          } catch (err) {
+            console.error('Error fetching dataset artifact:', err);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching artifact config:', error);
+      }
+    };
+
+    fetchDatasetId();
+  }, [sessionId, server, storedArtifactId]);
 
   // Poll for training status
   useEffect(() => {
@@ -174,13 +239,14 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
     Plotly.newPlot(plotRef.current, traces, layout, config);
   }, [trainLosses, testLosses, plotlyLoaded]);
 
-  const handleStartTraining = async () => {
+  const handleStartTraining = async (continueFromSession?: boolean) => {
     if (!server) {
       setError('Not connected to server. Please login first.');
       return;
     }
 
-    if (!dataArtifactId) {
+    const artifactToUse = storedArtifactId || dataArtifactId;
+    if (!artifactToUse) {
       setError('No data artifact available. Please create an annotation session first.');
       return;
     }
@@ -188,6 +254,7 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
     setIsTraining(true);
     setError(null);
     setTrainingProgress('Connecting to training service...');
+    setShowTrainingDialog(false);
 
     try {
       console.log('Getting cellpose-finetuning service...');
@@ -197,9 +264,13 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
       setTrainingProgress('Starting training...');
 
       const maskFolder = label ? `masks_${label}` : 'annotations';
+
+      // Use session ID if continuing training, otherwise use selected model
+      const modelParam = continueFromSession && sessionId ? sessionId : selectedModel;
+
       const sessionStatus = await cellposeService.start_training({
-        artifact: String(dataArtifactId),
-        model: String(selectedModel),
+        artifact: String(artifactToUse),
+        model: String(modelParam),
         train_images: 'input_images/*.png',
         train_annotations: `${maskFolder}/*.png`,
         n_epochs: Number(epochs),
@@ -213,8 +284,21 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
       const newSessionId = sessionStatus.session_id;
       setSessionId(newSessionId);
 
+      // Store the artifact ID for future use
+      if (!storedArtifactId) {
+        setStoredArtifactId(artifactToUse);
+      }
+
+      // Save training configuration
+      setTrainingConfig({
+        model: continueFromSession ? 'continued' : selectedModel,
+        epochs,
+        learningRate,
+        weightDecay,
+      });
+
       // Update URL with session ID
-      navigate(`/finetune-cellpose/${newSessionId}`, { replace: true });
+      navigate(`/training/${newSessionId}`, { replace: true });
 
       // Extract initial status if available
       if (sessionStatus.status_type) setStatusType(sessionStatus.status_type);
@@ -292,7 +376,7 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
                 </svg>
               </button>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight">
-                Train Cellpose Model
+                Train AI Model
               </h1>
             </div>
             {sessionId && (
@@ -394,16 +478,16 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-amber-700 text-sm">
                     <strong>Note:</strong> Training will use annotations from your data artifact{' '}
-                    {dataArtifactId && (
-                      <span className="font-mono text-xs">({dataArtifactId.split('/').pop()})</span>
+                    {(storedArtifactId || dataArtifactId) && (
+                      <span className="font-mono text-xs">({(storedArtifactId || dataArtifactId)!.split('/').pop()})</span>
                     )}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={handleStartTraining}
-                  disabled={isTraining || !dataArtifactId}
+                  onClick={() => handleStartTraining(false)}
+                  disabled={isTraining || (!dataArtifactId && !storedArtifactId)}
                   className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   {isTraining ? (
@@ -426,6 +510,50 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
             <>
               {/* Training Progress */}
               <div className="space-y-6">
+                {/* Training Info Box */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Training Configuration</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Model Type</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {trainingConfig?.model === 'continued' ? 'Continued Training' : 'Cellpose-SAM'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Epochs</p>
+                      <p className="text-sm font-medium text-gray-800">{trainingConfig?.epochs || epochs}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Learning Rate</p>
+                      <p className="text-sm font-medium text-gray-800">{trainingConfig?.learningRate || learningRate}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Weight Decay</p>
+                      <p className="text-sm font-medium text-gray-800">{trainingConfig?.weightDecay || weightDecay}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-gray-600 mb-1">Dataset</p>
+                      <p className="text-sm font-medium text-gray-800 font-mono text-xs">
+                        {(storedArtifactId || dataArtifactId) ? (storedArtifactId || dataArtifactId)!.split('/').pop() : 'N/A'}
+                      </p>
+                      {datasetInfo?.config?.name && (
+                        <p className="text-xs text-gray-600 mt-1">{datasetInfo.config.name}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Annotation Label</p>
+                      <p className="text-sm font-medium text-gray-800">{label || datasetInfo?.config?.annotation_label || 'default'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Images in Dataset</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {datasetInfo?.manifest?.files ? Object.keys(datasetInfo.manifest.files).filter((f: string) => f.startsWith('input_images/')).length : 'Loading...'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Progress Info */}
                 {currentEpoch != null && totalEpochs != null && statusType === 'running' && (
                   <div>
@@ -483,7 +611,7 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
 
                 {/* Export Section */}
                 {statusType === 'completed' && (
-                  <div className="pt-6 border-t border-gray-200">
+                  <div className="pt-6 border-t border-gray-200 space-y-4">
                     {!exportedArtifactId ? (
                       <button
                         onClick={handleExportModel}
@@ -533,6 +661,18 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
                         </div>
                       </div>
                     )}
+
+                    {/* Continue Training Button */}
+                    <button
+                      onClick={() => setShowTrainingDialog(true)}
+                      disabled={isTraining}
+                      className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Continue Training
+                    </button>
                   </div>
                 )}
 
@@ -560,9 +700,155 @@ const CellposeFinetune: React.FC<CellposeFinetuneProps> = ({
             </div>
           )}
         </div>
+
+        {/* Training Configuration Dialog */}
+        {showTrainingDialog && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-800">Configure Training</h2>
+                  <button
+                    onClick={() => setShowTrainingDialog(false)}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Model Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Training Mode
+                  </label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setSelectedModel('cpsam')}
+                      className={`p-4 rounded-lg border-2 transition-all ${
+                        selectedModel === 'cpsam'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold text-gray-800">Start New Training</p>
+                        <p className="text-xs text-gray-600 mt-1">Train from pretrained Cellpose-SAM model</p>
+                      </div>
+                    </button>
+                    {sessionId && (
+                      <button
+                        onClick={() => setSelectedModel('continue')}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          selectedModel === 'continue'
+                            ? 'border-purple-500 bg-purple-50'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="text-left">
+                          <p className="font-semibold text-gray-800">Continue Training</p>
+                          <p className="text-xs text-gray-600 mt-1">Continue from this session's weights</p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Training Parameters */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Number of Epochs
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={epochs}
+                      onChange={(e) => setEpochs(parseInt(e.target.value))}
+                      min="1"
+                      max="1000"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Learning Rate
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={learningRate}
+                      onChange={(e) => setLearningRate(parseFloat(e.target.value))}
+                      step="0.000001"
+                      min="0.000001"
+                      max="1"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Weight Decay
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={weightDecay}
+                      onChange={(e) => setWeightDecay(parseFloat(e.target.value))}
+                      step="0.0001"
+                      min="0"
+                      max="1"
+                    />
+                  </div>
+                </div>
+
+                {/* Info Box */}
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-amber-700 text-sm">
+                    <strong>Note:</strong> {selectedModel === 'continue' ? 'Training will continue from the current model weights.' : 'Training will start from the pretrained Cellpose-SAM model.'}
+                    {' '}Dataset: {(storedArtifactId || dataArtifactId) && (
+                      <span className="font-mono text-xs">({(storedArtifactId || dataArtifactId)!.split('/').pop()})</span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowTrainingDialog(false)}
+                    className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleStartTraining(selectedModel === 'continue')}
+                    disabled={isTraining}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                  >
+                    {isTraining ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                        Start Training
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-export default CellposeFinetune;
+export default Training;

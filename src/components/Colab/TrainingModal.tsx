@@ -111,7 +111,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
       // Close modal and navigate to training page
       setShowTrainingModal(false);
-      navigate(`/finetune-cellpose/${sessionId}`, {
+      navigate(`/training/${sessionId}`, {
         state: { dataArtifactId, label }
       });
 
@@ -129,7 +129,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     const sessionId = model.id.split('/').pop() || model.id;
 
     setShowTrainingModal(false);
-    navigate(`/finetune-cellpose/${sessionId}`, {
+    navigate(`/training/${sessionId}`, {
       state: { dataArtifactId, label }
     });
   };
