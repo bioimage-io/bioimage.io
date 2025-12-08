@@ -3,12 +3,20 @@ import React, { useState, useEffect, useRef } from 'react';
 interface ShareModalProps {
   annotationURL: string;
   label: string;
+  dataArtifactId: string | null;
   setShowShareModal: (show: boolean) => void;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowShareModal }) => {
+const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtifactId, setShowShareModal }) => {
   const [copyFeedback, setCopyFeedback] = useState('Copy URL');
+  const [copySessionFeedback, setCopySessionFeedback] = useState('Copy Session URL');
   const qrCodeRef = useRef<HTMLDivElement>(null);
+
+  // Generate session resumption URL - always include full workspace/alias for shareable sessions
+  // This ensures the artifact is looked up in the bioimage-io workspace (not user's workspace)
+  const sessionURL = dataArtifactId
+    ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}`
+    : null;
 
   useEffect(() => {
     // Generate QR code when modal opens using QR Server API
@@ -41,6 +49,19 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowSh
       console.error('Failed to copy URL:', error);
       setCopyFeedback('Failed to copy');
       setTimeout(() => setCopyFeedback('Copy URL'), 2000);
+    }
+  };
+
+  const handleCopySessionURL = async () => {
+    if (!sessionURL) return;
+    try {
+      await navigator.clipboard.writeText(sessionURL);
+      setCopySessionFeedback('Copied!');
+      setTimeout(() => setCopySessionFeedback('Copy Session URL'), 2000);
+    } catch (error) {
+      console.error('Failed to copy session URL:', error);
+      setCopySessionFeedback('Failed to copy');
+      setTimeout(() => setCopySessionFeedback('Copy Session URL'), 2000);
     }
   };
 
@@ -90,7 +111,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowSh
             ></div>
           </div>
 
-          {/* URL Display */}
+          {/* Annotation URL */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Annotation URL</label>
             <div className="relative">
@@ -123,6 +144,41 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowSh
             </div>
           </div>
 
+          {/* Session Resume URL */}
+          {sessionURL && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Session Resume URL (Shareable)</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={sessionURL}
+                  readOnly
+                  className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg bg-gray-50 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleCopySessionURL}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 text-gray-500 hover:text-blue-600 transition-colors"
+                  title="Copy Session URL"
+                >
+                  {copySessionFeedback === 'Copied!' ? (
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Instructions */}
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-start">
@@ -142,10 +198,10 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, setShowSh
               <div>
                 <p className="text-sm font-semibold text-blue-800 mb-1">How to use:</p>
                 <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• Share this URL with collaborators</li>
-                  <li>• They can open it to start annotating images</li>
-                  <li>• Annotations will be saved to your local folder</li>
-                  <li>• Keep this browser tab open while they work</li>
+                  <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together</li>
+                  {sessionURL && <li>• <strong>Session Resume URL:</strong> Bookmark or share to resume this session later</li>}
+                  <li>• Annotations are saved to the cloud automatically</li>
+                  <li>• Keep this browser tab open while collaborators work</li>
                 </ul>
               </div>
             </div>

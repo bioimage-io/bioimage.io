@@ -1,100 +1,78 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface TrainingModalProps {
   setShowTrainingModal: (show: boolean) => void;
-  imageFolderHandle: FileSystemDirectoryHandle | null;
-  annotationsFolderHandle: FileSystemDirectoryHandle | null;
   dataArtifactId: string | null;
   label: string;
-  setIsRunning: (running: boolean) => void;
-  executeCode: ((code: string, callbacks?: any) => Promise<void>) | null;
-  artifactManager: any;
   server: any;
+}
+
+interface ExistingModel {
+  id: string;
+  name: string;
+  created_at: number;
+  url: string;
+  session_id?: string;
 }
 
 const TrainingModal: React.FC<TrainingModalProps> = ({
   setShowTrainingModal,
-  imageFolderHandle,
-  annotationsFolderHandle,
   dataArtifactId,
   label,
-  setIsRunning,
-  executeCode,
-  artifactManager,
   server,
 }) => {
-  const [isTraining, setIsTraining] = useState(false);
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<'choose' | 'new' | 'existing'>('choose');
+  const [isStarting, setIsStarting] = useState(false);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [existingModels, setExistingModels] = useState<ExistingModel[]>([]);
+
+  // Training configuration for new training
   const [selectedModel, setSelectedModel] = useState('cpsam');
   const [epochs, setEpochs] = useState(10);
   const [learningRate, setLearningRate] = useState(0.000001);
   const [weightDecay, setWeightDecay] = useState(0.0001);
-  const [error, setError] = useState<string | null>(null);
-  const [trainingProgress, setTrainingProgress] = useState('');
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [statusType, setStatusType] = useState<string>('');
-  const [trainLosses, setTrainLosses] = useState<number[]>([]);
-  const [testLosses, setTestLosses] = useState<number[]>([]);
-  const [currentEpoch, setCurrentEpoch] = useState<number | null>(null);
-  const [totalEpochs, setTotalEpochs] = useState<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
-  const [nTrain, setNTrain] = useState<number | null>(null);
-  const [nTest, setNTest] = useState<number | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportedArtifactId, setExportedArtifactId] = useState<string | null>(null);
 
   const availableModels = [
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
   ];
 
-  // Poll for training status
+  // Load existing models when switching to existing mode
   useEffect(() => {
-    if (!sessionId || !server) return;
+    if (mode === 'existing' && dataArtifactId && server) {
+      loadExistingModels();
+    }
+  }, [mode, dataArtifactId, server]);
 
-    let intervalId: NodeJS.Timeout;
+  const loadExistingModels = async () => {
+    if (!dataArtifactId || !server) return;
 
-    const pollStatus = async () => {
-      try {
-        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning');
-        const status = await cellposeService.get_training_status(sessionId);
+    setIsLoadingModels(true);
+    setError(null);
 
-        setStatusType(status.status_type);
-        setTrainingProgress(status.message);
-
-        // Update metrics
-        if (status.train_losses) setTrainLosses(status.train_losses);
-        if (status.test_losses) setTestLosses(status.test_losses);
-        if (status.current_epoch != null) setCurrentEpoch(status.current_epoch);
-        if (status.total_epochs != null) setTotalEpochs(status.total_epochs);
-        if (status.elapsed_seconds != null) setElapsedSeconds(status.elapsed_seconds);
-        if (status.n_train != null) setNTrain(status.n_train);
-        if (status.n_test != null) setNTest(status.n_test);
-
-        if (status.status_type === 'completed') {
-          setIsTraining(false);
-          setIsRunning(false);
-          // Don't auto-close the modal - let users export the model
-        } else if (status.status_type === 'failed') {
-          setIsTraining(false);
-          setIsRunning(false);
-          setError(status.message);
+    try {
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
+      const models = await cellposeService.list_models_by_dataset(
+        dataArtifactId,
+        {
+          collection: 'bioimage-io/colab-annotations',
+          _rkwargs: true
         }
-      } catch (error) {
-        console.error('Error polling training status:', error);
-      }
-    };
+      );
 
-    // Start polling every 2 seconds
-    intervalId = setInterval(pollStatus, 2000);
-    pollStatus(); // Initial poll
+      setExistingModels(models);
+      console.log(`✓ Loaded ${models.length} existing models for dataset`);
+    } catch (err) {
+      console.error('Error loading existing models:', err);
+      setError(`Failed to load existing models: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
 
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [sessionId, server, setShowTrainingModal, setIsRunning]);
-
-  const handleStartTraining = async () => {
+  const handleStartNewTraining = async () => {
     if (!server) {
       setError('Not connected to server. Please login first.');
       return;
@@ -105,93 +83,66 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       return;
     }
 
-    setIsTraining(true);
+    setIsStarting(true);
     setError(null);
-    setTrainingProgress('Connecting to training service...');
 
     try {
-      setIsRunning(true);
-
       console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning');
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: 'last'});
 
       console.log('Starting training with artifact:', dataArtifactId);
-      setTrainingProgress('Starting training...');
 
-      // Convert all parameters to plain values to avoid ObjectProxy issues
-      // Pattern matching: * must capture the same string in both patterns
-      // input_images/47746_1370_G11_1.png → masks_nuclei/47746_1370_G11_1.png
-      // Both * capture "47746_1370_G11_1" (the stem without extension)
       const maskFolder = label ? `masks_${label}` : 'annotations';
       const sessionStatus = await cellposeService.start_training({
         artifact: String(dataArtifactId),
         model: String(selectedModel),
-        train_images: 'input_images/*.png',  // Matches: input_images/47746_1370_G11_1.png
-        train_annotations: `${maskFolder}/*.png`,  // Matches: masks_nuclei/47746_1370_G11_1.png
+        train_images: 'input_images/*.png',
+        train_annotations: `${maskFolder}/*.png`,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
         weight_decay: Number(weightDecay),
-        n_samples: null, // Use all available samples
-        min_train_masks: 1, // Allow training with at least 1 mask per image
+        n_samples: null,
+        min_train_masks: 1,
         _rkwargs: true,
       });
 
-      const newSessionId = sessionStatus.session_id;
-      setSessionId(newSessionId);
+      const sessionId = sessionStatus.session_id;
+      console.log('✓ Training started with session ID:', sessionId);
 
-      // Extract initial status if available
-      if (sessionStatus.status_type) setStatusType(sessionStatus.status_type);
-      if (sessionStatus.message) setTrainingProgress(sessionStatus.message);
-      if (sessionStatus.train_losses) setTrainLosses(sessionStatus.train_losses);
-      if (sessionStatus.test_losses) setTestLosses(sessionStatus.test_losses);
-      if (sessionStatus.current_epoch != null) setCurrentEpoch(sessionStatus.current_epoch);
-      if (sessionStatus.total_epochs != null) setTotalEpochs(sessionStatus.total_epochs);
-      if (sessionStatus.n_train != null) setNTrain(sessionStatus.n_train);
-      if (sessionStatus.n_test != null) setNTest(sessionStatus.n_test);
-
-      console.log('✓ Training started with session ID:', newSessionId);
+      // Close modal and navigate to training page
+      setShowTrainingModal(false);
+      navigate(`/finetune-cellpose/${sessionId}`, {
+        state: { dataArtifactId, label }
+      });
 
     } catch (error) {
       console.error('Error starting training:', error);
       setError(
         `Failed to start training: ${error instanceof Error ? error.message : String(error)}`
       );
-      setTrainingProgress('');
-      setIsTraining(false);
-      setIsRunning(false);
+      setIsStarting(false);
     }
   };
 
-  const handleExportModel = async () => {
-    if (!sessionId || !server) {
-      setError('No training session available to export.');
-      return;
-    }
+  const handleSelectExistingModel = (model: ExistingModel) => {
+    // Extract session ID from model ID (format: workspace/collection/session_id)
+    const sessionId = model.id.split('/').pop() || model.id;
 
-    setIsExporting(true);
-    setError(null);
+    setShowTrainingModal(false);
+    navigate(`/finetune-cellpose/${sessionId}`, {
+      state: { dataArtifactId, label }
+    });
+  };
 
-    try {
-      console.log('Exporting model from session:', sessionId);
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning');
-      const result = await cellposeService.export_model(sessionId, { _rkwargs: true });
-
-      const artifactId = result.artifact_id || result;
-      setExportedArtifactId(artifactId);
-
-      console.log('✓ Model exported successfully to artifact:', artifactId);
-    } catch (error) {
-      console.error('Error exporting model:', error);
-      setError(`Failed to export model: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setIsExporting(false);
-    }
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleString();
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full mx-4 border border-white/20">
-        <div className="p-6 border-b border-gray-200/50">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto border border-white/20">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200/50 sticky top-0 bg-white/95 backdrop-blur-md z-10">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center mr-3">
@@ -204,14 +155,91 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                   />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">Train AI Model</h3>
+              <h3 className="text-lg font-semibold text-gray-800">
+                {mode === 'choose' && 'Train AI Model'}
+                {mode === 'new' && 'Start New Training'}
+                {mode === 'existing' && 'Existing Models'}
+              </h3>
             </div>
+            <button
+              onClick={() => setShowTrainingModal(false)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
-          {!sessionId && (
-            <>
+        {/* Content */}
+        <div className="p-6">
+          {mode === 'choose' && (
+            <div className="space-y-4">
+              <p className="text-gray-600 mb-6">
+                Choose whether to start a new training or view existing models trained on this dataset.
+              </p>
+
+              {/* Start New Training */}
+              <button
+                onClick={() => setMode('new')}
+                className="w-full p-6 border-2 border-blue-200 hover:border-blue-400 rounded-xl hover:bg-blue-50 transition-all group text-left"
+              >
+                <div className="flex items-start">
+                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-800 mb-1">Start New Training</h4>
+                    <p className="text-sm text-gray-600">
+                      Configure and start a new Cellpose model training session on your annotations
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* View Existing Models */}
+              <button
+                onClick={() => setMode('existing')}
+                className="w-full p-6 border-2 border-purple-200 hover:border-purple-400 rounded-xl hover:bg-purple-50 transition-all group text-left"
+              >
+                <div className="flex items-start">
+                  <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-800 mb-1">View Existing Models</h4>
+                    <p className="text-sm text-gray-600">
+                      Browse and monitor models that were previously trained on this dataset
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {mode === 'new' && (
+            <div className="space-y-4">
+              <button
+                onClick={() => setMode('choose')}
+                className="mb-4 text-sm text-gray-600 hover:text-gray-800 flex items-center"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Model Type
@@ -220,7 +248,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  disabled={isTraining}
+                  disabled={isStarting}
                 >
                   {availableModels.map((model) => (
                     <option key={model.value} value={model.value}>
@@ -230,293 +258,171 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Number of Epochs
-                </label>
-                <input
-                  type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  value={epochs}
-                  onChange={(e) => setEpochs(parseInt(e.target.value))}
-                  min="1"
-                  max="1000"
-                  disabled={isTraining}
-                />
-              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Epochs
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={epochs}
+                    onChange={(e) => setEpochs(parseInt(e.target.value))}
+                    min="1"
+                    max="1000"
+                    disabled={isStarting}
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Learning Rate
-                </label>
-                <input
-                  type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  value={learningRate}
-                  onChange={(e) => setLearningRate(parseFloat(e.target.value))}
-                  step="0.000001"
-                  min="0.000001"
-                  max="1"
-                  disabled={isTraining}
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Learning Rate
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={learningRate}
+                    onChange={(e) => setLearningRate(parseFloat(e.target.value))}
+                    step="0.000001"
+                    min="0.000001"
+                    max="1"
+                    disabled={isStarting}
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Weight Decay
-                </label>
-                <input
-                  type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  value={weightDecay}
-                  onChange={(e) => setWeightDecay(parseFloat(e.target.value))}
-                  step="0.0001"
-                  min="0"
-                  max="1"
-                  disabled={isTraining}
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Weight Decay
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={weightDecay}
+                    onChange={(e) => setWeightDecay(parseFloat(e.target.value))}
+                    step="0.0001"
+                    min="0"
+                    max="1"
+                    disabled={isStarting}
+                  />
+                </div>
               </div>
 
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-amber-700 text-sm">
-                  <strong>Note:</strong> Training will use the annotations from your current data artifact ({dataArtifactId ? dataArtifactId.split('/').pop() : 'N/A'})
+                  <strong>Note:</strong> Training will use annotations from{' '}
+                  <span className="font-mono text-xs">{dataArtifactId?.split('/').pop()}</span>
                 </p>
               </div>
-            </>
+
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm flex items-center">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {error}
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleStartNewTraining}
+                disabled={isStarting || !dataArtifactId}
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+              >
+                {isStarting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Starting Training...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Start Training
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
-          {sessionId && (
-            <div className="space-y-3">
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Session ID:</p>
-                <p className="text-xs font-mono text-blue-700 break-all">{sessionId}</p>
-              </div>
+          {mode === 'existing' && (
+            <div className="space-y-4">
+              <button
+                onClick={() => setMode('choose')}
+                className="mb-4 text-sm text-gray-600 hover:text-gray-800 flex items-center"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
 
-              {statusType && (
-                <div className={`p-3 rounded-lg border ${
-                  statusType === 'completed' ? 'bg-green-50 border-green-200' :
-                  statusType === 'failed' ? 'bg-red-50 border-red-200' :
-                  statusType === 'running' ? 'bg-blue-50 border-blue-200' :
-                  'bg-gray-50 border-gray-200'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        statusType === 'completed' ? 'bg-green-500' :
-                        statusType === 'failed' ? 'bg-red-500' :
-                        statusType === 'running' ? 'bg-blue-500 animate-pulse' :
-                        'bg-gray-500 animate-pulse'
-                      }`}></div>
-                      <p className={`text-sm font-medium ${
-                        statusType === 'completed' ? 'text-green-700' :
-                        statusType === 'failed' ? 'text-red-700' :
-                        statusType === 'running' ? 'text-blue-700' :
-                        'text-gray-700'
-                      }`}>
-                        Status: {statusType}
-                      </p>
-                    </div>
-                    {currentEpoch != null && totalEpochs != null && (
-                      <span className="text-xs font-medium text-gray-600">
-                        Epoch {currentEpoch}/{totalEpochs}
-                      </span>
-                    )}
+              {isLoadingModels ? (
+                <div className="py-12 text-center">
+                  <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading existing models...</p>
+                </div>
+              ) : existingModels.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
                   </div>
-                  {elapsedSeconds != null && (
-                    <div className="mt-2 text-xs text-gray-600">
-                      Elapsed: {Math.floor(elapsedSeconds / 60)}m {Math.floor(elapsedSeconds % 60)}s
-                    </div>
-                  )}
-                  {statusType === 'completed' && (
-                    <div className="mt-3 pt-3 border-t border-green-200">
-                      {!exportedArtifactId ? (
-                        <button
-                          onClick={handleExportModel}
-                          disabled={isExporting}
-                          className="w-full px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
-                        >
-                          {isExporting ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                              Exporting Model...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                              </svg>
-                              Export Model
-                            </>
-                          )}
-                        </button>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center text-xs text-green-700">
-                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Model exported successfully!
-                          </div>
-                          <a
-                            href={`${server?.config?.publicBaseUrl || 'https://hypha.bioimage.io'}/public/services/hypha-login/artifact-download/${exportedArtifactId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
-                          >
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Download Model ZIP
-                          </a>
-                          <p className="text-xs text-gray-600 font-mono break-all">
-                            {exportedArtifactId}
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">No Existing Models</h3>
+                  <p className="text-gray-600 mb-4">
+                    No models have been trained on this dataset yet.
+                  </p>
+                  <button
+                    onClick={() => setMode('new')}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700"
+                  >
+                    Start New Training
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 mb-4">
+                    Found {existingModels.length} model{existingModels.length !== 1 ? 's' : ''} trained on this dataset
+                  </p>
+                  {existingModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => handleSelectExistingModel(model)}
+                      className="w-full p-4 border-2 border-gray-200 hover:border-purple-400 rounded-xl hover:bg-purple-50 transition-all group text-left"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-800 mb-1">{model.name}</h4>
+                          <p className="text-xs font-mono text-gray-500 mb-2">{model.id}</p>
+                          <p className="text-xs text-gray-600">
+                            Created: {formatDate(model.created_at)}
                           </p>
                         </div>
-                      )}
-                    </div>
-                  )}
+                        <svg className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
 
-              {/* Dataset Info */}
-              {(nTrain != null || nTest != null) && (
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <p className="text-xs font-medium text-gray-600 mb-1">Dataset</p>
-                  <div className="flex gap-4 text-xs text-gray-700">
-                    {nTrain != null && <span>Training: {nTrain} samples</span>}
-                    {nTest != null && <span>Test: {nTest} samples</span>}
-                  </div>
-                </div>
-              )}
-
-              {/* Loss Metrics */}
-              {trainLosses.length > 0 && (
-                <div className="p-3 bg-white border border-gray-200 rounded-lg">
-                  <p className="text-xs font-medium text-gray-700 mb-2">Training Loss</p>
-                  <div className="h-32 relative">
-                    {(() => {
-                      const validTrainLosses = trainLosses.filter(l => l > 0);
-                      const validTestLosses = testLosses.filter(l => l > 0);
-                      if (validTrainLosses.length === 0) return null;
-
-                      const allLosses = [...validTrainLosses, ...validTestLosses];
-                      const maxLoss = Math.max(...allLosses);
-                      const minLoss = Math.min(...allLosses);
-                      const range = maxLoss - minLoss || 1;
-
-                      const width = 100;
-                      const height = 100;
-                      const padding = 5;
-
-                      const trainPoints = validTrainLosses.map((loss, i) => {
-                        const x = (i / (validTrainLosses.length - 1 || 1)) * (width - 2 * padding) + padding;
-                        const y = height - padding - ((loss - minLoss) / range) * (height - 2 * padding);
-                        return `${x},${y}`;
-                      }).join(' ');
-
-                      const testPoints = validTestLosses.length > 0 ? validTestLosses.map((loss, i) => {
-                        const x = (i / (validTestLosses.length - 1 || 1)) * (width - 2 * padding) + padding;
-                        const y = height - padding - ((loss - minLoss) / range) * (height - 2 * padding);
-                        return `${x},${y}`;
-                      }).join(' ') : '';
-
-                      return (
-                        <>
-                          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-                            <polyline
-                              points={trainPoints}
-                              fill="none"
-                              stroke="#3b82f6"
-                              strokeWidth="1.5"
-                            />
-                            {testPoints && (
-                              <polyline
-                                points={testPoints}
-                                fill="none"
-                                stroke="#10b981"
-                                strokeWidth="1.5"
-                                strokeDasharray="2,2"
-                              />
-                            )}
-                          </svg>
-                          <div className="flex gap-3 mt-2 text-xs">
-                            <div className="flex items-center gap-1">
-                              <div className="w-3 h-0.5 bg-blue-500"></div>
-                              <span className="text-gray-600">
-                                Train: {validTrainLosses[validTrainLosses.length - 1]?.toFixed(4)}
-                              </span>
-                            </div>
-                            {validTestLosses.length > 0 && (
-                              <div className="flex items-center gap-1">
-                                <div className="w-3 h-0.5 bg-green-500" style={{borderTop: '1px dashed'}}></div>
-                                <span className="text-gray-600">
-                                  Test: {validTestLosses[validTestLosses.length - 1]?.toFixed(4)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm flex items-center">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {error}
+                  </p>
                 </div>
               )}
             </div>
-          )}
-
-          {trainingProgress && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-blue-700 text-sm whitespace-pre-wrap">{trainingProgress}</p>
-            </div>
-          )}
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-red-600 text-sm flex items-center">
-                <svg
-                  className="w-4 h-4 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {error}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={() => setShowTrainingModal(false)}
-            disabled={isTraining && statusType !== 'completed' && statusType !== 'failed'}
-            className="px-6 py-3 text-gray-600 bg-white border-2 border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
-          >
-            {statusType === 'completed' || statusType === 'failed' ? 'Close' : 'Cancel'}
-          </button>
-          {!sessionId && (
-            <button
-              type="button"
-              onClick={handleStartTraining}
-              disabled={isTraining || !dataArtifactId}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
-            >
-              {isTraining ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Starting...
-                </>
-              ) : (
-                'Start Training'
-              )}
-            </button>
           )}
         </div>
       </div>

@@ -90,8 +90,8 @@ const AppContent: React.FC = () => {
           <Route path="/toc" element={<TermsOfService />} />
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
-          <Route path="/colab" element={<ColabPage />} />
-          <Route path="/finetune-cellpose" element={<FinetuneCellposePage />} />
+          <Route path="/colab/*" element={<ColabPage />} />
+          <Route path="/finetune-cellpose/:sessionId?" element={<FinetuneCellposePage />} />
         </Routes>
       </main>
       <Footer />

@@ -23,6 +23,7 @@ interface KernelManager {
   interruptKernel: () => Promise<boolean>;
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
   syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
+  writeFilesToPyodide: ((files: File[], targetPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   kernelManager: any;
 }
 
@@ -428,6 +429,73 @@ else:
     }
   }, []);
 
+  // Write files to Pyodide's virtual filesystem via Python code execution
+  const writeFilesToPyodide = useCallback(async (files: File[], targetPath: string) => {
+    try {
+      if (!executeCode) {
+        return { success: false, error: 'Execute code function not available' };
+      }
+
+      console.log(`[Colab Kernel] Writing ${files.length} files to ${targetPath}...`);
+
+      // Create target directory
+      await executeCode(`
+import os
+import base64
+os.makedirs("${targetPath}", exist_ok=True)
+print(f"Created directory: ${targetPath}")
+`, {});
+
+      // Write each file by passing base64 data to Python
+      for (const file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Convert to base64 in chunks to avoid stack overflow
+        let binaryString = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.subarray(i, i + chunkSize);
+          binaryString += String.fromCharCode(...Array.from(chunk));
+        }
+        const base64Data = btoa(binaryString);
+
+        // Write file using Python
+        const filePath = `${targetPath}/${file.name}`;
+        const writeCode = `
+file_data = base64.b64decode('${base64Data}')
+with open('${filePath}', 'wb') as f:
+    f.write(file_data)
+print(f"Wrote {len(file_data)} bytes to ${filePath}")
+`;
+
+        let hasError = false;
+        await executeCode(writeCode, {
+          onOutput: (output: any) => {
+            if (output.type === 'error') {
+              hasError = true;
+            }
+          }
+        });
+
+        if (hasError) {
+          return { success: false, error: `Failed to write file: ${file.name}` };
+        }
+
+        console.log(`[Colab Kernel] Wrote file: ${filePath}`);
+      }
+
+      console.log(`[Colab Kernel] Successfully wrote ${files.length} files`);
+      return { success: true };
+    } catch (error) {
+      console.error('[Colab Kernel] Error writing files:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }, [executeCode]);
+
   return {
     isReady,
     kernelStatus,
@@ -436,6 +504,7 @@ else:
     interruptKernel,
     mountDirectory,
     syncFileSystem,
+    writeFilesToPyodide,
     kernelManager: kernelManagerRef.current
   };
 };

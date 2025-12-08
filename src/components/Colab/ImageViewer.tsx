@@ -13,6 +13,8 @@ interface ImageViewerProps {
   dataSourceType?: 'local' | 'upload' | 'resume';
   imageFolderHandle?: FileSystemDirectoryHandle | null;
   executeCode?: ((code: string, callbacks?: any) => Promise<void>) | null;
+  annotationURL?: string;
+  server?: any;
   onDelete?: () => void;
   onUploadAll?: () => Promise<void>;
 }
@@ -30,6 +32,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   dataSourceType = 'upload',
   imageFolderHandle,
   executeCode,
+  annotationURL,
+  server,
   onDelete,
   onUploadAll,
 }) => {
@@ -72,68 +76,39 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           const rawUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/input_images/${baseName}.png`;
           setImageUrl(rawUrl);
         } else {
-          // Raw image needs to be read from local folder via Python service
-          // For now, we'll use a data URL approach
-          if (imageFolderHandle && executeCode) {
+          // Raw image needs to be read from local folder via Hypha service
+          if (annotationURL && server) {
             try {
-              // Read file from local folder
-              const fileHandle = await imageFolderHandle.getFileHandle(selectedImage);
-              const file = await fileHandle.getFile();
-              const arrayBuffer = await file.arrayBuffer();
-              const uint8Array = new Uint8Array(arrayBuffer);
-              const base64 = btoa(String.fromCharCode(...Array.from(uint8Array)));
+              // Extract service ID from annotation URL
+              const configMatch = annotationURL.match(/config=([^&]+)/);
+              if (configMatch) {
+                const configStr = decodeURIComponent(configMatch[1]);
+                const config = JSON.parse(configStr);
+                const serviceId = config.imageProviderId;
 
-              // Convert to PNG via Python
-              const convertCode = `
-from PIL import Image
-import io
-import base64
+                if (serviceId) {
+                  // Get the service
+                  const imageService = await server.getService(serviceId);
 
-try:
-    input_data = base64.b64decode('${base64}')
-    img = Image.open(io.BytesIO(input_data))
+                  // Call get_local_image_base64
+                  const base64Data = await imageService.get_local_image_base64(selectedImage);
 
-    # Convert to RGB if needed
-    if img.mode != 'RGB':
-        if img.mode == 'RGBA':
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-            img = background
-        else:
-            img = img.convert('RGB')
-
-    # Save as PNG
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG')
-    png_bytes = buffer.getvalue()
-    print(base64.b64encode(png_bytes).decode('ascii'), end='')
-except Exception as e:
-    print(f"ERROR: {e}")
-`;
-
-              let pngBase64 = '';
-
-              await executeCode(convertCode, {
-                onOutput: (output: any) => {
-                  const trimmed = output.content?.trim() || '';
-                  if (trimmed.startsWith('ERROR:')) {
-                    console.error('Python conversion error:', trimmed);
-                  } else if (trimmed) {
-                    pngBase64 = trimmed;
-                  }
+                  setImageUrl(`data:image/png;base64,${base64Data}`);
+                } else {
+                  console.error('Service ID not found in annotation URL');
+                  setImageUrl('');
                 }
-              });
-
-              if (pngBase64) {
-                setImageUrl(`data:image/png;base64,${pngBase64}`);
               } else {
-                console.error('Failed to convert local image to PNG - no output received');
-                setImageUrl(''); // Clear to show error state
+                console.error('Could not parse annotation URL');
+                setImageUrl('');
               }
             } catch (error) {
-              console.error('Error reading local image:', error);
+              console.error('Error reading local image via Hypha service:', error);
               setImageUrl('');
             }
+          } else {
+            console.error('Cannot read local image: annotation URL or server not available');
+            setImageUrl('');
           }
         }
 
@@ -151,7 +126,7 @@ except Exception as e:
     };
 
     loadImageUrls();
-  }, [selectedImage, dataArtifactId, label, serverUrl, annotationsList, dataSourceType, imageFolderHandle, executeCode]);
+  }, [selectedImage, dataArtifactId, label, serverUrl, annotationsList, dataSourceType, imageFolderHandle, executeCode, annotationURL, server]);
 
   // Calculate statistics
   const totalImages = imageList.length;

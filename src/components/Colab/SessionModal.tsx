@@ -5,15 +5,18 @@ interface SessionModalProps {
   setIsRunning: (running: boolean) => void;
   executeCode: ((code: string, callbacks?: any) => Promise<void>) | null;
   mountDirectory: ((mountPoint: string, dirHandle: FileSystemDirectoryHandle) => Promise<boolean>) | undefined;
+  writeFilesToPyodide: ((files: File[], targetPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   setAnnotationURL: (url: string) => void;
   setDataArtifactId: (id: string | null) => void;
   setSessionLabel: (label: string) => void;
   setSessionName: (name: string) => void;
   setDataSourceType: (type: 'local' | 'upload' | 'resume') => void;
   setImageFolderHandle: (handle: FileSystemDirectoryHandle | null) => void;
+  onSessionCreated?: (artifactId: string) => void;
   server: any;
   user: any;
   artifactManager: any;
+  resumeArtifactId?: string | null;
 }
 
 type DataSourceType = 'local' | 'upload' | 'resume';
@@ -23,19 +26,26 @@ const SessionModal: React.FC<SessionModalProps> = ({
   setIsRunning,
   executeCode,
   mountDirectory,
+  writeFilesToPyodide,
   setAnnotationURL,
   setDataArtifactId,
   setSessionLabel,
   setSessionName: setParentSessionName,
   setDataSourceType: setParentDataSourceType,
   setImageFolderHandle,
+  onSessionCreated,
   server,
   user,
   artifactManager,
+  resumeArtifactId: initialResumeArtifactId,
 }) => {
   // Step management
-  const [step, setStep] = useState<'choose' | 'configure' | 'creating'>('choose');
-  const [dataSourceType, setDataSourceType] = useState<DataSourceType>('local');
+  const [step, setStep] = useState<'choose' | 'configure' | 'creating'>(
+    initialResumeArtifactId ? 'configure' : 'choose'
+  );
+  const [dataSourceType, setDataSourceType] = useState<DataSourceType>(
+    initialResumeArtifactId ? 'resume' : 'local'
+  );
 
   // Common state
   const [sessionName, setSessionName] = useState(
@@ -59,7 +69,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
   // Resume state
   const [resumeArtifactId, setResumeArtifactId] = useState(
-    localStorage.getItem('colabResumeArtifactId') || ''
+    initialResumeArtifactId || localStorage.getItem('colabResumeArtifactId') || ''
   );
   const [userArtifacts, setUserArtifacts] = useState<any[]>([]);
   const [availableLabels, setAvailableLabels] = useState<string[]>([]);
@@ -227,121 +237,43 @@ const SessionModal: React.FC<SessionModalProps> = ({
     }
   };
 
-  const uploadFilesToArtifact = async (artifactId: string): Promise<void> => {
-    if (!artifactManager || selectedFiles.length === 0 || !executeCode) return;
+  const uploadFilesToArtifact = async (serviceId: string): Promise<void> => {
+    if (!server || !writeFilesToPyodide || selectedFiles.length === 0) return;
 
     setUploadProgress(0);
     const totalFiles = selectedFiles.length;
-    let successCount = 0;
-    let failedCount = 0;
 
-    // Process each file: read in pyodide, convert to PNG, upload
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      const originalFileName = file.name;
-      const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
-      const outputFileName = `${baseName}.png`;
+    console.log(`Writing ${totalFiles} files to Pyodide filesystem...`);
 
-      try {
-        // Read file as bytes
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        // Convert to base64 for transfer to Python
-        const base64Input = btoa(String.fromCharCode(...Array.from(uint8Array)));
-
-        const tempInputPath = `/tmp/upload_${i}_${originalFileName}`;
-        const tempOutputPath = `/tmp/output_${i}.png`;
-
-        const convertCode = `
-from PIL import Image
-import io
-import base64
-
-try:
-    # Decode base64 input
-    input_data = base64.b64decode('${base64Input}')
-
-    # Write to temp file
-    with open('${tempInputPath}', 'wb') as f:
-        f.write(input_data)
-
-    # Read image
-    img = Image.open('${tempInputPath}')
-
-    # Convert to RGB if needed
-    if img.mode != 'RGB':
-        if img.mode == 'RGBA':
-            # Create white background
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-            img = background
-        else:
-            img = img.convert('RGB')
-
-    # Save as PNG
-    img.save('${tempOutputPath}', format='PNG')
-
-    # Read back and encode as base64
-    with open('${tempOutputPath}', 'rb') as f:
-        png_bytes = f.read()
-
-    print(base64.b64encode(png_bytes).decode('ascii'), end='')
-except Exception as e:
-    print(f"ERROR: {e}")
-    raise
-`;
-
-        // Execute conversion code
-        let pngBase64 = '';
-        await executeCode(convertCode, {
-          onOutput: (output: string) => {
-            const trimmed = output.trim();
-            if (trimmed && !trimmed.startsWith('ERROR:')) {
-              pngBase64 = trimmed;
-            }
-          }
-        });
-
-        if (!pngBase64) {
-          throw new Error('Failed to convert image to PNG');
-        }
-
-        // Convert base64 back to bytes
-        const pngBytes = Uint8Array.from(atob(pngBase64), c => c.charCodeAt(0));
-
-        // Upload to artifact
-        const uploadUrl = await artifactManager.put_file(
-          artifactId,
-          { file_path: `input_images/${outputFileName}` }
-        );
-
-        const response = await fetch(uploadUrl, {
-          method: 'PUT',
-          body: pngBytes,
-          headers: {
-            'Content-Type': 'image/png'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Upload failed with status ${response.status}`);
-        }
-
-        successCount++;
-      } catch (err) {
-        console.error(`Failed to process ${originalFileName}:`, err);
-        failedCount++;
-      }
-
-      // Update progress
-      setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
-      setUploadStats({ success: successCount, failed: failedCount, total: totalFiles });
+    // Step 1: Write all files to Pyodide's filesystem at /tmp/uploads
+    const writeResult = await writeFilesToPyodide(selectedFiles, '/tmp/uploads');
+    if (!writeResult.success) {
+      throw new Error(`Failed to write files to Python: ${writeResult.error}`);
     }
 
-    if (failedCount > 0) {
-      throw new Error(`Upload completed with ${failedCount} failure(s) out of ${totalFiles} file(s)`);
+    setUploadProgress(50);
+    setUploadStats({ success: 0, failed: 0, total: totalFiles });
+
+    console.log('Files written to Python filesystem, now uploading to artifact...');
+
+    // Step 2: Call Python service function to upload from /tmp/uploads to artifact
+    const dataService = await server.getService(serviceId);
+    const uploadResult = await dataService.upload_images_from_temp();
+
+    // Update final progress
+    setUploadProgress(100);
+    setUploadStats({
+      success: uploadResult.success,
+      failed: uploadResult.failed,
+      total: uploadResult.total
+    });
+
+    if (uploadResult.failed > 0) {
+      console.error('Upload errors:', uploadResult.errors);
+      throw new Error(`Upload completed with ${uploadResult.failed} failure(s) out of ${uploadResult.total} file(s)`);
     }
+
+    console.log(`Successfully uploaded ${uploadResult.success} files!`);
   };
 
   const handleStartSession = async () => {
@@ -427,26 +359,6 @@ except Exception as e:
           _rkwargs: true
         });
         targetArtifactId = artifact.id;
-
-        // Install Python packages first (needed for image processing)
-        console.log('Installing Python packages for image processing...');
-        const installCode = `
-import micropip
-await micropip.install(['Pillow'])
-print("Pillow installed", end='')
-`;
-
-        let hasError = false;
-        await executeCode(installCode, {
-          onOutput: (output: any) => {
-            if (output.type === 'error') hasError = true;
-          },
-        });
-
-        if (hasError) throw new Error('Failed to install Python packages');
-
-        console.log('Uploading files to artifact...');
-        await uploadFilesToArtifact(targetArtifactId);
 
       } else if (dataSourceType === 'resume') {
         console.log('Resuming existing session...');
@@ -534,49 +446,50 @@ print(f"Found {len(files)} images", end='')
 
       // Register service
       console.log('Registering annotation service...');
+      const imagesPath = shouldMountLocal ? '"/mnt"' : 'None';
+
+      // Generate predictable IDs
+      const clientId = `colab-client-${Date.now()}`;
+      const serviceId = `data-provider-${Date.now()}`;
+
       const registerCode = `
-service_info, data_artifact = await register_service(
+service_info = await register_service(
     server_url="${serverUrl}",
     token="${token}",
     name="${sessionName}",
     description="${sessionDescription} (Owner: ${user.email})",
     artifact_id="${targetArtifactId}",
-    images_path="/mnt",
+    images_path=${imagesPath},
     label="${label}",
+    client_id="${clientId}",
+    service_id="${serviceId}",
 )
-service_id = service_info.get("id", "unknown")
-data_artifact_id = data_artifact.get("id", "unknown")
-print("===SERVICE_ID_START===" + service_id + "===SERVICE_ID_END===", end='')
-print("===DATA_ARTIFACT_ID_START===" + data_artifact_id + "===DATA_ARTIFACT_ID_END===", end='')
+print("Service registered successfully", end='')
 `;
 
-      let allOutput = '';
       await executeCode(registerCode, {
         onOutput: (output: any) => {
-          allOutput += output.content;
           if (output.type === 'error') hasError = true;
         },
       });
 
       if (hasError) throw new Error('Failed to register service');
 
-      // Extract service ID and artifact ID
-      const serviceIdMatch = allOutput.match(/===SERVICE_ID_START===(.*?)===SERVICE_ID_END===/);
-      const artifactIdMatch = allOutput.match(/===DATA_ARTIFACT_ID_START===(.*?)===DATA_ARTIFACT_ID_END===/);
+      console.log('Service registered successfully');
+      const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
 
-      const serviceId = serviceIdMatch?.[1]?.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim();
-      const dataArtifactId = artifactIdMatch?.[1]?.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim();
-
-      if (!serviceId || !dataArtifactId) {
-        throw new Error('Failed to extract service information');
+      // Upload files if in eager upload mode
+      if (dataSourceType === 'upload' && selectedFiles.length > 0) {
+        console.log('Uploading files using service...');
+        await uploadFilesToArtifact(fullServiceId);
       }
 
-      // Generate annotation URL
+      // Generate annotation URL using the known service ID
       const pluginCommitHash = '6a18797';
       const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
       const configStr = JSON.stringify({
         serverUrl: serverUrl,
-        imageProviderId: serviceId,
+        imageProviderId: fullServiceId,
         label: label,
         // token: token,
       });
@@ -588,7 +501,7 @@ print("===DATA_ARTIFACT_ID_START===" + data_artifact_id + "===DATA_ARTIFACT_ID_E
 
       // Update parent component state
       setAnnotationURL(annotatorUrl);
-      setDataArtifactId(dataArtifactId);
+      setDataArtifactId(targetArtifactId);
       setSessionLabel(label);
       setParentSessionName(sessionName);
       setParentDataSourceType(dataSourceType);
@@ -598,9 +511,14 @@ print("===DATA_ARTIFACT_ID_START===" + data_artifact_id + "===DATA_ARTIFACT_ID_E
       }
 
       console.log('✓ Session started successfully!');
-      console.log('  Data Artifact ID:', dataArtifactId);
-      console.log('  Service ID:', serviceId);
+      console.log('  Data Artifact ID:', targetArtifactId);
+      console.log('  Service ID:', fullServiceId);
       console.log('  Data Source:', dataSourceType);
+
+      // Notify parent that session was created (for URL update)
+      if (onSessionCreated) {
+        onSessionCreated(targetArtifactId);
+      }
 
       setIsRunning(false);
       setShowSessionModal(false);

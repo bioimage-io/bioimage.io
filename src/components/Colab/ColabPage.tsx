@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { useColabKernel } from './useColabKernel';
 import ColabGuide from './ColabGuide';
@@ -11,8 +11,15 @@ import ImageViewer from './ImageViewer';
 
 const ColabPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Parse sessionId from path: /colab/bioimage-io/cold-badger-tick-roughly -> bioimage-io/cold-badger-tick-roughly
+  const sessionId = location.pathname.startsWith('/colab/')
+    ? location.pathname.slice('/colab/'.length) || undefined
+    : undefined;
+
   const { user, server, artifactManager } = useHyphaStore();
-  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem } = useColabKernel();
+  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide } = useColabKernel();
 
   // File system state
   const [imageFolderHandle, setImageFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -37,6 +44,7 @@ const ColabPage: React.FC = () => {
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
+  const [resumeArtifactId, setResumeArtifactId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSupportedTypes = async () => {
@@ -59,6 +67,133 @@ const ColabPage: React.FC = () => {
     };
     loadSupportedTypes();
   }, []);
+
+  // Track if we've already loaded the session from URL
+  const [hasLoadedUrlSession, setHasLoadedUrlSession] = useState(false);
+
+  // Handle session ID from URL path parameter - auto-load without showing modal
+  useEffect(() => {
+    if (sessionId && isReady && user?.email && artifactManager && executeCode && !hasLoadedUrlSession) {
+      console.log('Auto-loading session from URL:', sessionId);
+      setHasLoadedUrlSession(true);
+      setResumeArtifactId(sessionId);
+
+      // Auto-start the session without showing modal
+      const autoStartSession = async () => {
+        try {
+          setIsRunning(true);
+
+          const token = localStorage.getItem('token') || '';
+          const serverUrl = server.config.publicBaseUrl;
+
+          // Install Python packages
+          console.log('Installing Python packages...');
+          const installCode = `
+import micropip
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+print("Packages installed", end='')
+`;
+
+          let hasError = false;
+          await executeCode(installCode, {
+            onOutput: (output: any) => {
+              if (output.type === 'error') hasError = true;
+            },
+          });
+
+          if (hasError) throw new Error('Failed to install Python packages');
+
+          // Load service code
+          console.log('Loading service code...');
+          const serviceCodeResponse = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
+          const serviceCode = await serviceCodeResponse.text();
+          await executeCode(serviceCode, {
+            onOutput: (output: any) => {
+              if (output.type === 'error') hasError = true;
+            },
+          });
+
+          if (hasError) throw new Error('Failed to load service code');
+
+          // Get artifact info to determine label
+          // If sessionId contains '/', it's an absolute artifact ID (workspace/alias)
+          // If not, it's a relative alias from user's own workspace
+          const fullArtifactId = sessionId.includes('/')
+            ? sessionId
+            : `${server.config.workspace}/${sessionId}`;
+          const artifact = await artifactManager.read({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
+          const labels = artifact.manifest?.labels || [];
+          const sessionLabel = labels[0] || 'cells';
+
+          let sessionName = artifact.manifest?.name || 'Annotation Session';
+          if (sessionName.startsWith('Annotation Session ')) {
+            sessionName = sessionName.substring('Annotation Session '.length);
+          }
+
+          // Register service
+          const clientId = `colab-client-${Date.now()}`;
+          const serviceId = `data-provider-${Date.now()}`;
+
+          const registerCode = `
+service_info = await register_service(
+    server_url="${serverUrl}",
+    token="${token}",
+    name="${sessionName}",
+    description="Resumed session",
+    artifact_id="${fullArtifactId}",
+    images_path=None,
+    label="${sessionLabel}",
+    client_id="${clientId}",
+    service_id="${serviceId}",
+)
+print("Service registered successfully", end='')
+`;
+
+          await executeCode(registerCode, {
+            onOutput: (output: any) => {
+              if (output.type === 'error') hasError = true;
+            },
+          });
+
+          if (hasError) throw new Error('Failed to register service');
+
+          const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
+
+          // Generate annotation URL
+          const pluginCommitHash = '6a18797';
+          const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
+          const configStr = JSON.stringify({
+            serverUrl: serverUrl,
+            imageProviderId: fullServiceId,
+            label: sessionLabel,
+          });
+          const encodedConfig = encodeURIComponent(configStr);
+          const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
+
+          // Update state
+          setAnnotationURL(annotatorUrl);
+          setDataArtifactId(fullArtifactId);
+          setLabel(sessionLabel);
+          setSessionName(sessionName);
+          setDataSourceType('resume');
+
+          // Update URL to reflect the loaded session with full artifact ID
+          navigate(`/colab/${fullArtifactId}`, { replace: true });
+
+          console.log('✓ Session loaded from URL successfully!');
+          setIsRunning(false);
+        } catch (err) {
+          console.error('Failed to auto-load session:', err);
+          alert('Failed to load session: ' + (err as Error).message);
+          setIsRunning(false);
+          // Fallback: show modal for manual configuration
+          setShowSessionModal(true);
+        }
+      };
+
+      autoStartSession();
+    }
+  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server]);
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +222,32 @@ const ColabPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Load images from artifact for cloud-only mode (upload or resume without local folder)
+  useEffect(() => {
+    const loadImagesFromArtifact = async () => {
+      if (dataArtifactId && !imageFolderHandle && artifactManager) {
+        try {
+          setIsLoadingImages(true);
+          console.log('Loading images from artifact for cloud-only mode...');
+          const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: 'input_images',
+            _rkwargs: true
+          });
+          const imageNames = files.map((f: any) => f.name);
+          setImageList(imageNames);
+          console.log(`Loaded ${imageNames.length} images from artifact`);
+        } catch (error) {
+          console.error('Error loading images from artifact:', error);
+          setImageList([]);
+        } finally {
+          setIsLoadingImages(false);
+        }
+      }
+    };
+    loadImagesFromArtifact();
+  }, [dataArtifactId, imageFolderHandle, artifactManager]);
 
   // Update images when folder is mounted (for local mode only)
   useEffect(() => {
@@ -197,7 +358,7 @@ const ColabPage: React.FC = () => {
   };
 
   const handleUploadAll = async () => {
-    if (!imageFolderHandle || !executeCode || !dataArtifactId || !artifactManager) {
+    if (!server || !annotationURL) {
       console.error('Missing required dependencies for upload');
       return;
     }
@@ -205,74 +366,31 @@ const ColabPage: React.FC = () => {
     try {
       console.log(`Uploading ${imageList.length} images to cloud...`);
 
-      for (let i = 0; i < imageList.length; i++) {
-        const imageName = imageList[i];
-        const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
+      // Extract service ID from annotation URL
+      const configMatch = annotationURL.match(/config=([^&]+)/);
+      if (!configMatch) {
+        throw new Error('Could not extract service ID from annotation URL');
+      }
+      const config = JSON.parse(decodeURIComponent(configMatch[1]));
+      const serviceId = config.imageProviderId;
 
-        try {
-          // Read file from local folder
-          const fileHandle = await imageFolderHandle.getFileHandle(imageName);
-          const file = await fileHandle.getFile();
-          const arrayBuffer = await file.arrayBuffer();
-          const uint8Array = new Uint8Array(arrayBuffer);
-          const base64 = btoa(String.fromCharCode(...Array.from(uint8Array)));
+      // Get the data provider service
+      const dataService = await server.getService(serviceId);
 
-          // Convert to PNG via Python
-          const convertCode = `
-from PIL import Image
-import io
-import base64
+      // Call the service function to upload all local images
+      const result = await dataService.upload_local_images_to_artifact();
 
-try:
-    input_data = base64.b64decode('${base64}')
-    img = Image.open(io.BytesIO(input_data))
+      console.log(`Upload result: ${result.success}/${result.total} succeeded, ${result.failed} failed`);
 
-    # Convert to RGB if needed
-    if img.mode != 'RGB':
-        if img.mode == 'RGBA':
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-            img = background
-        else:
-            img = img.convert('RGB')
-
-    # Save as PNG
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG')
-    png_bytes = buffer.getvalue()
-    print(base64.b64encode(png_bytes).decode('ascii'), end='')
-except Exception as e:
-    print(f"ERROR: {e}")
-`;
-
-          let pngBase64 = '';
-          await executeCode(convertCode, {
-            onOutput: (output: any) => {
-              const trimmed = output.content?.trim() || '';
-              if (trimmed && !trimmed.startsWith('ERROR:')) {
-                pngBase64 = trimmed;
-              }
-            }
-          });
-
-          if (pngBase64) {
-            // Upload to artifact
-            const pngBuffer = Uint8Array.from(atob(pngBase64), c => c.charCodeAt(0));
-            const blob = new Blob([pngBuffer], { type: 'image/png' });
-            await artifactManager.put_file(
-              `${dataArtifactId}/input_images/${baseName}.png`,
-              blob
-            );
-            console.log(`Uploaded ${i + 1}/${imageList.length}: ${imageName}`);
-          }
-        } catch (error) {
-          console.error(`Error uploading ${imageName}:`, error);
-        }
+      if (result.failed > 0) {
+        console.error('Upload errors:', result.errors);
+        alert(`Upload completed with ${result.failed} failure(s). Check console for details.`);
+      } else {
+        console.log('All images uploaded successfully. Session converted to cloud mode.');
       }
 
       // Update data source type to 'upload'
       setDataSourceType('upload');
-      console.log('All images uploaded successfully. Session converted to cloud mode.');
     } catch (error) {
       console.error('Error during upload all:', error);
       alert('Failed to upload images. Check console for details.');
@@ -282,6 +400,9 @@ except Exception as e:
   const progressPercentage = annotationsList.length > 0 && imageList.length > 0
     ? Math.round((annotationsList.length / imageList.length) * 100)
     : 0;
+
+  // Check if we're loading a session from URL
+  const isLoadingSession = sessionId && (!isReady || !user?.email || !artifactManager);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
@@ -328,8 +449,52 @@ except Exception as e:
           </div>
         </div>
 
+        {/* Loading Session Overlay */}
+        {isLoadingSession && (
+          <div className="max-w-3xl mx-auto mb-6">
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200/60 rounded-xl p-6 shadow-md">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+                  <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-purple-900 mb-2">Loading Session...</h3>
+                  <p className="text-sm text-gray-700 mb-3">
+                    Session ID: <code className="bg-white/60 px-2 py-0.5 rounded text-xs font-mono">{sessionId}</code>
+                  </p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex items-center gap-2">
+                      {kernelStatus === 'idle' ? (
+                        <span className="text-emerald-600">✓ Python kernel ready</span>
+                      ) : kernelStatus === 'starting' ? (
+                        <span className="text-blue-600">⏳ Starting Python kernel...</span>
+                      ) : (
+                        <span className="text-gray-600">○ Python kernel</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user?.email ? (
+                        <span className="text-emerald-600">✓ User logged in</span>
+                      ) : (
+                        <span className="text-amber-600">⏳ Please log in...</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {artifactManager ? (
+                        <span className="text-emerald-600">✓ Artifact manager connected</span>
+                      ) : (
+                        <span className="text-blue-600">⏳ Connecting to server...</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Login Info - Vibrant */}
-        {!user?.email && (
+        {!user?.email && !isLoadingSession && (
           <div className="max-w-3xl mx-auto mb-6">
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 rounded-xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
@@ -446,6 +611,8 @@ except Exception as e:
               dataSourceType={dataSourceType}
               imageFolderHandle={imageFolderHandle}
               executeCode={executeCode}
+              annotationURL={annotationURL}
+              server={server}
               onDelete={() => setShowDeleteModal(true)}
               onUploadAll={handleUploadAll}
             />
@@ -527,21 +694,29 @@ except Exception as e:
           setIsRunning={setIsRunning}
           executeCode={executeCode}
           mountDirectory={mountDirectory}
+          writeFilesToPyodide={writeFilesToPyodide}
           setAnnotationURL={setAnnotationURL}
           setDataArtifactId={setDataArtifactId}
           setSessionLabel={setLabel}
           setSessionName={setSessionName}
           setDataSourceType={setDataSourceType}
           setImageFolderHandle={setImageFolderHandle}
+          onSessionCreated={(artifactId) => {
+            // Update URL to reflect the created session
+            navigate(`/colab/${artifactId}`, { replace: true });
+          }}
           server={server}
           user={user}
           artifactManager={artifactManager}
+          resumeArtifactId={resumeArtifactId}
         />
       )}
 
       {showShareModal && annotationURL && (
         <ShareModal
           annotationURL={annotationURL}
+          label={label}
+          dataArtifactId={dataArtifactId}
           setShowShareModal={setShowShareModal}
         />
       )}
@@ -558,13 +733,8 @@ except Exception as e:
       {showTrainingModal && (
         <TrainingModal
           setShowTrainingModal={setShowTrainingModal}
-          imageFolderHandle={imageFolderHandle}
-          annotationsFolderHandle={annotationsFolderHandle}
           dataArtifactId={dataArtifactId}
           label={label}
-          setIsRunning={setIsRunning}
-          executeCode={executeCode}
-          artifactManager={artifactManager}
           server={server}
         />
       )}
