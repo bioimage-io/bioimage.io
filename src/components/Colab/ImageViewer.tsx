@@ -90,8 +90,11 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                   // Get the service
                   const imageService = await server.getService(serviceId);
 
-                  // Call get_local_image_base64
-                  const base64Data = await imageService.get_local_image_base64(selectedImage);
+                  // Call get_local_image_base64 with proper kwargs
+                  const base64Data = await imageService.get_local_image_base64({
+                    images_path: selectedImage,
+                    _rkwargs: true
+                  });
 
                   setImageUrl(`data:image/png;base64,${base64Data}`);
                 } else {
