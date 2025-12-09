@@ -50,6 +50,7 @@ const Training: React.FC<TrainingProps> = ({
   } | null>(null);
   const [storedArtifactId, setStoredArtifactId] = useState<string | null>(null);
   const [datasetInfo, setDatasetInfo] = useState<any>(null);
+  const [storedLabel, setStoredLabel] = useState<string | null>(label || null);
 
   // Initialize storedArtifactId from dataArtifactId prop (for new training sessions)
   useEffect(() => {
@@ -65,7 +66,7 @@ const Training: React.FC<TrainingProps> = ({
 
     const fetchDatasetInfo = async () => {
       try {
-        const artifactManager = await server.getService('bioimage-io/artifact-manager');
+        const artifactManager = await server.getService('public/artifact-manager');
         const datasetArtifact = await artifactManager.read({
           artifact_id: storedArtifactId,
           stage: true,
@@ -267,15 +268,30 @@ const Training: React.FC<TrainingProps> = ({
       console.log('Getting cellpose-finetuning service...');
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
-      console.log('Starting training with artifact:', dataArtifactId);
+      console.log('Starting training with artifact:', artifactToUse);
       setTrainingProgress('Starting training...');
 
-      const maskFolder = label ? `masks_${label}` : 'annotations';
+      // Use stored label to ensure consistency across multiple continue operations
+      const labelToUse = storedLabel || label;
+      const maskFolder = labelToUse ? `masks_${labelToUse}` : 'annotations';
+
+      // Store the label on first training
+      if (!storedLabel && labelToUse) {
+        setStoredLabel(labelToUse);
+      }
 
       // Use session ID if continuing training, otherwise use selected model
       const modelParam = continueFromSession && sessionId ? sessionId : selectedModel;
 
-      const sessionStatus = await cellposeService.start_training({
+      if (continueFromSession && sessionId) {
+        console.log(`Continuing training from session: ${sessionId}`);
+        console.log(`Using artifact: ${artifactToUse}`);
+        console.log(`Using mask folder: ${maskFolder}`);
+      } else {
+        console.log(`Starting new training with model: ${selectedModel}`);
+      }
+
+      const trainingParams = {
         artifact: String(artifactToUse),
         model: String(modelParam),
         train_images: 'input_images/*.png',
@@ -286,7 +302,11 @@ const Training: React.FC<TrainingProps> = ({
         n_samples: null,
         min_train_masks: 1,
         _rkwargs: true,
-      });
+      };
+
+      console.log('Training parameters:', JSON.stringify(trainingParams, null, 2));
+
+      const sessionStatus = await cellposeService.start_training(trainingParams);
 
       const newSessionId = sessionStatus.session_id;
       setSessionId(newSessionId);
