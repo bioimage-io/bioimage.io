@@ -584,6 +584,8 @@ async def test_bmz_models(
     artifact_manager = await server.get_service("public/artifact-manager")
 
     # Fetch all model IDs if not provided
+    # Track whether we're testing all models (for collection update)
+    testing_all_models = model_ids is None
     if model_ids is None:
         url = "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10000"
         async with httpx.AsyncClient() as client:
@@ -613,7 +615,7 @@ async def test_bmz_models(
         test_results_file = result_dir / f"{model_id}.json"
 
         try:
-            print(f"Testing model: {model_id}")
+            print(f"Testing model '{model_id}'...")
             test_results = await asyncio.wait_for(
                 runner.test(
                     model_id=model_id,
@@ -623,11 +625,11 @@ async def test_bmz_models(
                 timeout=300,  # 5 minutes timeout
             )
             model_execution_time = time.time() - model_start_time
-            print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")
+            print(f"Model '{model_id}' tested in {model_execution_time:.2f} seconds")
         except asyncio.TimeoutError:
             model_execution_time = time.time() - model_start_time
             print(
-                f"Model {model_id} timed out after {model_execution_time:.2f} seconds"
+                f"Model '{model_id}' timed out after {model_execution_time:.2f} seconds"
             )
             test_results = create_failed_test_result(
                 model_id, "Test timed out after 5 minutes"
@@ -636,8 +638,7 @@ async def test_bmz_models(
             # Parse the error message to extract clean error information
             test_results = parse_error_message(model_id, str(e))
             model_execution_time = time.time() - model_start_time
-            print(f"Model {model_id} failed after {model_execution_time:.2f} seconds")
-
+            print(f"Model '{model_id}' failed after {model_execution_time:.2f} seconds")
         with open(test_results_file, "w") as f:
             json.dump(test_results, f, indent=2)
 
@@ -705,15 +706,32 @@ async def test_bmz_models(
     )
     total_execution_time = time.time() - start_time
 
-    print(f"Total models tested: {len(model_ids)}")
-    print(f"Total models with valid RDF: {total_rdf_passed}")
-    print(f"Total models with passed test run: {total_inference_passed}")
-    print(f"Total models with reproducible outputs: {total_reproduce_passed}")
-    print(f"Total collection score: {total_collection_score}")
-    print(f"Total execution time: {total_execution_time:.2f} seconds")
+    # Print summary
+    perc_valid_rdf = (total_rdf_passed / len(model_ids)) * 100 if model_ids else 0
+    perc_inference_passed = (
+        (total_inference_passed / len(model_ids)) * 100 if model_ids else 0
+    )
+    perc_reproduce_passed = (
+        (total_reproduce_passed / len(model_ids)) * 100 if model_ids else 0
+    )
+    formatted_time = time.strftime("%H:%M:%S", time.gmtime(total_execution_time))
 
-    # Update collection artifact
-    if update_collection:
+    print(
+        f"Total models with valid RDF: {total_rdf_passed}/{len(model_ids)} ({perc_valid_rdf:.2f}%)"
+    )
+    print(
+        f"Total models with passed test run: {total_inference_passed}/{len(model_ids)} ({perc_inference_passed:.2f}%)"
+    )
+    print(
+        f"Total models with reproducible outputs: {total_reproduce_passed}/{len(model_ids)} ({perc_reproduce_passed:.2f}%)"
+    )
+    print(
+        f"Total collection score: {total_collection_score} (out of {len(model_ids) * 3})"
+    )
+    print(f"Total execution time: {formatted_time} (hh:mm:ss)")
+
+    # Update collection artifact only if all models were tested
+    if update_collection and testing_all_models:
         # Get current artifact to read its manifest
         collection_id = "bioimage-io/bioimage.io"
         print(f"Updating collection artifact ({collection_id}) with test reports")
@@ -755,6 +773,11 @@ async def test_bmz_models(
             type=collection_artifact["type"],
         )
         print(f"Updated artifact {collection_id} with test reports")
+    elif update_collection and not testing_all_models:
+        print(
+            "Skipping collection update: only a subset of models was tested. "
+            "Collection updates are only performed when all models are tested."
+        )
 
 
 def analyze_existing_test_results(result_dir: Path) -> None:
@@ -786,8 +809,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     passed_rdf = 0
     passed_inference = 0
     passed_reproduce = 0
-    total_execution_time = 0
-    n = 0
 
     for json_file in json_files:
         try:
@@ -804,11 +825,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
                 passed_inference += 1
             if test_reports[2]["status"] == "passed":
                 passed_reproduce += 1
-
-            # Try to extract execution time if available
-            if isinstance(test_results, dict) and "execution_time" in test_results:
-                total_execution_time += test_results["execution_time"]
-                n += 1
 
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
@@ -828,13 +844,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     # Calculate average score
     average_score = round(total_score / total_models, 2) if total_models > 0 else 0
 
-    # Calculate average execution time
-    if n == 0:
-        average_execution_time = float("nan")
-        total_execution_time = float("nan")
-    else:
-        average_execution_time = round(total_execution_time / n, 2)
-
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
     print(f"PASSED_RDF={passed_rdf}")
@@ -845,10 +854,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     print(f"REPRODUCE_RATE={reproduce_rate}")
     print(f"TOTAL_SCORE={total_score}")
     print(f"AVERAGE_SCORE={average_score}")
-    print(
-        f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}s ({n} models with time info)"
-    )
-    print(f"AVERAGE_EXECUTION_TIME={average_execution_time:.2f}s")
 
 
 def main():
@@ -912,7 +917,6 @@ def main():
                 update_collection=args.update_collection,
             )
         )
-        print("All models tested successfully.")
 
 
 if __name__ == "__main__":

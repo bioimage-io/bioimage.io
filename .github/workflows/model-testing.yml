@@ -115,11 +115,6 @@ jobs:
           echo "| **Total Score** | $TOTAL_SCORE |" >> $GITHUB_STEP_SUMMARY
           echo "| **Average Score per Model** | ${AVERAGE_SCORE} |" >> $GITHUB_STEP_SUMMARY
 
-          if [ -n "$TOTAL_EXECUTION_TIME" ] && [ "$TOTAL_EXECUTION_TIME" != "0.00" ]; then
-            echo "| **Total Execution Time** | ${TOTAL_EXECUTION_TIME}s |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Average Execution Time** | ${AVERAGE_EXECUTION_TIME}s |" >> $GITHUB_STEP_SUMMARY
-          fi
-
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Test completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
 
