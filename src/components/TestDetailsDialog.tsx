@@ -590,9 +590,30 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               
               return (
                 <Box sx={{ mt: 4 }}>
-                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
-                    Environment
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 500 }}>
+                      Environment
+                    </Typography>
+                    <Chip 
+                      label={type === 'compatibility' ? 'CPU' : 'GPU'} 
+                      size="small"
+                      sx={{
+                        backgroundColor: type === 'compatibility' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(168, 85, 247, 0.1)',
+                        color: type === 'compatibility' ? '#3b82f6' : '#a855f7',
+                        fontWeight: 500,
+                        fontSize: '0.75rem',
+                      }}
+                    />
+                    {type === 'test-report' && (
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <img 
+                          src="/bioengine-icon.svg" 
+                          alt="BioEngine" 
+                          style={{ width: '24px', height: '24px' }}
+                        />
+                      </Box>
+                    )}
+                  </Box>
                   
                   {hasEnv && (
                     <Paper
