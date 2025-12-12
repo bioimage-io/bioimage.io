@@ -22,8 +22,7 @@ const BioEngineGuide: React.FC = () => {
   const [token, setToken] = useState('');
   const [rayAddress, setRayAddress] = useState('');
   const [adminUsers, setAdminUsers] = useState('');
-  const [dataDir, setDataDir] = useState('');
-  const [cacheDir, setCacheDir] = useState('');
+  const [workspaceDir, setWorkspaceDir] = useState('');
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
   const [interactiveMode, setInteractiveMode] = useState(false);
@@ -61,24 +60,24 @@ const BioEngineGuide: React.FC = () => {
       return '';
     }
 
-    // Get the base cache directory
-    let baseCache = cacheDir;
-    if (!baseCache) {
+    // Get the base workspace directory
+    let baseWorkspace = workspaceDir;
+    if (!baseWorkspace) {
       if (os === 'windows') {
-        baseCache = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
+        baseWorkspace = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
       } else {
-        baseCache = '$HOME/.bioengine';
+        baseWorkspace = '$HOME/.bioengine';
       }
     }
 
     // Remove trailing slash if present and append /images
-    const normalizedCache = baseCache.endsWith('/') || baseCache.endsWith('\\')
-      ? baseCache.slice(0, -1)
-      : baseCache;
+    const normalizedWorkspace = baseWorkspace.endsWith('/') || baseWorkspace.endsWith('\\')
+      ? baseWorkspace.slice(0, -1)
+      : baseWorkspace;
 
     return os === 'windows'
-      ? `${normalizedCache}\\images`
-      : `${normalizedCache}/images`;
+      ? `${normalizedWorkspace}\\images`
+      : `${normalizedWorkspace}/images`;
   };
 
 
@@ -120,37 +119,37 @@ const BioEngineGuide: React.FC = () => {
 
     // Mode-specific arguments
     if (mode === 'single-machine') {
-      args.push(`--head_num_cpus ${cpus}`);
+      args.push(`--head-num-cpus ${cpus}`);
       if (hasGpu) {
-        args.push(`--head_num_gpus ${gpus}`);
+        args.push(`--head-num-gpus ${gpus}`);
       }
     } else if (mode === 'external-cluster' && rayAddress) {
-      args.push(`--connection_address ${rayAddress}`);
+      args.push(`--connection-address ${rayAddress}`);
       // Add port configuration for external cluster
       if (clientServerPort && clientServerPort !== '10001') {
-        args.push(`--client_server_port ${clientServerPort}`);
+        args.push(`--client-server-port ${clientServerPort}`);
       }
       if (servePort && servePort !== '8000') {
-        args.push(`--serve_port ${servePort}`);
+        args.push(`--serve-port ${servePort}`);
       }
     }
 
     // Advanced arguments
     if (workspace) args.push(`--workspace ${workspace}`);
-    if (serverUrl) args.push(`--server_url ${serverUrl}`);
+    if (serverUrl) args.push(`--server-url ${serverUrl}`);
     if (token) args.push(`--token ${token}`);
 
     // Handle admin users - only add flag if users are specified
     if (adminUsers) {
       if (adminUsers === '*') {
-        args.push(`--admin_users "*"`);
+        args.push(`--admin-users "*"`);
       } else {
         const users = adminUsers.split(',').map(u => u.trim()).join(' ');
-        args.push(`--admin_users ${users}`);
+        args.push(`--admin-users ${users}`);
       }
     }
 
-    if (clientId) args.push(`--client_id ${clientId}`);
+    if (clientId) args.push(`--client-id ${clientId}`);
 
     // Add custom image if specified
     if (customImage) args.push(`--image ${customImage}`);
@@ -159,9 +158,8 @@ const BioEngineGuide: React.FC = () => {
 
     // SLURM mode uses the bash script instead of Docker
     if (mode === 'slurm') {
-      // Add cache and data directories for SLURM mode only
-      if (cacheDir) args.push(`--cache_dir ${cacheDir}`);
-      if (dataDir) args.push(`--data_dir ${dataDir}`);
+      // Add workspace directory for SLURM mode only
+      if (workspaceDir) args.push(`--workspace-dir ${workspaceDir}`);
 
       const slurmArgsString = args.length > 0 ? args.join(' ') : '';
 
@@ -181,28 +179,28 @@ const BioEngineGuide: React.FC = () => {
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
-    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.5.4';
+    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.5.18';
 
     // Build volume mounts
     let volumeMounts = '';
     const mounts: string[] = [];
 
-    // Handle cache directory mount
-    if (cacheDir) {
-      // User specified a custom cache directory - mount it directly to /.bioengine
+    // Handle workspace directory mount
+    if (workspaceDir) {
+      // User specified a custom workspace directory - mount it directly to /.bioengine
       if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-        mounts.push(`--bind ${cacheDir}:/.bioengine`);
+        mounts.push(`--bind ${workspaceDir}:/.bioengine`);
       } else {
-        mounts.push(`-v ${cacheDir}:/.bioengine`);
+        mounts.push(`-v ${workspaceDir}:/.bioengine`);
       }
     } else {
-      // No custom cache directory - mount default ~/.bioengine to /.bioengine
+      // No custom workspace directory - mount default ~/.bioengine to /.bioengine
       if (os === 'windows') {
-        const hostCachePath = runAsRoot ? `C:\\.bioengine` : '%USERPROFILE%\\.bioengine';
+        const hostWorkspacePath = runAsRoot ? `C:\\.bioengine` : '%USERPROFILE%\\.bioengine';
         if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-          mounts.push(`--bind ${hostCachePath}:/.bioengine`);
+          mounts.push(`--bind ${hostWorkspacePath}:/.bioengine`);
         } else {
-          mounts.push(`-v ${hostCachePath}:/.bioengine`);
+          mounts.push(`-v ${hostWorkspacePath}:/.bioengine`);
         }
       } else {
         if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
@@ -213,16 +211,6 @@ const BioEngineGuide: React.FC = () => {
       }
     }
 
-    // Handle data directory mount
-    if (dataDir) {
-      // User specified a data directory - mount it directly to /data
-      if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
-        mounts.push(`--bind ${dataDir}:/data`);
-      } else {
-        mounts.push(`-v ${dataDir}:/data`);
-      }
-    }
-
     volumeMounts = mounts.join(' ');
 
     // Create directory creation commands - only for default directories
@@ -230,12 +218,12 @@ const BioEngineGuide: React.FC = () => {
     if (os === 'windows') {
       const dirs: string[] = [];
 
-      // Always create cache directory
-      if (cacheDir) {
-        dirs.push(`"${cacheDir}"`);
+      // Always create workspace directory
+      if (workspaceDir) {
+        dirs.push(`"${workspaceDir}"`);
       } else {
-        const cachePath = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
-        dirs.push(`"${cachePath}"`);
+        const workspacePath = runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine';
+        dirs.push(`"${workspacePath}"`);
       }
 
       if (dirs.length > 0) {
@@ -244,9 +232,9 @@ const BioEngineGuide: React.FC = () => {
     } else {
       const dirs: string[] = [];
 
-      // Always create cache directory
-      if (cacheDir) {
-        dirs.push(`"${cacheDir}"`);
+      // Always create workspace directory
+      if (workspaceDir) {
+        dirs.push(`"${workspaceDir}"`);
       } else {
         dirs.push('$HOME/.bioengine');
       }
@@ -379,8 +367,7 @@ ${workspace ? `- **Workspace**: ${workspace}` : ''}
 ${serverUrl ? `- **Server URL**: ${serverUrl}` : ''}
 ${token ? `- **Token**: [CONFIGURED]` : ''}
 ${adminUsers ? `- **Admin Users**: ${adminUsers}` : '- **Admin Users**: Default (logged-in user)'}
-${dataDir ? `- **Data Directory**: ${dataDir}` : ''}
-${cacheDir ? `- **Cache Directory**: ${cacheDir}` : ''}
+${workspaceDir ? `- **Workspace Directory**: ${workspaceDir}` : ''}
 ${customImage ? `- **Custom Image**: ${customImage}` : ''}
 ${platformOverride ? `- **Platform Override**: ${platformOverride}` : ''}
 ${clientId ? `- **Client ID**: ${clientId}` : ''}
@@ -394,24 +381,14 @@ ${commandText}
 
 \`\`\`
 python -m bioengine.worker --help
-usage: __main__.py [-h] --mode MODE [--admin_users EMAIL [EMAIL ...]] [--cache_dir PATH]
-                   [--ray_cache_dir PATH] [--startup_applications JSON [JSON ...]]
-                   [--monitoring_interval_seconds SECONDS] [--dashboard_url URL]
-                   [--log_file PATH] [--debug] [--graceful_shutdown_timeout SECONDS]
-                   [--server_url URL] [--workspace NAME] [--token TOKEN] [--client_id ID]
-                   [--head_node_address ADDRESS] [--head_node_port PORT]
-                   [--node_manager_port PORT] [--object_manager_port PORT]
-                   [--redis_shard_port PORT] [--serve_port PORT] [--dashboard_port PORT]
-                   [--client_server_port PORT] [--redis_password PASSWORD]
-                   [--head_num_cpus COUNT] [--head_num_gpus COUNT]
-                   [--head_memory_in_gb GB] [--runtime_env_pip_cache_size_gb GB]
-                   [--no_ray_cleanup] [--image IMAGE] [--worker_cache_dir PATH]
-                   [--default_num_gpus COUNT] [--default_num_cpus COUNT]
-                   [--default_mem_in_gb_per_cpu GB] [--default_time_limit TIME]
-                   [--further_slurm_args ARG [ARG ...]] [--min_workers COUNT]
-                   [--max_workers COUNT] [--scale_up_cooldown_seconds SECONDS]
-                   [--scale_down_check_interval_seconds SECONDS]
-                   [--scale_down_threshold_seconds SECONDS]
+usage: __main__.py [-h] --mode MODE [--admin-users EMAIL [EMAIL ...]] [--workspace-dir PATH] [--ray-workspace-dir PATH] [--startup-applications JSON [JSON ...]]
+                   [--monitoring-interval-seconds SECONDS] [--dashboard-url URL] [--log-file PATH] [--debug] [--graceful-shutdown-timeout SECONDS] [--server-url URL]
+                   [--workspace NAME] [--token TOKEN] [--client-id ID] [--head-node-address ADDRESS] [--head-node-port PORT] [--node-manager-port PORT]
+                   [--object-manager-port PORT] [--redis-shard-port PORT] [--serve-port PORT] [--dashboard-port PORT] [--client-server-port PORT] [--redis-password PASSWORD]
+                   [--head-num-cpus COUNT] [--head-num-gpus COUNT] [--head-memory-in-gb GB] [--runtime-env-pip-cache-size-gb GB] [--no-ray-cleanup] [--image IMAGE]
+                   [--worker-workspace-dir PATH] [--default-num-gpus COUNT] [--default-num-cpus COUNT] [--default-mem-in-gb-per-cpu GB] [--default-time-limit TIME]
+                   [--further-slurm-args ARG [ARG ...]] [--min-workers COUNT] [--max-workers COUNT] [--scale-up-cooldown-seconds SECONDS]
+                   [--scale-down-check-interval-seconds SECONDS] [--scale-down-threshold-seconds SECONDS]
 
 BioEngine Worker - Enterprise AI Model Deployment Platform
 
@@ -421,152 +398,105 @@ options:
 Core Options:
   Basic worker configuration
 
-  --mode MODE           Deployment mode: 'single-machine' for local Ray cluster, 'slurm'
-                        for HPC clusters with SLURM job scheduling, 'external-cluster' for
-                        connecting to an existing Ray cluster
-  --admin_users EMAIL [EMAIL ...]
-                        List of user emails/IDs with administrative privileges for worker
-                        management. If not specified, defaults to the authenticated user
-                        from Hypha login.
-  --cache_dir PATH      Directory for worker cache, temporary files, and Ray data storage.
-                        Also used to detect running data servers for dataset access.
-                        Should be accessible across worker nodes in distributed
-                        deployments.
-  --ray_cache_dir PATH  Directory for Ray cluster cache when connecting to an external Ray
-                        cluster. Only used in 'external-cluster' mode. This allows the
-                        remote Ray cluster to use a different cache directory than the
-                        local machine. If not specified, uses the same directory as
-                        --cache_dir. Not applicable for 'single-machine' or 'slurm' modes.
-  --startup_applications JSON [JSON ...]
-                        List of applications to deploy automatically during worker
-                        startup. Each element should be a JSON string with deployment
-                        configuration. Example: '{"artifact_id": "my_model",
-                        "application_id": "my_app"}'
-  --monitoring_interval_seconds SECONDS
-                        Interval in seconds for worker status monitoring and health
-                        checks. Lower values provide faster response but increase
-                        overhead.
-  --dashboard_url URL   Base URL of the BioEngine dashboard for worker management
-                        interfaces.
-  --log_file PATH       Path to the log file. If set to 'off', logging will only go to
-                        console. If not specified (None), a log file will be created in
-                        '<cache_dir>/logs'.
-  --debug               Enable debug-level logging for detailed troubleshooting and
-                        development. Increases log verbosity significantly.
-  --graceful_shutdown_timeout SECONDS
+  --mode MODE           Deployment mode: 'single-machine' for local Ray cluster, 'slurm' for HPC clusters with SLURM job scheduling, 'external-cluster' for connecting to an
+                        existing Ray cluster
+  --admin-users EMAIL [EMAIL ...]
+                        List of user emails/IDs with administrative privileges for worker management. If not specified, defaults to the authenticated user from Hypha login.
+  --workspace-dir PATH  Directory for worker workspace, temporary files, and Ray data storage. Also used to detect running data servers for dataset access. Should be
+                        accessible across worker nodes in distributed deployments.
+  --ray-workspace-dir PATH
+                        Directory for Ray cluster workspace when connecting to an external Ray cluster. Only used in 'external-cluster' mode. This allows the remote Ray
+                        cluster to use a different workspace directory than the local machine. If not specified, uses the same directory as --workspace-dir. Not applicable for
+                        'single-machine' or 'slurm' modes.
+  --startup-applications JSON [JSON ...]
+                        List of applications to deploy automatically during worker startup. Each element should be a JSON string with deployment configuration. Example:
+                        '{"artifact_id": "my_model", "application_id": "my_app"}'
+  --monitoring-interval-seconds SECONDS
+                        Interval in seconds for worker status monitoring and health checks. Lower values provide faster response but increase overhead.
+  --dashboard-url URL   Base URL of the BioEngine dashboard for worker management interfaces.
+  --log-file PATH       Path to the log file. If set to 'off', logging will only go to console. If not specified (None), a log file will be created in '<workspace_dir>/logs'.
+  --debug               Enable debug-level logging for detailed troubleshooting and development. Increases log verbosity significantly.
+  --graceful-shutdown-timeout SECONDS
                         Timeout in seconds for graceful shutdown operations.
 
 Hypha Options:
   Server connection and authentication
 
-  --server_url URL      URL of the Hypha server for service registration and remote
-                        access. Must be accessible from the deployment environment.
-  --workspace NAME      Hypha workspace name for service isolation and organization. If
-                        not specified, uses the workspace associated with the
-                        authentication token.
-  --token TOKEN         Authentication token for Hypha server access. If not provided,
-                        will use the HYPHA_TOKEN environment variable or prompt for
-                        interactive login. Recommend using a long-lived token for
-                        production deployments.
-  --client_id ID        Unique client identifier for Hypha connection. If not specified,
-                        an identifier will be generated automatically to ensure unique
-                        registration.
+  --server-url URL      URL of the Hypha server for service registration and remote access. Must be accessible from the deployment environment.
+  --workspace NAME      Hypha workspace name for service isolation and organization. If not specified, uses the workspace associated with the authentication token.
+  --token TOKEN         Authentication token for Hypha server access. If not provided, will use the HYPHA_TOKEN environment variable or prompt for interactive login. Recommend
+                        using a long-lived token for production deployments.
+  --client-id ID        Unique client identifier for Hypha connection. If not specified, an identifier will be generated automatically to ensure unique registration.
 
 Ray Cluster Options:
   Cluster networking and resource configuration
 
-  --head_node_address ADDRESS
-                        IP address of the Ray head node. For external-cluster mode, this
-                        specifies the cluster to connect to. If not set in other modes,
-                        uses the first available system IP address.
-  --head_node_port PORT
-                        Port for Ray head node and GCS (Global Control Service) server.
-                        Must be accessible from all worker nodes.
-  --node_manager_port PORT
-                        Port for Ray node manager services. Used for inter-node
-                        communication and coordination.
-  --object_manager_port PORT
-                        Port for Ray object manager service. Handles distributed object
-                        storage and transfer between nodes.
-  --redis_shard_port PORT
-                        Port for Redis sharding in Ray's internal metadata storage. Used
-                        for cluster state management.
-  --serve_port PORT     Port for Ray Serve HTTP endpoint serving deployed models and
-                        applications. This is where model inference requests are handled.
-  --dashboard_port PORT
-                        Port for Ray dashboard web interface. Provides cluster monitoring
-                        and debugging capabilities.
-  --client_server_port PORT
-                        Port for Ray client server connections. Used by external Ray
-                        clients to connect to the cluster.
-  --redis_password PASSWORD
-                        Password for Ray cluster Redis authentication. If not specified, a
-                        secure random password will be generated automatically.
-  --head_num_cpus COUNT
-                        Number of CPU cores allocated to the head node for task execution.
-                        Set to 0 to reserve head node for coordination only.
-  --head_num_gpus COUNT
-                        Number of GPU devices allocated to the head node for task
-                        execution. Typically 0 to reserve GPUs for worker nodes.
-  --head_memory_in_gb GB
-                        Memory allocation in GB for head node task execution. If not
-                        specified, Ray will auto-detect available memory.
-  --runtime_env_pip_cache_size_gb GB
-                        Size limit in GB for Ray runtime environment pip package cache.
-                        Larger cache improves environment setup time.
-  --no_ray_cleanup      Skip cleanup of previous Ray cluster processes and data. Use with
-                        caution as it may cause port conflicts or resource issues.
+  --head-node-address ADDRESS
+                        IP address of the Ray head node. For external-cluster mode, this specifies the cluster to connect to. If not set in other modes, uses the first
+                        available system IP address.
+  --head-node-port PORT
+                        Port for Ray head node and GCS (Global Control Service) server. Must be accessible from all worker nodes.
+  --node-manager-port PORT
+                        Port for Ray node manager services. Used for inter-node communication and coordination.
+  --object-manager-port PORT
+                        Port for Ray object manager service. Handles distributed object storage and transfer between nodes.
+  --redis-shard-port PORT
+                        Port for Redis sharding in Ray's internal metadata storage. Used for cluster state management.
+  --serve-port PORT     Port for Ray Serve HTTP endpoint serving deployed models and applications. This is where model inference requests are handled.
+  --dashboard-port PORT
+                        Port for Ray dashboard web interface. Provides cluster monitoring and debugging capabilities.
+  --client-server-port PORT
+                        Port for Ray client server connections. Used by external Ray clients to connect to the cluster.
+  --redis-password PASSWORD
+                        Password for Ray cluster Redis authentication. If not specified, a secure random password will be generated automatically.
+  --head-num-cpus COUNT
+                        Number of CPU cores allocated to the head node for task execution. Set to 0 to reserve head node for coordination only.
+  --head-num-gpus COUNT
+                        Number of GPU devices allocated to the head node for task execution. Typically 0 to reserve GPUs for worker nodes.
+  --head-memory-in-gb GB
+                        Memory allocation in GB for head node task execution. If not specified, Ray will auto-detect available memory.
+  --runtime-env-pip-cache-size-gb GB
+                        Size limit in GB for Ray runtime environment pip package cache. Larger cache improves environment setup time.
+  --no-ray-cleanup      Skip cleanup of previous Ray cluster processes and data. Use with caution as it may cause port conflicts or resource issues.
 
 SLURM Job Options:
   HPC job scheduling and worker deployment
 
-  --image IMAGE         Container image for SLURM worker jobs. Should include all required
-                        dependencies and be accessible on compute nodes.
-  --worker_cache_dir PATH
-                        Cache directory path mounted to worker containers in SLURM jobs.
-                        Must be accessible from compute nodes. Required for SLURM mode.
-  --default_num_gpus COUNT
-                        Default number of GPU devices to request per SLURM worker job. Can
-                        be overridden per deployment.
-  --default_num_cpus COUNT
-                        Default number of CPU cores to request per SLURM worker job.
-                        Should match typical model inference requirements.
-  --default_mem_in_gb_per_cpu GB
-                        Default memory allocation in GB per CPU core for SLURM workers.
-                        Total memory = num_cpus * mem_per_cpu.
-  --default_time_limit TIME
-                        Default time limit for SLURM worker jobs in "HH:MM:SS" format.
-                        Jobs will be terminated after this duration.
-  --further_slurm_args ARG [ARG ...]
-                        Additional SLURM sbatch arguments for specialized cluster
-                        configurations. Example: "--partition=gpu" "--qos=high-priority"
+  --image IMAGE         Container image for SLURM worker jobs. Should include all required dependencies and be accessible on compute nodes.
+  --worker-workspace-dir PATH
+                        Workspace directory path mounted to worker containers in SLURM jobs. Must be accessible from compute nodes. Required for SLURM mode.
+  --default-num-gpus COUNT
+                        Default number of GPU devices to request per SLURM worker job. Can be overridden per deployment.
+  --default-num-cpus COUNT
+                        Default number of CPU cores to request per SLURM worker job. Should match typical model inference requirements.
+  --default-mem-in-gb-per-cpu GB
+                        Default memory allocation in GB per CPU core for SLURM workers. Total memory = num_cpus * mem_per_cpu.
+  --default-time-limit TIME
+                        Default time limit for SLURM worker jobs in "HH:MM:SS" format. Jobs will be terminated after this duration.
+  --further-slurm-args ARG [ARG ...]
+                        Additional SLURM sbatch arguments for specialized cluster configurations. Example: "--partition=gpu" "--qos=high-priority"
 
 Ray Autoscaler Options:
   Automatic worker scaling behavior
 
-  --min_workers COUNT   Minimum number of worker nodes to maintain in the cluster. Workers
-                        below this threshold will be started immediately.
-  --max_workers COUNT   Maximum number of worker nodes allowed in the cluster. Prevents
-                        unlimited scaling and controls costs.
-  --scale_up_cooldown_seconds SECONDS
-                        Cooldown period in seconds between scaling up operations. Prevents
-                        rapid scaling oscillations.
-  --scale_down_check_interval_seconds SECONDS
-                        Interval in seconds between checks for scaling down idle workers.
-                        More frequent checks enable faster response to load changes.
-  --scale_down_threshold_seconds SECONDS
-                        Time threshold in seconds before scaling down idle worker nodes.
-                        Longer thresholds reduce churn but may waste resources.
+  --min-workers COUNT   Minimum number of worker nodes to maintain in the cluster. Workers below this threshold will be started immediately.
+  --max-workers COUNT   Maximum number of worker nodes allowed in the cluster. Prevents unlimited scaling and controls costs.
+  --scale-up-cooldown-seconds SECONDS
+                        Cooldown period in seconds between scaling up operations. Prevents rapid scaling oscillations.
+  --scale-down-check-interval-seconds SECONDS
+                        Interval in seconds between checks for scaling down idle workers. More frequent checks enable faster response to load changes.
+  --scale-down-threshold-seconds SECONDS
+                        Time threshold in seconds before scaling down idle worker nodes. Longer thresholds reduce churn but may waste resources.
 
 Examples:
   # SLURM HPC deployment with autoscaling
-  __main__.py --mode slurm --max_workers 10 --admin_users admin@institution.edu
+  __main__.py --mode slurm --max-workers 10 --admin-users admin@institution.edu
 
-  # Single-machine development deployment
-  __main__.py --mode single-machine --debug --cache_dir ./cache
+  # Single-machine development deployment  
+  __main__.py --mode single-machine --debug --workspace-dir ./workspace
 
   # Connect to existing Ray cluster
-  __main__.py --mode external-cluster --head_node_address 10.0.0.100
+  __main__.py --mode external-cluster --head-node-address 10.0.0.100
 
 For detailed documentation, visit: https://github.com/aicell-lab/bioengine-worker
 \`\`\`
@@ -907,45 +837,6 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
             )}
 
-            {/* Data Directory */}
-            {(mode === 'single-machine' || mode === 'slurm') && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Data Directory (Optional)</label>
-                <input
-                  type="text"
-                  value={dataDir}
-                  onChange={(e) => {
-                    let value = e.target.value;
-                    // Validate path format based on OS
-                    if (value) {
-                      if (os === 'windows') {
-                        // Windows: must start with C:\
-                        if (!value.startsWith('C:\\')) {
-                          if (value.startsWith('/')) {
-                            // Convert Unix-style to Windows
-                            value = 'C:' + value.replace(/\//g, '\\');
-                          } else if (!value.startsWith('C:')) {
-                            value = 'C:\\' + value;
-                          }
-                        }
-                      } else {
-                        // Unix: must start with /
-                        if (!value.startsWith('/')) {
-                          value = '/' + value;
-                        }
-                      }
-                    }
-                    setDataDir(value);
-                  }}
-                  placeholder={os === 'windows' ? 'C:\\path\\to\\data' : '/path/to/data'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Optional directory to mount as /data in the container. {os === 'windows' ? 'Windows path starting with C:\\' : 'Absolute path starting with /'}
-                </p>
-              </div>
-            )}
-
             {/* Shared Memory Size */}
             {mode === 'single-machine' && (
               <div>
@@ -1097,10 +988,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Cache Directory</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Workspace Directory</label>
                 <input
                   type="text"
-                  value={cacheDir}
+                  value={workspaceDir}
                   onChange={(e) => {
                     let value = e.target.value;
                     // Validate path format based on OS
@@ -1122,13 +1013,13 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                         }
                       }
                     }
-                    setCacheDir(value);
+                    setWorkspaceDir(value);
                   }}
-                  placeholder={os === 'windows' ? 'C:\\path\\to\\cache' : '/path/to/cache'}
+                  placeholder={os === 'windows' ? 'C:\\path\\to\\workspace' : '/path/to/workspace'}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  {os === 'windows' ? 'Windows path starting with C:\\' : 'Absolute path starting with /'}
+                  Directory for worker workspace, temporary files, and Ray data storage. Defaults to ~/.bioengine if not specified. {os === 'windows' ? 'Windows path starting with C:\\' : 'Absolute path starting with /'}
                 </p>
               </div>
 
@@ -1188,7 +1079,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   type="text"
                   value={customImage}
                   onChange={(e) => setCustomImage(e.target.value)}
-                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.5.4"
+                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.5.18"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom container image to use. Leave empty for default bioengine-worker image</p>
@@ -1260,7 +1151,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                     // Build optional args
                     let optionalArgs = '';
                     if (serverUrl) {
-                      optionalArgs += `        - "--server_url"\n        - "${serverUrl}"\n`;
+                      optionalArgs += `        - "--server-url"\n        - "${serverUrl}"\n`;
                     }
                     if (workspace) {
                       optionalArgs += `        - "--workspace"\n        - "${workspace}"\n`;
@@ -1269,10 +1160,10 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                       optionalArgs += `        - "--token"\n        - "${token}"\n`;
                     }
                     if (adminUsers) {
-                      optionalArgs += `        - "--admin_users"\n        - "${adminUsers}"\n`;
+                      optionalArgs += `        - "--admin-users"\n        - "${adminUsers}"\n`;
                     }
                     if (clientId) {
-                      optionalArgs += `        - "--client_id"\n        - "${clientId}"\n`;
+                      optionalArgs += `        - "--client-id"\n        - "${clientId}"\n`;
                     }
 
                     const yaml = `apiVersion: apps/v1
@@ -1293,14 +1184,14 @@ spec:
     spec:
       containers:
       - name: bioengine-worker
-        image: ghcr.io/aicell-lab/bioengine-worker:0.5.4
+        image: ghcr.io/aicell-lab/bioengine-worker:0.5.18
         args:
         - "python"
         - "-m"
         - "bioengine.worker"
         - "--mode"
         - "external-cluster"
-        - "--connection_address"
+        - "--connection-address"
         - "${rayAddress || 'ray://raycluster-head-svc:10001'}"
 ${optionalArgs}        resources:
           requests:
@@ -1351,24 +1242,24 @@ spec:
     spec:
       containers:
       - name: bioengine-worker
-        image: ghcr.io/aicell-lab/bioengine-worker:0.5.4
+        image: ghcr.io/aicell-lab/bioengine-worker:0.5.18
         args:
         - "python"
         - "-m"
         - "bioengine.worker"
         - "--mode"
         - "external-cluster"
-        - "--connection_address"
+        - "--connection-address"
         - "${rayAddress || 'ray://raycluster-head-svc:10001'}"${serverUrl ? `
-        - "--server_url"
+        - "--server-url"
         - "${serverUrl}"` : ''}${workspace ? `
         - "--workspace"
         - "${workspace}"` : ''}${token ? `
         - "--token"
         - "${token}"` : ''}${adminUsers ? `
-        - "--admin_users"
+        - "--admin-users"
         - "${adminUsers}"` : ''}${clientId ? `
-        - "--client_id"
+        - "--client-id"
         - "${clientId}"` : ''}
         volumeMounts:
         - name: bioengine-cache
@@ -1440,17 +1331,13 @@ spec:
                 if (mode !== 'slurm') {
                   let mountInfo = '\n\n# Volume mounts:';
 
-                  if (cacheDir) {
-                    mountInfo += `\n# - ${cacheDir} → /.bioengine (cache)`;
+                  if (workspaceDir) {
+                    mountInfo += `\n# - ${workspaceDir} → /.bioengine (workspace)`;
                   } else {
                     const hostPath = os === 'windows'
                       ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine')
                       : '$HOME/.bioengine';
-                    mountInfo += `\n# - ${hostPath} → /.bioengine (cache)`;
-                  }
-
-                  if (dataDir) {
-                    mountInfo += `\n# - ${dataDir} → /data (data)`;
+                    mountInfo += `\n# - ${hostPath} → /.bioengine (workspace)`;
                   }
 
                   commandText += mountInfo;
@@ -1553,10 +1440,7 @@ spec:
                   )}
                   {interactiveMode && mode !== 'slurm' && <li>Interactive mode: Run the {containerRuntime} command first, then execute the Python command inside the container</li>}
                   {interactiveMode && mode === 'slurm' && <li>Interactive mode: You can inspect the script before running it</li>}
-                  <li>A directory will be created in your home directory for cache storage and mounted to /.bioengine in the container</li>
-                  {dataDir && mode !== 'slurm' && <li>
-                    Your specified data directory ({dataDir}) will be mounted to /data in the container
-                  </li>}
+                  <li>A directory will be created in your home directory for workspace storage and mounted to /.bioengine in the container</li>
                   <li>You'll need to authenticate via browser when prompted (see authentication section above)</li>
                   <li>After running, the worker will be available at the service ID shown in the terminal</li>
                   <li>Use the service ID to connect to your BioEngine worker from this interface</li>
