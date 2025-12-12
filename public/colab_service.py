@@ -549,9 +549,19 @@ async def register_service(
     # images_path can be None for cloud-only mode
     if images_path is not None:
         images_path = Path(images_path)
+        console.log(f"Checking local folder: {images_path}")
+        console.log(f"  exists(): {images_path.exists()}")
+        console.log(f"  is_dir(): {images_path.is_dir() if images_path.exists() else 'N/A'}")
+        try:
+            if images_path.exists():
+                console.log(f"  Contents: {list(images_path.iterdir())[:5]}")  # Show first 5 items
+        except Exception as e:
+            console.log(f"  Error listing contents: {e}")
         use_local_folder = images_path and images_path.exists() and images_path.is_dir()
     else:
         use_local_folder = False
+
+    console.log(f"use_local_folder: {use_local_folder}")
 
     if use_local_folder:
         # Local folder mode: check for images in /mnt
