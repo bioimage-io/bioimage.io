@@ -10,6 +10,7 @@ interface ShareModalProps {
 const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtifactId, setShowShareModal }) => {
   const [copyFeedback, setCopyFeedback] = useState('Copy URL');
   const [copySessionFeedback, setCopySessionFeedback] = useState('Copy Session URL');
+  const [showInstructions, setShowInstructions] = useState(false);
   const qrCodeRef = useRef<HTMLDivElement>(null);
 
   // Generate session resumption URL - always include full workspace/alias for shareable sessions
@@ -66,8 +67,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-lg w-full mx-4 border border-white/20">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-white/20">
         <div className="p-6 border-b border-gray-200/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
@@ -179,24 +180,39 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
             </div>
           )}
 
-          {/* Instructions */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start">
+          {/* Instructions - Collapsible */}
+          <div className="border border-blue-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setShowInstructions(!showInstructions)}
+              className="w-full p-4 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center justify-between"
+            >
+              <div className="flex items-center">
+                <svg
+                  className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <p className="text-sm font-semibold text-blue-800">How to use</p>
+              </div>
               <svg
-                className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5"
+                className={`w-5 h-5 text-blue-600 transition-transform ${showInstructions ? 'rotate-180' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
-              <div>
-                <p className="text-sm font-semibold text-blue-800 mb-1">How to use:</p>
+            </button>
+            {showInstructions && (
+              <div className="p-4 bg-blue-50 border-t border-blue-200">
                 <ul className="text-sm text-blue-700 space-y-1">
                   <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together</li>
                   {sessionURL && <li>• <strong>Session Resume URL:</strong> Bookmark or share to resume this session later</li>}
@@ -204,7 +220,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
                   <li>• Keep this browser tab open while collaborators work</li>
                 </ul>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
