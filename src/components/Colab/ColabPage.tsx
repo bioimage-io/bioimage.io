@@ -73,6 +73,12 @@ const ColabPage: React.FC = () => {
 
   // Handle session ID from URL path parameter - auto-load without showing modal
   useEffect(() => {
+    // Skip auto-load if we already have an active session (e.g., just created via SessionModal)
+    if (annotationURL && dataArtifactId) {
+      console.log('Session already active, skipping URL auto-load');
+      return;
+    }
+
     if (sessionId && isReady && user?.email && artifactManager && executeCode && !hasLoadedUrlSession) {
       console.log('Auto-loading session from URL:', sessionId);
       setHasLoadedUrlSession(true);
@@ -223,7 +229,7 @@ print("Service registered successfully", end='')
 
       autoStartSession();
     }
-  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server]);
+  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server, annotationURL, dataArtifactId]);
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
