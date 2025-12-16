@@ -217,10 +217,11 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
             {showInstructions && (
               <div className="p-4 bg-blue-50 border-t border-blue-200">
                 <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together</li>
-                  {sessionURL && <li>• <strong>Session Resume URL:</strong> Bookmark or share to resume this session later</li>}
+                  <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together in real-time</li>
+                  {sessionURL && <li>• <strong>Session Resume URL:</strong> Use to resume this session later (requires images to be uploaded to cloud first)</li>}
                   <li>• Annotations are saved to the cloud automatically</li>
-                  <li>• Keep this browser tab open while collaborators work</li>
+                  <li>• <strong>Important:</strong> Keep this browser tab open while collaborators use the Annotation URL</li>
+                  <li>• For Session Resume URL to work, click "Upload All" first to save images to cloud</li>
                 </ul>
               </div>
             )}
