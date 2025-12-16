@@ -156,19 +156,54 @@ async def get_image(
 ) -> str:
     """Get a random image from the folder or artifact and return its URL."""
     console.log(f"\n🔵 get_image called")
+    console.log(f"   images_path: {images_path}")
 
     # Check if we should use local folder or remote artifact
-    use_local_folder = images_path and images_path.exists() and images_path.is_dir()
+    # We check if images_path was configured (not None) and if it exists
+    local_folder_configured = images_path is not None
+    local_folder_available = False
+    filenames = []
 
-    if use_local_folder:
+    if local_folder_configured:
+        try:
+            # First check if the path exists
+            path_exists = images_path.exists()
+            path_is_dir = images_path.is_dir() if path_exists else False
+            console.log(f"   Local folder configured: {images_path}")
+            console.log(f"   Path exists: {path_exists}, is_dir: {path_is_dir}")
+
+            if path_exists and path_is_dir:
+                # Try to list files with retry logic for filesystem sync issues
+                for attempt in range(3):
+                    filenames = list_image_files(images_path)
+                    if filenames:
+                        console.log(f"   Found {len(filenames)} images in local folder (attempt {attempt + 1})")
+                        local_folder_available = True
+                        break
+                    else:
+                        console.log(f"   No images found on attempt {attempt + 1}, retrying...")
+                        import asyncio
+                        await asyncio.sleep(0.2)  # Small delay before retry
+
+                if not filenames:
+                    console.log(f"   Local folder exists but no images found after retries")
+            else:
+                console.log(f"   Local folder not available (exists={path_exists}, is_dir={path_is_dir})")
+        except Exception as e:
+            console.log(f"   Error checking local folder: {e}")
+            import traceback
+            traceback.print_exc()
+            local_folder_available = False
+
+    if local_folder_available:
         # Local folder mode: read from /mnt and upload to artifact
         console.log(f"Using local folder: {images_path}")
-        filenames = list_image_files(images_path)
-        if not filenames:
-            raise ValueError(f"No images found with supported types in {images_path}")
+        # filenames is already populated from the check above
 
-        r = np.random.randint(max(len(filenames) - 1, 1))
+        # Select a random image
+        r = np.random.randint(len(filenames))
         image_path = filenames[r]
+        console.log(f"  Selected image: {image_path.name} (index {r} of {len(filenames)})")
 
         # Read image from local folder
         image = read_image(image_path)
@@ -198,15 +233,26 @@ async def get_image(
                 artifact_id, file_path=f"input_images/{image_name}"
             )
             await pyodide.http.pyfetch(upload_url, method="PUT", body=img_bytes)
+            console.log(f"✓ Image {image_name} uploaded to artifact")
     else:
         # Remote mode: get random image from artifact's input_images/
-        console.log(f"Local folder not found, using artifact images")
+        console.log(f"Local folder not available, using artifact images")
+        console.log(f"   local_folder_configured: {local_folder_configured}")
         try:
             remote_files = await artifact_manager.list_files(
                 artifact_id, dir_path="input_images", stage=True
             )
             if not remote_files:
-                raise ValueError(f"No images found in artifact {artifact_id}/input_images")
+                # More helpful error message
+                if local_folder_configured:
+                    raise ValueError(
+                        f"No images found in artifact {artifact_id}/input_images. "
+                        f"Local folder was configured at {images_path} but is not accessible. "
+                        f"This may happen if the browser tab running the session was closed or refreshed. "
+                        f"Please restart the annotation session from the original browser."
+                    )
+                else:
+                    raise ValueError(f"No images found in artifact {artifact_id}/input_images")
 
             # Pick a random image from the artifact
             r = np.random.randint(len(remote_files))
