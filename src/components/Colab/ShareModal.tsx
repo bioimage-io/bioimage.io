@@ -68,8 +68,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-white/20">
-        <div className="p-6 border-b border-gray-200/50">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full max-h-[90vh] border border-white/20 flex flex-col">
+        {/* Fixed Header */}
+        <div className="p-6 border-b border-gray-200/50 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-3">
@@ -95,7 +96,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto flex-1">
+          <div className="p-6 space-y-4">
           {/* Label Info */}
           <div className="text-center mb-2">
             <span className="text-sm text-gray-500">Annotation Label:</span>
@@ -222,9 +225,11 @@ const ShareModal: React.FC<ShareModalProps> = ({ annotationURL, label, dataArtif
               </div>
             )}
           </div>
+          </div>
         </div>
 
-        <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3">
+        {/* Fixed Footer */}
+        <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3 flex-shrink-0">
           <button
             onClick={handleCopyURL}
             className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
