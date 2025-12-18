@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 interface ClusterData {
   head_address: string;
   start_time: number | "N/A";
-  mode: string;
+  mode?: string;
   cluster: {
     total_gpu: number;
     available_gpu: number;
@@ -37,11 +37,12 @@ interface ClusterData {
 
 interface BioEngineClusterResourcesProps {
   rayCluster: ClusterData;
+  workerMode?: string;
   currentTime: number;
   formatTimeInfo: (timestamp: number) => { formattedTime: string, uptime: string };
 }
 
-const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, currentTime, formatTimeInfo }) => {
+const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, workerMode, currentTime, formatTimeInfo }) => {
   const [nodesExpanded, setNodesExpanded] = useState(false);
   const [pendingExpanded, setPendingExpanded] = useState(false);
 
@@ -51,10 +52,19 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     return (bytes / 1024 / 1024 / 1024).toFixed(1);
   };
 
+  // Format numbers with reasonable precision (for CPU/GPU counts)
+  const formatNumber = (value: number): string => {
+    if (Number.isInteger(value)) {
+      return value.toString();
+    }
+    // Show up to 2 decimal places, but remove trailing zeros
+    return parseFloat(value.toFixed(2)).toString();
+  };
+
   const ResourceBar: React.FC<{ available: number; total: number; color: string; unit?: string }> = ({ available, total, color, unit = "" }) => {
     const used = total - available;
-    const displayUsed = unit === "GB" ? formatBytes(used) : used;
-    const displayTotal = unit === "GB" ? formatBytes(total) : total;
+    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+    const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     if (total === 0) {
       return (
@@ -80,6 +90,20 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     );
   };
 
+  // Helper function to format cluster mode
+  const formatClusterMode = (mode: string): string => {
+    switch (mode) {
+      case 'slurm':
+        return 'SLURM';
+      case 'single-machine':
+        return 'Single Machine';
+      case 'external-cluster':
+        return 'External Cluster';
+      default:
+        return mode;
+    }
+  };
+
   const ResourceCard: React.FC<{
     title: string;
     available: number;
@@ -90,8 +114,8 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
   }> = ({ title, available, total, color, bgColor, unit = "" }) => {
     const used = total - available;
     const percentage = total > 0 ? Math.round((used / total) * 100) : 0;
-    const displayUsed = unit === "GB" ? formatBytes(used) : used;
-    const displayTotal = unit === "GB" ? formatBytes(total) : total;
+    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+    const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     return (
       <div className={`${bgColor} rounded-xl p-4`}>
@@ -124,8 +148,42 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2v-8a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-800">Cluster Resources</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Cluster Status</h3>
           </div>
+        </div>
+
+        {/* Cluster Information */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
+          {/* Mode */}
+          {(workerMode || rayCluster.mode) && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Mode</span>
+              <span className="text-sm font-semibold text-gray-900">{formatClusterMode(workerMode || rayCluster.mode || '')}</span>
+            </div>
+          )}
+          {/* Head Address */}
+          {rayCluster.head_address && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Head Address</span>
+              <span className="text-sm font-mono text-gray-900 truncate block" title={rayCluster.head_address}>
+                {rayCluster.head_address}
+              </span>
+            </div>
+          )}
+          {/* Cluster Uptime */}
+          {rayCluster.start_time && rayCluster.start_time !== "N/A" && typeof rayCluster.start_time === 'number' && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Cluster Uptime</span>
+              <span className="text-sm font-semibold text-gray-900">{formatTimeInfo(rayCluster.start_time).uptime}</span>
+            </div>
+          )}
+          {/* Worker Nodes */}
+          {rayCluster.nodes && Object.keys(rayCluster.nodes).length > 0 && (
+            <div>
+              <span className="text-xs font-medium text-gray-500 block">Worker Nodes</span>
+              <span className="text-sm font-semibold text-gray-900">{Object.keys(rayCluster.nodes).length}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">

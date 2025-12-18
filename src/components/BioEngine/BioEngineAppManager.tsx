@@ -85,7 +85,9 @@ const BioEngineAppManager = React.forwardRef<
 name: My New App
 description: A new BioEngine application
 id_emoji: 🚀
-type: application
+type: ray-serve
+authorized_users:
+  - "*"  # Allow all users to access this app
 # Optional: Add documentation and tutorial links
 # documentation: https://example.com/docs
 # tutorial: https://example.com/tutorial
@@ -96,118 +98,78 @@ type: application
 #   - url: https://example.com/guide
 #     label: User Guide
 #     icon: 📖
-deployment_config:
-  name: MyNewApp
-  num_replicas: 1
-  ray_actor_options:
-    num_cpus: 1
-    num_gpus: 0
-  modes:
-    cpu:
-      ray_actor_options:
-        num_cpus: 1
-        num_gpus: 0
-    gpu:
-      ray_actor_options:
-        num_cpus: 1
-        num_gpus: 1
-deployment_class:
-  class_name: MyNewApp
-  python_file: main.py
-  max_num_models_per_replica: 3  # Applies to the method \`_get_model\`
-  exposed_methods:
-    ping:
-      authorized_users: "*"  # Allow all users to ping the model
-      description: "Ping the application to check connectivity"
-    process:
-      authorized_users: "*"  # Allow all users to process data
-      description: "Process some data with the application"
+deployments:
+  - "main:MyNewApp"  # format: filename:ClassName
 `;
 
-  const getDefaultMainPy = () => `# All standard python libraries can be imported at the top of this file.
+  const getDefaultMainPy = () => `# Standard python libraries can be imported at the top
 import asyncio
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict
 
-# All non standard libraries need to be imported in each method where they are used.
+# Ray Serve and Hypha imports
+from ray import serve
+from pydantic import Field
+from hypha_rpc.utils.schema import schema_method
+
+# Non-standard libraries should be imported inside methods where they are used
 
 
+@serve.deployment(
+    ray_actor_options={
+        "num_cpus": 1,
+        "num_gpus": 0,
+        "memory": 2 * 1024**3,  # 2 GB
+        "runtime_env": {
+            "pip": [],  # Add your dependencies here
+        }
+    },
+    max_ongoing_requests=10,
+)
 class MyNewApp:
     """A simple BioEngine application example."""
-    
+
     def __init__(self):
         """Initialize the application."""
         self.start_time = time.time()
         print("MyNewApp initialized successfully!")
 
-    # === Internal Bioengine App Methods ===
-
-    async def _async_init(self) -> None:
+    async def async_init(self) -> None:
         """
-        An optional async initialization method for the deployment. If defined, it will be called
-        when the deployment is started.
-
-        Requirements:
-        - Must be an async method.
-        - Must not accept any arguments.
-        - Must not return any value.
+        Optional async initialization called on startup.
+        Use this for async setup like loading models.
         """
-        # Mock initialization logic
-        print("Initializing DemoDeployment...")
+        print("MyNewApp async initialization complete!")
         await asyncio.sleep(0.01)
 
-    async def _get_model(self, model_id: str) -> Any:
+    async def test_deployment(self) -> None:
         """
-        An optional method to load multiplexed models in a replica. If defined, the decorator
-        \`@ray.serve.multiplexed\` will be added to the method.
-
-        Requirements:
-        - Must be an async method.
-        - Must accept exactly one argument: model_id (str).
-        - Must return the loaded model (can be any type, e.g., a machine learning model).
-
-        The entry \`deployment_class.max_num_models_per_replica = <int>\` in the manifest
-        can be used to change the default maximum number of models per replica (default is 3).
+        Optional health check before marking deployment as ready.
+        Raise an exception if the deployment is not healthy.
         """
-        # Mock model loading logic
-        print(f"Loading model with ID: {model_id}")
-        model = None
+        # Add your health check logic here
+        pass
 
-        return model
-
-    async def _test_deployment(self) -> bool:
-        """
-        An optional method to test the deployment. If defined, it will be called when the deployment
-        is started to check if the deployment is working correctly.
-
-        Requirements:
-        - Must be an async method.
-        - Must not accept any arguments.
-        - Must return a boolean value indicating whether the deployment is working correctly.
-        """
-        try:
-            model = await self._get_model(model_id="test_model")
-            return True
-        except Exception as e:
-            return False
-
-    # === Replace with your own synchronous or asynchronous methods ===
-    
-    def ping(self):
-        """An example method to test connectivity."""
+    @schema_method
+    async def ping(
+        self,
+        message: str = Field("Hello", description="Message to echo back")
+    ) -> Dict[str, Any]:
+        """Ping the application to check connectivity."""
         return {
             "status": "ok",
-            "message": "Hello from MyNewApp!",
+            "message": f"Hello from MyNewApp! You said: {message}",
             "timestamp": datetime.now().isoformat(),
             "uptime": time.time() - self.start_time
         }
-    
-    def process(self, data=None):
-        """An example method to process some data."""
-        if data is None:
-            data = "No data provided"
-        
+
+    @schema_method
+    async def process(
+        self,
+        data: str = Field(..., description="Data to process")
+    ) -> Dict[str, Any]:
+        """Process some data with the application."""
         return {
             "status": "processed",
             "input": data,
@@ -321,9 +283,12 @@ class MyNewApp:
         }
         await artifactManager.delete(editingArtifact.id);
       } else {
-        // Use BioEngine worker's delete_artifact function for worker artifacts
+        // Use BioEngine worker's delete_application function for worker artifacts
         const bioengineWorker = await server.getService(serviceId);
-        await bioengineWorker.delete_artifact(editingArtifact.id);
+        await bioengineWorker.delete_application({
+          artifact_id: editingArtifact.id,
+          _rkwargs: true
+        });
       }
 
       // Close dialogs and refresh
@@ -634,12 +599,18 @@ class MyNewApp:
         // Update the manifest metadata
         await artifactManager.edit({ artifact_id: editingArtifact.id, manifest: manifestObj, _rkwargs: true });
 
-        // Upload all files including manifest.yaml
-        await bioengineWorker.create_artifact({ files: filesToUpload, artifact_id: editingArtifact.id, _rkwargs: true });
+        // Upload all files including manifest.yaml using new save_application API
+        await bioengineWorker.save_application({
+          files: filesToUpload,
+          _rkwargs: true
+        });
 
       } else {
-        // For creating new artifacts, just use create_artifact with files
-        await bioengineWorker.create_artifact({ files: filesToUpload, _rkwargs: true });
+        // For creating new artifacts, use save_application with files
+        await bioengineWorker.save_application({
+          files: filesToUpload,
+          _rkwargs: true
+        });
       }
 
       handleCloseCreateAppDialog();
@@ -696,7 +667,11 @@ class MyNewApp:
       }));
 
       console.log('Creating copy of artifact in user workspace');
-      await bioengineWorker.create_artifact({ files: updatedFiles, _rkwargs: true });
+      // Use new save_application API
+      await bioengineWorker.save_application({
+        files: updatedFiles,
+        _rkwargs: true
+      });
 
       handleCloseCreateAppDialog();
 

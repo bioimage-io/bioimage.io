@@ -68,8 +68,8 @@ jobs:
           ARGS="$ARGS --dry-run"
         fi
 
-        echo "Running: python bioimageio_test_reports.py $ARGS"
-        python bioimageio_test_reports.py $ARGS
+        echo "Running: python -u bioimageio_test_reports.py $ARGS"
+        python -u bioimageio_test_reports.py $ARGS
         EXIT_CODE=$?
 
         if [ $EXIT_CODE -ne 0 ]; then
@@ -92,7 +92,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
 
         cd scripts
-        ANALYSIS_OUTPUT=$(python3 bioimageio_test_reports.py --analyze-results)
+        ANALYSIS_OUTPUT=$(python -u bioimageio_test_reports.py --analyze-results)
         echo "$ANALYSIS_OUTPUT"
 
         eval "$ANALYSIS_OUTPUT"
@@ -114,11 +114,6 @@ jobs:
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **Total Score** | $TOTAL_SCORE |" >> $GITHUB_STEP_SUMMARY
           echo "| **Average Score per Model** | ${AVERAGE_SCORE} |" >> $GITHUB_STEP_SUMMARY
-
-          if [ -n "$TOTAL_EXECUTION_TIME" ] && [ "$TOTAL_EXECUTION_TIME" != "0.00" ]; then
-            echo "| **Total Execution Time** | ${TOTAL_EXECUTION_TIME}s |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Average Execution Time** | ${AVERAGE_EXECUTION_TIME}s |" >> $GITHUB_STEP_SUMMARY
-          fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Test completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY

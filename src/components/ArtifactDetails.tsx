@@ -3,7 +3,7 @@ import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert } from '@mui/material';
+import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert, Accordion, AccordionSummary, AccordionDetails, Paper } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 import LinkIcon from '@mui/icons-material/Link';
@@ -12,12 +12,17 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import UpdateIcon from '@mui/icons-material/Update';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import DevicesIcon from '@mui/icons-material/Devices';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import WarningIcon from '@mui/icons-material/Warning';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
@@ -25,6 +30,7 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
+import { partnerService } from '../services/partnerService';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -35,7 +41,9 @@ import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import TestReportBadge from './TestReportBadge';
 import TestReportDialog from './TestReportDialog';
+import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
+import { useBookmarks } from '../hooks/useBookmarks';
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -65,6 +73,13 @@ const ArtifactDetails = () => {
   const [isStaged, setIsStaged] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
+  const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
+  const [compatibilityData, setCompatibilityData] = useState<any>(null);
+  const [isLoadingCompatibility, setIsLoadingCompatibility] = useState(false);
+  const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
+  const [isCompatibilityDialogOpen, setIsCompatibilityDialogOpen] = useState(false);
+  const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
+  const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -133,6 +148,73 @@ const ArtifactDetails = () => {
       setLatestVersion(selectedResource.versions[selectedResource.versions.length - 1]);
     }
   }, [selectedResource?.versions]);
+
+  // Fetch partner icons
+  useEffect(() => {
+    const loadPartners = async () => {
+      try {
+        await partnerService.fetchPartners();
+      } catch (error) {
+        console.error('Failed to fetch partners:', error);
+      }
+    };
+    loadPartners();
+  }, []);
+
+  // Fetch compatibility data for model artifacts
+  useEffect(() => {
+    const fetchCompatibilityData = async () => {
+      if (selectedResource?.manifest?.type !== 'model') {
+        return;
+      }
+
+      const artifactAlias = selectedResource.id.split('/').pop();
+      const versionString = version === 'stage' ? 'stage' : (version || latestVersion?.version || 'v0');
+
+      if (!artifactAlias) {
+        return;
+      }
+
+      try {
+        setIsLoadingCompatibility(true);
+        setCompatibilityError(null);
+
+        const compatibilityUrl = `https://bioimage-io.github.io/collection/reports/bioimage-io/${artifactAlias}/${versionString}/summary.json`;
+        const response = await fetch(compatibilityUrl);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch compatibility data: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setCompatibilityData(data);
+
+        // Build partner icon map from compatibility data
+        if (data.tests) {
+          const iconMap = new Map<string, string>();
+          for (const softwareName of Object.keys(data.tests)) {
+            // Special case for bioimageio.core
+            if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
+              iconMap.set(softwareName, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg');
+            } else {
+              const icon = partnerService.getPartnerIcon(softwareName);
+              if (icon) {
+                iconMap.set(softwareName, icon);
+              }
+            }
+          }
+          setPartnerIcons(iconMap);
+        }
+      } catch (error) {
+        console.error('Failed to fetch compatibility data:', error);
+        setCompatibilityError(error instanceof Error ? error.message : 'Failed to load compatibility data');
+      } finally {
+        setIsLoadingCompatibility(false);
+      }
+    };
+
+    fetchCompatibilityData();
+  }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
@@ -256,6 +338,29 @@ const ArtifactDetails = () => {
     navigator.clipboard.writeText(id);
     setShowCopied(true);
     setTimeout(() => setShowCopied(false), 2000);
+  };
+
+  const handleBookmark = async () => {
+    if (!isLoggedIn || !selectedResource) {
+      alert('Please login to bookmark artifacts');
+      return;
+    }
+    if (!artifactManager) {
+      alert('Please wait for the system to initialize');
+      return;
+    }
+    try {
+      await toggleBookmark({
+        id: selectedResource.id,
+        name: selectedResource.manifest.name,
+        description: selectedResource.manifest.description,
+        covers: selectedResource.manifest.covers,
+        icon: selectedResource.manifest.icon
+      });
+    } catch (error) {
+      console.error('Error toggling bookmark:', error);
+      alert('Failed to toggle bookmark. Please try again.');
+    }
   };
 
   const handleToggleModelRunner = () => {
@@ -401,14 +506,14 @@ const ArtifactDetails = () => {
               onClick={handleCopyId}
               size="small"
               title="Copy ID"
-              sx={{ 
+              sx={{
                 padding: '8px',
                 backgroundColor: 'rgba(255, 255, 255, 0.7)',
                 backdropFilter: 'blur(4px)',
                 border: '1px solid rgba(255, 255, 255, 0.5)',
                 borderRadius: '12px',
                 transition: 'all 0.3s ease',
-                '&:hover': { 
+                '&:hover': {
                   backgroundColor: 'rgba(255, 255, 255, 0.9)',
                   borderColor: 'rgba(59, 130, 246, 0.3)',
                   transform: 'scale(1.05)',
@@ -421,6 +526,32 @@ const ArtifactDetails = () => {
               <span className="text-green-600 text-sm font-medium animate-fade-in">
                 Copied!
               </span>
+            )}
+            {isLoggedIn && (
+              <IconButton
+                onClick={handleBookmark}
+                size="small"
+                title={isBookmarked(selectedResource.id) ? "Remove bookmark" : "Bookmark"}
+                sx={{
+                  padding: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                  backdropFilter: 'blur(4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.5)',
+                  borderRadius: '12px',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    borderColor: 'rgba(251, 191, 36, 0.3)',
+                    transform: 'scale(1.05)',
+                  }
+                }}
+              >
+                {isBookmarked(selectedResource.id) ? (
+                  <StarIcon sx={{ fontSize: 16, color: 'rgba(251, 191, 36, 1)' }} />
+                ) : (
+                  <StarBorderIcon sx={{ fontSize: 16, color: 'rgba(107, 114, 128, 1)' }} />
+                )}
+              </IconButton>
             )}
           </div>
         </Typography>
@@ -921,7 +1052,252 @@ const ArtifactDetails = () => {
           {/* Files Card - Always show for all artifact types */}
           <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} version={version} />
 
-          {/* Test Reports Card - Only show for models */}
+          {/* Compatibilities Card - Only show for models */}
+          {selectedResource?.manifest?.type === 'model' && (
+            <Card
+              sx={{
+                mb: { xs: 1, sm: 2, md: 3 },
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
+                    <DevicesIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                    Compatibilities
+                  </Typography>
+                </Box>
+
+                {isLoadingCompatibility && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
+                    <CircularProgress size={24} />
+                    <Typography variant="body2" sx={{ ml: 2, color: '#6b7280' }}>
+                      Loading compatibility data...
+                    </Typography>
+                  </Box>
+                )}
+
+                {compatibilityError && !isLoadingCompatibility && (
+                  <Alert severity="info" sx={{ borderRadius: '12px' }}>
+                    Compatibility data not available for this version
+                  </Alert>
+                )}
+
+                {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
+                  <Stack spacing={0.75}>
+                    {/* Test Results - Software with Version Chips */}
+                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (
+                      <>
+                        {Object.entries(compatibilityData.tests).map(([softwareName, versions]: [string, any]) => {
+                          // Check status across all versions
+                          const versionEntries = Object.entries(versions);
+                          
+                          // Sort versions to find the latest one (semantic version sorting)
+                          const sortedVersions = [...versionEntries].sort((a, b) => {
+                            const parseVersion = (v: string) => {
+                              const parts = v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
+                              return parts;
+                            };
+                            const aParts = parseVersion(a[0]);
+                            const bParts = parseVersion(b[0]);
+                            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                              const aVal = aParts[i] || 0;
+                              const bVal = bParts[i] || 0;
+                              if (aVal !== bVal) return bVal - aVal; // Descending order (latest first)
+                            }
+                            return 0;
+                          });
+                          
+                          // Get the latest version's status
+                          const latestVersionData = sortedVersions.length > 0 ? sortedVersions[0][1] as any : null;
+                          const latestPassed = latestVersionData?.status === 'passed';
+                          
+                          const allPassed = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'passed');
+                          const anyPassed = versionEntries.some(([_, versionData]: [string, any]) => versionData.status === 'passed');
+                          const allNotApplicable = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'not-applicable');
+
+                          return (
+                            <Box
+                              key={softwareName}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                                p: 1,
+                                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                                backdropFilter: 'blur(4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '10px',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                                }
+                              }}
+                            >
+                              {allPassed || latestPassed ? (
+                                <CheckCircleIcon
+                                  sx={{
+                                    color: '#22c55e',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              ) : anyPassed ? (
+                                <CheckCircleIcon
+                                  sx={{
+                                    color: '#f59e0b',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              ) : allNotApplicable ? (
+                                <CancelIcon
+                                  sx={{
+                                    color: '#9ca3af',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              ) : (
+                                <CancelIcon
+                                  sx={{
+                                    color: '#ef4444',
+                                    fontSize: 20,
+                                    flexShrink: 0
+                                  }}
+                                />
+                              )}
+                              {partnerIcons.get(softwareName) && (
+                                <Box
+                                  component="img"
+                                  src={partnerIcons.get(softwareName)}
+                                  alt={softwareName}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Special case for bioimageio.core
+                                    if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
+                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/', '_blank', 'noopener,noreferrer');
+                                      return;
+                                    }
+                                    const partner = partnerService.getPartnerByName(softwareName);
+                                    if (partner?.link) {
+                                      window.open(partner.link, '_blank', 'noopener,noreferrer');
+                                    }
+                                  }}
+                                  sx={{
+                                    width: 20,
+                                    height: 20,
+                                    objectFit: 'contain',
+                                    flexShrink: 0,
+                                    cursor: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'pointer' : 'default',
+                                    transition: 'all 0.2s ease',
+                                    '&:hover': {
+                                      transform: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'scale(1.2)' : 'none',
+                                      filter: 'brightness(1.1)'
+                                    }
+                                  }}
+                                  onError={(e) => {
+                                    const img = e.target as HTMLImageElement;
+                                    img.style.display = 'none';
+                                  }}
+                                />
+                              )}
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  minWidth: '100px',
+                                  fontWeight: 500,
+                                  color: '#1f2937',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                {softwareName}
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
+                                {Object.entries(versions).map(([version, versionData]: [string, any]) => {
+                                  const isPassed = versionData.status === 'passed';
+                                  const isNotApplicable = versionData.status === 'not-applicable';
+                                  
+                                  // Determine colors based on status
+                                  const getChipColors = () => {
+                                    if (isPassed) {
+                                      return {
+                                        bg: 'rgba(34, 197, 94, 0.15)',
+                                        color: '#16a34a',
+                                        border: '#22c55e',
+                                        hoverBg: 'rgba(34, 197, 94, 0.25)'
+                                      };
+                                    } else if (isNotApplicable) {
+                                      return {
+                                        bg: 'rgba(156, 163, 175, 0.15)',
+                                        color: '#6b7280',
+                                        border: '#9ca3af',
+                                        hoverBg: 'rgba(156, 163, 175, 0.25)'
+                                      };
+                                    } else {
+                                      return {
+                                        bg: 'rgba(239, 68, 68, 0.15)',
+                                        color: '#dc2626',
+                                        border: '#ef4444',
+                                        hoverBg: 'rgba(239, 68, 68, 0.25)'
+                                      };
+                                    }
+                                  };
+                                  const chipColors = getChipColors();
+                                  
+                                  return (
+                                    <Chip
+                                      key={version}
+                                      label={version}
+                                      size="small"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedCompatibilityTest({
+                                          name: `${softwareName} ${version}`,
+                                          data: versionData
+                                        });
+                                        setIsCompatibilityDialogOpen(true);
+                                      }}
+                                      sx={{
+                                        height: '20px',
+                                        backgroundColor: chipColors.bg,
+                                        color: chipColors.color,
+                                        borderRadius: '4px',
+                                        fontWeight: 600,
+                                        fontSize: '0.65rem',
+                                        border: `1.5px solid ${chipColors.border}`,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        '& .MuiChip-label': {
+                                          px: 0.75,
+                                          py: 0
+                                        },
+                                        '&:hover': {
+                                          backgroundColor: chipColors.hoverBg,
+                                          transform: 'scale(1.05)',
+                                        }
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </Box>
+                            </Box>
+                          );
+                        })}
+                      </>
+                    )}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Test Report Card - Only show for models */}
           {selectedResource?.manifest?.type === 'model' && 
              (() => {
                const testReports = selectedResource?.manifest?.test_reports;
@@ -943,7 +1319,7 @@ const ArtifactDetails = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                   <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
                     <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                    Test Reports
+                    Test Report
                   </Typography>
                   <TestReportBadge
                     artifact={selectedResource}
@@ -1399,6 +1775,17 @@ const ArtifactDetails = () => {
         isLoading={isLoadingTestReport}
         rawErrorContent={rawErrorContent}
         isInvalidJson={isInvalidJson}
+      />
+
+      {/* Compatibility Details Dialog */}
+      <TestDetailsDialog
+        open={isCompatibilityDialogOpen}
+        onClose={() => setIsCompatibilityDialogOpen(false)}
+        data={selectedCompatibilityTest?.data || null}
+        isLoading={false}
+        type="compatibility"
+        partnerName={selectedCompatibilityTest?.name.split(' ')[0] || ''}
+        partnerVersion={selectedCompatibilityTest?.name.split(' ').slice(1).join(' ') || ''}
       />
 
       </Box>

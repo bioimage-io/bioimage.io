@@ -6,7 +6,7 @@ In this part of the documentation different tools and resources related to the B
 `bioimageio.core` is a python package that implements prediction with bioimageio models including standardized pre- and postprocessing operations. These models are described by---and can be loaded with---the bioimageio.spec package.
 In addition bioimageio.core provides functionality to convert model weight formats.
 
-You can find the documentation about the bioimageio.core [here](https://bioimage-io.github.io/core-bioimage-io-python/bioimageio/core.html).
+You can find the documentation about the bioimageio.core [here](https://bioimage-io.github.io/core-bioimage-io-python/).
 And the GitHub repository [here](https://github.com/bioimage-io/core-bioimage-io-python/).
 
 ### Java Deep Learning Library

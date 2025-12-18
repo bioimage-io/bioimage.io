@@ -7,14 +7,21 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 from hypha_rpc import connect_to_server, login
 
 
-def parse_error_entry(content: str) -> Dict[str, Union[str, list]]:
-    """Parse ErrorEntry objects"""
+def parse_error_entry(content: str) -> Dict[str, Union[str, List[str], bool]]:
+    """Parse ErrorEntry objects from string representation.
+
+    Args:
+        content: String representation of an ErrorEntry object.
+
+    Returns:
+        Dictionary containing parsed error entry fields (loc, msg, type, etc.).
+    """
     error_dict = {}
 
     # Extract loc
@@ -53,8 +60,18 @@ def parse_error_entry(content: str) -> Dict[str, Union[str, list]]:
     return error_dict
 
 
-def parse_validation_context_summary(content: str) -> Dict[str, Union[str, bool, dict]]:
-    """Parse ValidationContextSummary objects"""
+def parse_validation_context_summary(
+    content: str,
+) -> Dict[str, Union[str, bool, Dict[str, str]]]:
+    """Parse ValidationContextSummary objects from string representation.
+
+    Args:
+        content: String representation of a ValidationContextSummary object.
+
+    Returns:
+        Dictionary containing parsed context fields (file_name, perform_io_checks,
+        known_files, update_hashes, root).
+    """
     context_dict = {}
 
     # Extract file_name
@@ -91,8 +108,16 @@ def parse_validation_context_summary(content: str) -> Dict[str, Union[str, bool,
     return context_dict
 
 
-def parse_validation_detail(content: str) -> Dict[str, Union[str, list, dict, None]]:
-    """Parse ValidationDetail objects"""
+def parse_validation_detail(content: str) -> Dict[str, Any]:
+    """Parse ValidationDetail objects from string representation.
+
+    Args:
+        content: String representation of a ValidationDetail object.
+
+    Returns:
+        Dictionary containing parsed validation detail fields (name, status,
+        loc, errors, warnings, context, recommended_env, conda_compare).
+    """
     detail_dict = {}
 
     # Extract name
@@ -245,7 +270,14 @@ def parse_validation_detail(content: str) -> Dict[str, Union[str, list, dict, No
 
 
 def parse_installed_package(content: str) -> List[str]:
-    """Parse InstalledPackage objects"""
+    """Parse InstalledPackage objects from string representation.
+
+    Args:
+        content: String representation of an InstalledPackage object.
+
+    Returns:
+        List of [name, version, build, channel] strings.
+    """
     # Extract name
     name_match = re.search(r"name='([^']+)'", content)
     name = name_match.group(1) if name_match else ""
@@ -265,34 +297,53 @@ def parse_installed_package(content: str) -> List[str]:
     return [name, version, build, channel]
 
 
-def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, bool]]:
+def create_failed_test_result(
+    model_id: str, error_msg: str
+) -> Dict[str, Union[str, None, list]]:
     """
-    Parse error messages from bioengine service and extract clean error information.
+    Create a standard failed test result dictionary.
 
     Args:
         model_id: The model ID being tested
-        error_str: The error string from the exception or a dict with test results
+        error_msg: The error message to include
 
     Returns:
-        Dictionary with parsed error information or extracted test result in standard format
+        Dictionary with standard failed test result structure
+    """
+    return {
+        "name": "bioimageio format validation",
+        "source_name": None,
+        "id": model_id,
+        "type": None,
+        "format_version": None,
+        "status": "failed",
+        "details": [{"errors": [{"msg": error_msg}]}],
+        "env": None,
+        "conda_list": None,
+    }
+
+
+def parse_error_message(model_id: str, error_str: str) -> Dict[str, Any]:
+    """Parse error messages from bioengine service and extract clean error information.
+
+    Handles multiple error formats:
+    - Embedded partial test results (ValidationDetail objects)
+    - Simple JSON error patterns
+    - Fallback for unknown formats
+
+    Args:
+        model_id: The model ID being tested.
+        error_str: The error string from the exception.
+
+    Returns:
+        Dictionary with parsed error information in standard test result format,
+        containing keys: name, source_name, id, type, format_version, status,
+        details, env, conda_list.
     """
     if not isinstance(error_str, str):
-        raise ValueError(
-            f"Expected error_str to be a string, got {type(error_str)} for model {model_id}"
+        return create_failed_test_result(
+            model_id, f"Invalid error type: {type(error_str).__name__}"
         )
-
-    if not isinstance(error_str, str):
-        return {
-            "name": "bioimageio format validation",
-            "source_name": None,
-            "id": model_id,
-            "type": None,
-            "format_version": None,
-            "status": "failed",
-            "details": [{"errors": [{"msg": "Unknown error"}]}],
-            "env": None,
-            "conda_list": None,
-        }
 
     # Case 1: Look for embedded partial test result (like serious-lobster)
     # Pattern: model_id is invalid: name='...' source_name='...' id='...' type='...' format_version='...' status='...' details=[...]
@@ -390,53 +441,44 @@ def parse_error_message(model_id: str, error_str: str) -> Dict[str, Union[str, b
     match = re.search(simple_json_pattern, error_str)
     if match:
         error_msg = match.group(1)
-
-        return {
-            "name": "bioimageio format validation",
-            "source_name": None,
-            "id": model_id,
-            "type": None,
-            "format_version": None,
-            "status": "failed",
-            "details": [{"errors": [{"msg": error_msg}]}],
-            "env": None,
-            "conda_list": None,
-        }
+        return create_failed_test_result(model_id, error_msg)
 
     # Case 3: Fallback for any other error format
     print(f"WARNING: Unknown error format for model {model_id}: {error_str}")
-    return {
-        "name": "bioimageio format validation",
-        "source_name": None,
-        "id": model_id,
-        "type": None,
-        "format_version": None,
-        "status": "failed",
-        "details": [{"errors": [{"msg": "Parse error - unknown format"}]}],
-        "env": None,
-        "conda_list": None,
-    }
+    return create_failed_test_result(model_id, error_str)
 
 
 def analyze_test_results(
-    test_result: Union[str, dict],
-) -> List[Dict[str, Union[str, int]]]:
-    """Analyze test results and create test_reports field for manifest"""
+    test_results: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Analyze test results and create test_reports field for manifest.
+
+    Examines the test results to determine pass/fail status for:
+    - RDF validation (bioimageio.spec format validation)
+    - Model inference test run
+    - Reproduce outputs from test inputs
+
+    Args:
+        test_results: Dictionary containing test results with 'details' field.
+
+    Returns:
+        List of test report dictionaries, each with 'name', 'status', and 'runtime' keys.
+    """
     test_report = [
         {"name": "RDF validation", "status": "failed", "runtime": "bioimageio.core"},
         {"name": "Model Test Run", "status": "failed", "runtime": "bioimageio.core"},
         {"name": "Reproduce Outputs", "status": "failed", "runtime": "bioimageio.core"},
     ]
 
-    # If test_result is not a dict, assume all failed
-    if not isinstance(test_result, dict):
+    # If test_results is not a dict, assume all failed
+    if not isinstance(test_results, dict):
         return test_report
 
     # Handle test results with details (both successful and failed)
-    if "details" not in test_result:
+    if "details" not in test_results:
         return test_report
 
-    details = test_result["details"]
+    details = test_results["details"]
 
     # Check RDF validation (bioimageio.spec format validation)
     format_validation_pattern = (
@@ -466,9 +508,8 @@ def analyze_test_results(
         test.get("status") == "passed" for test in inference_tests
     ):
         test_report[1]["status"] = "passed"
-    else:
-        # Test 3 automatically fails if Model Inference fails
-        return test_report
+
+    # There is the case where no inference tests were run; still check reproduce tests
 
     # Check Reproduce Outputs
     reproduce_pattern = r"^Reproduce test outputs from test inputs \([a-zA-Z0-9_]+\)$"
@@ -482,13 +523,25 @@ def analyze_test_results(
     ):
         test_report[2]["status"] = "passed"
 
+        # Automatically pass inference if reproduce passed (in case no inference tests were run)
+        test_report[1]["status"] = "passed"
+
     return test_report
 
 
 def create_test_reports_dict(
-    test_reports: List[Dict[str, Union[str, int]]], execution_time: float
-) -> Dict[str, Union[str, float, List]]:
-    """Create test_reports dictionary with metadata"""
+    test_reports: List[Dict[str, str]], execution_time: float
+) -> Dict[str, Union[str, float, List[Dict[str, str]]]]:
+    """Create test_reports dictionary with metadata.
+
+    Args:
+        test_reports: List of test report dictionaries with name, status, runtime.
+        execution_time: Total execution time in seconds.
+
+    Returns:
+        Dictionary with 'created_at' (ISO timestamp), 'execution_time' (rounded),
+        and 'reports' (the test reports list).
+    """
     return {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "execution_time": round(execution_time, 2),
@@ -497,11 +550,26 @@ def create_test_reports_dict(
 
 
 async def test_bmz_models(
-    model_ids: List[str] = None,
-    result_dir: Path = None,
+    model_ids: Optional[List[str]] = None,
+    result_dir: Optional[Path] = None,
     update_artifacts: bool = True,
     update_collection: bool = True,
-):
+) -> None:
+    """Test BioImage.IO models and generate test reports.
+
+    Connects to the Hypha server, runs tests on specified models (or all models
+    if none specified), and optionally updates artifact manifests with results.
+
+    Args:
+        model_ids: List of model IDs to test. If None, fetches all models.
+        result_dir: Directory to store JSON test results. Defaults to
+            ../bioimageio_test_reports relative to this script.
+        update_artifacts: Whether to update individual model artifacts.
+        update_collection: Whether to update the collection artifact.
+
+    Raises:
+        RuntimeError: If fetching model IDs fails.
+    """
     start_time = time.time()
 
     server_url = "https://hypha.aicell.io"
@@ -516,6 +584,8 @@ async def test_bmz_models(
     artifact_manager = await server.get_service("public/artifact-manager")
 
     # Fetch all model IDs if not provided
+    # Track whether we're testing all models (for collection update)
+    testing_all_models = model_ids is None
     if model_ids is None:
         url = "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10000"
         async with httpx.AsyncClient() as client:
@@ -545,20 +615,30 @@ async def test_bmz_models(
         test_results_file = result_dir / f"{model_id}.json"
 
         try:
-            print(f"Testing model: {model_id}")
-            test_results = await runner.test(
-                model_id=model_id,
-                stage=False,
-                skip_cache=False,  # New download automatically checks for updates
+            print(f"Testing model '{model_id}'...")
+            test_results = await asyncio.wait_for(
+                runner.test(
+                    model_id=model_id,
+                    stage=False,
+                    skip_cache=False,  # New download automatically checks for updates
+                ),
+                timeout=300,  # 5 minutes timeout
             )
             model_execution_time = time.time() - model_start_time
-            print(f"Model {model_id} tested in {model_execution_time:.2f} seconds")
+            print(f"Model '{model_id}' tested in {model_execution_time:.2f} seconds")
+        except asyncio.TimeoutError:
+            model_execution_time = time.time() - model_start_time
+            print(
+                f"Model '{model_id}' timed out after {model_execution_time:.2f} seconds"
+            )
+            test_results = create_failed_test_result(
+                model_id, "Test timed out after 5 minutes"
+            )
         except Exception as e:
             # Parse the error message to extract clean error information
             test_results = parse_error_message(model_id, str(e))
             model_execution_time = time.time() - model_start_time
-            print(f"Model {model_id} failed after {model_execution_time:.2f} seconds")
-
+            print(f"Model '{model_id}' failed after {model_execution_time:.2f} seconds")
         with open(test_results_file, "w") as f:
             json.dump(test_results, f, indent=2)
 
@@ -626,15 +706,32 @@ async def test_bmz_models(
     )
     total_execution_time = time.time() - start_time
 
-    print(f"Total models tested: {len(model_ids)}")
-    print(f"Total models with valid RDF: {total_rdf_passed}")
-    print(f"Total models with passed test run: {total_inference_passed}")
-    print(f"Total models with reproducible outputs: {total_reproduce_passed}")
-    print(f"Total collection score: {total_collection_score}")
-    print(f"Total execution time: {total_execution_time:.2f} seconds")
+    # Print summary
+    perc_valid_rdf = (total_rdf_passed / len(model_ids)) * 100 if model_ids else 0
+    perc_inference_passed = (
+        (total_inference_passed / len(model_ids)) * 100 if model_ids else 0
+    )
+    perc_reproduce_passed = (
+        (total_reproduce_passed / len(model_ids)) * 100 if model_ids else 0
+    )
+    formatted_time = time.strftime("%H:%M:%S", time.gmtime(total_execution_time))
 
-    # Update collection artifact
-    if update_collection:
+    print(
+        f"Total models with valid RDF: {total_rdf_passed}/{len(model_ids)} ({perc_valid_rdf:.2f}%)"
+    )
+    print(
+        f"Total models with passed test run: {total_inference_passed}/{len(model_ids)} ({perc_inference_passed:.2f}%)"
+    )
+    print(
+        f"Total models with reproducible outputs: {total_reproduce_passed}/{len(model_ids)} ({perc_reproduce_passed:.2f}%)"
+    )
+    print(
+        f"Total collection score: {total_collection_score} (out of {len(model_ids) * 3})"
+    )
+    print(f"Total execution time: {formatted_time} (hh:mm:ss)")
+
+    # Update collection artifact only if all models were tested
+    if update_collection and testing_all_models:
         # Get current artifact to read its manifest
         collection_id = "bioimage-io/bioimage.io"
         print(f"Updating collection artifact ({collection_id}) with test reports")
@@ -676,10 +773,27 @@ async def test_bmz_models(
             type=collection_artifact["type"],
         )
         print(f"Updated artifact {collection_id} with test reports")
+    elif update_collection and not testing_all_models:
+        print(
+            "Skipping collection update: only a subset of models was tested. "
+            "Collection updates are only performed when all models are tested."
+        )
 
 
 def analyze_existing_test_results(result_dir: Path) -> None:
-    """Analyze existing test results and output summary for GitHub Actions"""
+    """Analyze existing test results and output summary for GitHub Actions.
+
+    Reads all JSON test result files from the given directory, calculates
+    statistics, and prints environment variables suitable for GitHub Actions.
+
+    Args:
+        result_dir: Path to directory containing test result JSON files.
+
+    Outputs (printed to stdout):
+        TOTAL_MODELS, PASSED_RDF, PASSED_INFERENCE, PASSED_REPRODUCE,
+        RDF_RATE, MODEL_RATE, REPRODUCE_RATE, TOTAL_SCORE, AVERAGE_SCORE,
+        TOTAL_EXECUTION_TIME, AVERAGE_EXECUTION_TIME
+    """
     if not result_dir.exists():
         print("TOTAL_MODELS=0")
         return
@@ -695,15 +809,14 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     passed_rdf = 0
     passed_inference = 0
     passed_reproduce = 0
-    total_execution_time = 0
 
     for json_file in json_files:
         try:
             with open(json_file, "r") as f:
-                test_result = json.load(f)
+                test_results = json.load(f)
 
             # Analyze the test result
-            test_reports = analyze_test_results(test_result)
+            test_reports = analyze_test_results(test_results)
 
             # Count passed tests
             if test_reports[0]["status"] == "passed":
@@ -712,10 +825,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
                 passed_inference += 1
             if test_reports[2]["status"] == "passed":
                 passed_reproduce += 1
-
-            # Try to extract execution time if available
-            if isinstance(test_result, dict) and "execution_time" in test_result:
-                total_execution_time += test_result["execution_time"]
 
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
@@ -735,11 +844,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     # Calculate average score
     average_score = round(total_score / total_models, 2) if total_models > 0 else 0
 
-    # Calculate average execution time
-    average_execution_time = (
-        round(total_execution_time / total_models, 2) if total_models > 0 else 0
-    )
-
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
     print(f"PASSED_RDF={passed_rdf}")
@@ -750,8 +854,6 @@ def analyze_existing_test_results(result_dir: Path) -> None:
     print(f"REPRODUCE_RATE={reproduce_rate}")
     print(f"TOTAL_SCORE={total_score}")
     print(f"AVERAGE_SCORE={average_score}")
-    print(f"TOTAL_EXECUTION_TIME={total_execution_time:.2f}")
-    print(f"AVERAGE_EXECUTION_TIME={average_execution_time}")
 
 
 def main():
@@ -815,7 +917,6 @@ def main():
                 update_collection=args.update_collection,
             )
         )
-        print("All models tested successfully.")
 
 
 if __name__ == "__main__":

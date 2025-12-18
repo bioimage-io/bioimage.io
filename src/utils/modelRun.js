@@ -546,13 +546,19 @@ export class ModelRunnerEngine {
     
     const outputSpec = this.rdf.outputs[0];
     const isImageOutput = checkImg2Img(outputSpec);
-    
-    let result = outTensor;
-    if (isImageOutput) {
-      const cropedTensor = padder.crop(outTensor, padArr);
-      result = cropedTensor;
+
+    if (!isImageOutput) {
+      return outTensor;
     }
-    return result;
+
+    // Adjust padding array to match output tensor rank
+    // This handles cases where the model removes dimensions (e.g., batch dimension)
+    const adjustedPadArr = outTensor.shape.length === padArr.length
+      ? padArr
+      : padArr.slice(padArr.length - outTensor.shape.length);
+
+    const cropedTensor = padder.crop(outTensor, adjustedPadArr);
+    return cropedTensor;
   }
 
   /**

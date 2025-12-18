@@ -139,7 +139,14 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         let publicArtifacts: ArtifactType[] = [];
 
         try {
-          publicArtifacts = await artifactManager.list({ parent_id: publicCollectionId, type: "application", _rkwargs: true });
+          publicArtifacts = await artifactManager.list({
+            parent_id: publicCollectionId,
+            filters: {
+              type: "application",
+              manifest: { type: "ray-serve" }
+            },
+            _rkwargs: true
+          });
           console.log(`Public artifacts found in ${publicCollectionId}:`, publicArtifacts.map(a => a.id));
         } catch (err) {
           console.warn(`Could not fetch public artifacts: ${err}`);
@@ -151,7 +158,14 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         if (userWorkspace) {
           const userCollectionId = `${userWorkspace}/applications`;
           try {
-            userArtifacts = await artifactManager.list({ parent_id: userCollectionId, type: "application", _rkwargs: true });
+            userArtifacts = await artifactManager.list({
+              parent_id: userCollectionId,
+              filters: {
+                type: "application",
+                manifest: { type: "ray-serve" }
+              },
+              _rkwargs: true
+            });
             console.log(`User artifacts found in ${userCollectionId}:`, userArtifacts.map(a => a.id));
           } catch (collectionErr) {
             console.log(`User collection ${userCollectionId} does not exist, skipping`);
@@ -328,7 +342,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
       {/* Artifacts List */}
       {availableArtifacts.length > 0 && (
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {availableArtifacts.map((artifact) => (
             <ArtifactCard
               key={artifact.id}

@@ -12,6 +12,7 @@ import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
 import { Pagination } from './ArtifactGrid';
 import SearchBar from './SearchBar';
+import BookmarkedArtifacts from './BookmarkedArtifacts';
 
 interface Artifact {
   id: string;
@@ -226,7 +227,7 @@ const MyArtifacts: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col min-h-screen">
       {/* Admin Info Box */}
       {isCollectionAdmin && (
         <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4 mx-4 mt-4">
@@ -302,8 +303,9 @@ const MyArtifacts: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
+      <div className="flex-1">
+        <div className="max-w-screen-lg mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {loading ? (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
             <div className="text-xl font-semibold text-gray-700">Loading artifacts...</div>
@@ -328,44 +330,74 @@ const MyArtifacts: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {artifacts.map((artifact) => (
-              <div key={artifact.id}>
-                <MyArtifactCard
-                  id={artifact.id}
-                  title={artifact.manifest?.name || artifact.alias}
-                  status={artifact.manifest?.status}
-                  description={artifact.manifest?.description || 'No description'}
-                  tags={[
-                    `v${artifact.versions?.length || 0}`,
-                    ...(artifact.manifest?.tags || [])
-                  ]}
-                  image={artifact.manifest?.cover || undefined}
-                  downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
-                  onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
-                  onDelete={() => {
-                    setArtifactToDelete(artifact);
-                    setIsDeleteDialogOpen(true);
-                  }}
-                  onRequestDeletion={() => handleRequestDeletion(artifact)}
-                  isStaged={!!artifact.staging}
-                  artifactType={artifact.type}
-                  isCollectionAdmin={isCollectionAdmin}
-                  deletionRequestLoading={deletionRequestLoading === artifact.id}
-                />
+          <>
+            {/* My Uploaded Artifacts Section Header */}
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-3">
+                <svg
+                  className="w-8 h-8 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  />
+                </svg>
+                <h2 className="text-2xl font-light text-gray-900">My Uploaded Artifacts</h2>
+                <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium">
+                  {myArtifactsTotalItems} {myArtifactsTotalItems === 1 ? 'item' : 'items'}
+                </span>
               </div>
-            ))}
-          </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl">
+              {artifacts.map((artifact) => (
+                <div key={artifact.id}>
+                  <MyArtifactCard
+                    id={artifact.id}
+                    title={artifact.manifest?.name || artifact.alias}
+                    status={artifact.manifest?.status}
+                    description={artifact.manifest?.description || 'No description'}
+                    tags={[
+                      `v${artifact.versions?.length || 0}`,
+                      ...(artifact.manifest?.tags || [])
+                    ]}
+                    image={artifact.manifest?.cover || undefined}
+                    downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
+                    onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
+                    onDelete={() => {
+                      setArtifactToDelete(artifact);
+                      setIsDeleteDialogOpen(true);
+                    }}
+                    onRequestDeletion={() => handleRequestDeletion(artifact)}
+                    isStaged={!!artifact.staging}
+                    artifactType={artifact.type}
+                    isCollectionAdmin={isCollectionAdmin}
+                    deletionRequestLoading={deletionRequestLoading === artifact.id}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {artifacts.length > 0 && (
+              <Pagination
+                currentPage={myArtifactsPage}
+                totalPages={Math.ceil(myArtifactsTotalItems / itemsPerPage)}
+                totalItems={myArtifactsTotalItems}
+                onPageChange={handlePageChange}
+              />
+            )}
+
+            {/* Divider and Bookmarks Section */}
+            <div className="my-8 border-t border-gray-200"></div>
+            <BookmarkedArtifacts searchQuery={searchQuery} />
+          </>
         )}
-        
-        {artifacts.length > 0 && (
-          <Pagination
-            currentPage={myArtifactsPage}
-            totalPages={Math.ceil(myArtifactsTotalItems / itemsPerPage)}
-            totalItems={myArtifactsTotalItems}
-            onPageChange={handlePageChange}
-          />
-        )}
+        </div>
       </div>
 
       <Transition.Root show={isDeleteDialogOpen} as={Fragment}>

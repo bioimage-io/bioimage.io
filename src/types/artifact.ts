@@ -45,6 +45,7 @@ export interface TestDetail {
   context: any;
   recommended_env: any;
   conda_compare: string | null;
+  saved_conda_compare?: string | null;
 }
 
 export interface DetailedTestReport {
@@ -53,10 +54,12 @@ export interface DetailedTestReport {
   id: string;
   type: string;
   format_version: string;
-  status: 'passed' | 'failed';
+  status: 'passed' | 'failed' | 'valid-format';
+  metadata_completeness?: number;
   details: TestDetail[];
   env: string[][];
   conda_list: any;
+  saved_conda_list?: string;
 }
 
 interface Version {
