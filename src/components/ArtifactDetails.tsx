@@ -80,6 +80,7 @@ const ArtifactDetails = () => {
   const [isCompatibilityDialogOpen, setIsCompatibilityDialogOpen] = useState(false);
   const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
   const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
+  const [testReportData, setTestReportData] = useState<DetailedTestReport | null>(null);
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -161,7 +162,7 @@ const ArtifactDetails = () => {
     loadPartners();
   }, []);
 
-  // Fetch compatibility data for model artifacts
+  // Fetch compatibility data and test report for model artifacts
   useEffect(() => {
     const fetchCompatibilityData = async () => {
       if (selectedResource?.manifest?.type !== 'model') {
@@ -203,6 +204,8 @@ const ArtifactDetails = () => {
               }
             }
           }
+          // Add bioengine icon
+          iconMap.set('bioengine', '/bioengine-icon.svg');
           setPartnerIcons(iconMap);
         }
       } catch (error) {
@@ -213,8 +216,36 @@ const ArtifactDetails = () => {
       }
     };
 
+    const fetchTestReport = async () => {
+      if (selectedResource?.manifest?.type !== 'model') {
+        return;
+      }
+
+      const testReports = selectedResource?.manifest?.test_reports;
+      if (!testReports) {
+        setTestReportData(null);
+        return;
+      }
+
+      try {
+        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
+        const response = await fetch(testReportUrl);
+        const testReportJson = await response.json();
+        
+        if (isValidTestReport(testReportJson)) {
+          setTestReportData(testReportJson);
+        } else {
+          setTestReportData(null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch test report:', error);
+        setTestReportData(null);
+      }
+    };
+
     fetchCompatibilityData();
-  }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
+    fetchTestReport();
+  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_reports, version, latestVersion]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
@@ -1090,9 +1121,166 @@ const ArtifactDetails = () => {
                 {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
                   <Stack spacing={0.75}>
                     {/* Test Results - Software with Version Chips */}
-                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (
-                      <>
-                        {Object.entries(compatibilityData.tests).map(([softwareName, versions]: [string, any]) => {
+                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (() => {
+                      // Sort software entries: bioimageio.core first, then bioengine (if exists), then rest alphabetically
+                      const softwareEntries = Object.entries(compatibilityData.tests);
+                      const sortedEntries = softwareEntries.sort(([nameA], [nameB]) => {
+                        const isBioImageCoreA = nameA.toLowerCase().includes('bioimageio.core') || nameA.toLowerCase().includes('bioimage.io');
+                        const isBioImageCoreB = nameB.toLowerCase().includes('bioimageio.core') || nameB.toLowerCase().includes('bioimage.io');
+                        
+                        // bioimageio.core always first
+                        if (isBioImageCoreA && !isBioImageCoreB) return -1;
+                        if (!isBioImageCoreA && isBioImageCoreB) return 1;
+                        
+                        // Then alphabetically for the rest
+                        return nameA.localeCompare(nameB);
+                      });
+                      
+                      // Create array to hold all entries including bioengine
+                      const allEntries: Array<{ type: 'software' | 'bioengine', name: string, data: any }> = [];
+                      
+                      // Add entries in order: bioimageio.core first, then bioengine, then rest
+                      const bioimageCoreEntry = sortedEntries.find(([name]) => 
+                        name.toLowerCase().includes('bioimageio.core') || name.toLowerCase().includes('bioimage.io')
+                      );
+                      const otherEntries = sortedEntries.filter(([name]) => 
+                        !(name.toLowerCase().includes('bioimageio.core') || name.toLowerCase().includes('bioimage.io'))
+                      );
+                      
+                      if (bioimageCoreEntry) {
+                        allEntries.push({ type: 'software', name: bioimageCoreEntry[0], data: bioimageCoreEntry[1] });
+                      }
+                      
+                      // Add bioengine entry after bioimageio.core if test report data exists
+                      if (testReportData) {
+                        allEntries.push({ type: 'bioengine', name: 'bioengine', data: testReportData });
+                      }
+                      
+                      // Add remaining entries
+                      otherEntries.forEach(([name, data]) => {
+                        allEntries.push({ type: 'software', name, data });
+                      });
+                      
+                      return (
+                        <>
+                          {allEntries.map((entry, index) => {
+                            if (entry.type === 'bioengine') {
+                              // Render bioengine entry
+                              const reports = selectedResource?.manifest?.test_reports;
+                              const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
+                              
+                              // Extract bioimageio.core version from env
+                              const bioimageioCoreVersion = entry.data.env?.find(
+                                (pkg: any[]) => pkg[0] === 'bioimageio.core'
+                              )?.[1] || 'unknown';
+                              
+                              const isPassed = entry.data.status === 'passed';
+                              
+                              return (
+                                <>
+                                  <Box
+                                    key="bioengine"
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 0.75,
+                                      p: 1,
+                                      backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                                      backdropFilter: 'blur(4px)',
+                                      border: '1px solid rgba(255, 255, 255, 0.7)',
+                                      borderRadius: '10px',
+                                      transition: 'all 0.3s ease',
+                                      '&:hover': {
+                                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                                      }
+                                    }}
+                                  >
+                                    {isPassed ? (
+                                      <CheckCircleIcon
+                                        sx={{
+                                          color: '#22c55e',
+                                          fontSize: 20,
+                                          flexShrink: 0
+                                        }}
+                                      />
+                                    ) : (
+                                      <CancelIcon
+                                        sx={{
+                                          color: '#ef4444',
+                                          fontSize: 20,
+                                          flexShrink: 0
+                                        }}
+                                      />
+                                    )}
+                                    {partnerIcons.get('bioengine') && (
+                                      <Box
+                                        component="img"
+                                        src={partnerIcons.get('bioengine')}
+                                        alt="bioengine"
+                                        sx={{
+                                          width: 20,
+                                          height: 20,
+                                          objectFit: 'contain',
+                                          flexShrink: 0,
+                                          cursor: 'default'
+                                        }}
+                                        onError={(e) => {
+                                          const img = e.target as HTMLImageElement;
+                                          img.style.display = 'none';
+                                        }}
+                                      />
+                                    )}
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        minWidth: '100px',
+                                        fontWeight: 500,
+                                        color: '#1f2937',
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.875rem'
+                                      }}
+                                    >
+                                      bioengine
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
+                                      <Chip
+                                        label={bioimageioCoreVersion}
+                                        size="small"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          fetchDetailedTestReport();
+                                        }}
+                                        sx={{
+                                          height: '20px',
+                                          backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                          color: isPassed ? '#16a34a' : '#dc2626',
+                                          borderRadius: '4px',
+                                          fontWeight: 600,
+                                          fontSize: '0.65rem',
+                                          border: isPassed ? '1.5px solid #22c55e' : '1.5px solid #ef4444',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s ease',
+                                          '& .MuiChip-label': {
+                                            px: 0.75,
+                                            py: 0
+                                          },
+                                          '&:hover': {
+                                            backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                                            transform: 'scale(1.05)',
+                                          }
+                                        }}
+                                      />
+                                    </Box>
+                                  </Box>
+                                  <Divider sx={{ my: 1, opacity: 0.3 }} />
+                                </>
+                              );
+                            }
+                            
+                            // Render regular software entry
+                            const softwareName = entry.name;
+                            const versions = entry.data;
+                          
                           // Check status across all versions
                           const versionEntries = Object.entries(versions);
                           
@@ -1290,140 +1478,9 @@ const ArtifactDetails = () => {
                           );
                         })}
                       </>
-                    )}
+                    )})()}
                   </Stack>
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Test Report Card - Only show for models */}
-          {selectedResource?.manifest?.type === 'model' && 
-             (() => {
-               const testReports = selectedResource?.manifest?.test_reports;
-               if (!testReports) return false;
-               const reports = Array.isArray(testReports) ? testReports : (testReports as any).reports;
-               return reports && reports.length > 0;
-             })() && (
-            <Card 
-              sx={{ 
-                mb: { xs: 1, sm: 2, md: 3 },
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-              }}
-            >
-              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
-                    <AssignmentTurnedInIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                    Test Report
-                  </Typography>
-                  <TestReportBadge
-                    artifact={selectedResource}
-                    mode="inline"
-                    size="small"
-                    showPopover={false}
-                    onStopPropagation={false}
-                  />
-                </Box>
-                                <Stack spacing={1}>
-                  {(() => {
-                    const testReports = selectedResource.manifest.test_reports;
-                    if (!testReports) return [];
-                    const reports = Array.isArray(testReports) ? testReports : (testReports as any).reports;
-                    return reports?.map((testReport: TestReport, index: number) => (
-                      <Box 
-                        key={index}
-                        onClick={fetchDetailedTestReport}
-                        sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: 1.5,
-                          p: 1.5,
-                          backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                          backdropFilter: 'blur(4px)',
-                          border: '1px solid rgba(255, 255, 255, 0.7)',
-                          borderRadius: '12px',
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                            borderColor: testReport.status === 'passed' 
-                              ? 'rgba(34, 197, 94, 0.3)' 
-                              : 'rgba(239, 68, 68, 0.3)',
-                            transform: 'translateY(-2px)',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                          }
-                        }}
-                      >
-                        {testReport.status === 'passed' ? (
-                          <CheckCircleIcon 
-                            sx={{ 
-                              color: '#22c55e', 
-                              fontSize: 20,
-                              flexShrink: 0
-                            }} 
-                          />
-                        ) : (
-                          <CancelIcon 
-                            sx={{ 
-                              color: '#ef4444', 
-                              fontSize: 20,
-                              flexShrink: 0
-                            }} 
-                          />
-                        )}
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography 
-                            variant="body2" 
-                            sx={{ 
-                              fontWeight: 500, 
-                              color: '#1f2937',
-                              lineHeight: 1.2,
-                              wordBreak: 'break-word'
-                            }}
-                          >
-                            {testReport.name}
-                          </Typography>
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              color: '#6b7280',
-                              fontSize: '0.75rem',
-                              display: 'block',
-                              mt: 0.5
-                            }}
-                          >
-                            {testReport.runtime}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={testReport.status}
-                          size="small"
-                          sx={{
-                            backgroundColor: testReport.status === 'passed' 
-                              ? 'rgba(34, 197, 94, 0.1)' 
-                              : 'rgba(239, 68, 68, 0.1)',
-                            color: testReport.status === 'passed' 
-                              ? '#22c55e' 
-                              : '#ef4444',
-                            borderRadius: '8px',
-                            fontWeight: 500,
-                            fontSize: '0.75rem',
-                            border: `1px solid ${testReport.status === 'passed' 
-                              ? 'rgba(34, 197, 94, 0.2)' 
-                              : 'rgba(239, 68, 68, 0.2)'}`,
-                            textTransform: 'capitalize',
-                            flexShrink: 0
-                          }}
-                        />
-                      </Box>
-                    )) || [];
-                  })()}
-                </Stack>
               </CardContent>
             </Card>
           )}
@@ -1510,8 +1567,6 @@ const ArtifactDetails = () => {
               )}
             </CardContent>
           </Card>
-
-
 
           {/* Citations Card */}
           {manifest.cite && manifest.cite.length > 0 && (

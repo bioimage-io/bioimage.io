@@ -85,7 +85,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     return status === 'passed' ? (
       <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
     ) : status === 'valid-format' ? (
-      <CheckCircleIcon sx={{ color: '#f97316', fontSize: 20 }} />
+      <CancelIcon sx={{ color: '#f97316', fontSize: 20 }} />
     ) : (
       <CancelIcon sx={{ color: '#ef4444', fontSize: 20 }} />
     );
