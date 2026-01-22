@@ -10,6 +10,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
+import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -908,13 +909,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                    weightPath.endsWith(`/${normalizedFilePath}`);
           });
           
-          // Debug log for file paths
-          console.log('Uploading file:', {
-            name: file.name,
-            path: file.path,
-            isDirectory: file.isDirectory,
-            size: file.size
-          });
+          // Calculate SHA256 for the file
+          let fileSha256: string | null = null;
+          try {
+            if (content) {
+              fileSha256 = await calculateSHA256(content);
+            } else if (fileObject) {
+              fileSha256 = await calculateFileSHA256(fileObject);
+            }
+          } catch (error) {
+            console.error(`Error calculating SHA256 for ${file.name}:`, error);
+          }
           
           // For directory uploads, we need to strip the folder name from the path
           // and only use the file name for the artifact manager
@@ -926,6 +931,16 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             uploadPath = file.name;
             console.log(`Directory upload detected: Changed path from "${file.path}" to "${uploadPath}"`);
           }
+          
+          // Debug log for file paths with SHA256
+          console.log('📄 Uploading file:', {
+            name: file.name,
+            path: file.path,
+            uploadPath: uploadPath,
+            isDirectory: file.isDirectory,
+            size: file.size,
+            sha256: fileSha256
+          });
           
           const putConfig: {
             artifact_id: any;
@@ -940,6 +955,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           if (isWeightFile) {
             putConfig.download_weight = 1;
           }
+
           // Get the upload URL with download_weight if this is a weight file
           const putUrl = await artifactManager.put_file(putConfig);
 
@@ -999,79 +1015,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           : 'Upload failed: Unknown error occurred',
         severity: 'error'
       });
-      setIsUploading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (isUploading) return;
-    
-    if (!artifactManager || !uploadedArtifact) {
-      setUploadStatus({
-        message: 'No artifact to save to',
-        severity: 'error'
-      });
-      return;
-    }
-
-    try {
-      setIsUploading(true);
-      
-      // Filter files that have been edited
-      const filesToUpload = files.filter(file => file.edited);
-      
-      // Upload only edited files sequentially with progress
-      for (let index = 0; index < filesToUpload.length; index++) {
-        const file = filesToUpload[index];
-        setUploadStatus({
-          message: `Saving ${file.name}...`,
-          severity: 'info',
-          progress: (index / filesToUpload.length) * 100
-        });
-
-        const putUrl = await artifactManager.put_file({
-          artifact_id: uploadedArtifact.id,
-          file_path: file.path,
-          _rkwargs: true,
-        });
-        
-        const blob = new Blob([file.content!], { type: "application/octet-stream" });
-        await axios.put(putUrl, blob, {
-          headers: {
-            "Content-Type": ""
-          },
-          onUploadProgress: (progressEvent) => {
-            const progress = progressEvent.total
-              ? (progressEvent.loaded / progressEvent.total) * 100
-              : 0;
-            
-            setUploadStatus({
-              message: `Saving ${file.name}...`,
-              severity: 'info',
-              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
-            });
-          }
-        });
-      }
-
-      // Reset edited flags after successful save
-      setFiles(files.map(file => ({ ...file, edited: false })));
-
-      setUploadStatus({
-        message: 'Changes saved successfully!',
-        severity: 'success',
-        progress: 100
-      });
-
-    } catch (error) {
-      console.error('Save failed:', error);
-      setUploadStatus({
-        message: error instanceof Error 
-          ? `Save failed: ${error.message}` 
-          : 'Save failed: Unknown error occurred',
-        severity: 'error'
-      });
-    } finally {
       setIsUploading(false);
     }
   };

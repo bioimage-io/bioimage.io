@@ -10,6 +10,7 @@ import ModelValidator from './ModelValidator';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
+import { calculateSHA256 } from '../utils/sha256';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -704,6 +705,21 @@ const Edit: React.FC = () => {
           }
         } else {
           // Handle non-rdf.yaml files
+          const content = unsavedChanges[file.path];
+          
+          // Calculate SHA256 before uploading
+          try {
+            const sha256 = await calculateSHA256(content);
+            console.log('📄 Uploading file:', {
+              name: file.name,
+              path: file.path,
+              size: typeof content === 'string' ? content.length : (content as ArrayBuffer).byteLength,
+              sha256
+            });
+          } catch (error) {
+            console.error('Error calculating SHA256:', error);
+          }
+          
           const presignedUrl = await artifactManager.put_file({
             artifact_id: artifactId,
             file_path: file.path,
@@ -712,7 +728,7 @@ const Edit: React.FC = () => {
 
           const response = await fetch(presignedUrl, {
             method: 'PUT',
-            body: unsavedChanges[file.path],
+            body: content,
             headers: {
               'Content-Type': '' // important for s3
             }
