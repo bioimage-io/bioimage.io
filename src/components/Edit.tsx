@@ -10,7 +10,7 @@ import ModelValidator from './ModelValidator';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
-import { calculateSHA256 } from '../utils/sha256';
+import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -1711,11 +1711,17 @@ const Edit: React.FC = () => {
         
         const presignedUrl = await artifactManager.put_file(putConfig);
 
-        // Calculate SHA256 and log upload info
+        // Calculate SHA256 using chunked reading for large files (avoids loading entire file into memory)
         let fileSha256: string | null = null;
         try {
-          const fileContent = await file.arrayBuffer();
-          fileSha256 = await calculateSHA256(fileContent);
+          fileSha256 = await calculateFileSHA256(file, (progress) => {
+            if (file.size > 10 * 1024 * 1024) { // Only show progress for files > 10MB
+              setUploadStatus({
+                message: `Calculating checksum for ${file.name}... ${Math.round(progress)}%`,
+                severity: 'info'
+              });
+            }
+          });
           console.log('📄 Uploading file:', {
             name: file.name,
             path: file.name,

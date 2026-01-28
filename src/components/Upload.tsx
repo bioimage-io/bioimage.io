@@ -935,7 +935,21 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             if (content) {
               fileSha256 = await calculateSHA256(content);
             } else if (fileObject) {
-              fileSha256 = await calculateFileSHA256(fileObject);
+              // Show progress for large file SHA256 calculation
+              if (isLargeFile) {
+                setUploadStatus({
+                  message: `Calculating checksum for ${file.name}...`,
+                  severity: 'info',
+                  progress: ((index) / (remainingFiles.length + 1)) * 100
+                });
+              }
+              fileSha256 = await calculateFileSHA256(fileObject, isLargeFile ? (progress) => {
+                setUploadStatus({
+                  message: `Calculating checksum for ${file.name}... (${Math.round(progress)}%)`,
+                  severity: 'info',
+                  progress: ((index + (progress / 200)) / (remainingFiles.length + 1)) * 100
+                });
+              } : undefined);
             }
           } catch (error) {
             console.error(`Error calculating SHA256 for ${file.name}:`, error);
