@@ -842,6 +842,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true,
       });
 
+      // Calculate SHA256 and log upload info for rdf.yaml
+      // Also collect all file SHA256 values to update manifest at the end
+      const fileSha256Map: { [key: string]: string } = {};
+      
+      try {
+        const rdfContent = typeof updatedRdfFile.content === 'string' 
+          ? updatedRdfFile.content 
+          : new TextDecoder().decode(updatedRdfFile.content as ArrayBuffer);
+        const rdfSha256 = await calculateSHA256(rdfContent);
+        fileSha256Map[rdfUploadPath] = rdfSha256;
+        console.log('📄 Uploading file:', {
+          name: 'rdf.yaml',
+          path: rdfUploadPath,
+          size: rdfContent.length,
+          sha256: rdfSha256
+        });
+      } catch (error) {
+        console.error('Error calculating SHA256 for rdf.yaml:', error);
+      }
+
       await axios.put(rdfPutUrl, updatedRdfFile.content, {
         headers: {
           "Content-Type": ""
@@ -942,6 +962,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             sha256: fileSha256
           });
           
+          // Store SHA256 in the map using the actual upload path
+          if (fileSha256) {
+            fileSha256Map[uploadPath] = fileSha256;
+          }
+          
           const putConfig: {
             artifact_id: any;
             file_path: string;
@@ -1002,6 +1027,19 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           console.error(`Error uploading ${file.name}:`, error);
           throw new Error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+      }
+
+      // Update manifest with all file SHA256 values
+      if (Object.keys(fileSha256Map).length > 0) {
+        await artifactManager.edit({
+          artifact_id: artifact.id,
+          manifest: {
+            ...updatedManifest,
+            file_sha256: fileSha256Map
+          },
+          stage: true,
+          _rkwargs: true
+        });
       }
 
       // After successful upload, redirect to edit page

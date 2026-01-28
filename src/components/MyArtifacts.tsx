@@ -135,10 +135,24 @@ const MyArtifacts: React.FC = () => {
     try {
       setDeleteLoading(true);
 
-      await artifactManager.discard({
-        artifact_id: artifactToDelete.id,
-        _rkwargs: true
-      });
+      // Check if the artifact has any published versions
+      const hasPublishedVersions = artifactToDelete.versions && artifactToDelete.versions.length > 0;
+
+      if (hasPublishedVersions) {
+        // Artifact has published versions - only discard the staged changes
+        await artifactManager.discard({
+          artifact_id: artifactToDelete.id,
+          _rkwargs: true
+        });
+      } else {
+        // Artifact has no published versions - delete it entirely
+        await artifactManager.delete({
+          artifact_id: artifactToDelete.id,
+          delete_files: true,
+          recursive: true,
+          _rkwargs: true
+        });
+      }
       
       // Refresh the artifacts list
       loadArtifacts();
@@ -432,11 +446,15 @@ const MyArtifacts: React.FC = () => {
                     </div>
                     <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                       <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                        Remove Staged Artifact
+                        {artifactToDelete?.versions && artifactToDelete.versions.length > 0 
+                          ? 'Remove Staged Changes' 
+                          : 'Delete Artifact'}
                       </Dialog.Title>
                       <div className="mt-2">
                         <p className="text-sm text-gray-500">
-                          Are you sure you want to remove this staged artifact? This will only remove the staged version - any published versions will remain unchanged. This action cannot be undone.
+                          {artifactToDelete?.versions && artifactToDelete.versions.length > 0 
+                            ? 'Are you sure you want to remove the staged changes? Any published versions will remain unchanged. This action cannot be undone.'
+                            : 'Are you sure you want to delete this artifact? This will permanently delete the artifact and all its files. This action cannot be undone.'}
                         </p>
                       </div>
                     </div>
@@ -454,9 +472,9 @@ const MyArtifacts: React.FC = () => {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                          Removing...
+                          {artifactToDelete?.versions && artifactToDelete.versions.length > 0 ? 'Removing...' : 'Deleting...'}
                         </span>
-                      ) : 'Remove Staged'}
+                      ) : (artifactToDelete?.versions && artifactToDelete.versions.length > 0 ? 'Remove Staged' : 'Delete')}
                     </button>
                     <button
                       type="button"

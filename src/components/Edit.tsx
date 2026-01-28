@@ -542,6 +542,15 @@ const Edit: React.FC = () => {
   const handleSave = async (file: FileNode) => {
     if (!artifactManager || !unsavedChanges[file.path]) return;
 
+    // If not in staging mode and not a collection admin, no changes are allowed
+    if (!isStaged && !isCollectionAdmin) {
+      setUploadStatus({
+        message: 'Cannot make changes when not in staging mode.',
+        severity: 'error'
+      });
+      return;
+    }
+
     // Check if this is an RDF file with changes that haven't been validated
     if (file.path.endsWith('rdf.yaml') && hasContentChanged && !isContentValid) {
       // If it's an RDF file and has changes that haven't been validated, run validation first
@@ -647,12 +656,37 @@ const Edit: React.FC = () => {
 
           try {
             // Get the existing manifest to preserve fields like status
-            const existingManifest = artifactInfo?.manifest || {};
+            const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
             // Merge the existing manifest with the new one from the editor
-            const mergedManifest = {
+            const mergedManifest: Record<string, any> = {
               ...existingManifest,
               ...manifest
             };
+
+            // Upload the rdf.yaml file
+            // Note: Regular users are blocked at the top of handleSave when not in staging mode
+            // Collection admins can reach here when not staged (they create a temporary stage)
+            // Calculate SHA256 before uploading
+            let fileSha256: string | null = null;
+            try {
+              fileSha256 = await calculateSHA256(content);
+              console.log('📄 Uploading file:', {
+                name: file.name,
+                path: file.path,
+                size: content.length,
+                sha256: fileSha256
+              });
+            } catch (error) {
+              console.error('Error calculating SHA256:', error);
+            }
+
+            // Update file_sha256 in manifest
+            if (fileSha256) {
+              mergedManifest.file_sha256 = {
+                ...((existingManifest as any).file_sha256 || {}),
+                [file.path]: fileSha256
+              };
+            }
 
             // Get the presigned URL for uploading
             const presignedUrl = await artifactManager.put_file({
@@ -678,6 +712,7 @@ const Edit: React.FC = () => {
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: mergedManifest, // Use the merged manifest
+              stage: isStaged, // Keep in staging mode if currently staged
               _rkwargs: true
             });
 
@@ -708,13 +743,14 @@ const Edit: React.FC = () => {
           const content = unsavedChanges[file.path];
           
           // Calculate SHA256 before uploading
+          let fileSha256: string | null = null;
           try {
-            const sha256 = await calculateSHA256(content);
+            fileSha256 = await calculateSHA256(content);
             console.log('📄 Uploading file:', {
               name: file.name,
               path: file.path,
               size: typeof content === 'string' ? content.length : (content as ArrayBuffer).byteLength,
-              sha256
+              sha256: fileSha256
             });
           } catch (error) {
             console.error('Error calculating SHA256:', error);
@@ -736,6 +772,35 @@ const Edit: React.FC = () => {
 
           if (!response.ok) {
             throw new Error('Failed to upload file');
+          }
+
+          // Update manifest with file_sha256
+          if (fileSha256) {
+            const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
+            await artifactManager.edit({
+              artifact_id: artifactId,
+              manifest: {
+                ...existingManifest,
+                file_sha256: {
+                  ...((existingManifest as any).file_sha256 || {}),
+                  [file.path]: fileSha256
+                }
+              },
+              stage: isStaged, // Keep in staging mode if currently staged
+              _rkwargs: true
+            });
+
+            // Update local artifactInfo
+            setArtifactInfo(prev => prev ? {
+              ...prev,
+              manifest: {
+                ...prev.manifest,
+                file_sha256: {
+                  ...((prev.manifest as Record<string, any>)?.file_sha256 || {}),
+                  [file.path]: fileSha256
+                }
+              } as typeof prev.manifest
+            } : null);
           }
         }
 
@@ -1208,6 +1273,15 @@ const Edit: React.FC = () => {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
 
+    // If not in staging mode and not a collection admin, block file uploads
+    if (!isStaged && !isCollectionAdmin) {
+      setUploadStatus({
+        message: 'Cannot upload files when not in staging mode. Only manifest changes are allowed.',
+        severity: 'error'
+      });
+      return;
+    }
+
     // If collection admin and not in stage mode, create temporary stage
     let needsStageCleanup = false;
     if (isCollectionAdmin && !isStaged) {
@@ -1292,6 +1366,21 @@ const Edit: React.FC = () => {
         
         const presignedUrl = await artifactManager.put_file(putConfig);
 
+        // Calculate SHA256 and log upload info
+        let fileSha256: string | null = null;
+        try {
+          const fileContent = await file.arrayBuffer();
+          fileSha256 = await calculateSHA256(fileContent);
+          console.log('📄 Uploading file:', {
+            name: file.name,
+            path: file.name,
+            size: file.size,
+            sha256: fileSha256
+          });
+        } catch (error) {
+          console.error('Error calculating SHA256:', error);
+        }
+
         // Upload file content
         const response = await fetch(presignedUrl, {
           method: 'PUT',
@@ -1303,6 +1392,35 @@ const Edit: React.FC = () => {
 
         if (!response.ok) {
           throw new Error('Failed to upload file');
+        }
+
+        // Update manifest with file_sha256
+        if (fileSha256) {
+          const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
+          await artifactManager.edit({
+            artifact_id: artifactId,
+            manifest: {
+              ...existingManifest,
+              file_sha256: {
+                ...((existingManifest as any).file_sha256 || {}),
+                [file.name]: fileSha256
+              }
+            },
+            stage: isStaged, // Keep in staging mode if currently staged
+            _rkwargs: true
+          });
+
+          // Update local artifactInfo
+          setArtifactInfo(prev => prev ? {
+            ...prev,
+            manifest: {
+              ...prev.manifest,
+              file_sha256: {
+                ...((prev.manifest as Record<string, any>)?.file_sha256 || {}),
+                [file.name]: fileSha256
+              }
+            } as typeof prev.manifest
+          } : null);
         }
 
         // If collection admin and not in stage mode, commit changes immediately
@@ -1363,6 +1481,15 @@ const Edit: React.FC = () => {
 
   const handleDeleteFile = async (file: FileNode) => {
     if (!artifactManager || !artifactId) return;
+
+    // If not in staging mode and not a collection admin, block file deletions
+    if (!isStaged && !isCollectionAdmin) {
+      setUploadStatus({
+        message: 'Cannot delete files when not in staging mode. Only manifest changes are allowed.',
+        severity: 'error'
+      });
+      return;
+    }
 
     try {
       setUploadStatus({
@@ -1838,6 +1965,20 @@ const Edit: React.FC = () => {
                   file_path: file.name,
                   _rkwargs: true
                 });
+
+                // Calculate SHA256 and log upload info
+                try {
+                  const arrayBuffer = await fileContent.arrayBuffer();
+                  const sha256 = await calculateSHA256(arrayBuffer);
+                  console.log('📄 Uploading file:', {
+                    name: file.name,
+                    path: file.name,
+                    size: fileContent.size,
+                    sha256
+                  });
+                } catch (error) {
+                  console.error('Error calculating SHA256:', error);
+                }
 
                 // Upload the file to new version
                 const uploadResponse = await fetch(presignedUrl, {
