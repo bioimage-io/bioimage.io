@@ -43,7 +43,7 @@ const Navbar: React.FC = () => {
           <div className="flex items-center">
             <Link to="/" className="flex items-center group">
               <img 
-                src="/static/img/bioimage-io-logo.svg"
+                src="/static/img/ri-scale-model-hub-wide-alt.png"
                 alt="RI-SCALE Model Hub"
                 className="h-10 group-hover:scale-105 transition-transform duration-300"
               />
