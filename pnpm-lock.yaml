@@ -60,10 +60,10 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       hypha-core:
-        specifier: ^0.20.58
+        specifier: 0.20.58
         version: 0.20.58(@types/react@18.3.18)(codemirror@5.65.18)(monaco-editor@0.52.2)(postcss@8.5.2)
       hypha-rpc:
-        specifier: ^0.20.58
+        specifier: 0.20.58
         version: 0.20.58
       js-yaml:
         specifier: ^4.1.0

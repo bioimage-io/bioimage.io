@@ -303,8 +303,8 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
                       onError={(e) => {
                         const img = e.target as HTMLImageElement;
                         // Prevent infinite loop by checking if we're already using the fallback
-                        if (img.src !== window.location.origin + '/static/img/bioimage-io-icon-small.png') {
-                          img.src = window.location.origin + '/static/img/bioimage-io-icon-small.png';
+                        if (img.src !== window.location.origin + '/static/img/ri-scale-alt-logo.png') {
+                          img.src = window.location.origin + '/static/img/ri-scale-alt-logo.png';
                         } else {
                           // If even the fallback fails, remove the onError handler to prevent further loops
                           img.onerror = null;

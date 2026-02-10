@@ -5,7 +5,7 @@ const footerLinks = [
   {
     label: "We receive funding through the RI-SCALE project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
     href: "https://ai4life.eurobioimaging.eu/",
-    icon: "/static/img/AI4Life-logo-giraffe.png",
+    icon: "/static/img/logo-ri-scale-black-orange-icon.png",
     caption: "RI-SCALE"
   },
   {
@@ -136,16 +136,6 @@ const Footer: React.FC = () => {
                   </Link>
                 </p>
                 <p className="text-sm text-gray-600">
-                  This is the new RI-SCALE Model Hub website released on June 30th, 2025. You can find the legacy website archived at{' '}
-                  <a 
-                    href="https://archive.ri-scale.github.io/model-hub" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-300"
-                  >
-                    https://archive.https://ri-scale.github.io/model-hub
-                  </a>
-                  {' '}|{' '}
                   <Link 
                     to="/api" 
                     className="text-purple-600 hover:text-purple-800 font-medium hover:underline transition-all duration-300"
