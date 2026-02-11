@@ -8,22 +8,7 @@ interface Partner {
   tooltip?: string;
 }
 
-interface ManifestResponse {
-  manifest: {
-    documentation?: string;
-    git_repo?: string;
-    config: {
-      docs?: string;
-      partners: Array<{
-        name: string;
-        icon: string;
-        id: string;
-        docs?: string;
-        splash_subtitle?: string;
-      }>;
-    };
-  };
-}
+
 
 class PartnerService {
   private partners: Partner[] | null = null;
@@ -54,19 +39,12 @@ class PartnerService {
   }
 
   private async doFetch(): Promise<Partner[]> {
-    const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
+    const response = await fetch('/partners.json');
     if (!response.ok) {
       throw new Error('Failed to fetch partners');
     }
-    const data: ManifestResponse = await response.json();
-
-    return data.manifest.config.partners.map(partner => ({
-      name: partner.name,
-      icon: partner.icon,
-      id: partner.id,
-      link: partner.docs,
-      tooltip: partner.splash_subtitle || partner.name
-    }));
+    const partners: Partner[] = await response.json();
+    return partners;
   }
 
   private buildPartnerMap() {

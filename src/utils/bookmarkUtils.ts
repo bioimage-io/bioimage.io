@@ -12,7 +12,7 @@ export interface BookmarkManifest {
 
 export class BookmarkManager {
   private artifactManager: any;
-  private readonly BOOKMARK_ALIAS = 'bioimage-io-bookmarks';
+  private readonly BOOKMARK_ALIAS = 'ri-scale-bookmarks';
   private bookmarkArtifactId: string | null = null;
 
   constructor(artifactManager: any) {

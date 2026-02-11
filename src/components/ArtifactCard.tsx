@@ -10,10 +10,9 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 
 import { resolveHyphaUrl } from '../utils/urlHelpers';
-import { ArtifactInfo, TestReport } from '../types/artifact';
+import { ArtifactInfo } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
-import TestReportBadge from './TestReportBadge';
 import { useBookmarks } from '../hooks/useBookmarks';
 
 interface ResourceCardProps {
@@ -41,7 +40,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
 
       try {
         const collection = await artifactManager.read({
-          artifact_id: 'bioimage-io/bioimage.io',
+          artifact_id: 'ri-scale/ai-model-hub',
           _rkwargs: true
         });
 
@@ -87,7 +86,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
     const id = artifact.id.split('/').pop();
-    window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    window.open(`https://hypha.aicell.io/ri-scale/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   const handleCopyId = (e: React.MouseEvent) => {
@@ -321,15 +320,6 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             )}
           </div>
         )}
-
-        {/* Test Report Badge */}
-        <TestReportBadge
-          artifact={artifact}
-          mode="floating"
-          size="medium"
-          showPopover={true}
-          onStopPropagation={true}
-        />
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>
         <div className="space-y-2">

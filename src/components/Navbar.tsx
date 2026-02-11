@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginButton from './LoginButton';
 import { BiCube } from 'react-icons/bi';
-import { BsDatabase, BsCollection } from 'react-icons/bs';
+import { BsDatabase, BsCollection, BsPeople } from 'react-icons/bs';
 import { HiOutlineBeaker } from 'react-icons/hi';
 import { IoDocumentTextOutline, IoCloudUploadOutline } from 'react-icons/io5';
 import { AiOutlineInfoCircle } from 'react-icons/ai';
@@ -56,16 +56,8 @@ const Navbar: React.FC = () => {
               <BiCube className="mr-2" size={20} />
               Models
             </Link>
-            <Link to="/datasets" className={navLinkClasses("/datasets")}>
-              <BsDatabase className="mr-2" size={18} />
-              Datasets
-            </Link>
-            <Link to="/applications" className={navLinkClasses("/applications")}>
-              <HiOutlineBeaker className="mr-2" size={20} />
-              Applications
-            </Link>
             <a 
-              href="https://modelhub.riscale.eu/docs" 
+              href="/docs/" 
               className={navLinkClasses("/docs")}
               target="_blank"
               rel="noopener noreferrer"
@@ -73,6 +65,10 @@ const Navbar: React.FC = () => {
               <IoDocumentTextOutline className="mr-2" size={18} />
               Docs
             </a>
+            <Link to="/partners" className={navLinkClasses("/partners")}>
+              <BsPeople className="mr-2" size={18} />
+              Partners
+            </Link>
             <Link to="/about" className={navLinkClasses("/about")}>
               <AiOutlineInfoCircle className="mr-2" size={18} />
               About
@@ -148,22 +144,6 @@ const Navbar: React.FC = () => {
               <BiCube className="mr-3" size={20} />
               Models
             </Link>
-            <Link 
-              to="/datasets" 
-              className={mobileNavLinkClasses("/datasets")}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              <BsDatabase className="mr-3" size={18} />
-              Datasets
-            </Link>
-            <Link 
-              to="/applications" 
-              className={mobileNavLinkClasses("/applications")}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              <HiOutlineBeaker className="mr-3" size={20} />
-              Applications
-            </Link>
             <a 
               href="https://modelhub.riscale.eu/docs"
               className={mobileNavLinkClasses("/docs")}
@@ -174,6 +154,14 @@ const Navbar: React.FC = () => {
               <IoDocumentTextOutline className="mr-3" size={18} />
               Docs
             </a>
+            <Link 
+              to="/partners" 
+              className={mobileNavLinkClasses("/partners")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <BsPeople className="mr-3" size={18} />
+              Partners
+            </Link>
             <Link 
               to="/about" 
               className={mobileNavLinkClasses("/about")}

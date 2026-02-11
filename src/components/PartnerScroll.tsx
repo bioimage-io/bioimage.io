@@ -250,7 +250,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
           </h2>
           <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-3 rounded-full"></div>
           <p className="mt-4 text-gray-600 text-lg">
-            Supported by our amazing community partners in AI-powered bioimage analysis
+            Supported by our amazing community partners in AI-powered research
           </p>
           
         </div>

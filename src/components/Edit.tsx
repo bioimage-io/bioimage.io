@@ -5,9 +5,6 @@ import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Check
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
-import ModelTester from './ModelTester';
-import ModelValidator from './ModelValidator';
-import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 
@@ -261,7 +258,7 @@ const Edit: React.FC = () => {
       // Check collection admin status
       try {
         const collection = await artifactManager.read({
-          artifact_id: 'bioimage-io/bioimage.io',
+          artifact_id: 'ri-scale/ai-model-hub',
           _rkwargs: true
         });
 
@@ -1024,33 +1021,11 @@ const Edit: React.FC = () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
         </svg>
       )
-    },
-    {
-      id: 'review',
-      label: 'Review',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-      )
     }
   ];
 
   // Update renderContent to use activeTab
   const renderContent = () => {
-    if (activeTab === 'review') {
-      return (
-        <ReviewPublishArtifact
-          artifactInfo={artifactInfo}
-          artifactId={artifactId!}
-          isStaged={isStaged}
-          isCollectionAdmin={isCollectionAdmin}
-          onPublish={handlePublish}
-          isContentValid={isContentValid}
-          hasContentChanged={hasContentChanged}
-        />
-      );
-    }
     return renderFileContent();
   };
 
@@ -1534,7 +1509,7 @@ const Edit: React.FC = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
+                      const downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
                       window.open(downloadUrl, '_blank');
                     }}
                     title="Download file"
@@ -1644,58 +1619,6 @@ const Edit: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
             </svg>
             Save
-          </button>
-        )}
-
-        {/* Validator button */}
-        {isRdfFile && (
-          <div className="w-full sm:w-auto" title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
-            <ModelValidator
-              rdfContent={getLatestRdfContent()}
-              isDisabled={!server}
-              onValidationComplete={(result) => {
-                // Convert from ModelValidator ValidationResult to our local ValidationResult
-                const convertedResult = {
-                  success: result.success,
-                  errors: result.success ? [] : [result.details]
-                };
-                handleValidationComplete(convertedResult);
-              }}
-              data-testid="model-validator-button"
-              className="w-full sm:w-auto"
-            />
-          </div>
-        )}
-
-        {/* Test Model button */}
-        {artifactType === 'model' && artifactId && (
-          <div className="w-full sm:w-auto">
-            <ModelTester
-              artifactId={artifactId}
-              isStaged={isStaged}
-              isDisabled={!server}
-              skipCache={true}
-              className="w-full sm:w-auto"
-            />
-          </div>
-        )}
-
-        {/* Review & Publish button */}
-        {isStaged && (
-          <button
-            onClick={() => handleTabChange('review')}
-            disabled={shouldDisableActions}
-            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
-              ${shouldDisableActions
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : activeTab === 'review'
-                  ? 'bg-blue-700 text-white'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Review & Publish
           </button>
         )}
       </div>
@@ -2150,7 +2073,7 @@ const Edit: React.FC = () => {
     
     const id = artifactInfo.id.split('/').pop() || '';
     const versionParam = isStaged ? '?version=stage' : '';
-    const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file${versionParam}`;
+    const downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${id}/create-zip-file${versionParam}`;
     
     window.open(downloadUrl, '_blank');
   };

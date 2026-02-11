@@ -63,12 +63,6 @@ const About: React.FC = () => {
              className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
             Join Community Partners
           </a>
-          <a href="https://forum.image.sc/tag/bioimageio" 
-             target="_blank" 
-             rel="noopener noreferrer"
-             className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
-            Join Discussions
-          </a>
         </div>
       </section>
 

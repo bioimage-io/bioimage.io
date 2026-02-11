@@ -10,17 +10,12 @@ import Footer from './components/Footer';
 import Upload from './components/Upload';
 import MyArtifacts from './components/MyArtifacts';
 import Edit from './components/Edit';
+import PartnersPage from './pages/PartnersPage';
 import './index.css'
 import './github-markdown.css'
 import { HyphaProvider } from './HyphaContext';
-import AdminDashboard from './pages/AdminDashboard';
-import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
-import BioEngineHome from './components/BioEngine/BioEngineHome';
-import BioEngineWorker from './components/BioEngine/BioEngineWorker';
-import ColabPage from './components/Colab/ColabPage';
-import TrainingPage from './pages/TrainingPage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -37,15 +32,6 @@ const AppContent: React.FC = () => {
   // Add state for Snackbar
   const [snackbarOpen, setSnackbarOpen] = React.useState(false);
   const [snackbarMessage, setSnackbarMessage] = React.useState('');
-
-  // Add search handlers
-  const handleSearchChange = (value: string) => {
-    // Implement search logic
-  };
-
-  const handleSearchConfirm = (value: string) => {
-    // Implement search confirmation logic
-  };
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -77,21 +63,13 @@ const AppContent: React.FC = () => {
             path="/about" 
             element={<About />} 
           />
+          <Route path="/partners" element={<PartnersPage />} />
           <Route path="/models" element={<ArtifactGrid type="model" />} />
-          <Route path="/applications" element={<ArtifactGrid type="application" />} />
-          <Route path="/notebooks" element={<ArtifactGrid type="notebook" />} />
-          <Route path="/datasets" element={<ArtifactGrid type="dataset" />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/my-artifacts" element={<MyArtifacts />} />
           <Route path="/edit/:artifactId/:version?" element={<Edit />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/review" element={<ReviewArtifacts />} />
           <Route path="/api" element={<ApiDocs />} />
           <Route path="/toc" element={<TermsOfService />} />
-          <Route path="/bioengine" element={<BioEngineHome />} />
-          <Route path="/bioengine/worker" element={<BioEngineWorker />} />
-          <Route path="/colab/*" element={<ColabPage />} />
-          <Route path="/training/:sessionId?" element={<TrainingPage />} />
         </Routes>
       </main>
       <Footer />

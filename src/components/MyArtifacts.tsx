@@ -89,7 +89,7 @@ const MyArtifacts: React.FC = () => {
       }
       
       const response = await artifactManager.list({
-        parent_id: "bioimage-io/bioimage.io",
+        parent_id: "ri-scale/ai-model-hub",
         filters: filters,
         keywords: keywords,
         limit: itemsPerPage,
@@ -115,7 +115,7 @@ const MyArtifacts: React.FC = () => {
 
     try {
       const collection = await artifactManager.read({
-        artifact_id: 'bioimage-io/bioimage.io',
+        artifact_id: 'ri-scale/ai-model-hub',
         _rkwargs: true
       });
       if (user) {
@@ -316,11 +316,6 @@ const MyArtifacts: React.FC = () => {
           </div>
         ) : artifacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <img 
-              src="/static/img/zoo-background.svg" 
-              alt="Zoo Background" 
-              className="w-100 h-64 mb-8 opacity-50"
-            />
             <p className="mb-4">You haven't uploaded any models yet</p>
             <button
               onClick={() => navigate('/upload')}
@@ -367,7 +362,7 @@ const MyArtifacts: React.FC = () => {
                       ...(artifact.manifest?.tags || [])
                     ]}
                     image={artifact.manifest?.cover || undefined}
-                    downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
+                    downloadUrl={`https://hypha.aicell.io/ri-scale/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
                     onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
                     onDelete={() => {
                       setArtifactToDelete(artifact);

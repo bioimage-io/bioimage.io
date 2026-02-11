@@ -7,7 +7,6 @@ import axios from 'axios';
 import { LinearProgress } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
-import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
 
@@ -748,7 +747,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       // Create new artifact with type-specific alias pattern
       const artifact = await artifactManager.create({
-        parent_id: "bioimage-io/bioimage.io",
+        parent_id: "ri-scale/ai-model-hub",
         alias: aliasPattern,
         type: manifest.type,
         manifest: manifest,
@@ -768,7 +767,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       // Find the emoji for the generated id
       const noun = extractNounFromId(shortId);
       const collection = await artifactManager.read({
-        artifact_id: 'bioimage-io/bioimage.io',
+        artifact_id: 'ri-scale/ai-model-hub',
         _rkwargs: true
       });
       const emoji = findEmoji(collection.config, manifest.type, noun);
@@ -1241,7 +1240,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               Contributing to the RI-SCALE Model Hub
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Upload and share your AI models with the bioimage analysis community
+              Upload and share your AI models with the research community
             </p>
           </div>
         </div>
@@ -1378,11 +1377,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
                   {/* Buttons section */}
                   <div className="flex gap-2 flex-shrink-0">
-                    <ModelValidator
-                      rdfContent={getRdfFile()?.content as string}
-                      isDisabled={!getRdfFile() || !server}
-                      onValidationComplete={handleValidationComplete}
-                    />
                     {!uploadedArtifact && (
                       <button
                         onClick={handleUpload}

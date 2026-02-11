@@ -141,7 +141,7 @@ const CollectionSettings: React.FC<{ artifactInfo: ArtifactInfo | null }> = ({ a
       const config = yaml.load(configYaml);
 
       await artifactManager.edit({
-        artifact_id: 'bioimage-io/bioimage.io',
+        artifact_id: 'ri-scale/ai-model-hub',
         manifest,
         config,
         _rkwargs: true
@@ -234,14 +234,14 @@ const AdminDashboard: React.FC = () => {
       try {
         // Fetch collection info
         const collection = await artifactManager.read({
-          artifact_id: 'bioimage-io/bioimage.io',
+          artifact_id: 'ri-scale/ai-model-hub',
           _rkwargs: true
         });
         setCollectionInfo(collection);
         
         // Fetch total resources count using list_children with pagination
         const resourcesResponse = await artifactManager.list({
-          parent_id: 'bioimage-io/bioimage.io',
+          parent_id: 'ri-scale/ai-model-hub',
           pagination: true,
           limit: 1,
           _rkwargs: true

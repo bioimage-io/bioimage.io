@@ -159,7 +159,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const offset = (page - 1) * get().itemsPerPage;
       
       // Construct the base URL
-      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
+      let url = `https://hypha.aicell.io/ri-scale/artifacts/ai-model-hub/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
       
       // Prepare filters object
       const filters: any = {};
@@ -217,7 +217,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     try {
       const [workspace, artifactName] = id.includes('/') 
         ? id.split('/')
-        : ['bioimage-io', id];
+        : ['ri-scale', id];
 
       const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
       

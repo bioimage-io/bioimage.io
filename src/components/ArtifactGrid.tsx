@@ -3,12 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
-import PartnerScroll from './PartnerScroll';
 import { Grid } from '@mui/material';
 import TagSelection from './TagSelection';
 
 interface ResourceGridProps {
-  type?: 'model' | 'application' | 'notebook' | 'dataset';
+  type?: 'model';
 }
 
 interface PaginationProps {
@@ -136,25 +135,12 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
-  const getCurrentType = useCallback(() => {
-    const path = location.pathname.split('/')[1];
-    // Convert plural path to singular type
-    const typeMap: { [key: string]: string } = {
-      'models': 'model',
-      'datasets': 'dataset',
-      'applications': 'application',
-      'notebooks': 'notebook'
-    };
-    return typeMap[path] || null;
-  }, [location.pathname]);
-
   useEffect(() => {
-    // Update artifact type in store when path changes
-    const currentType = getCurrentType();
-    setResourceType(currentType);
+    // Force resource type to model
+    setResourceType('model');
     // Reset to first page when artifact type changes
     setCurrentPage(1);
-  }, [getCurrentType, setResourceType]);
+  }, [setResourceType]);
 
   useEffect(() => {
     const loadResources = async () => {
@@ -186,10 +172,6 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
     loadResources();
   }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, fetchResources]);
-
-  useEffect(() => {
-    getCurrentType();
-  }, [getCurrentType]);
 
   // Cleanup effect to cancel ongoing requests when component unmounts
   useEffect(() => {
@@ -239,13 +221,6 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setCurrentPage(1);
   };
 
-  const handlePartnerClick = useCallback((partnerId: string) => {
-    setSearchQuery(partnerId);
-    setIsTyping(false);
-    setServerSearchQuery(partnerId);
-    setCurrentPage(1);
-  }, []);
-
   const handleTagSelect = (tag: string) => {
     setSelectedTags(prev => {
       return [tag];
@@ -272,31 +247,10 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
         {/* Show loading overlay when loading (but not when just typing) */}
         {loading && !isTyping && <LoadingOverlay />}
         
-        <div className="community-partners mb-4">
-          <div className="partner-logos">
-            <PartnerScroll onPartnerClick={handlePartnerClick} />
-          </div>
-        </div>
-
-        {/* Hero Slogan Section */}
-        <div className="text-center px-2 sm:px-0">
-         
-           <p className="text-base sm:text-lg md:text-xl font-medium mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">
-             Discover, explore, and deploy cutting-edge bioimage analysis models
-           </p>
-
-        </div>
         
         <div className="relative mb-6 sm:mb-8">
-          <div 
-            className="absolute right-2 sm:right-10 -bottom-6 w-32 h-32 sm:w-64 sm:h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none" 
-            style={{ 
-              backgroundImage: 'url(/static/img/zoo-background.svg)'
-            }} 
-          />
-          <div className="max-w-3xl mx-auto w-full px-2 sm:px-0">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <div className="flex-1 min-w-0">
+          <div className="flex flex-col sm:flex-row gap-4">
+             <div className="flex-1 w-full">
                 <SearchBar 
                   value={searchQuery}
                   onSearchChange={handleSearchChange}
@@ -311,7 +265,6 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
               </div>
             </div>
           </div>
-        </div>
 
         {/* BioEngine Button - Only show for applications */}
         {resourceType === 'application' && (
@@ -327,7 +280,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                       Run Model Hub Models with BioEngine
                     </h3>
                     <p className="text-sm text-gray-600">
-                      Bring bioimage models locally, on-premise or in the cloud. We support laptops, workstations, HPC clusters, and cloud platforms.
+                      Bring AI models locally, on-premise or in the cloud. We support laptops, workstations, HPC clusters, and cloud platforms.
                     </p>
                   </div>
                 </div>
@@ -335,44 +288,36 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                   onClick={() => navigate('/bioengine')}
                   className="w-full sm:w-auto sm:ml-2.5 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center justify-center"
                 >
-                  <span className="mr-2">Launch BioEngine</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
+                  Get Started
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
-          {resources.map((artifact) => (
-            <Grid 
-              item 
-              key={artifact.id} 
-              xs={12}
-              sm={6} 
-              md={4} 
-              lg={3} 
-              sx={{
-                minWidth: { xs: 'auto', sm: 280 },
-                maxWidth: { xs: '100%', sm: 320 },
-                margin: '0 auto'
-              }}
-            >
-              <ArtifactCard artifact={artifact} />
-            </Grid>
-          ))}
-        </Grid>
-        
-        {totalPages > 1 && (
+        {/* Resources Grid */}
+         {resources && resources.length > 0 ? (
+          <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
+            {resources.map((resource) => (
+              <Grid item xs={12} sm={6} md={4} lg={3} key={resource.id}>
+                <ArtifactCard artifact={resource} />
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          !loading && (
+            <div className="text-center py-12">
+              <p className="text-lg text-gray-600">No resources found matching your criteria.</p>
+            </div>
+          )
+        )}
+
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
             totalItems={totalItems}
             onPageChange={handlePageChange}
           />
-        )}
       </div>
     </div>
   );

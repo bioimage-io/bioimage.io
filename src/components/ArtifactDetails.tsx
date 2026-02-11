@@ -17,31 +17,18 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CancelIcon from '@mui/icons-material/Cancel';
-import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
-import DevicesIcon from '@mui/icons-material/Devices';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import WarningIcon from '@mui/icons-material/Warning';
-import ModelTester from './ModelTester';
-import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
-import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
+import { ArtifactInfo } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
 import { partnerService } from '../services/partnerService';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import CloseIcon from '@mui/icons-material/Close';
-import FullscreenIcon from '@mui/icons-material/Fullscreen';
-import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import TestReportBadge from './TestReportBadge';
-import TestReportDialog from './TestReportDialog';
-import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
 
@@ -58,29 +45,11 @@ const ArtifactDetails = () => {
   const [rdfContent, setRdfContent] = useState<string | null>(null);
   const [isRdfDialogOpen, setIsRdfDialogOpen] = useState(false);
   const [showCopied, setShowCopied] = useState(false);
-  const [showModelRunner, setShowModelRunner] = useState(false);
-  const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
-  const [containerHeight, setContainerHeight] = useState('400px');
   const [showDownloadInfo, setShowDownloadInfo] = useState(false);
-  const [isTestReportDialogOpen, setIsTestReportDialogOpen] = useState(false);
-  const [detailedTestReport, setDetailedTestReport] = useState<DetailedTestReport | null>(null);
-  const [isLoadingTestReport, setIsLoadingTestReport] = useState(false);
-  const [rawErrorContent, setRawErrorContent] = useState<string | null>(null);
-  const [isInvalidJson, setIsInvalidJson] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const modelContainerRef = useRef<HTMLDivElement>(null);
-  const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   const [isStaged, setIsStaged] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
-  const [compatibilityData, setCompatibilityData] = useState<any>(null);
-  const [isLoadingCompatibility, setIsLoadingCompatibility] = useState(false);
-  const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
-  const [isCompatibilityDialogOpen, setIsCompatibilityDialogOpen] = useState(false);
-  const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
-  const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
-  const [testReportData, setTestReportData] = useState<DetailedTestReport | null>(null);
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -92,7 +61,7 @@ const ArtifactDetails = () => {
 
       try {
         const collection = await artifactManager.read({
-          artifact_id: 'bioimage-io/bioimage.io',
+          artifact_id: 'ri-scale/ai-model-hub',
           _rkwargs: true
         });
 
@@ -115,7 +84,9 @@ const ArtifactDetails = () => {
 
   useEffect(() => {
     if (id) {
-      fetchResource(`bioimage-io/${id}`, version);
+      // If the id doesn't contain a slash, assume it's in the ri-scale workspace
+      const artifactId = id.includes('/') ? id : `ri-scale/${id}`;
+      fetchResource(artifactId, version);
     }
   }, [id, fetchResource, version]);
 
@@ -162,155 +133,10 @@ const ArtifactDetails = () => {
     loadPartners();
   }, []);
 
-  // Fetch compatibility data and test report for model artifacts
-  useEffect(() => {
-    const fetchCompatibilityData = async () => {
-      if (selectedResource?.manifest?.type !== 'model') {
-        return;
-      }
-
-      const artifactAlias = selectedResource.id.split('/').pop();
-      const versionString = version === 'stage' ? 'stage' : (version || latestVersion?.version || 'v0');
-
-      if (!artifactAlias) {
-        return;
-      }
-
-      try {
-        setIsLoadingCompatibility(true);
-        setCompatibilityError(null);
-
-        const compatibilityUrl = `https://bioimage-io.github.io/collection/reports/bioimage-io/${artifactAlias}/${versionString}/summary.json`;
-        const response = await fetch(compatibilityUrl);
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch compatibility data: ${response.status}`);
-        }
-
-        const data = await response.json();
-        setCompatibilityData(data);
-
-        // Build partner icon map from compatibility data
-        if (data.tests) {
-          const iconMap = new Map<string, string>();
-          for (const softwareName of Object.keys(data.tests)) {
-            // Special case for bioimageio.core
-            if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
-              iconMap.set(softwareName, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg');
-            } else {
-              const icon = partnerService.getPartnerIcon(softwareName);
-              if (icon) {
-                iconMap.set(softwareName, icon);
-              }
-            }
-          }
-          // Add bioengine icon
-          iconMap.set('bioengine', '/bioengine-icon.svg');
-          setPartnerIcons(iconMap);
-        }
-      } catch (error) {
-        console.error('Failed to fetch compatibility data:', error);
-        setCompatibilityError(error instanceof Error ? error.message : 'Failed to load compatibility data');
-      } finally {
-        setIsLoadingCompatibility(false);
-      }
-    };
-
-    const fetchTestReport = async () => {
-      if (selectedResource?.manifest?.type !== 'model') {
-        return;
-      }
-
-      const testReports = selectedResource?.manifest?.test_reports;
-      if (!testReports) {
-        setTestReportData(null);
-        return;
-      }
-
-      try {
-        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
-        const response = await fetch(testReportUrl);
-        const testReportJson = await response.json();
-        
-        if (isValidTestReport(testReportJson)) {
-          setTestReportData(testReportJson);
-        } else {
-          setTestReportData(null);
-        }
-      } catch (error) {
-        console.error('Failed to fetch test report:', error);
-        setTestReportData(null);
-      }
-    };
-
-    fetchCompatibilityData();
-    fetchTestReport();
-  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_reports, version, latestVersion]);
-
-  // Validation function to check if parsed JSON is a valid test report
-  const isValidTestReport = (data: any): data is DetailedTestReport => {
-    return (
-      data &&
-      typeof data === 'object' &&
-      typeof data.name === 'string' &&
-      typeof data.status === 'string' &&
-      typeof data.source_name === 'string' &&
-      typeof data.type === 'string' &&
-      typeof data.format_version === 'string' &&
-      typeof data.id === 'string' &&
-      Array.isArray(data.details)
-    );
-  };
-
-  const fetchDetailedTestReport = async () => {
-    if (selectedResource?.id) {
-      try {
-        setIsLoadingTestReport(true);
-        setIsInvalidJson(false);
-        setRawErrorContent(null);
-        setDetailedTestReport(null);
-        
-        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
-        const response = await fetch(testReportUrl);
-        const responseText = await response.text();
-        
-        try {
-          const testReportData = JSON.parse(responseText);
-          console.log('Parsed test report data:', testReportData);
-          
-          // Validate that the parsed data has the expected structure
-          if (isValidTestReport(testReportData)) {
-            console.log('Valid test report structure detected');
-            setDetailedTestReport(testReportData);
-            setIsInvalidJson(false);
-          } else {
-            console.log('Invalid test report structure detected, showing raw content');
-            console.error('Invalid test report structure:', testReportData);
-            setRawErrorContent(responseText);
-            setIsInvalidJson(true);
-          }
-        } catch (jsonError) {
-          console.error('Invalid JSON response:', jsonError);
-          setRawErrorContent(responseText);
-          setIsInvalidJson(true);
-        }
-        
-        setIsTestReportDialogOpen(true);
-      } catch (error) {
-        console.error('Failed to fetch detailed test report:', error);
-        setRawErrorContent('Failed to fetch test report data.');
-        setIsInvalidJson(true);
-        setIsTestReportDialogOpen(true);
-      } finally {
-        setIsLoadingTestReport(false);
-      }
-    }
-  };
-
   const handleDownload = () => {
     const artifactId = selectedResource?.id.split('/').pop();
     if (artifactId) {
-      let downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId}/create-zip-file`;
+      let downloadUrl = `https://hypha.aicell.io/ri-scale/artifacts/${artifactId}/create-zip-file`;
       if (version && version !== 'latest') {
         downloadUrl += `?version=${version}`;
       }
@@ -393,95 +219,6 @@ const ArtifactDetails = () => {
       alert('Failed to toggle bookmark. Please try again.');
     }
   };
-
-  const handleToggleModelRunner = () => {
-    setShowModelRunner(!showModelRunner);
-    // Reset container height when toggling off
-    if (showModelRunner) {
-      setContainerHeight('400px');
-    }
-  };
-
-  // Callback function to create and prepare a container for the model runner
-  const createModelRunnerContainer = (containerId: string): string => {
-    // Set the current container ID
-    setCurrentContainerId(containerId);
-    
-    // Set model runner to visible
-    setShowModelRunner(true);
-    
-    // Increase the container height for better model visualization
-    setContainerHeight('600px');
-    
-    // Return the container ID (this will be used by ModelRunner)
-    return containerId;
-  };
-
-  // New function to handle model runner initialization
-  const handleRunModel = () => {
-    setShowModelRunner(true);
-    setContainerHeight('600px');
-    // The ModelRunner will automatically call setupRunner when it mounts
-  };
-
-  // New function to handle closing the model runner
-  const handleCloseModelRunner = () => {
-    setShowModelRunner(false);
-    setContainerHeight('400px');
-    setCurrentContainerId(null);
-  };
-
-  // Fullscreen functionality
-  const handleFullscreen = async () => {
-    const element = fullscreenContainerRef.current;
-    if (!element) return;
-
-    try {
-      if (!isFullscreen) {
-        // Enter fullscreen
-        if (element.requestFullscreen) {
-          await element.requestFullscreen();
-        } else if ((element as any).webkitRequestFullscreen) {
-          await (element as any).webkitRequestFullscreen();
-        } else if ((element as any).msRequestFullscreen) {
-          await (element as any).msRequestFullscreen();
-        }
-      } else {
-        // Exit fullscreen
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-          await (document as any).webkitExitFullscreen();
-        } else if ((document as any).msExitFullscreen) {
-          await (document as any).msExitFullscreen();
-        }
-      }
-    } catch (error) {
-      console.error('Error toggling fullscreen:', error);
-    }
-  };
-
-  // Listen for fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isCurrentlyFullscreen = !!(
-        document.fullscreenElement || 
-        (document as any).webkitFullscreenElement || 
-        (document as any).msFullscreenElement
-      );
-      setIsFullscreen(isCurrentlyFullscreen);
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('msfullscreenchange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
-    };
-  }, []);
 
   // Add this overlay spinner component
   const LoadingOverlay = () => (
@@ -644,39 +381,6 @@ const ArtifactDetails = () => {
                 Edit
               </Button>
             )}
-            
-            {selectedResource?.manifest?.type === 'model' && (
-              <>
-                {!showModelRunner && (
-                  <Button
-                    onClick={handleRunModel}
-                    variant="outlined"
-                    size="medium"
-                    sx={{
-                      borderRadius: '12px',
-                      backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                      backdropFilter: 'blur(8px)',
-                      border: '2px solid #3b82f6',
-                      color: '#3b82f6',
-                      fontWeight: 500,
-                      px: 4,
-                      py: 1.5,
-                      fontSize: '0.95rem',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        borderColor: '#2563eb',
-                        color: '#2563eb',
-                        transform: 'translateY(-2px) scale(1.02)',
-                        boxShadow: '0 8px 25px rgba(59, 130, 246, 0.2)',
-                      },
-                    }}
-                  >
-                    Test Run Model
-                  </Button>
-                )}
-              </>
-            )}
 
 <Button
               onClick={handleViewSource}
@@ -720,140 +424,10 @@ const ArtifactDetails = () => {
             )}
           </Box>
 
-          {/* Fullscreen and Close Buttons - only show when model runner is active */}
-          {showModelRunner && (
-            <Stack direction="row" spacing={1}>
-              <IconButton
-                onClick={handleFullscreen}
-                size="medium"
-                sx={{
-                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(59, 130, 246, 0.2)',
-                  borderRadius: '12px',
-                  color: '#3b82f6',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                    borderColor: 'rgba(59, 130, 246, 0.4)',
-                    transform: 'scale(1.05)',
-                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)',
-                  },
-                }}
-                title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-              >
-                {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-              </IconButton>
-              <IconButton
-                onClick={handleCloseModelRunner}
-                size="medium"
-                sx={{
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  borderRadius: '12px',
-                  color: '#dc2626',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                    borderColor: 'rgba(239, 68, 68, 0.4)',
-                    transform: 'scale(1.05)',
-                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)',
-                  },
-                }}
-                title="Close Model Runner"
-              >
-                <CloseIcon />
-              </IconButton>
-            </Stack>
-          )}
+
         </Box>
 
-        {/* Model Runner Section - wrap both controls and visualization */}
-        <Box 
-          ref={fullscreenContainerRef}
-          sx={{ 
-            // Fullscreen styles
-            ...(isFullscreen && {
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100vw',
-              height: '100vh',
-              zIndex: 9999,
-              backgroundColor: '#ffffff',
-              padding: 2,
-              overflow: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-            })
-          }}
-        >
-          {/* Fullscreen Header - only show in fullscreen mode */}
-          {isFullscreen && selectedResource?.manifest?.type === 'model' && showModelRunner && (
-            <Box 
-              sx={{ 
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-                mb: 3,
-                pb: 2,
-                borderBottom: '1px solid rgba(229, 231, 235, 0.8)',
-                backgroundColor: 'rgba(249, 250, 251, 0.5)',
-                borderRadius: '12px',
-                padding: '16px 24px',
-                backdropFilter: 'blur(8px)',
-              }}
-            >
-              <img 
-                src="/static/img/ri-scale-alt-logo.png" 
-                alt="RI-SCALE Model Hub"
-                style={{
-                  height: '40px',
-                  width: '40px',
-                }}
-              />
-              <Box>
-                <Typography 
-                  variant="h5" 
-                  sx={{ 
-                    fontWeight: 600,
-                    color: '#1f2937',
-                    lineHeight: 1.2,
-                  }}
-                >
-                  Model Test Run
-                </Typography>
-                <Typography 
-                  variant="body1" 
-                  sx={{ 
-                    color: '#6b7280',
-                    fontFamily: 'monospace',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  {selectedResource.id.split('/').pop()}
-                </Typography>
-              </Box>
-            </Box>
-          )}
-
-          {/* Model Runner Controls Row (only show when active) */}
-          {selectedResource?.manifest?.type === 'model' && showModelRunner && (
-            <Box sx={{ mt: isFullscreen ? 0 : { xs: 1, sm: 2, md: 3 } }}>
-              <ModelRunner
-                artifactId={selectedResource.id}
-                isStaged={isStaged}
-                isDisabled={false}
-                onRunStateChange={setShowModelRunner}
-                createContainerCallback={createModelRunnerContainer}
-                className="w-full"
-                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
-              />
-            </Box>
-          )}
-
-          {/* Cover Image Section or Model Runner Container */}
+        {/* Cover Image Section */}
         {selectedResource.manifest.covers && selectedResource.manifest.covers.length > 0 && (
           <Box 
             sx={{ 
@@ -865,30 +439,20 @@ const ArtifactDetails = () => {
               overflow: 'hidden',
               backgroundColor: 'rgba(249, 250, 251, 0.8)',
               backdropFilter: 'blur(4px)',
-              border: showModelRunner ? '2px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.5)',
+              border: '1px solid rgba(255, 255, 255, 0.5)',
               transition: 'all 0.3s ease-in-out',
             }}
             data-cover-container="true"
           >
-            {/* Image/Model Runner Section */}
+            {/* Image Section */}
             <Box
               sx={{
                 position: 'relative',
                 width: '100%',
-                height: isFullscreen ? 'calc(100vh - 300px)' : containerHeight,
+                height: '400px',
               }}
             >
-              {showModelRunner ? (
-                <div 
-                  ref={modelContainerRef}
-                  id={currentContainerId || "model-container"}
-                  style={{
-                    width: '100%',
-                    height: '100%'
-                  }}
-                />
-              ) : (
-                <>
+                <div>
                   <img
                     src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
                     alt={`Cover ${currentImageIndex + 1}`}
@@ -962,12 +526,10 @@ const ArtifactDetails = () => {
                       </Box>
                     </>
                   )}
-                </>
-              )}
+                </div>
             </Box>
           </Box>
         )}
-      </Box>
 
 
       </Box>
@@ -1082,408 +644,6 @@ const ArtifactDetails = () => {
 
           {/* Files Card - Always show for all artifact types */}
           <ArtifactFiles artifactId={selectedResource.id} artifactInfo={selectedResource} version={version} />
-
-          {/* Compatibilities Card - Only show for models */}
-          {selectedResource?.manifest?.type === 'model' && (
-            <Card
-              sx={{
-                mb: { xs: 1, sm: 2, md: 3 },
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-              }}
-            >
-              <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 300, color: '#1f2937' }}>
-                    <DevicesIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                    Compatibilities
-                  </Typography>
-                </Box>
-
-                {isLoadingCompatibility && (
-                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
-                    <CircularProgress size={24} />
-                    <Typography variant="body2" sx={{ ml: 2, color: '#6b7280' }}>
-                      Loading compatibility data...
-                    </Typography>
-                  </Box>
-                )}
-
-                {compatibilityError && !isLoadingCompatibility && (
-                  <Alert severity="info" sx={{ borderRadius: '12px' }}>
-                    Compatibility data not available for this version
-                  </Alert>
-                )}
-
-                {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
-                  <Stack spacing={0.75}>
-                    {/* Test Results - Software with Version Chips */}
-                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (() => {
-                      // Sort software entries: bioimageio.core first, then bioengine (if exists), then rest alphabetically
-                      const softwareEntries = Object.entries(compatibilityData.tests);
-                      const sortedEntries = softwareEntries.sort(([nameA], [nameB]) => {
-                        const isBioImageCoreA = nameA.toLowerCase().includes('bioimageio.core') || nameA.toLowerCase().includes('bioimage.io');
-                        const isBioImageCoreB = nameB.toLowerCase().includes('bioimageio.core') || nameB.toLowerCase().includes('bioimage.io');
-                        
-                        // bioimageio.core always first
-                        if (isBioImageCoreA && !isBioImageCoreB) return -1;
-                        if (!isBioImageCoreA && isBioImageCoreB) return 1;
-                        
-                        // Then alphabetically for the rest
-                        return nameA.localeCompare(nameB);
-                      });
-                      
-                      // Create array to hold all entries including bioengine
-                      const allEntries: Array<{ type: 'software' | 'bioengine', name: string, data: any }> = [];
-                      
-                      // Add entries in order: bioimageio.core first, then bioengine, then rest
-                      const bioimageCoreEntry = sortedEntries.find(([name]) => 
-                        name.toLowerCase().includes('bioimageio.core') || name.toLowerCase().includes('bioimage.io')
-                      );
-                      const otherEntries = sortedEntries.filter(([name]) => 
-                        !(name.toLowerCase().includes('bioimageio.core') || name.toLowerCase().includes('bioimage.io'))
-                      );
-                      
-                      if (bioimageCoreEntry) {
-                        allEntries.push({ type: 'software', name: bioimageCoreEntry[0], data: bioimageCoreEntry[1] });
-                      }
-                      
-                      // Add bioengine entry after bioimageio.core if test report data exists
-                      if (testReportData) {
-                        allEntries.push({ type: 'bioengine', name: 'bioengine', data: testReportData });
-                      }
-                      
-                      // Add remaining entries
-                      otherEntries.forEach(([name, data]) => {
-                        allEntries.push({ type: 'software', name, data });
-                      });
-                      
-                      return (
-                        <>
-                          {allEntries.map((entry, index) => {
-                            if (entry.type === 'bioengine') {
-                              // Render bioengine entry
-                              const reports = selectedResource?.manifest?.test_reports;
-                              const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
-                              
-                              // Extract bioimageio.core version from env
-                              const bioimageioCoreVersion = entry.data.env?.find(
-                                (pkg: any[]) => pkg[0] === 'bioimageio.core'
-                              )?.[1] || 'unknown';
-                              
-                              const isPassed = entry.data.status === 'passed';
-                              
-                              return (
-                                <>
-                                  <Box
-                                    key="bioengine"
-                                    sx={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 0.75,
-                                      p: 1,
-                                      backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                                      backdropFilter: 'blur(4px)',
-                                      border: '1px solid rgba(255, 255, 255, 0.7)',
-                                      borderRadius: '10px',
-                                      transition: 'all 0.3s ease',
-                                      '&:hover': {
-                                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                                      }
-                                    }}
-                                  >
-                                    {isPassed ? (
-                                      <CheckCircleIcon
-                                        sx={{
-                                          color: '#22c55e',
-                                          fontSize: 20,
-                                          flexShrink: 0
-                                        }}
-                                      />
-                                    ) : (
-                                      <CancelIcon
-                                        sx={{
-                                          color: '#ef4444',
-                                          fontSize: 20,
-                                          flexShrink: 0
-                                        }}
-                                      />
-                                    )}
-                                    {partnerIcons.get('bioengine') && (
-                                      <Box
-                                        component="img"
-                                        src={partnerIcons.get('bioengine')}
-                                        alt="bioengine"
-                                        sx={{
-                                          width: 20,
-                                          height: 20,
-                                          objectFit: 'contain',
-                                          flexShrink: 0,
-                                          cursor: 'default'
-                                        }}
-                                        onError={(e) => {
-                                          const img = e.target as HTMLImageElement;
-                                          img.style.display = 'none';
-                                        }}
-                                      />
-                                    )}
-                                    <Typography
-                                      variant="body2"
-                                      sx={{
-                                        minWidth: '100px',
-                                        fontWeight: 500,
-                                        color: '#1f2937',
-                                        fontFamily: 'monospace',
-                                        fontSize: '0.875rem'
-                                      }}
-                                    >
-                                      bioengine
-                                    </Typography>
-                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                      <Chip
-                                        label={bioimageioCoreVersion}
-                                        size="small"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          fetchDetailedTestReport();
-                                        }}
-                                        sx={{
-                                          height: '20px',
-                                          backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                          color: isPassed ? '#16a34a' : '#dc2626',
-                                          borderRadius: '4px',
-                                          fontWeight: 600,
-                                          fontSize: '0.65rem',
-                                          border: isPassed ? '1.5px solid #22c55e' : '1.5px solid #ef4444',
-                                          cursor: 'pointer',
-                                          transition: 'all 0.2s ease',
-                                          '& .MuiChip-label': {
-                                            px: 0.75,
-                                            py: 0
-                                          },
-                                          '&:hover': {
-                                            backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
-                                            transform: 'scale(1.05)',
-                                          }
-                                        }}
-                                      />
-                                    </Box>
-                                  </Box>
-                                  <Divider sx={{ my: 1, opacity: 0.3 }} />
-                                </>
-                              );
-                            }
-                            
-                            // Render regular software entry
-                            const softwareName = entry.name;
-                            const versions = entry.data;
-                          
-                          // Check status across all versions
-                          const versionEntries = Object.entries(versions);
-                          
-                          // Sort versions to find the latest one (semantic version sorting)
-                          const sortedVersions = [...versionEntries].sort((a, b) => {
-                            const parseVersion = (v: string) => {
-                              const parts = v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
-                              return parts;
-                            };
-                            const aParts = parseVersion(a[0]);
-                            const bParts = parseVersion(b[0]);
-                            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                              const aVal = aParts[i] || 0;
-                              const bVal = bParts[i] || 0;
-                              if (aVal !== bVal) return bVal - aVal; // Descending order (latest first)
-                            }
-                            return 0;
-                          });
-                          
-                          // Get the latest version's status
-                          const latestVersionData = sortedVersions.length > 0 ? sortedVersions[0][1] as any : null;
-                          const latestPassed = latestVersionData?.status === 'passed';
-                          
-                          const allPassed = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'passed');
-                          const anyPassed = versionEntries.some(([_, versionData]: [string, any]) => versionData.status === 'passed');
-                          const allNotApplicable = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'not-applicable');
-
-                          return (
-                            <Box
-                              key={softwareName}
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.75,
-                                p: 1,
-                                backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                                backdropFilter: 'blur(4px)',
-                                border: '1px solid rgba(255, 255, 255, 0.7)',
-                                borderRadius: '10px',
-                                transition: 'all 0.3s ease',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                                }
-                              }}
-                            >
-                              {allPassed || latestPassed ? (
-                                <CheckCircleIcon
-                                  sx={{
-                                    color: '#22c55e',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              ) : anyPassed ? (
-                                <CheckCircleIcon
-                                  sx={{
-                                    color: '#f59e0b',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              ) : allNotApplicable ? (
-                                <CancelIcon
-                                  sx={{
-                                    color: '#9ca3af',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              ) : (
-                                <CancelIcon
-                                  sx={{
-                                    color: '#ef4444',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              )}
-                              {partnerIcons.get(softwareName) && (
-                                <Box
-                                  component="img"
-                                  src={partnerIcons.get(softwareName)}
-                                  alt={softwareName}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Special case for bioimageio.core
-                                    if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
-                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/', '_blank', 'noopener,noreferrer');
-                                      return;
-                                    }
-                                    const partner = partnerService.getPartnerByName(softwareName);
-                                    if (partner?.link) {
-                                      window.open(partner.link, '_blank', 'noopener,noreferrer');
-                                    }
-                                  }}
-                                  sx={{
-                                    width: 20,
-                                    height: 20,
-                                    objectFit: 'contain',
-                                    flexShrink: 0,
-                                    cursor: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'pointer' : 'default',
-                                    transition: 'all 0.2s ease',
-                                    '&:hover': {
-                                      transform: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'scale(1.2)' : 'none',
-                                      filter: 'brightness(1.1)'
-                                    }
-                                  }}
-                                  onError={(e) => {
-                                    const img = e.target as HTMLImageElement;
-                                    img.style.display = 'none';
-                                  }}
-                                />
-                              )}
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  minWidth: '100px',
-                                  fontWeight: 500,
-                                  color: '#1f2937',
-                                  fontFamily: 'monospace',
-                                  fontSize: '0.875rem'
-                                }}
-                              >
-                                {softwareName}
-                              </Typography>
-                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                {Object.entries(versions).map(([version, versionData]: [string, any]) => {
-                                  const isPassed = versionData.status === 'passed';
-                                  const isNotApplicable = versionData.status === 'not-applicable';
-                                  
-                                  // Determine colors based on status
-                                  const getChipColors = () => {
-                                    if (isPassed) {
-                                      return {
-                                        bg: 'rgba(34, 197, 94, 0.15)',
-                                        color: '#16a34a',
-                                        border: '#22c55e',
-                                        hoverBg: 'rgba(34, 197, 94, 0.25)'
-                                      };
-                                    } else if (isNotApplicable) {
-                                      return {
-                                        bg: 'rgba(156, 163, 175, 0.15)',
-                                        color: '#6b7280',
-                                        border: '#9ca3af',
-                                        hoverBg: 'rgba(156, 163, 175, 0.25)'
-                                      };
-                                    } else {
-                                      return {
-                                        bg: 'rgba(239, 68, 68, 0.15)',
-                                        color: '#dc2626',
-                                        border: '#ef4444',
-                                        hoverBg: 'rgba(239, 68, 68, 0.25)'
-                                      };
-                                    }
-                                  };
-                                  const chipColors = getChipColors();
-                                  
-                                  return (
-                                    <Chip
-                                      key={version}
-                                      label={version}
-                                      size="small"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedCompatibilityTest({
-                                          name: `${softwareName} ${version}`,
-                                          data: versionData
-                                        });
-                                        setIsCompatibilityDialogOpen(true);
-                                      }}
-                                      sx={{
-                                        height: '20px',
-                                        backgroundColor: chipColors.bg,
-                                        color: chipColors.color,
-                                        borderRadius: '4px',
-                                        fontWeight: 600,
-                                        fontSize: '0.65rem',
-                                        border: `1.5px solid ${chipColors.border}`,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        '& .MuiChip-label': {
-                                          px: 0.75,
-                                          py: 0
-                                        },
-                                        '&:hover': {
-                                          backgroundColor: chipColors.hoverBg,
-                                          transform: 'scale(1.05)',
-                                        }
-                                      }}
-                                    />
-                                  );
-                                })}
-                              </Box>
-                            </Box>
-                          );
-                        })}
-                      </>
-                    )})()}
-                  </Stack>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Statistics Card - New */}
           <Card 
@@ -1822,26 +982,6 @@ const ArtifactDetails = () => {
           </Box>
         </DialogContent>
       </Dialog>
-
-      <TestReportDialog
-        open={isTestReportDialogOpen}
-        onClose={() => setIsTestReportDialogOpen(false)}
-        testReport={detailedTestReport}
-        isLoading={isLoadingTestReport}
-        rawErrorContent={rawErrorContent}
-        isInvalidJson={isInvalidJson}
-      />
-
-      {/* Compatibility Details Dialog */}
-      <TestDetailsDialog
-        open={isCompatibilityDialogOpen}
-        onClose={() => setIsCompatibilityDialogOpen(false)}
-        data={selectedCompatibilityTest?.data || null}
-        isLoading={false}
-        type="compatibility"
-        partnerName={selectedCompatibilityTest?.name.split(' ')[0] || ''}
-        partnerVersion={selectedCompatibilityTest?.name.split(' ').slice(1).join(' ') || ''}
-      />
 
       </Box>
       </div>

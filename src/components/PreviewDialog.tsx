@@ -37,7 +37,7 @@ export const PreviewDialog = ({ open, artifact, onClose }: PreviewDialogProps) =
           borderBottom: '1px solid rgba(255, 255, 255, 0.3)',
         }}
       >
-        <Typography variant="h5" sx={{ fontWeight: 300, color: '#1f2937' }}>
+        <Typography variant="h5" component="div" sx={{ fontWeight: 300, color: '#1f2937' }}>
           {artifact.manifest.name}
         </Typography>
         <IconButton

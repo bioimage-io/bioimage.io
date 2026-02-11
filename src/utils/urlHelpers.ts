@@ -12,13 +12,13 @@ export const resolveHyphaUrl = (path: string, resourceId: string, use_proxy: boo
     return path;
   }
 
-  // Extract the ID from the full artifact ID (removing any prefix like 'bioimage.io/')
+  // Extract the ID from the full artifact ID (removing any prefix like 'ri-scale/')
   const id = resourceId.split('/').pop();
   
   // Construct the full URL
   if (use_proxy) {
-    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
+    return `https://hypha.aicell.io/ri-scale/artifacts/${id}/files/${path}?use_proxy=true`;
   } else {
-    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}`;
+    return `https://hypha.aicell.io/ri-scale/artifacts/${id}/files/${path}`;
   }
 }; 

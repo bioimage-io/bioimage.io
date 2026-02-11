@@ -43,7 +43,7 @@ interface ArtifactFilesProps {
 const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
   artifactId,
   baseUrl = 'https://hypha.aicell.io',
-  workspace = 'bioimage-io',
+  workspace = 'ri-scale',
   artifactInfo,
   version
 }) => {

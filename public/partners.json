@@ -1,0 +1,219 @@
+[
+  {
+    "name": "EGI",
+    "icon": "/static/img/partners/egi.png",
+    "id": "egi",
+    "link": "https://www.egi.eu",
+    "tooltip": "EGI"
+  },
+  {
+    "name": "IS-ENES",
+    "icon": "/static/img/partners/is_enes.png",
+    "id": "is_enes",
+    "link": "https://is.enes.org/index.html",
+    "tooltip": "IS-ENES"
+  },
+  {
+    "name": "EISCAT_3D",
+    "icon": "/static/img/partners/eiscat_3d.png",
+    "id": "eiscat_3d",
+    "link": "https://eiscat.se",
+    "tooltip": "EISCAT_3D"
+  },
+  {
+    "name": "BBMRI-ERIC",
+    "icon": "/static/img/partners/bbmri_eric.png",
+    "id": "bbmri_eric",
+    "link": "https://www.bbmri-eric.eu",
+    "tooltip": "BBMRI-ERIC"
+  },
+  {
+    "name": "Euro-BioImaging ERIC",
+    "icon": "/static/img/partners/euro_bioimaging_eric.png",
+    "id": "euro_bioimaging_eric",
+    "link": "https://www.eurobioimaging.eu",
+    "tooltip": "Euro-BioImaging ERIC"
+  },
+  {
+    "name": "SLICES-RI",
+    "icon": "/static/img/partners/slices_ri.png",
+    "id": "slices_ri",
+    "link": "https://www.slices-ri.eu",
+    "tooltip": "SLICES-RI"
+  },
+  {
+    "name": "T\u00dcB\u0130TAK",
+    "icon": "/static/img/partners/t_bi_tak.png",
+    "id": "t_bi_tak",
+    "link": "https://tubitak.gov.tr/en",
+    "tooltip": "T\u00dcB\u0130TAK"
+  },
+  {
+    "name": "TU Wien",
+    "icon": "/static/img/partners/tu_wien.png",
+    "id": "tu_wien",
+    "link": "https://www.tuwien.at/en/",
+    "tooltip": "TU Wien"
+  },
+  {
+    "name": "Archimede Solutions",
+    "icon": "/static/img/partners/archimede_solutions.png",
+    "id": "archimede_solutions",
+    "link": "https://archimede.ch",
+    "tooltip": "Archimede Solutions"
+  },
+  {
+    "name": "CERN",
+    "icon": "/static/img/partners/cern.png",
+    "id": "cern",
+    "link": "https://home.cern",
+    "tooltip": "CERN"
+  },
+  {
+    "name": "CMCC",
+    "icon": "/static/img/partners/cmcc.png",
+    "id": "cmcc",
+    "link": "https://www.cmcc.it",
+    "tooltip": "CMCC"
+  },
+  {
+    "name": "Comprimato",
+    "icon": "/static/img/partners/comprimato.png",
+    "id": "comprimato",
+    "link": "https://comprimato.com",
+    "tooltip": "Comprimato"
+  },
+  {
+    "name": "DKRZ",
+    "icon": "/static/img/partners/dkrz.png",
+    "id": "dkrz",
+    "link": "https://www.dkrz.de/en/dkrz-partner-for-climate-research",
+    "tooltip": "DKRZ"
+  },
+  {
+    "name": "ECMWF",
+    "icon": "/static/img/partners/ecmwf.png",
+    "id": "ecmwf",
+    "link": "https://www.ecmwf.int/en/about",
+    "tooltip": "ECMWF"
+  },
+  {
+    "name": "EMBL",
+    "icon": "/static/img/partners/embl.png",
+    "id": "embl",
+    "link": "https://www.embl.org",
+    "tooltip": "EMBL"
+  },
+  {
+    "name": "FragmentiX",
+    "icon": "/static/img/partners/fragmentix.png",
+    "id": "fragmentix",
+    "link": "https://fragmentix.com",
+    "tooltip": "FragmentiX"
+  },
+  {
+    "name": "Forschungszentrum J\u00fclich",
+    "icon": "/static/img/partners/forschungszentrum_j_lich.jpg",
+    "id": "forschungszentrum_j_lich",
+    "link": "https://www.fz-juelich.de/en/about-us",
+    "tooltip": "Forschungszentrum J\u00fclich"
+  },
+  {
+    "name": "GRNET",
+    "icon": "/static/img/partners/grnet.jpg",
+    "id": "grnet",
+    "link": "https://grnet.gr/en/",
+    "tooltip": "GRNET"
+  },
+  {
+    "name": "Hypermeteo",
+    "icon": "/static/img/partners/hypermeteo.png",
+    "id": "hypermeteo",
+    "link": "https://www.hypermeteo.com/en/about/",
+    "tooltip": "Hypermeteo"
+  },
+  {
+    "name": "INFN",
+    "icon": "/static/img/partners/infn.png",
+    "id": "infn",
+    "link": "https://www.infn.it/en/",
+    "tooltip": "INFN"
+  },
+  {
+    "name": "JNP",
+    "icon": "/static/img/partners/jnp.png",
+    "id": "jnp",
+    "link": "https://jnp.gr",
+    "tooltip": "JNP"
+  },
+  {
+    "name": "KTH",
+    "icon": "/static/img/partners/kth.png",
+    "id": "kth",
+    "link": "https://www.kth.se/en/om/fakta",
+    "tooltip": "KTH"
+  },
+  {
+    "name": "LTU",
+    "icon": "/static/img/partners/ltu.png",
+    "id": "ltu",
+    "link": "https://www.ltu.se/en",
+    "tooltip": "LTU"
+  },
+  {
+    "name": "Med Uni Graz",
+    "icon": "/static/img/partners/med_uni_graz.png",
+    "id": "med_uni_graz",
+    "link": "https://www.medunigraz.at/en/",
+    "tooltip": "Med Uni Graz"
+  },
+  {
+    "name": "Masaryk Memorial Cancer Institute",
+    "icon": "/static/img/partners/masaryk_memorial_cancer_institute.png",
+    "id": "masaryk_memorial_cancer_institute",
+    "link": "https://www.mou.cz/en/",
+    "tooltip": "Masaryk Memorial Cancer Institute"
+  },
+  {
+    "name": "Masaryk University",
+    "icon": "/static/img/partners/masaryk_university.png",
+    "id": "masaryk_university",
+    "link": "https://www.muni.cz/en",
+    "tooltip": "Masaryk University"
+  },
+  {
+    "name": "Neuraspace",
+    "icon": "/static/img/partners/neuraspace.png",
+    "id": "neuraspace",
+    "link": "https://www.neuraspace.com/company",
+    "tooltip": "Neuraspace"
+  },
+  {
+    "name": "T-Systems",
+    "icon": "/static/img/partners/t_systems.png",
+    "id": "t_systems",
+    "link": "https://www.t-systems.com/de/en",
+    "tooltip": "T-Systems"
+  },
+  {
+    "name": "UK Reasearch and Innovation",
+    "icon": "/static/img/partners/uk_reasearch_and_innovation.png",
+    "id": "uk_reasearch_and_innovation",
+    "link": "https://www.ukri.org",
+    "tooltip": "UK Reasearch and Innovation"
+  },
+  {
+    "name": "University of Trento",
+    "icon": "/static/img/partners/university_of_trento.png",
+    "id": "university_of_trento",
+    "link": "https://www.unitn.it/en",
+    "tooltip": "University of Trento"
+  },
+  {
+    "name": "Universitat Polit\u00e8cnica de Val\u00e8ncia",
+    "icon": "/static/img/partners/universitat_polit_cnica_de_val_ncia.png",
+    "id": "universitat_polit_cnica_de_val_ncia",
+    "link": "https://www.upv.es/index-en.html",
+    "tooltip": "Universitat Polit\u00e8cnica de Val\u00e8ncia"
+  }
+]
