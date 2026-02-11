@@ -28,7 +28,7 @@ Community partners can host their own Github repository for storing models and o
 ![bioimage-io-community-partners](./community_partners_guide/bioimage-io-community-partners.png)
 
 ## Meet our Community Partners
-Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the bioimage analysis community.
+Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the scientific research community.
 
 <!-- ImJoyPlugin: {"type": "window", "hide_code_block": true, "startup_mode": "run"} -->
 ```html
@@ -168,7 +168,7 @@ api.export(new ImJoyPlugin())
 
 ## How to join as a community partner?
 
-Note that in order to contribute resources to the RI-SCALE Model Hub you do not need to become a community partner. How to contribute resources is described [in the developers guide](https://ri-scale.github.io/model-hub/docs/#/guides/developers-guide). The role of a community partner is described above.
+Note that in order to contribute resources to the RI-SCALE Model Hub you do not need to become a community partner. How to contribute resources is described [in the developers guide](https://modelhub.riscale.eu/docs/#/guides/developers-guide). The role of a community partner is described above.
 
 If you are eligible and willing to join as a community partner, please submit a request issue [here](https://github.com/bioimage-io/collection/issues/new) with relevant information including the following:
 1. Description of your software, organization, company or team.
@@ -219,7 +219,7 @@ The easiest way to report a model download is to send an http request to matomo.
 
 You need to construct an URL to report the download:
 
-`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://ri-scale.github.io/model-hub/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
+`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://modelhub.riscale.eu/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
 
 
 In the above URL, you need to provide the following parameters:
@@ -247,9 +247,9 @@ A RI-SCALE Model Hub partner collection is a YAML file in GitHub repository of a
 
 The appearance of the partner collection on the website can be customized by the `config` field as described in the next section.  
 
-### Customizing appearance on ri-scale.github.io/model-hub
+### Customizing appearance on modelhub.riscale.eu
 
-Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the ri-scale.github.io/model-hub website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
+Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the modelhub.riscale.eu website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
 
 A typical partner collection RDF `config` field may look like this:
 
@@ -298,11 +298,11 @@ If you want to join as a community partner, please send the link to RI-SCALE Mod
 
 ## How to contribute tests summaries
 
-We provide community partners with a mechanism to contribute and update compatibiliy checks describing why a given ri-scale.github.io/model-hub resource is compatible with their tool (or why not).
+We provide community partners with a mechanism to contribute and update compatibiliy checks describing why a given modelhub.riscale.eu resource is compatible with their tool (or why not).
 Details and how to set this up are described [here](https://github.com/bioimage-io/collection?tab=readme-ov-file#add-community-partner-compatibility-checks).
 
 ### Display of partner test summaries
 
-Once a community partner is setup to contribute test summaries, they will show up in the relevant resource card details on ri-scale.github.io/model-hub.
+Once a community partner is setup to contribute test summaries, they will show up in the relevant resource card details on modelhub.riscale.eu.
 Currently test summaries are rendered like so:
 ![image](https://user-images.githubusercontent.com/15139589/226955477-6f8a8917-423f-4b9e-b08a-17bdb276aa2c.png)

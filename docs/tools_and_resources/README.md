@@ -1,5 +1,5 @@
 # Tools and Resources
-In this part of the documentation different tools and resources related to the BioImage Model can be found with their documentation.
+In this part of the documentation different tools and resources related to the RI-SCALE Model Hub can be found with their documentation.
 
 ## Developer Resources
 ### Python RI-SCALE Model Hub Core Package
@@ -58,9 +58,9 @@ For other types of plugins (e.g. in Javascript), the same `ctx` object will be p
 
 You can do the debugging inside [ImJoy](https://imjoy.io), for more information, please consult https://imjoy.io/docs.
 
-To test with the BioEngine, you can go to https://ri-scale.github.io/model-hub, on the menu located in the top-right corner, you can load a local ImJoy plugin file to run it with the BioEngine. One additional feature is that the BioEngine will keep track of the local file, if you made new changes with your code editor (e.g. vim, vscode) the engine will try to reload the plugin file. 
+To test with the BioEngine, you can go to https://modelhub.riscale.eu, on the menu located in the top-right corner, you can load a local ImJoy plugin file to run it with the BioEngine. One additional feature is that the BioEngine will keep track of the local file, if you made new changes with your code editor (e.g. vim, vscode) the engine will try to reload the plugin file. 
 
-TIP: if your imjoy plugin is designed for not only work with ri-scale.github.io/model-hub but also other purposes, you can use an `if` statement to check `ctx.config.type == 'bioengine'`.
+TIP: if your imjoy plugin is designed for not only work with modelhub.riscale.eu but also other purposes, you can use an `if` statement to check `ctx.config.type == 'bioengine'`.
 
 #### Make a standalone web app compatible with ImJoy/BioEngine
 
@@ -81,7 +81,7 @@ DL4MicEverywhere is a platform that lets users train and implement their models 
 The documentation can be found in [the GitHub Repository](https://github.com/HenriquesLab/DL4MicEverywhere).
 
 ### RI-SCALE Model Hub Chatbot
-The RI-SCALE Model Hub Chatbot can be accessed [here](https://ri-scale.github.io/model-hub/chat/). The RI-SCALE Model Hub Chatbot is a versatile conversational agent designed to assist users in accessing information related to computational bioimaging. It leverages the power of Large Language Models (LLMs) and integrates user-specific data to provide contextually accurate and personalized responses. Whether you're a researcher, developer, or scientist, the chatbot is here to make your bioimaging journey smoother and more informative.
+The RI-SCALE Model Hub Chatbot can be accessed [here](https://modelhub.riscale.eu/chat/). The RI-SCALE Model Hub Chatbot is a versatile conversational agent designed to assist users in accessing information related to computational science. It leverages the power of Large Language Models (LLMs) and integrates user-specific data to provide contextually accurate and personalized responses. Whether you're a researcher, developer, or scientist, the chatbot is here to make your research journey smoother and more informative.
 
 The documentation can be found [here](https://github.com/bioimage-io/bioimageio-chatbot).
 

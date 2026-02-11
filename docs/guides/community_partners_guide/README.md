@@ -28,7 +28,7 @@ Community partners can host their own Github repository for storing models and o
 ![bioimage-io-community-partners](bioimage-io-community-partners.png)
 
 ## Meet our Community Partners
-Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the bioimage analysis community.
+Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the scientific research community.
 
 <!-- ImJoyPlugin: {"type": "window", "hide_code_block": true, "startup_mode": "run"} -->
 ```html
@@ -40,7 +40,7 @@ Below is a list of our esteemed Community Partners who actively engage with the 
   "ui": "",
   "version": "0.1.0",
   "cover": "",
-  "description": "Create a table for the ri-scale.github.io/model-hub community partners",
+  "description": "Create a table for the modelhub.riscale.eu community partners",
   "icon": "extension",
   "inputs": null,
   "outputs": null,
@@ -182,7 +182,7 @@ Upon approval, we will guide you to follow these steps in order to incorporate y
 
 1. First, you will need to create a PR to insert relevant metadata into [bioimageio_collection_config.json](https://github.com/bioimage-io/collection/blob/4087336ad00bff0198f5de83c94aa13be357840d/bioimageio_collection_config.json) under `"partners"`. 
 Checkout [ilastik partner entry](https://github.com/bioimage-io/collection/blob/4087336ad00bff0198f5de83c94aa13be357840d/bioimageio_collection_config.json#L283-L301) for an example.
-2. Then, you will need to add the Community Partner Compatibility Checks. Any community partner is invited to add a GitHub Actions workflow in this repo (please make a PR) that generates reports on its software compatibility with new and updated resources in the ri-scale.github.io/model-hub collection.
+2. Then, you will need to add the Community Partner Compatibility Checks. Any community partner is invited to add a GitHub Actions workflow in this repo (please make a PR) that generates reports on its software compatibility with new and updated resources in the modelhub.riscale.eu collection.
 See [ilastik compatibility checks worfklow](https://github.com/bioimage-io/collection/blob/main/.github/workflows/check_compatibility_ilastik.yaml) for an example.
 
 
@@ -200,9 +200,9 @@ A RI-SCALE Model Hub partner collection is a YAML file in GitHub repository of a
 
 The appearance of the partner collection on the website can be customized by the `config` field as described in the next section.  
 
-### Customizing appearance on ri-scale.github.io/model-hub
+### Customizing appearance on modelhub.riscale.eu
 
-Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the ri-scale.github.io/model-hub website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
+Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the modelhub.riscale.eu website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
 
 A typical partner collection RDF `config` field may look like this:
 
@@ -288,7 +288,7 @@ The test summaries are expected to follow the folder/file name pattern "<resourc
 
 ### Display of partner test summaries
 
-Once a community partner is registered to contribute test summaries with the `test_summaries` data explained above, the main [RI-SCALE Model Hub CI](https://github.com/bioimage-io/collection-bioimage-io/blob/main/.github/workflows/auto_update_main.yaml) collects these summaries. The collection including these collected test summaries are displayed on ri-scale.github.io/model-hub. Currently test summaries are rendered like so:
+Once a community partner is registered to contribute test summaries with the `test_summaries` data explained above, the main [RI-SCALE Model Hub CI](https://github.com/bioimage-io/collection-bioimage-io/blob/main/.github/workflows/auto_update_main.yaml) collects these summaries. The collection including these collected test summaries are displayed on modelhub.riscale.eu. Currently test summaries are rendered like so:
 ![image](https://user-images.githubusercontent.com/15139589/226955477-6f8a8917-423f-4b9e-b08a-17bdb276aa2c.png)
 
 

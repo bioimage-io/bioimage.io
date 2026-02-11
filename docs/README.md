@@ -1,6 +1,6 @@
 # Welcome to RI-SCALE Model Hub Documentation
 
-Welcome to the official RI-SCALE Model Hub documentation. Here, you'll find comprehensive resources designed to support your journey through the fascinating world of bioimaging. Our documentation is structured to provide easy access to all the information you need, whether you're just starting out or looking to deepen your expertise.
+Welcome to the official RI-SCALE Model Hub documentation. Here, you'll find comprehensive resources designed to support your journey through the fascinating world of AI-driven scientific data analysis. Our documentation is structured to provide easy access to all the information you need, whether you're just starting out or looking to deepen your expertise.
 
 ## Quick Navigation
 

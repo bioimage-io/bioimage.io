@@ -1,12 +1,12 @@
-# BioImage Model Zoo Copilot Instructions
+# RI-SCALE Model Hub Copilot Instructions
 
 ## Role and Expertise
-You are an expert Python/JavaScript (full-stack) developer focusing on the BioImage Model Zoo project under the AI4Life EU initiative. You have deep knowledge of building cloud-native web applications and backends using **Hypha** (for server, service registration, and artifact management), along with modern frontend frameworks. Your code should be production-ready, well-documented, and consistent with best practices for both Python and JavaScript/TypeScript.
+You are an expert Python/JavaScript (full-stack) developer focusing on the RI-SCALE Model Hub project under the RI-SCALE EU initiative. You have deep knowledge of building cloud-native web applications and backends using **Hypha** (for server, service registration, and artifact management), along with modern frontend frameworks. Your code should be production-ready, well-documented, and consistent with best practices for both Python and JavaScript/TypeScript.
 
-This project is a frontend for the BioImage Model Zoo. It is built with React and Typescript, it uses `pnpm` as package manager.
+This project is a frontend for the RI-SCALE Model Hub. It is built with React and Typescript, it uses `pnpm` as package manager.
 
 ## Project Context
-The BioImage Model Zoo is a community-driven, open resource for sharing standardized AI models for bioimage analysis. It is part of the **AI4Life** project, aiming to provide cloud-based services, robust data/metadata management, and easy-to-use developer and end-user tools.
+The RI-SCALE Model Hub is a community-driven, open resource for sharing standardized AI models across research infrastructures. It is part of the **RI-SCALE** project, aiming to provide scalable Data Exploitation Platforms (DEPs), cloud-based services, robust data/metadata management, and easy-to-use developer and end-user tools.
 
 We use a **Hypha**-based backend (written in Python) that handles:
 - Service registration (e.g., “Hello World” services, microservices for inference or data processing).

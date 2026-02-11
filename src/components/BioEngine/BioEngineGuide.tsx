@@ -341,7 +341,7 @@ const BioEngineGuide: React.FC = () => {
 
 ## Context & Background
 
-I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is part of the AI4Life project and provides cloud-powered AI tools for bioimage analysis. Here's what I need help with:
+I'm trying to set up a **BioEngine Worker** for bioimage analysis. BioEngine is part of the RI-SCALE project and provides cloud-powered AI tools for bioimage analysis. Here's what I need help with:
 
 ### What is BioEngine?
 - BioEngine is a distributed computing platform for running AI models on bioimage data

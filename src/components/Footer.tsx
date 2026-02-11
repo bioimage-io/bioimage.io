@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 
 const footerLinks = [
   {
-    label: "We receive funding through the RI-SCALE project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970",
-    href: "https://ai4life.eurobioimaging.eu/",
-    icon: "/static/img/logo-ri-scale-black-orange-icon.png",
+    label: "We receive funding through the RI-SCALE project with support from the European Union's Horizon Europe research and innovation programme under grant agreement number 10188168",
+    href: "https://www.riscale.eu/",
+    icon: "/static/img/ri-scale-logo.png",
     caption: "RI-SCALE"
   },
   {
@@ -104,11 +104,11 @@ const Footer: React.FC = () => {
               />
               
               <p className="text-base text-gray-700 leading-relaxed px-4 mb-4 font-medium">
-                RI-SCALE Model Hub -- a collaborative effort to bring AI models to the bioimaging community, powered by the RI-SCALE consortium
+                RI-SCALE Model Hub -- a collaborative effort to bring AI models to research infrastructures, powered by the RI-SCALE consortium
               </p>
               
               <p className="text-sm text-gray-600 leading-relaxed px-4">
-                AI4Life receives funding from the European Union's Horizon Europe research and innovation programme under grant agreement number 101057970. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them.
+                RI-SCALE receives funding from the European Union's Horizon Europe research and innovation programme under grant agreement number 10188168. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them.
               </p>
             </div>
 

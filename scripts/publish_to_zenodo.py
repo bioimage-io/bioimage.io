@@ -135,7 +135,7 @@ async def publish_artifact_to_zenodo(
                 to=publish_to,
                 metadata={
                     "keywords": tags,
-                    "notes": f"Published automatically by the RI-SCALE Model Hub (https://ri-scale.github.io/model-hub), id: {artifact.alias}, version: {artifact.get('versions', [{}])[0].get('version', 'N/A')}",
+                    "notes": f"Published automatically by the RI-SCALE Model Hub (https://modelhub.riscale.eu), id: {artifact.alias}, version: {artifact.get('versions', [{}])[0].get('version', 'N/A')}",
                 },
             )
 

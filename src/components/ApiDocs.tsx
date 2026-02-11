@@ -214,7 +214,7 @@ const ApiDocs: React.FC = () => {
               </a>
               
               <a 
-                href="https://ri-scale.github.io/model-hub" 
+                href="https://modelhub.riscale.eu" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
@@ -222,7 +222,7 @@ const ApiDocs: React.FC = () => {
                 <h4 className="font-medium text-gray-900 mb-1">🌐 RI-SCALE Model Hub</h4>
                 <p className="text-sm text-gray-600">Main website to browse models visually</p>
                 <code className="text-xs text-blue-600 mt-2 block truncate">
-                  https://ri-scale.github.io/model-hub
+                  https://modelhub.riscale.eu
                 </code>
               </a>
             </div>
@@ -728,7 +728,7 @@ def upload_new_model():
             headers=headers
         )
         print(f"✅ Model ready for review: {model_id}")
-        print(f"View at: https://ri-scale.github.io/model-hub/#/p/{model_id}")
+        print(f"View at: https://modelhub.riscale.eu/#/p/{model_id}")
 
 if __name__ == "__main__":
     upload_new_model()`}

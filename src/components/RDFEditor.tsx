@@ -384,7 +384,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             <p className="text-sm text-blue-700">
               It's recommended to provide comprehensive documentation for your model. We provide a{' '}
               <a 
-                href="https://ri-scale.github.io/model-hub/docs/#/model-card-template.md"
+                href="https://modelhub.riscale.eu/docs/#/model-card-template.md"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-medium underline hover:text-blue-800"

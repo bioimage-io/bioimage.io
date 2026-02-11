@@ -33,7 +33,7 @@ See a [video](https://oc.embl.de/index.php/s/eJOIdzDVJpToETd) about using a mode
 ## Using RI-SCALE Model Hub models in different software (Community Partners)
 
 ### BiaPy
-**Note: BiaPy empowers users to train custom models or fine-tune existing ones for bioimaging tasks and upload them to the RI-SCALE Model Hub. BiaPy supports models exported with PyTorch.**
+**Note: BiaPy empowers users to train custom models or fine-tune existing ones for scientific data analysis tasks and upload them to the RI-SCALE Model Hub. BiaPy supports models exported with PyTorch.**
 
 BiaPy adapts to users of all expertise levels, offering multiple ways to run and interact with models:
 - Graphical User Interface (GUI): Ideal for beginners.
@@ -51,9 +51,9 @@ How you interact with RI-SCALE Model Hub models also depends on your chosen meth
 **Note: deepImageJ supports PyTorch and Tensorflow 1 models**
 
 1. Install the [deepImageJ plugin](https://deepimagej.github.io/download.html) in ImageJ.
-This will give you all the necessary Plugins to run ri-scale.github.io/model-hub models at the moment.
+This will give you all the necessary Plugins to run modelhub.riscale.eu models at the moment.
 
-2. Install a model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/):
+2. Install a model from the [RI-SCALE Model Hub](https://modelhub.riscale.eu/):
       1) Download a deepImageJ model from the RI-SCALE Model Hub repository.
       2) Use `DeepImageJ Install Model` in ImageJ to install the `.zip` file that you just downloaded: choose the `Private model` option and `From ZIP file`.
       3) In the `zip` file you just downloaded, there is an `exampleImage.tif`that you can open in ImageJ and process with the model you just downloaded.
@@ -70,7 +70,7 @@ For more detailed information about the connection between the RI-SCALE Model Hu
    - For remote execution, install the TikTorch backend following the instructions in the [TikTorch GitHub repository](https://github.com/ilastik/tiktorch#installation).
 
 2. **Download and set up a model from the RI-SCALE Model Hub**:
-   - Visit the [ilastik Model Zoo on RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/#/?partner=ilastik) to find compatible pre-trained models.
+   - Visit the [ilastik Model Zoo on RI-SCALE Model Hub](https://modelhub.riscale.eu/#/?partner=ilastik) to find compatible pre-trained models.
    - To load a model into ilastik:
      - Copy the model's DOI or nickname from the RI-SCALE Model Hub and paste it into the text field in ilastik’s Neural Network Classification workflow. Click the arrow button to download and initialize the model.
      - Alternatively, download the model as a `.zip` archive, then drag and drop it into the text field or use the file dialog to load it.
@@ -91,7 +91,7 @@ For more detailed information about the connection between the RI-SCALE Model Hu
 5. **Learn more**:
    - [Ilastik Documentation](https://www.ilastik.org/documentation)
    - [TikTorch Repository](https://github.com/ilastik/tiktorch)
-   - [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/#/?partner=ilastik)
+   - [RI-SCALE Model Hub](https://modelhub.riscale.eu/#/?partner=ilastik)
 
 ###  ImJoy
 [ImJoy](https://imjoy.io) is a flexible platform for running computational workflows in the browser or using Python. While it doesn’t directly reference the RI-SCALE Model Hub (BMZ), it supports seamless integration of BMZ models via plugins and Python.
@@ -104,7 +104,7 @@ For more detailed information about the connection between the RI-SCALE Model Hu
             imjoy --start
             ```
 2. Download and Set Up a BMZ Model
-      - Visit the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/) and download a model with its rdf.yaml file.
+      - Visit the [RI-SCALE Model Hub](https://modelhub.riscale.eu/) and download a model with its rdf.yaml file.
       - Optionally, use `bioimageio.core` to interact with BMZ models:
             ```bash
             pip install bioimageio.core
@@ -123,14 +123,14 @@ For more detailed information about the connection between the RI-SCALE Model Hu
 4. Learn More
       - **[RI-SCALE Model Hub Plugin](https://bioimage-io.github.io/bioengine-web-client/)**: Plugin from ImJoy to the RI-SCALE Model Hub.
       - **[ImJoy Documentation](https://imjoy.io/docs/)**: Explore the full capabilities of ImJoy.
-      - **[RI-SCALE Model Hub Documentation](https://ri-scale.github.io/model-hub/docs/)**: Discover more about BMZ models.
+      - **[RI-SCALE Model Hub Documentation](https://modelhub.riscale.eu/docs/)**: Discover more about BMZ models.
       - **[bioimageio.core Library](https://github.com/bioimage-io/core-bioimage-io-python)**: Dive into the Python library for BMZ models.
 
 
 ### ZeroCostDL4Mic
 **Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the RI-SCALE Model Hub or fine-tune existing ones!**
 
-1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/) repository. 
+1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://modelhub.riscale.eu/) repository. 
 2. Unzip the model `.zip` file so you can use it later in the notebook.
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.

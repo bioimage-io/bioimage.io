@@ -26,9 +26,9 @@ TBD
 **Note: deepImageJ supports PyTorch and Tensorflow 1 models**
 
 1. Install the [deepImageJ plugin](https://deepimagej.github.io/download.html) in ImageJ.
-This will give you all the necessary Plugins to run ri-scale.github.io/model-hub models at the moment.
+This will give you all the necessary Plugins to run modelhub.riscale.eu models at the moment.
 
-2. Install a model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/):
+2. Install a model from the [RI-SCALE Model Hub](https://modelhub.riscale.eu/):
       1) Download a deepImageJ model from the RI-SCALE Model Hub repository.
       2) Use `DeepImageJ Install Model` in ImageJ to install the `.zip` file that you just downloaded: choose the `Private model` option and `From ZIP file`.
       3) In the `zip` file you just downloaded, there is an `exampleImage.tif`that you can open in ImageJ and process with the model you just downloaded.
@@ -40,14 +40,14 @@ For more detailed information about the connection between the RI-SCALE Model Hu
 **Note: Fiji only supports Tensorflow 1 models at the moment!**
 
 1. Install the [CSBDeep-Plugin](https://github.com/CSBDeep/CSBDeep_website/wiki/CSBDeep-in-Fiji-%E2%80%93-Installation) in Fiji.
-This will give you all the necessary Plugins to run ri-scale.github.io/model-hub models at the moment.
+This will give you all the necessary Plugins to run modelhub.riscale.eu models at the moment.
 2. Open the image you want to run the model on
 3. a) If your model is a [CSBDeep](https://imagej.net/CSBDeep) one, go to Plugins > CSBDeep and choose either "N2V", "DenoiSeg" or "Run your network"(default)
    
-   b) For any other ri-scale.github.io/model-hub model, go to Plugins > ri-scale.github.io/model-hub > ri-scale.github.io/model-hub prediction. 
+   b) For any other modelhub.riscale.eu model, go to Plugins > modelhub.riscale.eu > modelhub.riscale.eu prediction. 
 4.  Continuing from 3b) you will arrive at this window:
 
-<img src="./guides/fiji_bioimage_predict.jpg" alt="Fiji ri-scale.github.io/model-hub prediction" width="60%"/>
+<img src="./guides/fiji_bioimage_predict.jpg" alt="Fiji modelhub.riscale.eu prediction" width="60%"/>
 
 The configuration fields should be self-explanatory.
 
@@ -64,7 +64,7 @@ TBD
 #### ZeroCostDL4Mic
 **Note: [ZeroCostDL4Mic](https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki) allows you trainig models and upload them to the RI-SCALE Model Hub or fine-tune existing ones!**
 
-1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/) repository. 
+1. Download a ZeroCostDL4Mic model from the [RI-SCALE Model Hub](https://modelhub.riscale.eu/) repository. 
 2. Unzip the model `.zip` file so you can use it later in the notebook.
 3. Open the ZeroCostDL4Mic notebook that corresponds to the model you downloaded. 
 4. When required, specify the path to the unziped folder containing the model.
@@ -119,7 +119,7 @@ To upload a model to the RI-SCALE Model Hub, you have a tutorial video of the pr
 <img src="./guides/contribute_model.png" align="center" width="1000"/>
 
 For a detailed explanation, follow these steps:
-1. In [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub/), click on `+Upload` and follow the steps:
+1. In [RI-SCALE Model Hub](https://modelhub.riscale.eu/), click on `+Upload` and follow the steps:
         
 2. Log in to Zenodo and give access to the BioEngine application. You will see an automatic message once you are logged in. If not, refresh the page. This step needs to be done only for the first time you upload a model. 
 
@@ -138,7 +138,7 @@ For a detailed explanation, follow these steps:
 #### Upload a model through Zenodo
 **Note:** This tutorial provides a temporary solution for uploading models to the RI-SCALE Model Hub via Zenodo while the upload feature on the RI-SCALE Model Hub website is being fixed.
 
-This tutorial will guide you through the process of uploading a model to the RI-SCALE Model Hub community on Zenodo. The RI-SCALE Model Hub project aims to collect and share bioimage analysis models, and your contribution is valuable. Follow the steps below to upload your model.
+This tutorial will guide you through the process of uploading a model to the RI-SCALE Model Hub community on Zenodo. The RI-SCALE Model Hub project aims to collect and share AI models for scientific data analysis, and your contribution is valuable. Follow the steps below to upload your model.
 
 1. Open your web browser and navigate to the Zenodo website at [https://zenodo.org/](https://zenodo.org). You need to create a Zenodo account if you do not have one. 
    <!-- ![Zenodo initial page](contribute_models/zenodo_upload_01.png) -->
@@ -149,7 +149,7 @@ The files in the RI-SCALE Model Hub zip have to be uploaded one-by-one (See the 
    <!-- ![New upload](contribute_models/zenodo_upload_04.png) -->
    <img src="./guides/zenodo_upload_04.png" alt="New upload" align="center" width="1000"/>
 
-3. Add `ri-scale.github.io/model-hub` on Keywords and subjects. This is crucial for us to identify your submission.
+3. Add `modelhub.riscale.eu` on Keywords and subjects. This is crucial for us to identify your submission.
    <!-- ![Find RI-SCALE Model Hub community](contribute_models/zenodo_upload_03.png) -->
    <img src="./guides/zenodo_upload_03.png" alt="Find RI-SCALE Model Hub community" align="center" width="1000"/>
    
@@ -190,14 +190,14 @@ You can include different cover images that represent the analysed tissue, imagi
 #### Considerations for the model description file
 
 When following the RI-SCALE Model Hub model RDF specification provided at https://github.com/bioimage-io/spec-bioimage-io, it is important that you pay special attention to the following:
-* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://ri-scale.github.io/model-hub/docs/#/consumer_software/model_runner) can process it.
+* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://modelhub.riscale.eu/docs/#/consumer_software/model_runner) can process it.
 * Pre-processing and post-processing should be always described. You can check which [preprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/preprocessing_spec_latest.md) and [postprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/postprocessing_spec_latest.md) functions are supported at the moment and open an [issue here](https://github.com/bioimage-io/spec-bioimage-io/issues) if you are missing a specific operation. 
 * Do not forget to include any additional files needed for the correct execution of the model during the upload process.
 
 #### Model Resource Description File Specification (0.4.9)
 This specification defines the fields used in a RI-SCALE Model Hub-compliant resource description file (`RDF`) for describing AI models with pretrained weights.
 These fields are typically stored in YAML files which we call Model Resource Description Files or `model RDF`.
-The model RDFs can be downloaded or uploaded to the ri-scale.github.io/model-hub website, produced or consumed by RI-SCALE Model Hub-compatible consumers(e.g. image analysis software or other website).
+The model RDFs can be downloaded or uploaded to the modelhub.riscale.eu website, produced or consumed by RI-SCALE Model Hub-compatible consumers(e.g. image analysis software or other website).
 
 The model RDF YAML file contains mandatory and optional fields. In the following description, optional fields are indicated by _optional_.
 _optional*_ with an asterisk indicates the field is optional depending on the value in another field.
@@ -229,7 +229,7 @@ _optional*_ with an asterisk indicates the field is optional depending on the va
             |  z  |  spatial dimension z |
             |  y  |  spatial dimension y |
             |  x  |  spatial dimension x |
-        * <a id="inputs:data_type"></a>`data_type` _(String)_ The data type of this tensor. For inputs, only `float32` is allowed and the consumer software needs to ensure that the correct data type is passed here. For outputs can be any of `float32, float64, (u)int8, (u)int16, (u)int32, (u)int64`. The data flow in ri-scale.github.io/model-hub models is explained [in this diagram.](https://docs.google.com/drawings/d/1FTw8-Rn6a6nXdkZ_SkMumtcjvur9mtIhRqLwnKqZNHM/edit).
+        * <a id="inputs:data_type"></a>`data_type` _(String)_ The data type of this tensor. For inputs, only `float32` is allowed and the consumer software needs to ensure that the correct data type is passed here. For outputs can be any of `float32, float64, (u)int8, (u)int16, (u)int32, (u)int64`. The data flow in modelhub.riscale.eu models is explained [in this diagram.](https://docs.google.com/drawings/d/1FTw8-Rn6a6nXdkZ_SkMumtcjvur9mtIhRqLwnKqZNHM/edit).
         * <a id="inputs:name"></a>`name` _(String)_ Tensor name. No duplicates are allowed.
         * <a id="inputs:shape"></a>`shape` _(Union\[ExplicitShape→List\[Integer\] | ParametrizedInputShape\])_ Specification of input tensor shape.
             1.  _(ExplicitShape→List\[Integer\])_ Exact shape with same length as `axes`, e.g. `shape: [1, 512, 512, 1]`
@@ -299,7 +299,7 @@ _optional*_ with an asterisk indicates the field is optional depending on the va
 * <a id="git_repo"></a>`git_repo` _(optional URL→URI)_ A url to the git repository, e.g. to Github or Gitlab.If the model is contained in a subfolder of a git repository, then a url to the exact folder(which contains the configuration yaml file) should be used.
 * <a id="icon"></a>`icon` _(optional String)_ an icon for the resource
 * <a id="id"></a>`id` _(optional String)_ Unique id within a collection of resources.
-* <a id="links"></a>`links` _(optional List\[String\])_ links to other ri-scale.github.io/model-hub resources
+* <a id="links"></a>`links` _(optional List\[String\])_ links to other modelhub.riscale.eu resources
 * <a id="maintainers"></a>`maintainers` _(optional List\[Maintainer\])_ Maintainers of this resource.
     1.  _(Maintainer)_   is a Dict with the following keys:
         * <a id="maintainers:github_user"></a>`github_user` _(String)_ GitHub user name.
@@ -320,7 +320,7 @@ _optional*_ with an asterisk indicates the field is optional depending on the va
             |  z  |  spatial dimension z |
             |  y  |  spatial dimension y |
             |  x  |  spatial dimension x |
-        * <a id="outputs:data_type"></a>`data_type` _(String)_ The data type of this tensor. For inputs, only `float32` is allowed and the consumer software needs to ensure that the correct data type is passed here. For outputs can be any of `float32, float64, (u)int8, (u)int16, (u)int32, (u)int64`. The data flow in ri-scale.github.io/model-hub models is explained [in this diagram.](https://docs.google.com/drawings/d/1FTw8-Rn6a6nXdkZ_SkMumtcjvur9mtIhRqLwnKqZNHM/edit).
+        * <a id="outputs:data_type"></a>`data_type` _(String)_ The data type of this tensor. For inputs, only `float32` is allowed and the consumer software needs to ensure that the correct data type is passed here. For outputs can be any of `float32, float64, (u)int8, (u)int16, (u)int32, (u)int64`. The data flow in modelhub.riscale.eu models is explained [in this diagram.](https://docs.google.com/drawings/d/1FTw8-Rn6a6nXdkZ_SkMumtcjvur9mtIhRqLwnKqZNHM/edit).
         * <a id="outputs:name"></a>`name` _(String)_ Tensor name. No duplicates are allowed.
         * <a id="outputs:shape"></a>`shape` _(Union\[ExplicitShape→List\[Integer\] | ImplicitOutputShape\])_ Specification of output tensor shape.
             1.  _(ImplicitOutputShape)_ In reference to the shape of an input tensor, the shape of the output tensor is `shape = shape(input_tensor) * scale + 2 * offset`. ImplicitOutputShape is a Dict with the following keys:
@@ -328,7 +328,7 @@ _optional*_ with an asterisk indicates the field is optional depending on the va
                 * <a id="outputs:shape:reference_tensor"></a>`reference_tensor` _(String)_ Name of the reference tensor.
                 * <a id="outputs:shape:scale"></a>`scale` _(List\[Float\])_ 'output_pix/input_pix' for each dimension.
         * <a id="outputs:data_range"></a>`data_range` _(Tuple)_ Tuple `(minimum, maximum)` specifying the allowed range of the data in this tensor. If not specified, the full data range that can be expressed in `data_type` is allowed.
-        * <a id="outputs:halo"></a>`halo` _(List\[Integer\])_ The halo to crop from the output tensor (for example to crop away boundary effects or for tiling). The halo should be cropped from both sides, i.e. `shape_after_crop = shape - 2 * halo`. The `halo` is not cropped by the ri-scale.github.io/model-hub model, but is left to be cropped by the consumer software. Use `shape:offset` if the model output itself is cropped and input and output shapes not fixed.
+        * <a id="outputs:halo"></a>`halo` _(List\[Integer\])_ The halo to crop from the output tensor (for example to crop away boundary effects or for tiling). The halo should be cropped from both sides, i.e. `shape_after_crop = shape - 2 * halo`. The `halo` is not cropped by the modelhub.riscale.eu model, but is left to be cropped by the consumer software. Use `shape:offset` if the model output itself is cropped and input and output shapes not fixed.
         * <a id="outputs:postprocessing"></a>`postprocessing` _(List\[Postprocessing\])_ Description of how this output should be postprocessed.
             1.  _(Postprocessing)_   is a Dict with the following keys:
                 * <a id="outputs:postprocessing:name"></a>`name` _(String)_ Name of postprocessing. One of: binarize, clip, scale_linear, sigmoid, zero_mean_unit_variance, scale_range, scale_mean_variance.
@@ -341,7 +341,7 @@ _optional*_ with an asterisk indicates the field is optional depending on the va
         * <a id="packaged_by:github_user"></a>`github_user` _(String)_ GitHub user name.
         * <a id="packaged_by:orcid"></a>`orcid` _(String)_ [orcid](https://support.orcid.org/hc/en-us/sections/360001495313-What-is-ORCID) id in hyphenated groups of 4 digits, e.g. '0000-0001-2345-6789' (and [valid](https://support.orcid.org/hc/en-us/articles/360006897674-Structure-of-the-ORCID-Identifier) as per ISO 7064 11,2.)
 * <a id="parent"></a>`parent` _(optional ModelParent)_ The model from which this model is derived, e.g. by fine-tuning the weights. ModelParent is a Dict with the following keys:
-    * <a id="parent:id"></a>`id` _(optional BioImageIO_ID→String)_ ID as shown on resource card on ri-scale.github.io/model-hub
+    * <a id="parent:id"></a>`id` _(optional BioImageIO_ID→String)_ ID as shown on resource card on modelhub.riscale.eu
     * <a id="parent:sha256"></a>`sha256` _(optional SHA256→String)_ Hash of the parent model RDF. Note: the hash is not validated
     * <a id="parent:uri"></a>`uri` _(optional Union\[URI→String | Path→String\])_ URL or local relative path of a model RDF
 * <a id="rdf_source"></a>`rdf_source` _(optional Union\[URL→URI | DOI→String\])_ url or doi to the source of the resource definition
@@ -402,7 +402,7 @@ Community partners can host their own Github repository for storing models and o
 ![bioimage-io-community-partners](./community_partners_guide/bioimage-io-community-partners.png)
 
 ### Meet our Community Partners
-Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the bioimage analysis community.
+Below is a list of our esteemed Community Partners who actively engage with the RI-SCALE Model Hub project, contributing their expertise, resources, and support to enhance the scientific research community.
 
 <!-- ImJoyPlugin: {"type": "window", "hide_code_block": true, "startup_mode": "run"} -->
 ```html
@@ -414,7 +414,7 @@ Below is a list of our esteemed Community Partners who actively engage with the 
   "ui": "",
   "version": "0.1.0",
   "cover": "",
-  "description": "Create a table for the ri-scale.github.io/model-hub community partners",
+  "description": "Create a table for the modelhub.riscale.eu community partners",
   "icon": "extension",
   "inputs": null,
   "outputs": null,
@@ -572,7 +572,7 @@ The CI service is an useful tool to autotomize the maintenance of the model repo
 You basically need to add some testing scripts to your repo and  configure it using CI services such as Github Actions,  Travis or Circle CI etc. The testing script will be triggered by a new commit or pull request to the repo. For simplicity, we recommend Github Actions which can be triggered by adding a yaml file under the folder `.github/workflows`. For example, here is an example file [.github/workflows/compile-manifest.yml](https://github.com/deepimagej/models/blob/master/.github/workflows/compile-manifest.yml) that we used to verify the model spec in the central repo.
 
 There are at least three steps are recommended:
- 1. Run the [`compile_model_manifest.py`](https://github.com/bioimage-io/bioimage-io-models/blob/master/manifest.ri-scale.github.io/model-hub.yaml) script to make sure the manifest can be correctly compiled.
+ 1. Run the [`compile_model_manifest.py`](https://github.com/bioimage-io/bioimage-io-models/blob/master/manifest.modelhub.riscale.eu.yaml) script to make sure the manifest can be correctly compiled.
  2. Verify the yaml files according to model spec with [.github.com/bioimage-io/python-bioimage-io](https://github.com/bioimage-io/python-bioimage-io).
  3. If possible, test every models added to the repo.
 
@@ -595,7 +595,7 @@ The easiest way to report a model download is to send an http request to matomo.
 
 You need to construct an URL to report the download:
 
-`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://ri-scale.github.io/model-hub/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
+`https://bioimage.matomo.cloud/matomo.php?download=https://doi.org/[MODEL DOI]&idsite=1&rec=1&r=646242&h=13&m=35&s=20&url=http://modelhub.riscale.eu/#/?id=[MODEL DOI]&uadata={"brands":[{"brand":"[CONSUMER ID]","version":"[CONSUMER VERSION]"}]}`
 
 
 In the above URL, you need to provide the following parameters:
@@ -623,9 +623,9 @@ A RI-SCALE Model Hub partner collection is a YAML file in GitHub repository of a
 
 The appearance of the partner collection on the website can be customized by the `config` field as described in the next section.  
 
-#### Customizing appearance on ri-scale.github.io/model-hub
+#### Customizing appearance on modelhub.riscale.eu
 
-Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the ri-scale.github.io/model-hub website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
+Like any RDF, a collection RDF may have a `config` field to hold non-standardized metadata. We currently use some of this metadata to customize the partner collection appearance on the modelhub.riscale.eu website. The fields used here are subject to change, but as a community partner we'll keep you in the loop on any changes here and will likely formalize this part in the future.
 
 A typical partner collection RDF `config` field may look like this:
 
@@ -711,7 +711,7 @@ The test summaries are expected to follow the folder/file name pattern "<resourc
 
 #### Display of partner test summaries
 
-Once a community partner is registered to contribute test summaries with the `test_summaries` data explained above, the main [RI-SCALE Model Hub CI](https://github.com/bioimage-io/collection-bioimage-io/blob/main/.github/workflows/auto_update_main.yaml) collects these summaries. The collection including these collected test summaries are displayed on ri-scale.github.io/model-hub. Currently test summaries are rendered like so:
+Once a community partner is registered to contribute test summaries with the `test_summaries` data explained above, the main [RI-SCALE Model Hub CI](https://github.com/bioimage-io/collection-bioimage-io/blob/main/.github/workflows/auto_update_main.yaml) collects these summaries. The collection including these collected test summaries are displayed on modelhub.riscale.eu. Currently test summaries are rendered like so:
 ![image](https://user-images.githubusercontent.com/15139589/226955477-6f8a8917-423f-4b9e-b08a-17bdb276aa2c.png)
 
 

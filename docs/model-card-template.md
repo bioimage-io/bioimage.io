@@ -1,6 +1,6 @@
 # Model Card Template
 
-> **Instructions**: This template provides a structured format for documenting your AI model when contributing to the RI-SCALE Model Hub. It integrates best practices from the [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated) while maintaining bioimage-specific requirements. Replace the placeholder text with information specific to your model. This documentation should be saved as `README.md` in your model folder and helps reviewers and users understand your model's purpose, performance, and appropriate usage.
+> **Instructions**: This template provides a structured format for documenting your AI model when contributing to the RI-SCALE Model Hub. It integrates best practices from the [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated) while maintaining domain-specific requirements. Replace the placeholder text with information specific to your model. This documentation should be saved as `README.md` in your model folder and helps reviewers and users understand your model's purpose, performance, and appropriate usage.
 
 ---
 
@@ -26,7 +26,7 @@
 
 ## Model Description
 
-*Provide basic details about the model including architecture, version, creators, and important disclaimers specific to bioimage analysis.*
+*Provide basic details about the model including architecture, version, creators, and important disclaimers specific to your scientific domain.*
 
 - **Developed by:** *[Name(s), Institution(s)]*
 - **Funded by:** *[Funding agency, grant number if applicable]*
@@ -47,16 +47,16 @@
 
 ## Direct Use
 
-*Explain how the model can be used without fine-tuning for bioimage analysis tasks. Provide examples images and/or videos for the data used to train the model, provide guidance on what type of data is required for the model to work.*
+*Explain how the model can be used without fine-tuning for data analysis tasks. Provide examples images and/or videos for the data used to train the model, provide guidance on what type of data is required for the model to work.*
 
 
 ## Downstream Use
 
-*Explain how this model can be fine-tuned or integrated into larger bioimage analysis pipelines.*
+*Explain how this model can be fine-tuned or integrated into larger data analysis pipelines.*
 
 ## Out-of-Scope Use
 
-*List how the model may be misused in bioimage analysis contexts and what users should not do with the model.*
+*List how the model may be misused in scientific data analysis contexts and what users should not do with the model.*
 
 *Examples:*
 - *Not suitable for diagnostic purposes*
@@ -65,7 +65,7 @@
 
 # Task Details
 
-*Bioimage-specific task information*
+*Domain-specific task information*
 
 - **Task type:** *[segmentation, classification, detection, denoising, etc.]*
 - **Input modality:** *[2D/3D fluorescence, brightfield, EM, etc.]*
@@ -76,7 +76,7 @@
 
 # Bias, Risks, and Limitations
 
-*Identify foreseeable harms, misunderstandings, and technical limitations specific to bioimage analysis.*
+*Identify foreseeable harms, misunderstandings, and technical limitations specific to your scientific domain.*
 
 ## Known Biases
 
@@ -87,7 +87,7 @@
 
 ## Risks
 
-*Potential risks in bioimage analysis applications:*
+*Potential risks in scientific data analysis applications:*
 - *Misinterpretation of results*
 - *Over-reliance on automated analysis*
 - *Generalization to unseen experimental conditions*
@@ -110,7 +110,7 @@
 
 ## Training Data
 
-*Describe the training dataset with bioimage-specific details:*
+*Describe the training dataset with domain-specific details:*
 
 - **Source:** *[Dataset name, publication, or source]*
 - **Size:** *[Number of images, total volume, number of annotations]*
@@ -167,7 +167,7 @@
 
 ### Metrics
 
-*Evaluation metrics appropriate for bioimage analysis:*
+*Evaluation metrics appropriate for your scientific domain:*
 - *Segmentation: IoU, Dice coefficient, Hausdorff distance*
 - *Classification: Accuracy, precision, recall, F1-score*
 - *Detection: mAP, precision-recall curves*
@@ -197,7 +197,7 @@
 
 ## Societal Impact Assessment
 
-*Assessment of broader impacts for bioimage analysis:*
+*Assessment of broader impacts for scientific data analysis:*
 - *Potential for misuse in research*
 - *Impact on research reproducibility*
 - *Accessibility and democratization of analysis tools*
@@ -260,11 +260,11 @@
 
 ---
 
-*This model card was created using the RI-SCALE Model Hub template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [RI-SCALE Model Hub](https://ri-scale.github.io/model-hub).*
+*This model card was created using the RI-SCALE Model Hub template, incorporating best practices from the Hugging Face Model Card Template. For more information on contributing models, visit [RI-SCALE Model Hub](https://modelhub.riscale.eu).*
 
 ---
 
 **References:**
 - [Hugging Face Model Card Template](https://huggingface.co/docs/hub/en/model-card-annotated)
-- [RI-SCALE Model Hub Documentation](https://ri-scale.github.io/model-hub/docs/)
+- [RI-SCALE Model Hub Documentation](https://modelhub.riscale.eu/docs/)
 - [Model Cards for Model Reporting](https://arxiv.org/abs/1810.03993) 

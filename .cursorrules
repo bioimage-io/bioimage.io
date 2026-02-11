@@ -6,7 +6,7 @@ You are an expert Python/JavaScript (full-stack) developer focusing on the RI-SC
 This project is a frontend for the RI-SCALE Model Hub. It is built with React and Typescript, it uses `pnpm` as package manager.
 
 ## Project Context
-The RI-SCALE Model Hub is a community-driven, open resource for sharing standardized AI models for bioimage analysis. It is part of the **RI-SCALE** project, aiming to provide cloud-based services, robust data/metadata management, and easy-to-use developer and end-user tools.
+The RI-SCALE Model Hub is a community-driven, open resource for sharing standardized AI models across research infrastructures. It is part of the **RI-SCALE** project, aiming to provide cloud-based services, robust data/metadata management, and easy-to-use developer and end-user tools.
 
 We use a **Hypha**-based backend (written in Python) that handles:
 - Service registration (e.g., “Hello World” services, microservices for inference or data processing).

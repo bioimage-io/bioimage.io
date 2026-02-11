@@ -104,7 +104,7 @@ Each method allows flexibility based on your expertise and tools at hand. Always
 
 ### Upload the model to the RI-SCALE Model Hub
 Once you have created a model in the RI-SCALE Model Hub format, you can upload it to the RI-SCALE Model Hub. The process is straightforward and involves the following steps:
-1. Visit the [bioimageio](https://ri-scale.github.io/model-hub) website and click the "Upload" button to access the model upload page.
+1. Visit the [bioimageio](https://modelhub.riscale.eu) website and click the "Upload" button to access the model upload page.
 2. Log in using your Google or GitHub account.
 3. Upload a resource file, which can be a single zip archive containing all necessary files, or you can select/drag and drop individual files. The 'rdf.yaml' file needed for uploading can be created in the next step.
 4. Automatically once added the yaml file, you will have to "Review and Edit Your Model", to do this, provide all necessary metadata to create the 'rdf.yaml' file if it was not done yet. Ensure to give a descriptive name and description, and add the maintainer responsible for the upload. See the Model Documentation below for details such as how to name your model.
@@ -148,7 +148,7 @@ You can include different cover images that represent the analysed tissue, imagi
 ### Considerations for the model description file
 
 When following the RI-SCALE Model Hub model RDF specification provided at https://github.com/bioimage-io/spec-bioimage-io, it is important that you pay special attention to the following:
-* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://ri-scale.github.io/model-hub/docs/#/guides/user-guide?id=using-ri-scale-model-hub-models-in-different-software) can process it.
+* Choose test input image(s) and generate the respective test output tensor(s). This enables our scripts to test your model for technical correctness and to test which [consumer software](https://modelhub.riscale.eu/docs/#/guides/user-guide?id=using-ri-scale-model-hub-models-in-different-software) can process it.
 * Pre-processing and post-processing should be always described. You can check which [preprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_v0-5.md#inputspreprocessing-sequence--) and [postprocessing](https://github.com/bioimage-io/spec-bioimage-io/blob/gh-pages/user_docs/model_descr_v0-5.md#outputspostprocessing-sequence--) functions are supported at the moment and open an [issue here](https://github.com/bioimage-io/spec-bioimage-io/issues) if you are missing a specific operation. 
 * Do not forget to include any additional files needed for the correct execution of the model during the upload process.
 
