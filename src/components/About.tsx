@@ -9,7 +9,7 @@ const About: React.FC = () => {
         <h2 className="text-2xl font-semibold mb-4 text-gray-800">Our Mission</h2>
         <p className="text-gray-600 leading-relaxed">
           RI-SCALE Model Hub is a collaborative platform for sharing and deploying AI models across research infrastructures.
-          As part of the RI-SCALE consortium, we develop scalable Data Exploitation Platforms (DEPs) that extend
+          As part of the RI-SCALE project, we develop scalable Data Exploitation Platforms (DEPs) that extend
           research infrastructure capabilities with computational environments and AI-driven analytical tools,
           making scientific data accessible, actionable, and ready for advanced analysis.
         </p>
@@ -56,12 +56,6 @@ const About: React.FC = () => {
           <a href="/#/api" 
              className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 transition duration-150 ease-in-out">
             API Documentation
-          </a>
-          <a href="https://modelhub.riscale.eu/docs/#/guides/community-partners-guide?id=introduction-to-community-partners" 
-            target="_blank" 
-            rel="noopener noreferrer"
-             className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150 ease-in-out">
-            Join Community Partners
           </a>
         </div>
       </section>

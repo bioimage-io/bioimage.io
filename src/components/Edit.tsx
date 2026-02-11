@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
+import { Dialog as MuiDialog, Checkbox, FormControlLabel } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
+import gridBg from '../assets/grid.svg';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -50,8 +51,6 @@ interface ContentTab {
   label: string;
   icon: React.ReactNode;
 }
-
-
 
 // Add this type definition near other interfaces
 interface KeyboardShortcut {
@@ -103,7 +102,6 @@ const Edit: React.FC = () => {
   } | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [unsavedChanges, setUnsavedChanges] = useState<{[key: string]: string}>({});
-  const [showComments, setShowComments] = useState(false);
   const [activeTab, setActiveTab] = useState<'files' | 'review'>(() => {
     const tabParam = searchParams.get('tab');
     if (tabParam?.startsWith('@')) {
@@ -114,8 +112,6 @@ const Edit: React.FC = () => {
   const [artifactInfo, setArtifactInfo] = useState<ArtifactInfo | null>(null);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteVersionDialog, setShowDeleteVersionDialog] = useState(false);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
@@ -871,7 +867,7 @@ const Edit: React.FC = () => {
     if (!selectedFile.content) {
       return (
         <div className="h-[calc(100vh-145px)] flex flex-col items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#f39200] mb-4"></div>
           <div className="text-xl font-semibold text-gray-700">Loading file content...</div>
         </div>
       );
@@ -920,7 +916,7 @@ const Edit: React.FC = () => {
             {/* Cover image warning */}
             {isCoverImage && (
               <div className={`absolute top-16 right-4 px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2 ${
-                isTooBig ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
+                isTooBig ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
               }`}>
                 {isTooBig ? (
                   <>
@@ -941,7 +937,10 @@ const Edit: React.FC = () => {
             )}
             
             {/* Image container */}
-            <div className="relative aspect-video bg-gray-900/5 flex items-center justify-center p-4">
+            <div 
+              className="relative aspect-video flex items-center justify-center p-4 bg-gray-50"
+              style={{ backgroundImage: `url(${gridBg})` }}
+            >
               {imageUrl ? (
                 <img 
                   src={imageUrl}
@@ -952,7 +951,7 @@ const Edit: React.FC = () => {
               ) : (
                 <div className="flex items-center justify-center h-40 w-full">
                   <div className="text-gray-400 flex flex-col items-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#f39200] mb-2"></div>
                     <span>Loading image...</span>
                   </div>
                 </div>
@@ -1037,7 +1036,7 @@ const Edit: React.FC = () => {
         <div className="p-4 border-b bg-white space-y-2">
           <button
             onClick={() => setShowNewVersionDialog(true)}
-            className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-gray-700 border hover:bg-gray-50 focus:ring-2 focus:ring-[#f39200]"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -1072,7 +1071,7 @@ const Edit: React.FC = () => {
         </h3>
         <div className="space-y-6">
           {/* Add reviewer responsibility section */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+          <div className="bg-[#fff7ed] border border-orange-200 rounded-lg p-4 text-sm text-orange-800">
             <h4 className="font-medium mb-2">Reviewer's Responsibility</h4>
             <ul className="list-disc pl-4 space-y-1">
               <li>Verify that the model meets RI-SCALE Model Hub technical specifications</li>
@@ -1098,13 +1097,13 @@ const Edit: React.FC = () => {
         <div className="mt-6 flex gap-3 justify-end">
           <button
             onClick={() => setShowPublishDialog(false)}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#f39200]"
           >
             Cancel
           </button>
           <button
             onClick={handlePublish}
-            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700`}
+            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#f39200] bg-[#f39200] hover:bg-[#d98200]`}
           >
             Confirm & Publish
           </button>
@@ -1433,7 +1432,7 @@ const Edit: React.FC = () => {
       <div className="py-2">
         {isLoadingFiles ? (
           <div className="flex flex-col items-center justify-center h-48">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#f39200] mb-4"></div>
             <div className="text-xl font-semibold text-gray-700">Loading files...</div>
           </div>
         ) : files.length === 0 ? (
@@ -1446,8 +1445,10 @@ const Edit: React.FC = () => {
             <div
               key={file.path}
               onClick={() => handleFileSelect(file)}
-              className={`group relative flex items-center px-4 py-2 cursor-pointer hover:bg-gray-50 ${
-                selectedFile?.path === file.path ? 'bg-blue-50 hover:bg-blue-50' : ''
+              className={`group relative flex items-center px-4 py-2 cursor-pointer hover:bg-gray-100 border-l-2 transition-colors ${
+                selectedFile?.path === file.path 
+                  ? 'bg-white border-[#f39200] text-gray-900' 
+                  : 'border-transparent text-gray-600'
               }`}
             >
               {/* File icon and name */}
@@ -1471,11 +1472,11 @@ const Edit: React.FC = () => {
 
                 {/* File Name with Star for rdf.yaml */}
                 <div className="flex items-center gap-2 flex-1">
-                  <span className="truncate text-sm font-medium tracking-wide">
+                  <span className="truncate text-sm font-medium tracking-wide ml-2">
                     {file.name}
                   </span>
                   {file.name === 'rdf.yaml' && (
-                    <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-4 h-4 text-[#f39200] flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
                   )}
@@ -1483,7 +1484,7 @@ const Edit: React.FC = () => {
 
                 {/* Edit badge */}
                 {(file.edited || unsavedChanges[file.path]) && (
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
+                  <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
                     edited
                   </span>
                 )}
@@ -1514,9 +1515,9 @@ const Edit: React.FC = () => {
                     }}
                     title="Download file"
                     aria-label="Download file"
-                    className="p-1 hover:bg-blue-100 rounded transition-colors"
+                    className="p-1 hover:bg-orange-100 rounded transition-colors"
                   >
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-[#f39200]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                   </button>
@@ -1613,7 +1614,7 @@ const Edit: React.FC = () => {
             className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
               ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
+                : 'bg-[#fff7ed] text-gray-700 hover:bg-orange-100 border border-gray-300'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
@@ -1828,38 +1829,38 @@ const Edit: React.FC = () => {
         
         {/* Show progress during creation */}
         {isCreatingVersion && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="mb-6 bg-[#fff7ed] border border-orange-200 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <svg className="animate-spin w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" viewBox="0 0 24 24">
+              <svg className="animate-spin w-5 h-5 text-[#f39200] mt-0.5 flex-shrink-0" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
               <div className="flex-1">
-                <h4 className="font-medium text-blue-900 mb-2">Creating New Version</h4>
+                <h4 className="font-medium text-orange-900 mb-2">Creating New Version</h4>
                 
                 {/* Show current status */}
-                <div className="text-sm text-blue-800 mb-3">
+                <div className="text-sm text-orange-800 mb-3">
                   {uploadStatus?.message || 'Processing...'}
                 </div>
 
                 {/* Show file copying progress */}
                 {copyProgress && (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm text-blue-800">
+                    <div className="flex items-center justify-between text-sm text-orange-800">
                       <span>Copying files ({copyProgress.current}/{copyProgress.total})</span>
                       <span>{Math.round((copyProgress.current / copyProgress.total) * 100)}%</span>
                     </div>
                     
                     {/* Progress bar */}
-                    <div className="w-full bg-blue-200 rounded-full h-2">
+                    <div className="w-full bg-orange-200 rounded-full h-2">
                       <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        className="bg-[#f39200] h-2 rounded-full transition-all duration-300"
                         style={{ width: `${(copyProgress.current / copyProgress.total) * 100}%` }}
                       />
                     </div>
                     
                     {/* Current file being copied */}
-                    <div className="text-xs text-blue-700 truncate">
+                    <div className="text-xs text-orange-700 truncate">
                       Current file: {copyProgress.file}
                     </div>
                   </div>
@@ -1872,12 +1873,12 @@ const Edit: React.FC = () => {
         {/* Warning and guidance section - only show when not creating */}
         {!isCreatingVersion && (
           <div className="space-y-4 mb-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="bg-[#fff7ed] border border-orange-200 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-[#f39200] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <div className="text-sm text-blue-800">
+                <div className="text-sm text-orange-800">
                   <h4 className="font-semibold mb-2">When should you create a new version?</h4>
                   <div className="space-y-2">
                     <p><strong>✅ Create new version when:</strong></p>
@@ -1948,7 +1949,7 @@ const Edit: React.FC = () => {
           <button
             onClick={handleCreateNewVersion}
             disabled={isCreatingVersion}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 py-2 text-sm font-medium text-white bg-[#f39200] border border-transparent rounded-md hover:bg-[#d98200] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isCreatingVersion ? (
               <>
@@ -2189,13 +2190,13 @@ const Edit: React.FC = () => {
         <div className="mt-6 flex gap-3 justify-end">
           <button
             onClick={() => setShowDeleteVersionDialog(false)}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:ring-2 focus:ring-[#f39200]"
           >
             Cancel
           </button>
           <button
             onClick={handleDeleteVersion}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:ring-2 focus:ring-red-500"
           >
             Delete Version
           </button>
@@ -2255,7 +2256,7 @@ const Edit: React.FC = () => {
                   <p className="text-base text-gray-900 truncate max-w-[180px]" title={artifactInfo.manifest.name}>
                     {artifactInfo.manifest.name}
                   </p>
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                  <span className="text-xs bg-[#fff7ed] text-[#f39200] border border-orange-200 px-2 py-1 rounded-full">
                     {isStaged ? 'stage' : (lastVersion || '')}
                   </span>
                 </div>
@@ -2325,7 +2326,7 @@ const Edit: React.FC = () => {
                     {copyProgress ? (
                       <>
                         <div className="flex items-center gap-2">
-                          <span className="text-blue-600 truncate">
+                          <span className="text-[#f39200] truncate">
                             Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
                           </span>
                         </div>
@@ -2337,18 +2338,11 @@ const Edit: React.FC = () => {
                             <span className={`text-base truncate ${
                               uploadStatus.severity === 'error' ? 'text-red-600' :
                               uploadStatus.severity === 'success' ? 'text-green-600' :
-                              'text-blue-600'
+                              'text-[#f39200]'
                             }`}>
                               {uploadStatus.message}
                             </span>
                           </div>
-                        )}
-                        {uploadStatus?.progress !== undefined && (
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={uploadStatus.progress} 
-                            sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                          />
                         )}
                       </>
                     )}
@@ -2363,15 +2357,12 @@ const Edit: React.FC = () => {
 
               {/* Progress bar at the bottom edge */}
               {uploadStatus?.progress !== undefined && (
-                <LinearProgress 
-                  variant="determinate" 
-                  value={uploadStatus.progress} 
-                  sx={{ 
-                    height: 4,
-                    borderRadius: 0,
-                    marginTop: 1,
-                  }}
-                />
+                <div className="w-full bg-gray-100 h-1 mt-1">
+                  <div 
+                    className="bg-[#f39200] h-1 transition-all duration-300"
+                    style={{ width: `${uploadStatus.progress}%` }}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -2411,4 +2402,4 @@ const Edit: React.FC = () => {
   );
 };
 
-export default Edit; 
+export default Edit;

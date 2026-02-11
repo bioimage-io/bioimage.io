@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { Switch, TextField, FormControl, FormHelperText, Autocomplete, Chip } from '@mui/material';
+import { TextField, FormControl, Autocomplete, Chip } from '@mui/material';
 import yaml from 'js-yaml';
 import TagSelection from './TagSelection';
 import { tagCategories } from './TagSelection';
@@ -122,11 +122,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   // Combine local and remote suggestions and remove duplicates
   const tagSuggestions = Array.from(new Set([...Object.values(tagCategories).flat(), ...remoteSuggestions]));
 
-  const validateTag = (tag: string) => {
-    // Allow lowercase letters, numbers, dashes, and special characters: +*#;./%@
-    return /^[a-z0-9+*#;./%@-]+$/.test(tag);
-  };
-
   const sanitizeTag = (tag: string) => {
     // Convert to lowercase
     let sanitized = tag.toLowerCase();
@@ -232,7 +227,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     }
   };
 
-  // Update form and YAML when form fields change
+  // Update form and YAML when form fields changes
   const handleFormChange = (
     field: keyof RDFContent,
     value: any,
@@ -251,7 +246,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         [subfield]: value
       };
       
-      // Use a type assertion that matches the expected field type
       if (field === 'authors') {
         newFormData[field] = arrayField as Author[];
       } else if (field === 'maintainers') {
@@ -260,7 +254,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         newFormData[field] = arrayField as Citation[];
       }
     } else {
-      // For non-array fields or direct array assignments, use a more specific type assertion
       newFormData[field] = value;
     }
 
@@ -281,11 +274,9 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const addArrayItem = (field: keyof RDFContent) => {
     const newFormData = { ...formData };
     
-    // Type guard to ensure we're working with array fields
     if (field === 'authors' || field === 'maintainers' || field === 'cite' || field === 'tags' || field === 'links') {
       const arrayField = [...(newFormData[field] as any[] || [])];
       
-      // Add empty item based on field type
       switch (field) {
         case 'authors':
           arrayField.push({ name: '', affiliation: '', orcid: '' });
@@ -300,7 +291,6 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
           arrayField.push('');
       }
       
-      // Use a type assertion that matches the expected field type
       if (field === 'authors') {
         newFormData[field] = arrayField as Author[];
       } else if (field === 'maintainers') {
@@ -329,12 +319,10 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const removeArrayItem = (field: keyof RDFContent, index: number) => {
     const newFormData = { ...formData };
     
-    // Type guard to ensure we're working with array fields
     if (field === 'authors' || field === 'maintainers' || field === 'cite' || field === 'tags' || field === 'links') {
       const arrayField = [...(newFormData[field] as any[] || [])];
       arrayField.splice(index, 1);
       
-      // Use a type assertion that matches the expected field type
       if (field === 'authors') {
         newFormData[field] = arrayField as Author[];
       } else if (field === 'maintainers') {
@@ -364,30 +352,28 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   const renderForm = () => (
     <div className="space-y-8 px-8 py-6 text-sm">
       {/* Add note about form limitations */}
-      <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+      <div className="bg-orange-50/50 border border-[#f39200]/20 rounded-md p-4">
         <div className="flex">
           <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
+             <span className="text-[#f39200] font-bold">ℹ</span>
           </div>
           <div className="ml-3 space-y-2">
-            <p className="text-sm text-blue-700">
+            <p className="text-sm text-gray-800">
               This form contains common fields. To edit additional fields, please use the{' '}
               <button 
                 onClick={() => setIsFormMode(false)}
-                className="font-medium underline hover:text-blue-800"
+                className="font-medium underline hover:text-[#f39200] text-[#f39200]"
               >
                 Advanced RDF Editor
               </button>
             </p>
-            <p className="text-sm text-blue-700">
+            <p className="text-sm text-gray-800">
               It's recommended to provide comprehensive documentation for your model. We provide a{' '}
               <a 
-                href="https://modelhub.riscale.eu/docs/#/model-card-template.md"
+                href="/#/docs"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium underline hover:text-blue-800"
+                className="font-medium underline hover:text-[#f39200] text-[#f39200]"
               >
                 Model Card Template
               </a>
@@ -521,7 +507,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                       href="https://creativecommons.org/licenses/by/4.0/" 
                       target="_blank" 
                       rel="noopener noreferrer" 
-                      className="text-blue-600 hover:underline"
+                      className="text-[#f39200] hover:underline"
                     >
                       CC-BY-4.0
                     </a>
@@ -531,7 +517,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
                       href="https://spdx.org/licenses" 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-[#f39200] hover:underline"
                     >
                       SPDX License List
                     </a>
@@ -753,7 +739,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         </div>
       </div>
 
-      {/* Maintainers Section - Similar styling to Authors */}
+      {/* Maintainers Section */}
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
           <div>
@@ -834,7 +820,7 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
         ))}
       </div>
 
-      {/* Citations Section - Similar styling to Authors */}
+      {/* Citations Section */}
       <div className="space-y-6">
         <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
           <div>
@@ -920,13 +906,13 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   return (
     <div className="flex flex-col h-full">
       {showModeSwitch && (
-        <div className="flex items-center justify-end gap-3 px-4 py-2 border-b bg-gray-50">
+        <div className="flex items-center justify-end gap-3 px-4 py-2 border-b bg-gray-50/50">
           <button
             onClick={() => setIsFormMode(true)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${
               isFormMode 
-                ? 'bg-blue-100 text-blue-700 font-medium'
-                : 'text-gray-600 hover:bg-gray-100'
+                ? 'bg-orange-50 text-[#f39200] font-medium border border-orange-200'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
             }`}
             disabled={readOnly}
           >
@@ -939,8 +925,8 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
             onClick={() => setIsFormMode(false)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${
               !isFormMode 
-                ? 'bg-blue-100 text-blue-700 font-medium'
-                : 'text-gray-600 hover:bg-gray-100'
+                ? 'bg-orange-50 text-[#f39200] font-medium border border-orange-200'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
             }`}
             disabled={readOnly}
             data-testid="yaml-mode-button"
@@ -978,4 +964,4 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
   );
 };
 
-export default RDFEditor; 
+export default RDFEditor;

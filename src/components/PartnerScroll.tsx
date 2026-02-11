@@ -211,8 +211,8 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
     return (
       <div className="flex justify-center items-center h-40">
         <div className="flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-          <p className="text-gray-600 text-sm animate-pulse">Loading community partners...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ri-orange mb-4"></div>
+          <p className="text-gray-500 text-sm">Loading partners...</p>
         </div>
       </div>
     );
@@ -221,13 +221,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   if (error) {
     return (
       <div className="max-w-[1400px] mx-auto px-6 mt-8 mb-8">
-        <div className="bg-red-50/80 backdrop-blur-sm rounded-2xl border border-red-200/50 p-6 text-center shadow-lg">
-          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold text-red-800 mb-2">Unable to Load Partners</h3>
+        <div className="bg-white border border-red-200 rounded-lg p-6 text-center">
           <p className="text-red-600">{error}</p>
         </div>
       </div>
@@ -236,36 +230,34 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
 
   return (
     <div 
-      className="relative max-w-[1400px] mx-auto px-2 sm:px-6 mt-8 sm:mt-12 mb-4 sm:mb-8 group"
+      className="relative max-w-[1400px] mx-auto px-4 sm:px-6 mt-12 mb-8 group"
       onMouseEnter={handleContainerMouseEnter}
       onMouseLeave={handleContainerMouseLeave}
     >
 
       {/* Content with relative positioning */}
       <div className="relative">
-        {/* Fancy Header */}
-        <div className="text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-3">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-ri-black mb-2">
             RI-SCALE Model Hub
           </h2>
-          <div className="w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mt-3 rounded-full"></div>
-          <p className="mt-4 text-gray-600 text-lg">
+          <div className="w-20 h-1 bg-ri-orange mx-auto rounded-full"></div>
+          <p className="mt-4 text-gray-500">
             Supported by our amazing community partners in AI-powered research
           </p>
-          
         </div>
 
         {/* Partners Container */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-white/40 transition-all duration-300">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm transition-all duration-300">
           {/* Navigation Arrows */}
           {showLeftArrow && (
             <button
               onClick={() => scroll('left')}
-              className="absolute left-1 sm:left-2 top-1/2 transform -translate-y-1/2 z-10 bg-white/90 backdrop-blur-sm shadow-lg rounded-xl p-2 sm:p-3 border border-blue-200/50 hover:bg-white hover:shadow-xl hover:border-blue-300/60 transition-all duration-300 hover:scale-105 opacity-0 group-hover:opacity-100"
-              aria-label="Scroll left to see previous partners"
-              title="Previous partners"
+              className="absolute left-0 top-1/2 transform -translate-y-1/2 z-10 bg-white shadow-md rounded-full p-2 border border-gray-100 hover:border-ri-orange hover:text-ri-orange transition-colors"
+              aria-label="Scroll left"
             >
-              <svg className="w-4 h-4 sm:w-6 sm:h-6 text-gray-600 hover:text-blue-600 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
@@ -273,7 +265,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
           
           <div
             ref={scrollRef}
-            className="flex overflow-x-auto space-x-2 sm:space-x-3 py-3 sm:py-4 px-2 sm:px-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+            className="flex overflow-x-auto space-x-4 py-6 px-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
             onScroll={(e) => {
               const target = e.target as HTMLDivElement;
               setShowLeftArrow(target.scrollLeft > 0);
@@ -286,34 +278,31 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
           >
             {partners.map((partner, index) => (
               <div
-                key={`${partner.id}-${index}`} // Include index to help with transitions
-                className="flex flex-col items-center space-y-2 sm:space-y-3 min-w-[80px] sm:min-w-[100px] group/partner"
+                key={`${partner.id}-${index}`}
+                className="flex flex-col items-center flex-shrink-0 w-24 sm:w-32 group/partner"
                 onMouseEnter={(e) => handleMouseEnter(e, partner)}
                 onMouseLeave={handleMouseLeave}
               >
                 <button
                   onClick={(e) => handlePartnerClick(e, partner)}
-                  className="flex flex-col items-center space-y-2 sm:space-y-3 p-1 rounded-2xl transition-all duration-300 hover:scale-102"
+                  className="flex flex-col items-center w-full"
                 >
-                  <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-100/50 flex items-center justify-center p-1.5 sm:p-2 group-hover/partner:from-blue-100 group-hover/partner:to-purple-100 transition-all duration-300">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center p-2 group-hover/partner:border-ri-orange transition-colors duration-200">
                     <img 
                       src={partner.icon} 
                       alt={partner.name} 
-                      className="w-8 h-8 sm:w-12 sm:h-12 object-contain group-hover/partner:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-contain filter grayscale group-hover/partner:grayscale-0 transition-all duration-300"
                       onError={(e) => {
                         const img = e.target as HTMLImageElement;
-                        // Prevent infinite loop by checking if we're already using the fallback
                         if (img.src !== window.location.origin + '/static/img/ri-scale-alt-logo.png') {
                           img.src = window.location.origin + '/static/img/ri-scale-alt-logo.png';
                         } else {
-                          // If even the fallback fails, remove the onError handler to prevent further loops
                           img.onerror = null;
-                          console.warn('Both original and fallback icon failed to load for partner:', partner.name);
                         }
                       }}
                     />
                   </div>
-                  <span className="text-xs sm:text-sm font-medium text-gray-700 group-hover/partner:text-blue-600 transition-colors duration-300 text-center leading-tight">
+                  <span className="mt-2 text-xs sm:text-sm font-medium text-gray-500 group-hover/partner:text-ri-black transition-colors duration-200 text-center line-clamp-2">
                     {partner.name}
                   </span>
                 </button>
@@ -324,25 +313,15 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
           {showRightArrow && (
             <button
               onClick={() => scroll('right')}
-              className="absolute right-1 sm:right-2 top-1/2 transform -translate-y-1/2 z-10 bg-white/90 backdrop-blur-sm shadow-lg rounded-xl p-2 sm:p-3 border border-blue-200/50 hover:bg-white hover:shadow-xl hover:border-blue-300/60 transition-all duration-300 hover:scale-105 opacity-0 group-hover:opacity-100"
-              aria-label="Scroll right to see more partners"
-              title="More partners"
+              className="absolute right-0 top-1/2 transform -translate-y-1/2 z-10 bg-white shadow-md rounded-full p-2 border border-gray-100 hover:border-ri-orange hover:text-ri-orange transition-colors"
+              aria-label="Scroll right"
             >
-              <svg className="w-4 h-4 sm:w-6 sm:h-6 text-gray-600 hover:text-blue-600 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           )}
 
-          {/* Auto-reorder indicator - moved to bottom center */}
-          {!isUserInteracting && isHoveringContainer && (
-            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 z-10">
-              <div className="bg-gray-100/60 backdrop-blur-sm rounded-full px-2 py-1 text-xs text-gray-500 font-normal border border-gray-200/30">
-                Auto-rotating
-              </div>
-            </div>
-          )}
-          <div className="w-full h-1 bg-gradient-to-r from-transparent via-blue-100 via-purple-100 to-transparent mt-3 rounded-full transition-all duration-300"></div>
         </div>
       </div>
 
@@ -366,4 +345,4 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   );
 };
 
-export default PartnerScroll; 
+export default PartnerScroll;

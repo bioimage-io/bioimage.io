@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
@@ -9,6 +9,13 @@ import TagSelection from './TagSelection';
 interface ResourceGridProps {
   type?: 'model';
 }
+
+const PHRASES = [
+  "nucleus segmentation",
+  "spot detection",
+  "cell painting",
+  "standardized AI"
+];
 
 interface PaginationProps {
   currentPage: number;
@@ -55,11 +62,11 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
   const pageNumbers = getPageNumbers();
 
   return (
-    <div className="flex justify-center items-center gap-2 mt-6 flex-wrap">
+    <div className="flex justify-center items-center gap-2 mt-12 flex-wrap">
       <button
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
-        className="px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:border-ri-orange hover:text-ri-orange disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-sm"
       >
         Previous
       </button>
@@ -68,7 +75,7 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
       {pageNumbers.map((pageNum, index) => {
         if (pageNum === '...') {
           return (
-            <span key={`ellipsis-${index}`} className="px-2 py-2 text-gray-500">
+            <span key={`ellipsis-${index}`} className="px-2 py-2 text-gray-400">
               ...
             </span>
           );
@@ -78,10 +85,10 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
           <button
             key={pageNum}
             onClick={() => onPageChange(pageNum as number)}
-            className={`px-3 py-2 rounded-lg border transition-colors ${
+            className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
               currentPage === pageNum 
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                ? 'bg-ri-black text-white border-ri-black' 
+                : 'bg-white border-gray-200 text-gray-700 hover:border-ri-orange hover:text-ri-orange'
             }`}
           >
             {pageNum}
@@ -92,13 +99,13 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
       <button
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
-        className="px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:border-ri-orange hover:text-ri-orange disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-sm"
       >
         Next
       </button>
       
       {/* Page info */}
-      <div className="ml-4 text-sm text-gray-600 hidden sm:block">
+      <div className="ml-4 text-xs font-mono text-gray-500 hidden sm:block">
         Page {currentPage} of {totalPages} ({totalItems} items)
       </div>
     </div>
@@ -107,11 +114,10 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
 
 // Add this overlay spinner component
 const LoadingOverlay = () => (
-  <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
-    <div className="bg-white/80 backdrop-blur-lg rounded-xl p-8 flex flex-col items-center shadow-lg border border-white/50">
-      <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-300 border-t-blue-600 mb-4"></div>
-      <div className="text-lg font-medium text-gray-700">Loading resources...</div>
-      <div className="text-sm text-gray-500 mt-1">Please wait while we fetch the latest data</div>
+  <div className="fixed inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-8 flex flex-col items-center shadow-xl border border-gray-100">
+      <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-100 border-t-ri-orange mb-4"></div>
+      <div className="text-base font-semibold text-ri-black">Loading models...</div>
     </div>
   </div>
 );
@@ -120,10 +126,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const location = useLocation();
-  const navigate = useNavigate();
   const { 
     resources,
-    resourceType,
     setResourceType,
     fetchResources,
     totalItems,
@@ -135,12 +139,49 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
+  // Typewriter effect state
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const currentPhrase = PHRASES[phraseIndex];
+    const typingSpeed = isDeleting ? 40 : 80;
+    const pauseTime = 2000;
+
+    const handleTyping = () => {
+      // If full phrase is typed
+      if (!isDeleting && text === currentPhrase) {
+        timer = setTimeout(() => setIsDeleting(true), pauseTime);
+        return;
+      }
+
+      // If phrase is fully deleted
+      if (isDeleting && text === '') {
+        setIsDeleting(false);
+        setPhraseIndex(prev => (prev + 1) % PHRASES.length);
+        return;
+      }
+
+      const nextText = isDeleting 
+        ? currentPhrase.substring(0, text.length - 1)
+        : currentPhrase.substring(0, text.length + 1);
+
+      setText(nextText);
+    };
+
+    timer = setTimeout(handleTyping, typingSpeed);
+    return () => clearTimeout(timer);
+  }, [text, isDeleting, phraseIndex]);
+
   useEffect(() => {
     // Force resource type to model
     setResourceType('model');
     // Reset to first page when artifact type changes
     setCurrentPage(1);
   }, [setResourceType]);
+
 
   useEffect(() => {
     const loadResources = async () => {
@@ -171,7 +212,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     };
 
     loadResources();
-  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, fetchResources]);
+  }, [location.pathname, currentPage, serverSearchQuery, selectedTags, fetchResources]);
 
   // Cleanup effect to cancel ongoing requests when component unmounts
   useEffect(() => {
@@ -235,21 +276,27 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   return (
     <div className="w-full">
-      <div className="max-w-[1400px] mx-auto px-2 sm:px-4 md:px-4 lg:px-4">
-        {/* Enhanced separator line with gradient and shadow */}
-        <div className="relative w-full mb-8 sm:mb-12">
-          <div className="w-full h-px bg-gradient-to-r from-transparent via-blue-300/50 to-transparent"></div>
-          <div className="absolute inset-0 w-full h-px bg-gradient-to-r from-transparent via-purple-200/30 to-transparent transform translate-y-0.5"></div>
-          {/* Subtle shadow line */}
-          <div className="absolute inset-0 w-full h-2 bg-gradient-to-b from-blue-50/20 to-transparent transform translate-y-1"></div>
-        </div>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
         
+        {/* Simple divider instead of gradient */}
+        <div className="w-full h-px bg-gray-100 mb-8 sm:mb-12"></div>
+         
         {/* Show loading overlay when loading (but not when just typing) */}
         {loading && !isTyping && <LoadingOverlay />}
         
-        
-        <div className="relative mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative mb-8 sm:mb-12">
+          {/* Welcome Blurb */}
+          <div className="mb-10 text-center max-w-4xl mx-auto">
+            <h1 className="text-3xl sm:text-4xl font-bold text-ri-black mb-4">
+              Discover <span className="text-ri-orange inline-block min-w-[200px]">{text}</span> models
+            </h1>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Access a curated collection of AI models designed for scientific workflows. 
+              Brought to you by <Link to="/about" className="text-black hover:text-ri-black font-semibold transition-colors">RI-SCALE</Link>.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-6 items-start">
              <div className="flex-1 w-full">
                 <SearchBar 
                   value={searchQuery}
@@ -257,7 +304,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                   onSearchConfirm={handleSearchConfirm}
                 />
               </div>
-              <div className="flex-none self-center sm:self-auto">
+              <div className="flex-none w-full sm:w-auto">
                 <TagSelection 
                   onTagSelect={handleTagSelect}
                   selectedTags={selectedTags}
@@ -266,38 +313,9 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
             </div>
           </div>
 
-        {/* BioEngine Button - Only show for applications */}
-        {resourceType === 'application' && (
-          <div className="max-w-3xl mx-auto mb-6 sm:mb-8 px-2 sm:px-0">
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-all duration-200">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mr-4 shadow-md p-1">
-                    <img src="/bioengine-icon.svg" alt="BioEngine" className="w-10 h-10" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                      Run Model Hub Models with BioEngine
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Bring AI models locally, on-premise or in the cloud. We support laptops, workstations, HPC clusters, and cloud platforms.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => navigate('/bioengine')}
-                  className="w-full sm:w-auto sm:ml-2.5 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center justify-center"
-                >
-                  Get Started
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Resources Grid */}
          {resources && resources.length > 0 ? (
-          <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
+          <Grid container spacing={3}>
             {resources.map((resource) => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={resource.id}>
                 <ArtifactCard artifact={resource} />
@@ -306,8 +324,18 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           </Grid>
         ) : (
           !loading && (
-            <div className="text-center py-12">
-              <p className="text-lg text-gray-600">No resources found matching your criteria.</p>
+            <div className="text-center py-24 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-xl text-gray-500 font-medium">No models found matching your criteria.</p>
+              <button 
+                onClick={() => {
+                   setSearchQuery('');
+                   setServerSearchQuery('');
+                   setSelectedTags([]);
+                }}
+                className="mt-4 text-ri-orange hover:text-ri-black underline transition-colors"
+              >
+                Clear all filters
+              </button>
             </div>
           )
         )}
@@ -323,4 +351,4 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   );
 };
 
-export default ArtifactGrid; 
+export default ArtifactGrid;

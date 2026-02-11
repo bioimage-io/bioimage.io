@@ -18,49 +18,58 @@ export const PreviewDialog = ({ open, artifact, onClose }: PreviewDialogProps) =
       maxWidth="lg"
       PaperProps={{
         sx: {
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.5)',
-          borderRadius: '16px',
+          backgroundColor: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
           height: '90vh',
           maxHeight: '1200px',
+        }
+      }}
+      BackdropProps={{
+        sx: {
+           backgroundColor: 'rgba(0, 0, 0, 0.5)',
+           backdropFilter: 'blur(2px)',
         }
       }}
     >
       <DialogTitle 
         sx={{ 
           m: 0, 
-          p: 3, 
+          p: 2, 
+          pl: 3,
+          pr: 3,
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.3)',
+          borderBottom: '1px solid #e5e7eb',
         }}
       >
-        <Typography variant="h5" component="div" sx={{ fontWeight: 300, color: '#1f2937' }}>
+        <Typography variant="h6" component="div" sx={{ fontWeight: 600, color: '#111827' }}>
           {artifact.manifest.name}
         </Typography>
         <IconButton
           onClick={onClose}
           aria-label="close"
           sx={{
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
-            borderRadius: '12px',
-            color: '#dc2626',
+            color: '#6b7280',
+            border: '1px solid transparent',
             '&:hover': {
-              backgroundColor: 'rgba(239, 68, 68, 0.2)',
+              color: '#ef4444',
+              backgroundColor: '#fee2e2',
+              borderColor: '#fecaca',
             },
+            borderRadius: '8px',
+            padding: '6px'
           }}
         >
-          <CloseIcon />
+          <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ overflowY: 'auto', p: 0 }}>
-        <Box sx={{ p: 3 }}>
+      <DialogContent sx={{ overflowY: 'auto', p: 0 }}>
+        <Box sx={{ p: 0 }}>
           <ArtifactDetails />
         </Box>
       </DialogContent>
     </Dialog>
   );
-}; 
+};

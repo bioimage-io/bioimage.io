@@ -30,4 +30,4 @@ To contribute a model to the hub:
 
 *   **About**: Learn more about the RI-SCALE project on the [About](/about) page.
 *   **Terms**: Review the [Terms of Service](/toc) for usage guidelines.
-*   **API**: For developers, check the [API Documentation](/api).
+*   **API**: For developers, check the [API Documentation](/#/api).

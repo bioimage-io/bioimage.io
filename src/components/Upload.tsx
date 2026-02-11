@@ -9,6 +9,7 @@ import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
+import gridBg from '../assets/grid.svg';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -78,32 +79,16 @@ interface TestResult {
 type SupportedTextFiles = '.txt' | '.yml' | '.yaml' | '.json' | '.md' | '.py' | '.js' | '.ts' | '.jsx' | '.tsx' | '.css' | '.html' | '.ijm';
 type SupportedImageFiles = '.png' | '.jpg' | '.jpeg' | '.gif';
 
-// Universal binary file detection: detect known text files, treat everything else as binary
+// Universal binary file detection
 const isKnownTextFile = (filename: string): boolean => {
   const textExtensions = [
-    // Configuration and data files
     '.txt', '.yml', '.yaml', '.json', '.xml', '.csv', '.tsv',
-    // Documentation
     '.md', '.rst', '.tex',
-    // Code files
     '.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.htm',
     '.c', '.cpp', '.h', '.hpp', '.java', '.php', '.rb', '.go', '.rs',
     '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-    // ImageJ macros
-    '.ijm',
-    // Config files
-    '.ini', '.cfg', '.conf', '.toml',
-    // Log files
-    '.log',
-    // SQL files
-    '.sql',
-    // R files
-    '.r', '.R',
-    // Jupyter notebooks (JSON format)
-    '.ipynb'
+    '.ijm', '.ini', '.cfg', '.conf', '.toml', '.log', '.sql', '.r', '.R', '.ipynb'
   ];
-  
-  // Return true if it matches a known text extension
   return textExtensions.some(ext => filename.toLowerCase().endsWith(ext));
 };
 
@@ -111,43 +96,35 @@ interface UploadProps {
   artifactId?: string;
 }
 
-// Add new interface for upload artifact
 interface UploadArtifact {
   id: string;
   version: string;
-  // Add other properties as needed
 }
 
-// Add type definition for manifest
 interface RdfManifest {
   type: 'model' | 'application' | 'dataset';
   name: string;
   [key: string]: any;
 }
 
-// Add these constants near the top of the file, after the interfaces
-const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB threshold for chunked reading
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB
 
-// Add helper function to find emoji for a given name and type
 const findEmoji = (config: any, type: string, name: string): string => {
   const category = type === 'model' ? 'animal' :
                   type === 'application' ? 'object' :
                   type === 'dataset' ? 'fruit' : null;
   
-  if (!category || !config?.id_parts?.[category]) return '🦒'; // Use giraffe emoji if not found
+  if (!category || !config?.id_parts?.[category]) return '🦒';
   
   const names = config.id_parts[category];
   const emojis = config.id_parts[`${category}_emoji`];
   const index = names.indexOf(name);
-  return index >= 0 ? emojis[index] : '🦒'; // Use giraffe emoji if not found
+  return index >= 0 ? emojis[index] : '🦒';
 };
 
-// Add helper to extract noun from generated ID
 const extractNounFromId = (id: string): string => {
-  // Find the last adjective in the list of hyphen-separated parts
   const parts = id.split('-');
-  const adjectives = parts.slice(0, -1).join('-'); // All but last part is adjective
-  const noun = parts[parts.length - 1]; // Last part is noun
+  const noun = parts[parts.length - 1];
   return noun;
 };
 
@@ -241,16 +218,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    // Check if we have a zip file or regular files
     const isZipFile = acceptedFiles.length === 1 && acceptedFiles[0].name.toLowerCase().endsWith('.zip');
-    
-    // Check if this is a directory upload
-    const isDirectoryUpload = acceptedFiles.length > 0 && 
-                             acceptedFiles[0].webkitRelativePath && 
-                             acceptedFiles[0].webkitRelativePath.includes('/');
-    
-    console.log('Files dropped:', acceptedFiles.length, 'isZipFile:', isZipFile, 'isDirectoryUpload:', isDirectoryUpload);
-    
     if (isZipFile) {
       await processZipFile(acceptedFiles[0]);
     } else {
@@ -258,7 +226,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   }, []);
 
-  // Process a zip file (existing functionality)
   const processZipFile = async (zipFile: File) => {
     setUploadStatus({
       message: 'Processing zip file...',
@@ -296,7 +263,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             handle: file
           };
 
-          // Only load rdf.yaml content immediately
           if (fileName === 'rdf.yaml') {
             const content = await file.async('string');
             fileNode.content = content;
@@ -336,7 +302,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
-  // Process files and folders (new functionality)
   const processFilesAndFolders = async (acceptedFiles: File[]) => {
     setUploadStatus({
       message: 'Processing files...',
@@ -347,21 +312,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     try {
       const fileNodes: FileNode[] = [];
       const totalFiles = acceptedFiles.length;
-      
-      // Check if this is a directory upload by examining webkitRelativePath
       const isDirectoryUpload = acceptedFiles.length > 0 && 
                                acceptedFiles[0].webkitRelativePath && 
                                acceptedFiles[0].webkitRelativePath.includes('/');
       
-      // Log directory upload detection
-      if (isDirectoryUpload) {
-        console.log('Directory upload detected:', {
-          firstFilePath: acceptedFiles[0].webkitRelativePath,
-          totalFiles: acceptedFiles.length
-        });
-      }
-      
-      // Sort files to prioritize rdf.yaml
       const sortedFiles = [...acceptedFiles].sort((a, b) => {
         if (a.name === 'rdf.yaml') return -1;
         if (b.name === 'rdf.yaml') return 1;
@@ -370,15 +324,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       for (let i = 0; i < sortedFiles.length; i++) {
         const file = sortedFiles[i];
-        
-        // Get the relative path, handling both directory uploads and individual files
         let relativePath = '';
         
         if (isDirectoryUpload && file.webkitRelativePath) {
-          // For directory uploads, use the full webkitRelativePath
           relativePath = file.webkitRelativePath;
         } else {
-          // For individual files, just use the filename
           relativePath = file.name;
         }
         
@@ -390,11 +340,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           path: relativePath,
           isDirectory: false,
           size: file.size,
-          file: file, // Store the actual File object instead of JSZip handle
+          file: file,
           loaded: false
         };
 
-        // Only load rdf.yaml content immediately
         if (fileName === 'rdf.yaml') {
           const content = await readFileContent(file);
           fileNode.content = content;
@@ -422,7 +371,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       if (rdfFile) {
         handleFileSelect(rdfFile);
       } else {
-        // If no rdf.yaml found, show a warning
         setUploadStatus({
           message: 'Warning: No rdf.yaml file found. This is required for RI-SCALE Model Hub models.',
           severity: 'error'
@@ -437,7 +385,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
-  // Helper function to read file content
   const readFileContent = (file: File): Promise<string | ArrayBuffer> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -462,20 +409,16 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
-    // Accept all files and directories
     noClick: false,
     noKeyboard: false,
     noDrag: false,
     multiple: true,
-    // Support directory upload
-    useFsAccessApi: false, // Set to false for broader browser compatibility
-    // Accept all file types
+    useFsAccessApi: false,
     accept: {
-      '*': ['.*'], // Accept all file types
+      '*': ['.*'],
     }
   });
 
-  // Custom input props to enable directory upload
   const customInputProps = {
     ...getInputProps(),
     webkitdirectory: "true",
@@ -484,7 +427,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     multiple: true
   };
 
-  // Regular file input props (without directory selection)
   const fileInputProps = {
     ...getInputProps(),
     webkitdirectory: undefined,
@@ -492,18 +434,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     mozdirectory: undefined
   };
 
-  // Create refs for the file and folder inputs
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const folderInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Function to trigger file input click
   const handleFileButtonClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
   };
 
-  // Function to trigger folder input click
   const handleFolderButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (folderInputRef.current) {
@@ -511,14 +450,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
-  // Function to trigger zip file input click
   const handleZipButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (fileInputRef.current) {
-      // Temporarily set accept attribute to only allow zip files
       fileInputRef.current.accept = '.zip';
       fileInputRef.current.click();
-      // Reset accept attribute after click
       setTimeout(() => {
         if (fileInputRef.current) {
           fileInputRef.current.accept = '';
@@ -532,7 +468,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
     try {
       if (file.handle) {
-        // Handle JSZip file
         const isBinary = !isKnownTextFile(file.name);
         const content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
         
@@ -544,7 +479,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
         return content;
       } else if (file.file) {
-        // Handle regular File object
         const content = await readFileContent(file.file);
         
         setFiles(prevFiles => prevFiles.map(f => 
@@ -566,7 +500,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const handleFileSelect = async (file: FileNode) => {
     setImageUrl(null);
     setSelectedFile(null);
-    setImageDimensions(null); // Reset image dimensions when selecting a new file
+    setImageDimensions(null);
 
     if (isTextFile(file.name) || isImageFile(file.name)) {
       if (file.loaded && file.content) {
@@ -609,7 +543,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const handleEditorChange = (value: string | undefined, file: FileNode) => {
     if (value === undefined || !file) return;
     
-    // Only mark as edited if content actually changed
     const currentContent = typeof file.content === 'string' ? file.content : '';
     if (value !== currentContent) {
       setFiles(files.map(f => 
@@ -653,7 +586,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         message: 'Please review and agree to our Terms of Service to continue',
         severity: 'info'
       });
-      return; // Stop here and wait for user agreement
+      return;
     } catch (error) {
       console.error('Upload failed:', error);
       setUploadStatus({
@@ -666,7 +599,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
   const handleAgreeAndUpload = async () => {
     try {
-      // Hide the ToS page immediately after agreement
       setShowingTos(false);
       
       setUploadStatus({
@@ -683,15 +615,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       let weightFilePaths: string[] = [];
       
       try {
-        // Ensure rdf.yaml content is loaded
         let rdfContent: string;
         if (!rdfFile.loaded || !rdfFile.content) {
-          // Load content if not already loaded
           if (rdfFile.handle) {
-            // From zip file
             rdfContent = await rdfFile.handle.async('string');
           } else if (rdfFile.file) {
-            // From regular file
             rdfContent = await readFileContent(rdfFile.file) as string;
           } else {
             throw new Error('Cannot load rdf.yaml content');
@@ -703,20 +631,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
         
         manifest = yaml.load(rdfContent) as RdfManifest;
-
-        // Extract weight files for later use
         weightFilePaths = manifest.type === 'model' ? extractWeightFiles(manifest) : [];
 
-        // Set uploader email automatically
         manifest.uploader = {
           ...manifest.uploader,
           email: user.email
         };
 
-        // Update the rdf.yaml content with the new manifest
         const updatedContent = yaml.dump(manifest);
         
-        // Update the file in the files array
         const updatedFiles = files.map(file => 
           file.path.endsWith('rdf.yaml')
             ? { ...file, content: updatedContent }
@@ -729,7 +652,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         throw new Error('Invalid rdf.yaml format');
       }
 
-      // Set alias pattern based on manifest type
       let aliasPattern: string;
       switch (manifest.type) {
         case 'model':
@@ -745,7 +667,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           aliasPattern = '{object_adjective}-{object}';
       }
 
-      // Create new artifact with type-specific alias pattern
       const artifact = await artifactManager.create({
         parent_id: "ri-scale/ai-model-hub",
         alias: aliasPattern,
@@ -759,12 +680,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         overwrite: true,
       });
 
-      // Extract the ID part from the full artifact ID
       const fullId = artifact.id;
       const shortId = fullId.split('/').pop() || '';
       setGeneratedId(shortId);
 
-      // Find the emoji for the generated id
       const noun = extractNounFromId(shortId);
       const collection = await artifactManager.read({
         artifact_id: 'ri-scale/ai-model-hub',
@@ -773,15 +692,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const emoji = findEmoji(collection.config, manifest.type, noun);
       setGeneratedEmoji(emoji);
 
-      // Update the manifest with the id and emoji, preserving other fields
       const updatedManifest = {
         ...manifest,
         id: shortId,
         id_emoji: emoji,
-        // If there's an existing config, preserve other config fields
         config: manifest.config ? {
           ...manifest.config,
-          // Remove bioimageio section if it exists
           ...(manifest.config.bioimageio && {
             ...manifest.config,
             bioimageio: undefined
@@ -789,19 +705,16 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         } : undefined
       };
 
-      // Clean up undefined values
       if (updatedManifest.config === undefined) {
         delete updatedManifest.config;
       }
 
-      // Update the rdf.yaml content in the files array and mark it as edited
       const updatedFiles = files.map(file => {
         if (file.path.endsWith('rdf.yaml')) {
           const updatedContent = yaml.dump(updatedManifest, {
-            // Ensure consistent formatting
             indent: 2,
-            lineWidth: -1, // Don't wrap long lines
-            noRefs: true, // Don't use aliases
+            lineWidth: -1,
+            noRefs: true,
           });
           return {
             ...file,
@@ -813,25 +726,20 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       });
       setFiles(updatedFiles);
 
-      // Find the updated rdf file
       const updatedRdfFile = updatedFiles.find(file => file.path.endsWith('rdf.yaml'));
       if (!updatedRdfFile) {
         throw new Error('Failed to update rdf.yaml');
       }
 
-      // Upload the updated rdf.yaml first
       setUploadStatus({
         message: 'Uploading updated manifest...',
         severity: 'info',
         progress: 0
       });
 
-      // For directory uploads, we need to strip the folder name from the path
       let rdfUploadPath = updatedRdfFile.path;
       if (rdfUploadPath.includes('/')) {
-        // Extract just the filename without the directory structure
         rdfUploadPath = 'rdf.yaml';
-        console.log(`Directory upload detected for rdf.yaml: Changed path from "${updatedRdfFile.path}" to "${rdfUploadPath}"`);
       }
 
       const rdfPutUrl = await artifactManager.put_file({
@@ -846,7 +754,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
       });
 
-      // Update the artifact with the updated manifest
       await artifactManager.edit({
         artifact_id: fullId,
         manifest: updatedManifest,
@@ -854,7 +761,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true
       });
 
-      // Upload remaining files
       const remainingFiles = updatedFiles.filter(file => !file.path.endsWith('rdf.yaml'));
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
@@ -865,41 +771,32 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         });
 
         try {
-          // Get file content or handle
           let content: string | ArrayBuffer | null = null;
           let fileSize = 0;
           let isLargeFile = false;
           let fileObject: File | null = null;
           
           if (file.handle) {
-            // From zip file
             const isBinary = !isKnownTextFile(file.name);
             content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
             fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           } else if (file.file) {
-            // From regular file
             fileObject = file.file;
             fileSize = fileObject.size;
-            
-            // Check if this is a large file that needs chunked upload
             isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
             
             if (!isLargeFile) {
-              // For smaller files, load content as before
               if (!file.loaded || !file.content) {
                 content = await readFileContent(file.file);
               } else {
                 content = file.content;
               }
             }
-            // For large files, we'll use the File object directly with chunked upload
           } else if (file.content) {
-            // Already loaded content
             content = file.content;
             fileSize = content instanceof ArrayBuffer ? content.byteLength : content.length;
           }
 
-          // Check if this is a weight file that needs download_weight=1
           const isWeightFile = weightFilePaths.some((weightPath: string) => {
             const normalizedFilePath = file.path.startsWith('./') ? file.path.substring(2) : file.path;
             return normalizedFilePath === weightPath || 
@@ -907,23 +804,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                    weightPath.endsWith(`/${normalizedFilePath}`);
           });
           
-          // Debug log for file paths
-          console.log('Uploading file:', {
-            name: file.name,
-            path: file.path,
-            isDirectory: file.isDirectory,
-            size: file.size
-          });
-          
-          // For directory uploads, we need to strip the folder name from the path
-          // and only use the file name for the artifact manager
           let uploadPath = file.path;
-          
-          // Check if this is a directory upload (path contains slashes)
           if (uploadPath.includes('/')) {
-            // Extract just the filename without the directory structure
             uploadPath = file.name;
-            console.log(`Directory upload detected: Changed path from "${file.path}" to "${uploadPath}"`);
           }
           
           const putConfig: {
@@ -933,17 +816,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             _rkwargs: boolean;
           } = {
             artifact_id: artifact.id,
-            file_path: uploadPath, // Use the modified path without folder name
+            file_path: uploadPath,
             _rkwargs: true,
           }
           if (isWeightFile) {
             putConfig.download_weight = 1;
           }
-          // Get the upload URL with download_weight if this is a weight file
           const putUrl = await artifactManager.put_file(putConfig);
 
           if (isLargeFile && fileObject) {
-            // Perform chunked upload for large files
             await uploadLargeFile(putUrl, fileObject, fileSize, (progress) => {
               setUploadStatus({
                 message: `Uploading ${file.name}... (${Math.round(progress)}%)`,
@@ -952,7 +833,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               });
             });
           } else if (content) {
-            // Regular upload for smaller files
             const blob = new Blob([content], { type: "application/octet-stream" });
             await axios.put(putUrl, blob, {
               headers: {
@@ -974,7 +854,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             throw new Error(`No content available for ${file.name}`);
           }
 
-          // Clear content from memory after successful upload
           setFiles(prevFiles => prevFiles.map(f => 
             f.path === file.path 
               ? { ...f, content: undefined, loaded: false }
@@ -987,7 +866,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
       }
 
-      // After successful upload, redirect to edit page
       navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`);
 
     } catch (error) {
@@ -998,79 +876,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           : 'Upload failed: Unknown error occurred',
         severity: 'error'
       });
-      setIsUploading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (isUploading) return;
-    
-    if (!artifactManager || !uploadedArtifact) {
-      setUploadStatus({
-        message: 'No artifact to save to',
-        severity: 'error'
-      });
-      return;
-    }
-
-    try {
-      setIsUploading(true);
-      
-      // Filter files that have been edited
-      const filesToUpload = files.filter(file => file.edited);
-      
-      // Upload only edited files sequentially with progress
-      for (let index = 0; index < filesToUpload.length; index++) {
-        const file = filesToUpload[index];
-        setUploadStatus({
-          message: `Saving ${file.name}...`,
-          severity: 'info',
-          progress: (index / filesToUpload.length) * 100
-        });
-
-        const putUrl = await artifactManager.put_file({
-          artifact_id: uploadedArtifact.id,
-          file_path: file.path,
-          _rkwargs: true,
-        });
-        
-        const blob = new Blob([file.content!], { type: "application/octet-stream" });
-        await axios.put(putUrl, blob, {
-          headers: {
-            "Content-Type": ""
-          },
-          onUploadProgress: (progressEvent) => {
-            const progress = progressEvent.total
-              ? (progressEvent.loaded / progressEvent.total) * 100
-              : 0;
-            
-            setUploadStatus({
-              message: `Saving ${file.name}...`,
-              severity: 'info',
-              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
-            });
-          }
-        });
-      }
-
-      // Reset edited flags after successful save
-      setFiles(files.map(file => ({ ...file, edited: false })));
-
-      setUploadStatus({
-        message: 'Changes saved successfully!',
-        severity: 'success',
-        progress: 100
-      });
-
-    } catch (error) {
-      console.error('Save failed:', error);
-      setUploadStatus({
-        message: error instanceof Error 
-          ? `Save failed: ${error.message}` 
-          : 'Save failed: Unknown error occurred',
-        severity: 'error'
-      });
-    } finally {
       setIsUploading(false);
     }
   };
@@ -1097,9 +902,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true
       });
 
-      // Convert the file list to FileNode format
       const nodes: FileNode[] = await Promise.all(fileList.map(async (fileInfo: any) => {
-        // Use a more explicit type assertion
         const file = fileInfo as { type: string; name: string };
         
         if (file.type === 'file') {
@@ -1123,7 +926,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       setFiles(nodes);
       setShowDragDrop(false);
 
-      // Select rdf.yaml by default if it exists
       const rdfFile = nodes.find(file => file.path.endsWith('rdf.yaml'));
       if (rdfFile) {
         handleFileSelect(rdfFile);
@@ -1133,35 +935,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
-  const getFirstErrorLine = (details: string) => {
-    return details.split('\n')[0];
-  };
-
-  // Find the rdf file from the files array
-  const getRdfFile = () => {
-    return files.find(file => file.path.endsWith('rdf.yaml'));
-  };
-
-  // Replace the uploadLargeFile function with this implementation
   const uploadLargeFile = async (
     url: string, 
     file: File, 
     fileSize: number,
     onProgress: (progress: number) => void
   ): Promise<void> => {
-    // For S3 which doesn't support range requests during upload, we'll use
-    // a streaming approach where we read in chunks but upload in a single request
-    
     try {
-      // Create a custom Blob with a stream source that reads the file in chunks
-      const reader = new FileReader();
       const xhr = new XMLHttpRequest();
-      
-      // Open the connection
       xhr.open('PUT', url, true);
       xhr.setRequestHeader('Content-Type', '');
       
-      // Set up progress reporting
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           const percentComplete = (event.loaded / event.total) * 100;
@@ -1169,7 +953,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
       };
       
-      // Set up completion and error handlers
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           console.log('Upload completed successfully');
@@ -1182,11 +965,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         throw new Error('Network error occurred during upload');
       };
       
-      // Start the upload with the entire file
-      // This will stream from disk rather than loading the entire file into memory at once
       xhr.send(file);
       
-      // Wait for the upload to complete
       return new Promise((resolve, reject) => {
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -1203,7 +983,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
-  // Add this function before renderFileContent
   const checkImageDimensions = (url: string, fileName: string) => {
     const img = new Image();
     img.onload = () => {
@@ -1214,9 +993,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
   return (
     <div className="flex flex-col">
-      {/* Add back button when viewing existing artifact */}
-      {files.length > 0 && (<>
-        {/* Add toggle sidebar button - only show when files are loaded */}
+      {files.length > 0 && (
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
@@ -1230,28 +1007,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             )}
           </svg>
         </button>
-        </>
-    )}
-      {/* Show title section only when no files are loaded */}
+      )}
+      
       {showDragDrop && (
-        <div className="bg-white border-b border-gray-80">
+        <div className="bg-white border-b border-gray-100">
           <div className="p-6 text-center">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              Contributing to the RI-SCALE Model Hub
+            <h1 className="text-2xl font-bold text-gray-900">
+              Contribution
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Upload and share your AI models with the research community
+              Upload and share your AI models with the research community.
             </p>
           </div>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
         {files.length > 0 && (
           <div className={`${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:translate-x-0 w-80 bg-gray-50 border-r border-gray-200 flex flex-col 
+          } lg:translate-x-0 w-80 bg-[#f9fafb] border-r border-gray-200 flex flex-col 
           fixed lg:relative inset-y-0 
           transition-transform duration-300 ease-in-out 
           h-screen lg:h-[calc(100vh-64px)] z-40
@@ -1260,88 +1035,62 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               {generatedId ? (
                 <>
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-medium text-gray-900">
+                    <h2 className="text-lg font-medium text-gray-900 truncate">
                       {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
                         (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
                     </h2>
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                    <span className="text-xs bg-blue-50 text-[#f39200] border border-[#f39200] px-2 py-1 rounded-full">
                       stage
                     </span>
                   </div>
                   <div className="text-xs text-gray-500 font-mono flex items-center gap-1">
                     {generatedEmoji && (
-                      <span 
-                        role="img" 
-                        aria-label="model emoji"
-                        className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm"
-                      >
+                      <span className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm">
                         {generatedEmoji}
                       </span>
                     )}
-                    ID: 
-                    <span className="bg-gray-100 px-2 py-0.5 rounded">
-                      {generatedId}
-                    </span>
+                    ID: <span className="bg-gray-100 px-2 py-0.5 rounded">{generatedId}</span>
                   </div>
                 </>
               ) : (
                 <>
-                  <h2 className="text-lg font-semibold text-gray-900">
-                    Contributing to the Zoo
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+                    Package Contents
                   </h2>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600 font-medium">Package Contents</span>
-                  </div>
                 </>
               )}
             </div>
 
-            {/* Scrollable file list */}
             <div className="flex-1 overflow-y-auto min-h-[calc(100vh-200px)]">
               <div className="py-2 h-full">
                 {files.map((file) => (
                   <div
                     key={file.path}
                     onClick={() => handleFileSelect(file)}
-                    className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3
-                      ${selectedFile?.path === file.path ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                    className={`cursor-pointer px-4 py-2.5 hover:bg-gray-100 transition-colors flex items-center gap-3 border-l-2
+                      ${selectedFile?.path === file.path ? 'bg-white border-[#f39200] text-gray-900' : 'border-transparent text-gray-600'}`}
                   >
-                    {/* File Icon */}
-                    <span className="flex-shrink-0">
+                     <span className="flex-shrink-0">
                       {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
-                        <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        <span className="text-xs font-mono font-bold text-gray-400">YML</span>
                       ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
-                        <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      ) : file.name.endsWith('.py') ? (
-                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                        </svg>
+                         <span className="text-xs font-mono font-bold text-gray-400">IMG</span>
                       ) : (
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
+                         <span className="text-xs font-mono font-bold text-gray-400">FILE</span>
                       )}
                     </span>
 
-                    {/* File Name with Star for rdf.yaml */}
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="truncate text-sm font-medium tracking-wide">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="truncate text-sm font-medium">
                         {file.name}
                       </span>
                       {file.name === 'rdf.yaml' && (
-                        <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
+                         <span className="text-[#f39200] text-xs">★</span>
                       )}
                     </div>
 
-                    {/* Edit Badge */}
                     {file.edited && (
-                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
+                      <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium">
                         edited
                       </span>
                     )}
@@ -1352,22 +1101,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           </div>
         )}
 
-        {/* Main content area */}
         <div className="w-full flex flex-col overflow-hidden min-h-screen">
-          {/* Status bar */}
           {files.length > 0 && (
             <div className="border-b border-gray-200 bg-white sticky top-0 z-50">
-              {/* Container with padding */}
               <div className="p-2">
-                {/* Flex container that stacks below 1024px */}
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  {/* Status section */}
                   <div className="flex-grow min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       {uploadStatus && (
                         <>
                           <span className="text-gray-400">•</span>
-                          <span className={`${getStatusColor(uploadStatus.severity)} text-base truncate`}>
+                          <span className={`${getStatusColor(uploadStatus.severity)} text-sm font-medium truncate`}>
                             {uploadStatus.message}
                           </span>
                         </>
@@ -1375,42 +1119,39 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     </div>
                   </div>
 
-                  {/* Buttons section */}
                   <div className="flex gap-2 flex-shrink-0">
                     {!uploadedArtifact && (
                       <button
                         onClick={handleUpload}
                         disabled={isUploading || !isLoggedIn || !isValidated}
-                        className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                        className={`px-4 py-2 rounded-md font-bold text-sm transition-colors whitespace-nowrap flex items-center gap-2
                           ${isUploading || !isLoggedIn || !isValidated
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                            : 'bg-[#f39200] text-white hover:bg-[#d98200]'}`}
                       >
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                          </svg>
-                          {!isLoggedIn 
-                            ? 'Please login'
+                         {!isLoggedIn 
+                            ? 'Login to Upload'
                             : isUploading 
                               ? 'Uploading...' 
-                              : 'Upload'}
-                        </>
+                              : 'Upload Package'}
                       </button>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* Progress bar with increased top margin */}
               {uploadStatus?.progress !== undefined && (
-                <div className="mt-2"> {/* Add margin container */}
+                <div className="mt-2">
                   <LinearProgress 
                     variant="determinate" 
                     value={uploadStatus.progress} 
                     sx={{ 
-                      height: 4,
+                      height: 2,
                       borderRadius: 0,
+                      backgroundColor: '#f3f4f6',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: '#f39200'
+                      }
                     }}
                   />
                 </div>
@@ -1418,62 +1159,43 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             </div>
           )}
 
-          {/* Content area - update height calculation */}
-          <div className="flex-1 overflow-auto min-h-[calc(100vh-145px)]">
+          <div className="flex-1 overflow-auto min-h-[calc(100vh-145px)] bg-white">
             {showingTos ? (
-              <div className="relative">
-                {/* Notification Banner */}
-                <div className="sticky top-0 z-10 bg-blue-50 border-b border-blue-200 p-4 shadow-sm">
-                  <div className="max-w-4xl mx-auto">
-                    <div className="flex items-center space-x-3 mb-4">
-                      <svg className="h-6 w-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <p className="text-blue-700 font-medium">
-                        Please review our Terms of Service
-                      </p>
-                    </div>
-                    
-                    {/* Agreement Buttons */}
-                    <div className="flex justify-center gap-3">
-                      <button
-                        onClick={() => setShowingTos(false)}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium shadow-sm transition-colors duration-150 ease-in-out flex items-center space-x-2"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        <span>Cancel</span>
-                      </button>
-                      <button
-                        onClick={handleAgreeAndUpload}
-                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium shadow-sm transition-colors duration-150 ease-in-out flex items-center space-x-2"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>I Agree and Continue Upload</span>
-                      </button>
-                    </div>
-                  </div>
+              <div className="relative p-6">
+                <div className="mb-8 border-b border-gray-200 pb-6">
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Terms of Service Agreement</h2>
+                    <p className="text-gray-500">Please review and accept the terms to proceed with your upload.</p>
                 </div>
                 
-                {/* Terms of Service Content */}
-                <div className="mt-4">
-                  <TermsOfService />
+                <div className="max-w-4xl mx-auto">
+                    <TermsOfService />
+                    
+                    <div className="flex justify-end gap-4 mt-8 pt-6 border-t border-gray-200 sticky bottom-0 bg-white p-4">
+                        <button
+                            onClick={() => setShowingTos(false)}
+                            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleAgreeAndUpload}
+                            className="px-6 py-2 bg-[#f39200] text-white rounded-md font-bold hover:bg-[#d98200] transition-colors shadow-sm"
+                        >
+                            I Agree & Continue Upload
+                        </button>
+                    </div>
                 </div>
               </div>
             ) : showDragDrop ? (
-              <div className="h-full flex items-center justify-center">
-                <div className="mt-10 text-center max-w-2xl mx-auto">
+              <div className="h-full flex items-center justify-center p-8">
+                <div className="mt-10 text-center max-w-2xl mx-auto w-full">
                   {uploadStatus?.message && uploadStatus.severity === 'info' && uploadStatus.progress !== undefined ? (
-                    // Show loading spinner while processing
                     <div className="flex flex-col items-center justify-center mb-8">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                      <div className="text-xl font-semibold text-gray-700 mb-2">{uploadStatus.message}</div>
-                      <div className="w-64 bg-gray-200 rounded-full h-2">
+                       <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-100 border-t-[#f39200] mb-4"></div>
+                      <div className="text-lg font-medium text-gray-900 mb-2">{uploadStatus.message}</div>
+                      <div className="w-64 bg-gray-100 rounded-full h-1.5 mt-2">
                         <div 
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                          className="bg-[#f39200] h-1.5 rounded-full transition-all duration-300" 
                           style={{ width: `${uploadStatus.progress}%` }}
                         />
                       </div>
@@ -1482,139 +1204,87 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     <div 
                       {...getRootProps()} 
                       onClick={handleFileButtonClick}
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-12 hover:bg-gray-50 transition-colors cursor-pointer mb-8"
+                      className="border-2 border-dashed border-gray-300 rounded-xl p-16 hover:bg-gray-50 hover:border-[#f39200] transition-all cursor-pointer mb-8 group"
                     >
-                      {/* Hidden inputs for file and folder selection */}
                       <input {...fileInputProps} ref={fileInputRef} />
                       <input {...customInputProps} ref={folderInputRef} style={{ display: 'none' }} />
                       
                       <div className="mb-6">
-                        <div className="w-16 h-16 mx-auto mb-4">
-                          <svg className="w-full h-full text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        <div className="w-16 h-16 mx-auto mb-4 text-gray-300 group-hover:text-[#f39200] transition-colors">
+                          <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                           </svg>
                         </div>
                         {isDragActive ? (
-                          <p className="text-lg text-blue-600 font-medium">Drop your files or folder here...</p>
+                          <p className="text-xl text-[#f39200] font-bold">Drop your files here...</p>
                         ) : (
                           <>
-                            <p className="text-lg text-gray-700 font-medium mb-2">
-                              Drag & drop your model package here
+                            <p className="text-xl text-gray-900 font-bold mb-2">
+                              Drag & drop your model package content here
                             </p>
+                            <p className="text-gray-500">or click to select files</p>
                           </>
                         )}
                       </div>
-                      <div className="text-sm text-gray-500 bg-blue-50 p-3 rounded-md border border-blue-100">
-                        <p className="font-medium text-blue-700 mb-1">💡 Pro Tip for Large Files</p>
-
-                        {/* Added buttons here */}
-                        <div className="flex flex-col sm:flex-row justify-center gap-3 mt-4">
+                      <div className="text-left text-sm text-gray-600 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-8">
+                        <div className="flex flex-col sm:flex-row justify-center gap-3 mt-2">
                           <button
                             type="button"
                             onClick={handleFolderButtonClick}
-                            className="px-4 py-2 bg-blue-100 border border-blue-200 rounded-md text-blue-700 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            className="px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 font-medium hover:border-[#f39200] hover:text-[#f39200] transition-colors"
                           >
-                            <span className="flex items-center gap-1">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                              </svg>
-                              Select Unzipped Files
-                            </span>
+                             Select Folder (Recommended)
                           </button>
                           <button
                             type="button"
                             onClick={handleZipButtonClick}
-                            className="px-4 py-2 bg-green-100 border border-green-200 rounded-md text-green-700 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                            className="px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 font-medium hover:border-[#f39200] hover:text-[#f39200] transition-colors"
                           >
-                            <span className="flex items-center gap-1">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                              </svg>
-                              Select Zip File
-                            </span>
+                             Select Zip File
                           </button>
                         </div>
-                        <p className="mb-3">For models with large files (&gt;3GB), please upload individual files instead of a ZIP archive to avoid memory issues in your browser.</p>
-                        
+                        <p className="mt-4 text-center text-xs text-gray-400">For large models (&gt;3GB), please upload a folder or individual files instead of ZIP.</p>
                       </div>
                     </div>
                   )}
 
-                  {/* Only show View My Artifacts button when logged in */}
                   {isLoggedIn && (
                     <Link
                       to="/my-artifacts"
-                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 bg-gray-50 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                      className="inline-flex items-center gap-2 text-gray-500 hover:text-[#f39200] transition-colors font-medium text-sm"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                      </svg>
-                      View My Artifacts
+                      View My Artifacts →
                     </Link>
                   )}
-
-                  <div className="space-y-4 text-left bg-gray-50 p-6 rounded-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 tracking-tight">
-                      How to upload your model:
-                    </h3>
-                    <ol className="list-decimal list-inside space-y-3 text-gray-600 text-base">
-                      <li className="leading-relaxed">Prepare your model package following the RI-SCALE Model Hub specification</li>
-                      <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> file</li>
-                      <li className="leading-relaxed">Upload using one of these methods:
-                        <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
-                          <li><strong>Folder upload:</strong> Drag & drop a folder containing all your model files (recommended for large files)</li>
-                          <li><strong>Multiple files:</strong> Select all files individually</li>
-                          <li><strong>ZIP archive:</strong> Compress all files into a ZIP (not recommended for files &gt;3GB)</li>
-                        </ul>
-                      </li>
-                    </ol>
-                    <div className="mt-4 bg-yellow-50 p-3 rounded-md border border-yellow-100 text-sm">
-                      <p className="font-medium text-yellow-700">⚠️ Important Note for Large Files</p>
-                      <p className="text-yellow-600">If your model contains large files (&gt;3GB), please upload a folder or individual files instead of a ZIP archive to avoid memory issues.</p>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-6">
-                      Need help? Check out our <a href="/docs" className="text-blue-600 hover:underline font-medium">documentation</a>, 
-                      read our <Link to="/toc" className="text-blue-600 hover:underline font-medium">terms of service</Link>.
-                    </p>
-                  </div>
                 </div>
               </div>
             ) : selectedFile ? (
               <div className="h-full min-h-[calc(80vh-145px)]">
                 {isImageFile(selectedFile.name) ? (
-                  <div className="flex flex-col items-center justify-center p-8">
-                    <div className="relative w-full max-w-4xl bg-white rounded-xl shadow-lg overflow-hidden">
-                      {/* File info badge */}
-                      <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-sm font-medium z-10 flex items-center gap-2">
-                        <span>{selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</span>
-                        <span>•</span>
-                        <span>{imageDimensions ? `${imageDimensions.width}×${imageDimensions.height}` : '...'}</span>
-                        <span>•</span>
-                        <span>{formatFileSize(selectedFile.size)}</span>
+                  <div className="flex flex-col items-center justify-center p-8 bg-gray-50 h-full">
+                    <div className="relative w-full max-w-4xl bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="absolute top-4 right-4 bg-black/80 text-white px-3 py-1 rounded text-xs font-mono z-10">
+                        {selectedFile.name.split('.').pop()?.toUpperCase()} • {imageDimensions ? `${imageDimensions.width}×${imageDimensions.height}` : '...'} • {formatFileSize(selectedFile.size)}
                       </div>
                       
-                      {/* Image container */}
-                      <div className="relative aspect-video bg-gray-900/5 flex items-center justify-center p-4">
+                      <div 
+                        className="relative aspect-video flex items-center justify-center p-4 bg-gray-50"
+                        style={{ backgroundImage: `url(${gridBg})` }}
+                      >
                         {imageUrl ? (
                           <img 
                             src={imageUrl}
                             alt={selectedFile.name}
-                            className="max-w-full max-h-[70vh] h-auto object-contain rounded-lg"
-                            onLoad={() => checkImageDimensions(imageUrl, selectedFile.name)}
+                            className="max-w-full max-h-[70vh] h-auto object-contain shadow-sm"
+                            onLoad={() => checkImageDimensions(imageUrl!, selectedFile.name)}
                           />
                         ) : (
-                          <div className="flex items-center justify-center h-40 w-full">
-                            <div className="text-gray-400 flex flex-col items-center">
-                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                              <span>Loading image...</span>
-                            </div>
-                          </div>
+                           <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-[#f39200]"></div>
                         )}
                       </div>
                       
-                      {/* File name footer */}
-                      <div className="px-4 py-3 bg-gray-50 border-t">
-                        <p className="text-sm text-gray-600 font-medium truncate">
+                      <div className="px-4 py-3 bg-white border-t border-gray-100">
+                        <p className="text-sm font-mono text-gray-600 truncate">
                           {selectedFile.name}
                         </p>
                       </div>
@@ -1628,9 +1298,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     showModeSwitch={true}
                   />
                 ) : isTextFile(selectedFile.name) ? (
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-4 h-full">
                     <Editor
-                      height="calc(100vh - 177px)" // 145px + 32px (p-4 top and bottom)
+                      height="100%"
                       language={getEditorLanguage(selectedFile.name)}
                       value={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
                       onChange={(value) => handleEditorChange(value, selectedFile)}
@@ -1640,76 +1310,46 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                         wordWrap: 'on',
                         lineNumbers: 'on',
                         renderWhitespace: 'selection',
-                        folding: true
+                        folding: true,
+                        fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+                        fontSize: 14,
                       }}
                     />
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
-                    <div className="bg-gray-50 p-6 rounded-lg">
-                      <h3 className="font-medium text-lg mb-4">File Information</h3>
-                      <div className="space-y-2">
-                        <p><span className="font-medium">Name:</span> {selectedFile.name}</p>
-                        <p><span className="font-medium">Size:</span> {formatFileSize(selectedFile.size)}</p>
-                        <p><span className="font-medium">Type:</span> {selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown'}</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 bg-gray-50">
+                    <div className="bg-white p-8 rounded-lg border border-gray-200 shadow-sm text-center">
+                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span className="text-gray-400 font-bold text-xl">?</span>
                       </div>
-                      <p className="mt-4 text-sm text-gray-400">This file type cannot be previewed</p>
+                      <h3 className="font-medium text-gray-900 mb-2">Binary File</h3>
+                      <p className="text-sm text-gray-500 mb-4">{selectedFile.name}</p>
+                      <span className="inline-block px-3 py-1 bg-gray-100 rounded-full text-xs font-mono text-gray-600">
+                        {formatFileSize(selectedFile.size)}
+                      </span>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="h-full flex items-center justify-center text-gray-500">
-                Select a file to view or edit
+              <div className="h-full flex items-center justify-center text-gray-400 bg-gray-50">
+                <div className="text-center">
+                   <p>Select a file from the sidebar to view or edit</p>
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Add overlay for mobile when sidebar is open */}
       {isSidebarOpen && (
         <div 
           className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
-
-      {/* Add this after the status bar and before the content area */}
-      {files.length > 0 && (
-        <div className="border-t border-gray-200 bg-white p-4 space-y-2">
-          {generatedId && (
-            <>
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">
-                  {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
-                    (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
-                </h3>
-                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                  stage
-                </span>
-              </div>
-              <div className="text-xs text-gray-500 font-mono flex items-center gap-1">
-                {generatedEmoji && (
-                  <span 
-                    role="img" 
-                    aria-label="model emoji"
-                    className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded-full text-sm"
-                  >
-                    {generatedEmoji}
-                  </span>
-                )}
-                ID: 
-                <span className="bg-gray-100 px-2 py-0.5 rounded">
-                  {generatedId}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 };
 
-export default Upload; 
+export default Upload;

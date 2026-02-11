@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Box, Typography, Stack, Chip } from '@mui/material';
+import { Card, CardMedia, CardContent, IconButton, Button, Tooltip } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -46,14 +46,10 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
 
         if (user && collection.config?.permissions) {
           const userPermission = collection.config.permissions[user.id];
-          // Check if user has write permissions (rw, rw+, or *)
           const hasWritePermission = userPermission === 'rw' || userPermission === 'rw+' || userPermission === '*';
-          // Also check if user has admin role
           const isAdmin = user.roles?.includes('admin');
-          
           setCanEdit(hasWritePermission || isAdmin);
         } else {
-          // Check if user has admin role even if not in permissions
           setCanEdit(user.roles?.includes('admin') || false);
         }
       } catch (error) {
@@ -65,32 +61,19 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     checkEditPermissions();
   }, [isLoggedIn, user, artifactManager]);
 
-  const nextImage = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent Link navigation
-    setCurrentImageIndex((prev) => (prev + 1) % covers.length);
-  };
-
-  const previousImage = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent Link navigation
-    setCurrentImageIndex((prev) => (prev - 1 + covers.length) % covers.length);
-  };
-
   const handleClick = (e: React.MouseEvent) => {
-    // Only navigate if the click target is the card itself, not children
-    // if (e.target === e.currentTarget) {
-      const id = artifact.id.split('/').pop();
-      navigate(`/artifacts/${id}`);
-    // }
+    const id = artifact.id.split('/').pop();
+    navigate(`/artifacts/${id}`);
   };
 
   const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click/navigation
+    e.stopPropagation();
     const id = artifact.id.split('/').pop();
     window.open(`https://hypha.aicell.io/ri-scale/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   const handleCopyId = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card navigation
+    e.stopPropagation();
     const id = artifact.id.split('/').pop() || '';
     navigator.clipboard.writeText(id);
     setShowCopied(true);
@@ -139,7 +122,6 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     }
   };
 
-  // Get the resolved cover URL for the current index
   const getCurrentCoverUrl = () => {
     if (covers.length === 0) return '';
     return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
@@ -147,120 +129,102 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
 
   return (
     <Card 
+      onClick={handleClick}
+      className="group"
       sx={{
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: 'rgba(255, 255, 255, 0.8)',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid rgba(229, 231, 235, 0.8)',
-        borderRadius: '16px',
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+        backgroundColor: '#ffffff',
+        border: '1px solid #e5e7eb', // gray-200
+        borderRadius: '8px',
+        boxShadow: 'none',
         cursor: 'pointer',
         position: 'relative',
-        transition: 'all 0.3s ease',
+        transition: 'all 0.2s ease',
         '&:hover': {
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          borderColor: 'rgba(59, 130, 246, 0.3)',
-          boxShadow: '0 8px 25px rgba(0, 0, 0, 0.1)',
-          transform: 'translateY(-4px)',
-          '& .preview-button': {
-            opacity: 1,
-          },
-          '& .edit-button': {
-            opacity: 1,
-          },
-          '& .bookmark-button': {
-            opacity: 1,
-          },
-          '& .download-button': {
+          borderColor: '#f39200', // ri-orange
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+          transform: 'translateY(-2px)',
+          '& .action-button': {
             opacity: 1,
             transform: 'translateY(0)',
           },
         }
       }}
     >
-      <IconButton
-        className="preview-button"
-        onClick={handlePreviewOpen}
-        sx={{
-          position: 'absolute',
-          top: 8,
-          left: 8,
-          zIndex: 1,
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.5)',
-          borderRadius: '12px',
-          opacity: 0,
-          transition: 'all 0.3s ease',
-          '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: 'rgba(59, 130, 246, 0.3)',
-            transform: 'scale(1.05)',
-          }
-        }}
-      >
-        <VisibilityIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
-      </IconButton>
-
-      {canEdit && (
+      <div className="absolute top-2 left-2 z-10 flex gap-1">
         <IconButton
-          className="edit-button"
-          onClick={handleEdit}
+          className="action-button"
+          onClick={handlePreviewOpen}
+          size="small"
           sx={{
-            position: 'absolute',
-            top: 8,
-            left: 56, // Position next to preview button
-            zIndex: 1,
             backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.5)',
-            borderRadius: '12px',
+            border: '1px solid #e5e7eb',
             opacity: 0,
-            transition: 'all 0.3s ease',
+            transform: 'translateY(-5px)',
+            transition: 'all 0.2s ease',
             '&:hover': {
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              borderColor: 'rgba(34, 197, 94, 0.3)',
-              transform: 'scale(1.05)',
+              backgroundColor: '#f39200',
+              color: 'white',
+              borderColor: '#f39200',
             }
           }}
         >
-          <EditIcon fontSize="small" sx={{ color: 'rgba(34, 197, 94, 1)' }} />
+          <VisibilityIcon fontSize="small" />
         </IconButton>
-      )}
 
-      {isLoggedIn && artifactManager && (
-        <Tooltip title={isBookmarked(artifact.id) ? "Remove bookmark" : "Bookmark"} placement="top">
+        {canEdit && (
           <IconButton
-            className="bookmark-button"
-            onClick={handleBookmark}
+            className="action-button"
+            onClick={handleEdit}
+            size="small"
             sx={{
-              position: 'absolute',
-              top: 8,
-              left: canEdit ? 104 : 56, // Position next to edit button if it exists, otherwise next to preview
-              zIndex: 1,
               backgroundColor: 'rgba(255, 255, 255, 0.9)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: '12px',
+              border: '1px solid #e5e7eb',
               opacity: 0,
-              transition: 'all 0.3s ease',
+              transform: 'translateY(-5px)',
+              transition: 'all 0.2s ease',
+              transitionDelay: '50ms',
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                borderColor: 'rgba(251, 191, 36, 0.3)',
-                transform: 'scale(1.05)',
+                backgroundColor: '#f39200',
+                color: 'white',
+                borderColor: '#f39200',
               }
             }}
           >
-            {isBookmarked(artifact.id) ? (
-              <StarIcon fontSize="small" sx={{ color: 'rgba(251, 191, 36, 1)' }} />
-            ) : (
-              <StarBorderIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
-            )}
+            <EditIcon fontSize="small" />
           </IconButton>
-        </Tooltip>
-      )}
+        )}
+
+        {isLoggedIn && artifactManager && (
+            <IconButton
+              className="action-button"
+              onClick={handleBookmark}
+              size="small"
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                border: '1px solid #e5e7eb',
+                opacity: 0,
+                transform: 'translateY(-5px)',
+                transition: 'all 0.2s ease',
+                transitionDelay: '100ms',
+                 color: isBookmarked(artifact.id) ? '#f39200' : 'inherit',
+                '&:hover': {
+                  backgroundColor: '#f39200',
+                  color: 'white',
+                  borderColor: '#f39200',
+                }
+              }}
+            >
+              {isBookmarked(artifact.id) ? (
+                <StarIcon fontSize="small"  />
+              ) : (
+                <StarBorderIcon fontSize="small" />
+              )}
+            </IconButton>
+        )}
+      </div>
 
       <PreviewDialog 
         open={previewOpen}
@@ -268,10 +232,9 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         onClose={handlePreviewClose}
       />
 
-      <div style={{ position: 'relative', paddingTop: '56.25%', borderRadius: '16px 16px 0 0', overflow: 'hidden' }}> {/* 16:9 aspect ratio container */}
+      <div style={{ position: 'relative', paddingTop: '56.25%', borderBottom: '1px solid #f3f4f6', overflow: 'hidden' }}>
         {covers.length > 0 ? (
           <CardMedia
-            onClick={handleClick}
             component="img"
             image={getCurrentCoverUrl()}
             alt={artifact.manifest.name}
@@ -282,10 +245,6 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              transition: 'transform 0.3s ease',
-              '&:hover': {
-                transform: 'scale(1.02)',
-              }
             }}
           />
         ) : (
@@ -299,8 +258,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'rgba(249, 250, 251, 0.8)',
-              backdropFilter: 'blur(4px)',
+              backgroundColor: '#f9fafb', // gray-50
             }}
           >
             {artifact.manifest.icon ? (
@@ -316,15 +274,18 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             ) : artifact.manifest.id_emoji ? (
               <span style={{ fontSize: '3rem' }}>{artifact.manifest.id_emoji}</span>
             ) : (
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-300">
+                <VisibilityIcon />
+              </div>
             )}
           </div>
         )}
       </div>
-      <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>
+      
+      <CardContent sx={{ flexGrow: 1, p: 2 }}>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <div className="flex-shrink-0 w-6">
+             <div className="flex-shrink-0 w-6">
               {artifact.manifest.icon ? (
                 <img
                   src={artifact.manifest.icon}
@@ -334,79 +295,79 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               ) : artifact.manifest.id_emoji ? (
                 <span className="text-xl">{artifact.manifest.id_emoji}</span>
               ) : (
-                <div className="w-6 h-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
+                <div className="w-6 h-6 bg-gray-100 rounded-full" />
               )}
             </div>
-            <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
+            <h3 className="text-base font-bold text-ri-black break-words flex-grow truncate">
               {artifact.manifest.name}
             </h3>
           </div>
 
           <div className="flex items-center gap-1 text-xs text-gray-500">
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg py-1 border border-white/50">
-              <span className="font-medium">ID:</span>
-              <code className="font-mono bg-gray-100/80 text-gray-800 px-2 py-1 rounded-md border border-gray-200/60 text-xs">
+             <code className="font-mono bg-gray-50 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
                 {artifact.id.split('/').pop()}
-              </code>
-              <Tooltip title="Copy ID" placement="top">
+             </code>
+             <Tooltip title="Copy ID" placement="top">
                 <IconButton
                   onClick={handleCopyId}
                   size="small"
-                  className="ml-1 text-gray-400 hover:text-blue-600"
+                  className="ml-1"
                   sx={{ 
-                    padding: '2px',
-                    borderRadius: '8px',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    }
+                    padding: '2px', 
+                    color: '#9ca3af',
+                    '&:hover': { color: '#f39200' }
                   }}
                 >
                   <ContentCopyIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>
               {showCopied && (
-                <span className="text-green-600 ml-1 font-medium">Copied!</span>
+                <span className="text-green-600 ml-1 font-medium text-[10px]">Copied!</span>
               )}
-            </div>
           </div>
         </div>
         
-        <p className="text-sm text-gray-600 my-4 line-clamp-2">
+        <p className="text-sm text-gray-600 my-4 line-clamp-3 leading-relaxed">
           {artifact.manifest.description}
         </p>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
             {artifact.manifest.tags?.slice(0, 3).map((tag: string) => (
               <span
                 key={tag}
-                className="px-2.5 py-1 bg-gray-50/80 text-gray-500 text-xs rounded-full border border-gray-100/60 transition-all duration-300 hover:bg-gray-100/80 hover:text-gray-600"
+                className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded border border-gray-200"
               >
                 {tag}
               </span>
             ))}
+             {artifact.manifest.tags && artifact.manifest.tags.length > 3 && (
+                <span className="px-2 py-0.5 text-gray-400 text-xs text-[10px]">+{artifact.manifest.tags.length - 3}</span>
+             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {artifact.manifest.badges?.map((badge) => (
-              <a
-                key={badge.url}
-                href={badge.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="px-2 py-0.5 bg-gradient-to-r from-blue-50/80 to-blue-100/80 backdrop-blur-sm text-blue-600 text-xs rounded-lg border border-blue-200/50 flex items-center gap-1 hover:from-blue-100/90 hover:to-blue-200/90 hover:border-blue-300/60 transition-all duration-300"
-              >
-                {badge.icon && <img src={badge.icon} alt="" className="h-4" />}
-                {badge.label}
-              </a>
-            ))}
-          </div>
+          
+           {artifact.manifest.badges && artifact.manifest.badges.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100 mt-2">
+                {artifact.manifest.badges.map((badge) => (
+                  <a
+                    key={badge.url}
+                    href={badge.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-1.5 py-0.5 bg-white text-gray-500 text-[10px] rounded border border-gray-200 flex items-center gap-1 hover:border-ri-orange hover:text-ri-orange transition-colors"
+                  >
+                    {badge.icon && <img src={badge.icon} alt="" className="h-3" />}
+                    {badge.label}
+                  </a>
+                ))}
+              </div>
+            )}
         </div>
       </CardContent>
 
       <Button
-        className="download-button"
+        className="action-button"
         onClick={handleDownload}
         startIcon={<DownloadIcon />}
         variant="contained"
@@ -417,17 +378,13 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           right: 16,
           opacity: 0,
           transform: 'translateY(10px)',
-          transition: 'all 0.3s ease',
-          background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-          borderRadius: '12px',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(59, 130, 246, 0.2)',
+          transition: 'all 0.2s ease',
+          backgroundColor: '#f39200',
           color: 'white',
-          fontWeight: 500,
+          boxShadow: 'none',
           '&:hover': {
-            background: 'linear-gradient(135deg, #2563eb, #4f46e5)',
-            borderColor: 'rgba(59, 130, 246, 0.4)',
-            transform: 'translateY(0) scale(1.05)',
+            backgroundColor: '#d98200',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
           },
         }}
       >
@@ -437,4 +394,4 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   );
 };
 
-export default ArtifactCard; 
+export default ArtifactCard;

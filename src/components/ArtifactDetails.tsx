@@ -222,11 +222,10 @@ const ArtifactDetails = () => {
 
   // Add this overlay spinner component
   const LoadingOverlay = () => (
-    <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white/80 backdrop-blur-lg rounded-xl p-8 flex flex-col items-center shadow-lg border border-white/50">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-300 border-t-blue-600 mb-4"></div>
-        <div className="text-lg font-medium text-gray-700">Loading Artifact Details...</div>
-        <div className="text-sm text-gray-500 mt-1">Please wait while we fetch the data</div>
+    <div className="fixed inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-8 flex flex-col items-center shadow-xl border border-gray-100">
+         <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-100 border-t-ri-orange mb-4"></div>
+        <div className="text-base font-semibold text-ri-black">Loading Details...</div>
       </div>
     </div>
   );
@@ -247,26 +246,25 @@ const ArtifactDetails = () => {
 
     return (
     <div className="container-safe">
-      <div className="max-w-[1400px] mx-auto px-2 sm:px-4 md:px-4 lg:px-4">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
         <Box sx={{ p: { xs: 1, sm: 1, md: 2 }, maxWidth: '100%', width: '100%' }}>
       {/* Header Section */}
       <Box 
         sx={{ 
           mb: { xs: 1, sm: 2, md: 4 }, 
           p: { xs: 1, sm: 2, md: 4 },
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.5)',
-          borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+          backgroundColor: '#ffffff',
+          border: '1px solid #e5e7eb', // gray-200
+          borderRadius: '8px',
+          boxShadow: 'none',
         }}
       >
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 700, color: '#000000' }}>
         {manifest.id_emoji} {manifest.name} 
         </Typography>
         <Typography variant="subtitle1" color="text.secondary" gutterBottom className="flex items-center gap-2">
-          <span>ID: </span>
-          <code className="bg-white/70 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/50 select-all font-mono text-sm">
+          <span className="text-gray-500">ID: </span>
+          <code className="bg-gray-50 px-2 py-1 rounded text-gray-700 font-mono text-sm border border-gray-200">
             {selectedResource.id.split('/').pop()}
           </code>
           <div className="flex items-center gap-2">
@@ -276,15 +274,10 @@ const ArtifactDetails = () => {
               title="Copy ID"
               sx={{
                 padding: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(4px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: '12px',
-                transition: 'all 0.3s ease',
+                color: '#9ca3af',
                 '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  borderColor: 'rgba(59, 130, 246, 0.3)',
-                  transform: 'scale(1.05)',
+                  color: '#f39200',
+                  backgroundColor: 'rgba(243, 146, 0, 0.1)',
                 }
               }}
             >
@@ -302,22 +295,17 @@ const ArtifactDetails = () => {
                 title={isBookmarked(selectedResource.id) ? "Remove bookmark" : "Bookmark"}
                 sx={{
                   padding: '8px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                  backdropFilter: 'blur(4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.5)',
-                  borderRadius: '12px',
-                  transition: 'all 0.3s ease',
+                  color: isBookmarked(selectedResource.id) ? '#f39200' : '#9ca3af',
                   '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                    borderColor: 'rgba(251, 191, 36, 0.3)',
-                    transform: 'scale(1.05)',
+                    color: '#f39200',
+                    backgroundColor: 'rgba(243, 146, 0, 0.1)',
                   }
                 }}
               >
                 {isBookmarked(selectedResource.id) ? (
-                  <StarIcon sx={{ fontSize: 16, color: 'rgba(251, 191, 36, 1)' }} />
+                  <StarIcon sx={{ fontSize: 16 }} />
                 ) : (
-                  <StarBorderIcon sx={{ fontSize: 16, color: 'rgba(107, 114, 128, 1)' }} />
+                  <StarBorderIcon sx={{ fontSize: 16 }} />
                 )}
               </IconButton>
             )}
@@ -334,20 +322,15 @@ const ArtifactDetails = () => {
               variant="contained"
               size="medium"
               sx={{
-                background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-                borderRadius: '12px',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(59, 130, 246, 0.2)',
+                backgroundColor: '#f39200',
                 color: 'white',
-                fontWeight: 500,
-                px: 3,
-                py: 1.5,
-                transition: 'all 0.3s ease',
+                fontWeight: 600,
+                borderRadius: '6px',
+                boxShadow: 'none',
+                textTransform: 'none',
                 '&:hover': {
-                  background: 'linear-gradient(135deg, #2563eb, #4f46e5)',
-                  borderColor: 'rgba(59, 130, 246, 0.4)',
-                  transform: 'translateY(-2px) scale(1.02)',
-                  boxShadow: '0 8px 25px rgba(59, 130, 246, 0.25)',
+                  backgroundColor: '#d98200',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                 },
               }}
             >
@@ -360,21 +343,14 @@ const ArtifactDetails = () => {
                 variant="outlined"
                 size="medium"
                 sx={{
-                  borderRadius: '12px',
-                  backgroundColor: 'rgba(34, 197, 94, 0.05)',
-                  backdropFilter: 'blur(8px)',
-                  border: '2px solid #22c55e',
-                  color: '#16a34a',
+                  color: '#16a34a', // green
+                  borderColor: '#16a34a',
                   fontWeight: 500,
-                  px: 3,
-                  py: 1.5,
-                  transition: 'all 0.3s ease',
+                  borderRadius: '6px',
+                  textTransform: 'none',
                   '&:hover': {
-                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                    borderColor: '#16a34a',
-                    color: '#15803d',
-                    transform: 'translateY(-2px) scale(1.02)',
-                    boxShadow: '0 8px 25px rgba(34, 197, 94, 0.2)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.05)',
+                    borderColor: '#15803d',
                   },
                 }}
               >
@@ -382,27 +358,21 @@ const ArtifactDetails = () => {
               </Button>
             )}
 
-<Button
+            <Button
               onClick={handleViewSource}
               startIcon={<CodeIcon />}
               variant="outlined"
               size="medium"
               sx={{
-                borderRadius: '12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
                 color: '#4b5563',
+                borderColor: '#e5e7eb',
                 fontWeight: 500,
-                px: 3,
-                py: 1.5,
-                transition: 'all 0.3s ease',
+                borderRadius: '6px',
+                textTransform: 'none',
                 '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  borderColor: 'rgba(59, 130, 246, 0.3)',
-                  color: '#3b82f6',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                  backgroundColor: '#f9fafb',
+                  borderColor: '#d1d5db',
+                  color: '#111827',
                 },
               }}
             >
@@ -410,14 +380,13 @@ const ArtifactDetails = () => {
             </Button>
             {latestVersion && (
               <Chip 
-                icon={<UpdateIcon />} 
+                icon={<UpdateIcon style={{ color: '#4b5563' }} />} 
                 label={`Version: ${latestVersion.version}`}
                 sx={{ 
                   ml: 2,
-                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                  backdropFilter: 'blur(4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.5)',
-                  borderRadius: '12px',
+                  backgroundColor: '#f3f4f6', 
+                  color: '#4b5563',
+                  borderRadius: '6px',
                   fontWeight: 500,
                 }} 
               />
@@ -433,14 +402,12 @@ const ArtifactDetails = () => {
             sx={{ 
               position: 'relative',
               width: '100%',
-              mt: "2px",
+              mt: "24px",
               mb: { xs: 1, sm: 2, md: 3 },
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
+              borderRadius: '8px',
               overflow: 'hidden',
-              backgroundColor: 'rgba(249, 250, 251, 0.8)',
-              backdropFilter: 'blur(4px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              transition: 'all 0.3s ease-in-out',
+              backgroundColor: '#f9fafb',
+              border: '1px solid #e5e7eb',
             }}
             data-cover-container="true"
           >
@@ -450,6 +417,10 @@ const ArtifactDetails = () => {
                 position: 'relative',
                 width: '100%',
                 height: '400px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: 'white'
               }}
             >
                 <div>
@@ -457,10 +428,9 @@ const ArtifactDetails = () => {
                     src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
                     alt={`Cover ${currentImageIndex + 1}`}
                     style={{
-                      width: '100%',
-                      height: '100%',
+                      maxWidth: '100%',
+                      maxHeight: '400px',
                       objectFit: 'contain',
-                      borderRadius: '12px'
                     }}
                   />
                   {selectedResource.manifest.covers.length > 1 && (
@@ -473,14 +443,11 @@ const ArtifactDetails = () => {
                           top: '50%',
                           transform: 'translateY(-50%)',
                           backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid rgba(255, 255, 255, 0.5)',
-                          borderRadius: '12px',
-                          transition: 'all 0.3s ease',
+                          border: '1px solid #e5e7eb',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderColor: 'rgba(59, 130, 246, 0.3)',
-                            transform: 'translateY(-50%) scale(1.05)',
+                            backgroundColor: '#f39200',
+                            color: 'white',
+                            borderColor: '#f39200',
                           }
                         }}
                       >
@@ -494,14 +461,11 @@ const ArtifactDetails = () => {
                           top: '50%',
                           transform: 'translateY(-50%)',
                           backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid rgba(255, 255, 255, 0.5)',
-                          borderRadius: '12px',
-                          transition: 'all 0.3s ease',
+                          border: '1px solid #e5e7eb',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderColor: 'rgba(59, 130, 246, 0.3)',
-                            transform: 'translateY(-50%) scale(1.05)',
+                            backgroundColor: '#f39200',
+                            color: 'white',
+                            borderColor: '#f39200',
                           }
                         }}
                       >
@@ -513,12 +477,11 @@ const ArtifactDetails = () => {
                           bottom: 12,
                           left: '50%',
                           transform: 'translateX(-50%)',
-                          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                          backdropFilter: 'blur(8px)',
+                          backgroundColor: 'rgba(0, 0, 0, 0.6)',
                           color: 'white',
-                          padding: '6px 12px',
-                          borderRadius: '12px',
-                          fontSize: '0.875rem',
+                          padding: '4px 12px',
+                          borderRadius: '16px',
+                          fontSize: '0.75rem',
                           fontWeight: 500,
                         }}
                       >
@@ -545,11 +508,10 @@ const ArtifactDetails = () => {
               sx={{ 
                 mb: { xs: 1, sm: 2, md: 3 }, 
                 height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+                backgroundColor: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: 'none',
               }}
             >
               <CardContent sx={{ p: 0 }}>
@@ -557,22 +519,13 @@ const ArtifactDetails = () => {
                   sx={{ 
                     padding: { xs: '12px', sm: '16px', md: '32px' },
                     '& pre': {
-                      maxWidth: '100%',
-                      overflow: 'auto',
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
-                    },
-                    '& img': {
-                      maxWidth: '100%',
-                      height: 'auto',
-                      borderRadius: '12px',
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '6px',
+                      border: '1px solid #e5e7eb',
                     },
                     '& code': {
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      padding: '2px 6px',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
+                      backgroundColor: '#f3f4f6',
+                      color: '#1f2937',
                     }
                   }}
                 >
@@ -595,16 +548,15 @@ const ArtifactDetails = () => {
           <Card 
             sx={{ 
               mb: { xs: 1, sm: 2, md: 3 },
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              boxShadow: 'none',
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                <PersonIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                 Authors
               </Typography>
               {manifest.authors?.map((author, index) => (
@@ -620,9 +572,10 @@ const ArtifactDetails = () => {
                         display: 'inline-block',
                         fontSize: '0.875rem',
                         mb: 0.5,
-                        color: '#3b82f6',
+                        color: '#6b7280',
                         textDecoration: 'none',
                         '&:hover': {
+                          color: '#f39200',
                           textDecoration: 'underline',
                         }
                       }}
@@ -636,7 +589,7 @@ const ArtifactDetails = () => {
                       {author.affiliation}
                     </Typography>
                   )}
-                  {index < (manifest.authors?.length || 0) - 1 && <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.5)' }} />}
+                  {index < (manifest.authors?.length || 0) - 1 && <Divider sx={{ my: 2 }} />}
                 </Box>
               ))}
             </CardContent>
@@ -649,48 +602,44 @@ const ArtifactDetails = () => {
           <Card 
             sx={{ 
               mb: { xs: 1, sm: 2, md: 3 },
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              boxShadow: 'none',
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <BarChartIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                <BarChartIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                 Statistics
               </Typography>
               <Stack spacing={1}>
                 <Chip 
-                  icon={<DownloadIcon />} 
+                  icon={<DownloadIcon style={{ color: '#4b5563' }} />} 
                   label={`Downloads: ${selectedResource.download_count}`}
                   onClick={() => setShowDownloadInfo(!showDownloadInfo)}
                   sx={{ 
                     justifyContent: 'flex-start',
                     cursor: 'pointer',
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(255, 255, 255, 0.5)',
-                    borderRadius: '12px',
+                    backgroundColor: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '6px',
                     fontWeight: 500,
-                    transition: 'all 0.3s ease',
+                    transition: 'all 0.2s',
                     '&:hover': {
-                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                      borderColor: 'rgba(59, 130, 246, 0.3)',
-                      color: '#3b82f6',
+                      backgroundColor: '#f3f4f6',
+                      borderColor: '#d1d5db',
                     }
                   }}
                 />
                 <Chip 
-                  icon={<VisibilityIcon />} 
+                  icon={<VisibilityIcon style={{ color: '#4b5563' }} />} 
                   label={`Views: ${selectedResource.view_count}`}
                   sx={{ 
                     justifyContent: 'flex-start',
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(255, 255, 255, 0.5)',
-                    borderRadius: '12px',
+                    backgroundColor: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '6px',
                     fontWeight: 500,
                   }}
                 />
@@ -701,27 +650,18 @@ const ArtifactDetails = () => {
                   sx={{ 
                     mt: { xs: 1, sm: 2 }, 
                     p: { xs: 1, sm: 2, md: 3 }, 
-                    backgroundColor: 'rgba(59, 130, 246, 0.05)', 
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(59, 130, 246, 0.1)',
-                    borderRadius: { xs: '6px', sm: '8px', md: '12px' },
+                    backgroundColor: '#f3f4f6', 
+                    borderRadius: '6px',
+                    border: '1px solid #e5e7eb',
                   }}
                 >
-                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#1f2937' }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: '#1f2937' }}>
                     How Download Count is Calculated:
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 1, color: '#4b5563', lineHeight: 1.5 }}>
                     Each file has a download weight: manifest files have weight 0, model weight files have weight 1.0. 
                     When individual weight files are downloaded, the count increases by 1 per weight file. 
                     When the complete model package is downloaded as a zip file, the count increases by 1 only when the entire zip is successfully downloaded.
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ color: '#6b7280' }}>
-                    <strong>Note:</strong> Downloads with URL query parameter <code style={{ 
-                      backgroundColor: 'rgba(255, 255, 255, 0.8)', 
-                      padding: '2px 4px', 
-                      borderRadius: '4px',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
-                    }}>silent=true</code> (e.g., CI scripts) do not increase the download count.
                   </Typography>
                 </Box>
               )}
@@ -733,16 +673,15 @@ const ArtifactDetails = () => {
             <Card 
               sx={{ 
                 mb: { xs: 1, sm: 2, md: 3 },
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+                backgroundColor: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: 'none',
               }}
             >
               <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                  <FormatQuoteIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                  <FormatQuoteIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                   Citations
                 </Typography>
                 <Stack spacing={2}>
@@ -758,9 +697,10 @@ const ArtifactDetails = () => {
                           sx={{ 
                             display: 'inline-block',
                             fontSize: '0.875rem',
-                            color: '#3b82f6',
+                            color: '#6b7280',
                             textDecoration: 'none',
                             '&:hover': {
+                              color: '#f39200',
                               textDecoration: 'underline',
                             }
                           }}
@@ -775,21 +715,20 @@ const ArtifactDetails = () => {
             </Card>
           )}
 
-          {/* Add Versions Card here */}
+          {/* Versions Card */}
           {selectedResource.versions && selectedResource.versions.length > 0 && (
             <Card 
               sx={{ 
                 mb: { xs: 1, sm: 2, md: 3 },
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-                borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+                backgroundColor: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: 'none',
               }}
             >
               <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                  <UpdateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                  <UpdateIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                   Versions
                 </Typography>
                 <Stack spacing={2}>
@@ -805,8 +744,9 @@ const ArtifactDetails = () => {
                             sx={{ 
                               fontWeight: 500,
                               cursor: 'pointer',
-                              color: '#3b82f6',
+                              color: '#4b5563',
                               '&:hover': {
+                                color: '#f39200',
                                 textDecoration: 'underline'
                               }
                             }}
@@ -817,13 +757,14 @@ const ArtifactDetails = () => {
                         {version.version === latestVersion?.version && (
                           <Chip 
                             label="Latest" 
-                            color="primary" 
                             size="small" 
                             sx={{
-                              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                              color: '#3b82f6',
-                              borderRadius: '8px',
-                              fontWeight: 500,
+                              backgroundColor: 'rgba(243, 146, 0, 0.1)',
+                              color: '#f39200',
+                              borderRadius: '4px',
+                              fontWeight: 600,
+                              height: '20px',
+                              fontSize: '0.7rem'
                             }}
                           />
                         )}
@@ -837,7 +778,7 @@ const ArtifactDetails = () => {
                         </Typography>
                       )}
                       {index < selectedResource.versions.length - 1 && (
-                        <Divider sx={{ my: 1.5, borderColor: 'rgba(255, 255, 255, 0.5)' }} />
+                        <Divider sx={{ my: 1.5 }} />
                       )}
                     </Box>
                   ))}
@@ -850,16 +791,15 @@ const ArtifactDetails = () => {
           <Card 
             sx={{ 
               mb: { xs: 1, sm: 2, md: 3 },
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              boxShadow: 'none',
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                <LocalOfferIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                 Tags
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -869,17 +809,15 @@ const ArtifactDetails = () => {
                     label={tag} 
                     size="small"
                     sx={{
-                      backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                      backdropFilter: 'blur(4px)',
-                      border: '1px solid rgba(255, 255, 255, 0.5)',
-                      borderRadius: '12px',
-                      color: '#6b7280',
+                      backgroundColor: '#f9fafb',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '6px',
+                      color: '#4b5563',
                       fontWeight: 500,
                       fontSize: '0.75rem',
                       '&:hover': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        borderColor: 'rgba(59, 130, 246, 0.3)',
-                        color: '#3b82f6',
+                         borderColor: '#f39200',
+                         color: '#f39200',
                       }
                     }}
                   />
@@ -892,16 +830,15 @@ const ArtifactDetails = () => {
           <Card 
             sx={{ 
               mb: { xs: 1, sm: 2, md: 3 },
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              boxShadow: 'none',
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                <LinkIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                 Links
               </Typography>
               <Stack spacing={1}>
@@ -910,10 +847,11 @@ const ArtifactDetails = () => {
                     href={manifest.git_repo} 
                     target="_blank"
                     sx={{
-                      color: '#3b82f6',
+                      color: '#4b5563',
                       textDecoration: 'none',
                       fontWeight: 500,
                       '&:hover': {
+                        color: '#f39200',
                         textDecoration: 'underline',
                       }
                     }}
@@ -928,16 +866,15 @@ const ArtifactDetails = () => {
           {/* License Card */}
           <Card
             sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: { xs: '8px', sm: '12px', md: '16px' },
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              boxShadow: 'none',
             }}
           >
             <CardContent sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 300, color: '#1f2937' }}>
-                <GavelIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: '#111827', fontSize: '1rem' }}>
+                <GavelIcon sx={{ mr: 1, verticalAlign: 'text-bottom', fontSize: '1.1rem', color: '#f39200' }} />
                 License
               </Typography>
               <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>{manifest.license}</Typography>
@@ -989,4 +926,4 @@ const ArtifactDetails = () => {
   );
 };
 
-export default ArtifactDetails; 
+export default ArtifactDetails;

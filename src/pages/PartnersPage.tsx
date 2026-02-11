@@ -26,21 +26,14 @@ const PartnersPage = () => {
   const researchInfraIds = ['is_enes', 'eiscat_3d', 'bbmri_eric', 'euro_bioimaging_eric'];
   const digitalInfraIds = ['slices_ri', 't_bi_tak', 'tu_wien'];
   
-  // Helper to categorize partners
   const coordinator = getPartnerById(coordinatorId);
   const researchInfras = researchInfraIds.map(id => getPartnerById(id)).filter((p): p is Partner => !!p);
   const digitalInfras = digitalInfraIds.map(id => getPartnerById(id)).filter((p): p is Partner => !!p);
   
-  // All other partners (excluding those already listed in specific sections, though Riscale duplicates EGI, we will avoid duplication for clarity or maybe list all at bottom)
-  // Actually, Riscale lists "All Partners" at the bottom including everyone.
-  // Let's implement "Other Partners" or just list everyone in "All Partners" section.
-  // The user requested "similar setup". Riscale has specific sections then "All Partners".
-  // Let's do: Coordinator, Research Infrastructures, Digital & Compute, All Partners.
-
   if (loading) {
      return (
-        <div className="flex justify-center items-center h-screen">
-          <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+        <div className="flex justify-center items-center h-screen bg-white">
+          <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-100 border-t-ri-orange"></div>
         </div>
       );
   }
@@ -50,7 +43,7 @@ const PartnersPage = () => {
       href={partner.link} 
       target="_blank" 
       rel="noopener noreferrer"
-      className="flex flex-col items-center p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-gray-100 group h-full"
+      className="flex flex-col items-center p-6 bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 hover:border-ri-orange group h-full"
     >
       <div className="h-24 w-full flex items-center justify-center mb-4">
         <img 
@@ -65,17 +58,18 @@ const PartnersPage = () => {
             }}
         />
       </div>
-      <h3 className="text-lg font-semibold text-gray-800 text-center mt-auto">{partner.name}</h3>
+      <h3 className="text-sm font-semibold text-gray-800 text-center mt-auto group-hover:text-ri-orange transition-colors">{partner.name}</h3>
     </a>
   );
 
   return (
-    <div className="container-safe py-12">
+    <div className="min-h-screen bg-white py-12">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
-          <h1 className="text-4xl font-extrabold text-gray-900 sm:text-5xl md:text-6xl mb-6">
-            <span className="block xl:inline bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">Partners</span>
+          <h1 className="text-4xl font-extrabold text-ri-black sm:text-5xl md:text-6xl mb-6">
+            Partners
           </h1>
+          <div className="w-24 h-1.5 bg-ri-orange mx-auto mb-8"></div>
           <p className="mt-4 max-w-2xl mx-auto text-xl text-gray-500">
             RI-SCALE brings together a powerful and multidisciplinary consortium of Research Infrastructures, digital infrastructure providers, academic institutions, and industry innovators.
           </p>
@@ -83,9 +77,9 @@ const PartnersPage = () => {
 
         {/* Coordinator Section */}
         {coordinator && (
-          <div className="mb-16">
-            <h2 className="text-2xl font-bold text-gray-900 mb-8 border-b pb-4">Coordinator</h2>
-            <div className="flex justify-center">
+          <div className="mb-20">
+            <h2 className="text-2xl font-bold text-ri-black mb-8 border-b border-gray-100 pb-4">Coordinator</h2>
+            <div className="flex justify-start">
                 <div className="w-full max-w-xs">
                     <PartnerCard partner={coordinator} />
                 </div>
@@ -95,8 +89,8 @@ const PartnersPage = () => {
 
         {/* Research Infrastructures Section */}
         {researchInfras.length > 0 && (
-          <div className="mb-16">
-            <h2 className="text-2xl font-bold text-gray-900 mb-8 border-b pb-4">Research Infrastructures</h2>
+          <div className="mb-20">
+            <h2 className="text-2xl font-bold text-ri-black mb-8 border-b border-gray-100 pb-4">Research Infrastructures</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {researchInfras.map(partner => (
                 <PartnerCard key={partner.id} partner={partner} />
@@ -107,8 +101,8 @@ const PartnersPage = () => {
 
         {/* Digital and Compute Infrastructures Section */}
         {digitalInfras.length > 0 && (
-          <div className="mb-16">
-            <h2 className="text-2xl font-bold text-gray-900 mb-8 border-b pb-4">Digital and Compute Infrastructures</h2>
+          <div className="mb-20">
+            <h2 className="text-2xl font-bold text-ri-black mb-8 border-b border-gray-100 pb-4">Digital and Compute Infrastructures</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {digitalInfras.map(partner => (
                 <PartnerCard key={partner.id} partner={partner} />
@@ -119,7 +113,7 @@ const PartnersPage = () => {
 
         {/* All Partners Section */}
         <div className="mb-16">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 border-b pb-4">All Partners</h2>
+          <h2 className="text-2xl font-bold text-ri-black mb-8 border-b border-gray-100 pb-4">All Partners</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
             {partners.map(partner => (
               <PartnerCard key={`all-${partner.id}`} partner={partner} />
