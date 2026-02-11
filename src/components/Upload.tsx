@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
-import { LinearProgress } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
@@ -172,6 +172,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [generatedEmoji, setGeneratedEmoji] = useState<string | null>(null);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [showingTos, setShowingTos] = useState(false);
+  const [shaDialogState, setShaDialogState] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
 
   useEffect(() => {
     if (artifactId) {
@@ -638,6 +643,60 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     }
   };
 
+  const handleShaDialogClose = (result: boolean) => {
+    if (shaDialogState && shaDialogState.resolve) {
+      shaDialogState.resolve(result);
+    }
+    setShaDialogState(null);
+  };
+
+  const promptShaUpdate = (fileName: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setShaDialogState({
+        isOpen: true,
+        fileName,
+        resolve
+      });
+    });
+  };
+
+  const renderShaDialog = () => (
+    <MuiDialog 
+      open={!!shaDialogState?.isOpen} 
+      onClose={() => handleShaDialogClose(false)} // Treat closing as "No"
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Update RDF Reference?
+        </h3>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            The file content for <span className="font-semibold text-gray-700">{shaDialogState?.fileName}</span> has changed since it was last referenced in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>.
+          </p>
+          <p className="text-sm text-gray-500">
+            Do you want to update the reference (SHA256) in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>?
+          </p>
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => handleShaDialogClose(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Abort Upload
+          </button>
+          <button
+            onClick={() => handleShaDialogClose(true)}
+            className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
+          >
+            Update & Continue
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
   const handleUpload = async () => {
     if (isUploading) return;
     
@@ -767,12 +826,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 // Find the filename from path (might be nested or just filename)
                 const fileName = path.split('/').pop() || path;
                 
-                // Use a short timeout to ensure the UI updates before the alert blocks thread
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
-                const confirmed = window.confirm(
-                    `The file content for "${fileName}" has changed since it was last referenced in rdf.yaml.\n\nDo you want to update the reference (SHA256) in rdf.yaml?`
-                );
+                const confirmed = await promptShaUpdate(fileName);
                 
                 if (!confirmed) {
                     console.log(`User declined to update SHA for ${fileName}. Skipping upload of this file.`);
@@ -1804,6 +1858,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           )}
         </div>
       )}
+      {renderShaDialog()}
     </div>
   );
 };
