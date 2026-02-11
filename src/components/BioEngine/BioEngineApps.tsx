@@ -9,6 +9,7 @@ interface BioEngineAppsProps {
   // Deployment-related props
   deployingArtifactId?: string | null;
   undeployingArtifactId?: string | null;
+  pendingDeploymentArtifactId?: string | null;
   artifactModes?: Record<string, string>;
   status?: any;
   onDeployArtifact?: (artifactId: string, mode?: string | null) => void;
@@ -32,6 +33,7 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   onArtifactUpdated,
   deployingArtifactId,
   undeployingArtifactId,
+  pendingDeploymentArtifactId,
   artifactModes = {},
   status,
   onDeployArtifact,
@@ -71,6 +73,7 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
         server={activeServer}
         isLoggedIn={isLoggedIn}
         deployingArtifactId={deployingArtifactId}
+        pendingDeploymentArtifactId={pendingDeploymentArtifactId}
         artifactModes={artifactModes}
         deploymentError={deploymentError}
         setDeploymentError={setDeploymentError}

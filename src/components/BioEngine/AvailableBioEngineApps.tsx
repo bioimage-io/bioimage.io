@@ -33,6 +33,7 @@ interface AvailableBioEngineAppsProps {
   isLoggedIn: boolean;
   // Deployment state
   deployingArtifactId?: string | null;
+  pendingDeploymentArtifactId?: string | null;
   artifactModes?: Record<string, string>;
   deploymentError?: string | null;
   setDeploymentError?: (error: string | null) => void;
@@ -53,6 +54,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   server,
   isLoggedIn,
   deployingArtifactId,
+  pendingDeploymentArtifactId,
   artifactModes = {},
   deploymentError,
   setDeploymentError,
@@ -351,6 +353,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
               onEdit={() => handleOpenEditApp(artifact)}
               onDeploy={(artifactId, mode) => onDeployArtifact?.(artifactId, mode)}
               onModeChange={(checked) => onModeChange?.(artifact.id, checked)}
+              isDeploying={deployingArtifactId === artifact.id || pendingDeploymentArtifactId === artifact.id}
               server={server}
               onDeployFeedback={(message, type) => {
                 // You can add feedback handling here if needed

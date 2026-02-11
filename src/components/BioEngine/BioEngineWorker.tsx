@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
+import DeploymentConfigModal from './DeploymentConfigModal';
 
 
 // Add custom animations
@@ -141,6 +142,8 @@ const BioEngineWorker: React.FC = () => {
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [workerMcpCopied, setWorkerMcpCopied] = useState(false);
+  const [showDeployConfig, setShowDeployConfig] = useState(false);
+  const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null} | null>(null);
 
   // Update current time every second for live uptime calculation
   useEffect(() => {
@@ -422,11 +425,12 @@ const BioEngineWorker: React.FC = () => {
     }
   };
 
-  const handleDeployArtifact = async (artifactId: string, mode: string | null = null) => {
+  const executeDeployment = async (config: any) => {
     if (!serviceId || !isLoggedIn) return;
-
-    const deployMode = mode || artifactModes[artifactId] || null;
-
+    
+    // config contains artifact_id and other params
+    const artifactId = config.artifact_id;
+    
     try {
       setDeploymentError(null); // Clear any previous errors
 
@@ -434,14 +438,8 @@ const BioEngineWorker: React.FC = () => {
 
       const bioengineWorker = await server.getService(serviceId);
 
-      // Use new run_application API
-      // deployMode 'cpu' means disable_gpu=true, 'gpu' means disable_gpu=false
-      const disable_gpu = deployMode === 'cpu';
-
       await bioengineWorker.run_application({
-        artifact_id: artifactId,
-        disable_gpu: disable_gpu,
-        max_ongoing_requests: 10,
+        ...config,
         _rkwargs: true
       });
 
@@ -449,7 +447,7 @@ const BioEngineWorker: React.FC = () => {
       await fetchStatus(false);
 
       setDeployingArtifactId(null);
-      console.log(`Successfully submitted deployment for ${artifactId} in ${deployMode || 'default'} mode`);
+      console.log(`Successfully submitted deployment for ${artifactId}`);
     } catch (err) {
       console.error('Deployment failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -470,6 +468,12 @@ const BioEngineWorker: React.FC = () => {
       setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
       setDeployingArtifactId(null);
     }
+  };
+
+  const handleDeployArtifact = (artifactId: string, mode: string | null = null) => {
+     const deployMode = mode || artifactModes[artifactId] || null;
+     setPendingDeployment({ artifactId, mode: deployMode });
+     setShowDeployConfig(true);
   };
 
   const handleModeChange = (artifactId: string, checked: boolean) => {
@@ -1052,6 +1056,7 @@ const BioEngineWorker: React.FC = () => {
           // Pass deployment-related props and handlers
           deployingArtifactId={deployingArtifactId}
           undeployingArtifactId={undeployingArtifactId}
+          pendingDeploymentArtifactId={pendingDeployment?.artifactId}
           artifactModes={artifactModes}
           status={status}
           onDeployArtifact={handleDeployArtifact}
@@ -1069,6 +1074,19 @@ const BioEngineWorker: React.FC = () => {
           formatTimeInfo={formatTimeInfo}
           server={server}
         />
+
+        {pendingDeployment && (
+          <DeploymentConfigModal
+            isOpen={showDeployConfig}
+            onClose={() => {
+              setShowDeployConfig(false);
+              setPendingDeployment(null);
+            }}
+            onDeploy={executeDeployment}
+            artifactId={pendingDeployment.artifactId}
+            initialMode={pendingDeployment.mode}
+          />
+        )}
       </div>
     </div>
   );

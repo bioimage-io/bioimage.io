@@ -179,7 +179,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
 
         <div>
           <p className="text-sm text-gray-600 mb-3">
-            <span className="font-medium">Deployment name:</span> {deployment.deployment_name}
+            <span className="font-medium">Application ID:</span> {deployment.deployment_name}
           </p>
 
           {deployment.resources && (

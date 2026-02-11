@@ -26,6 +26,7 @@ interface ArtifactCardProps {
   onModeChange?: (checked: boolean) => void;
   server?: any;
   onDeployFeedback?: (message: string, type: 'success' | 'error' | 'info') => void;
+  isDeploying?: boolean;
 }
 
 const ArtifactCard: React.FC<ArtifactCardProps> = ({
@@ -35,22 +36,15 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
   onDeploy,
   onModeChange,
   server,
-  onDeployFeedback
+  onDeployFeedback,
+  isDeploying = false,
 }) => {
-  const [isDeploying, setIsDeploying] = React.useState(false);
-
   const handleDeploy = () => {
-    setIsDeploying(true);
     const modeToUse = artifactMode || artifact.defaultMode || 'cpu';
     onDeploy(artifact.id, modeToUse);
     if (onDeployFeedback) {
-      onDeployFeedback('Deployment started', 'info');
+      onDeployFeedback('Deployment configuration', 'info');
     }
-
-    // Reset loading state after 5 seconds
-    setTimeout(() => {
-      setIsDeploying(false);
-    }, 5000);
   };
 
   // Helper function to transform documentation URLs
