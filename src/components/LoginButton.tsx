@@ -6,11 +6,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 
-interface User {
-  email: string;
-  roles?: string[];
-}
-
 interface LoginButtonProps {
   className?: string;
 }
@@ -142,7 +137,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       setIsLoggingIn(false);
     }
     // Update dependencies: include location and connect
-  }, [connect, location.pathname, location.search, location.hash, navigate, login]);
+  }, [connect, location.pathname, location.search, location.hash, login]);
 
 
   // Auto-login on component mount if token exists and not connected/connecting
