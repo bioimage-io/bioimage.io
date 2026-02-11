@@ -11,6 +11,7 @@ import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { updateManifestSha256 } from '../utils/sha-handling';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -683,6 +684,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       let manifest: RdfManifest;
       let weightFilePaths: string[] = [];
+      const skippedFiles = new Set<string>();
       
       try {
         // Ensure rdf.yaml content is loaded
@@ -705,6 +707,90 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
         
         manifest = yaml.load(rdfContent) as RdfManifest;
+
+        // Calculate SHAs for all files to update manifest before upload
+        setUploadStatus({
+          message: 'Calculating file checksums...',
+          severity: 'info'
+        });
+        
+        const fileShaMap: Record<string, string> = {};
+        
+        for (const file of files) {
+           if (file.path.endsWith('rdf.yaml')) continue;
+           
+           try {
+             let sha = '';
+             let content: string | ArrayBuffer | null = null;
+             
+             // Determine if we should show progress for this file
+             if (file.file && file.file.size > 10 * 1024 * 1024) {
+               setUploadStatus({
+                 message: `Calculating checksum for ${file.name}...`,
+                 severity: 'info'
+               });
+             }
+             
+             if (file.handle) {
+                const isBinary = !isKnownTextFile(file.name);
+                content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
+             } else if (file.file) {
+                sha = await calculateFileSHA256(file.file);
+             } else if (file.content) {
+                content = file.content;
+             }
+             
+             if (!sha && content) {
+                 const contentBuffer = typeof content === 'string' 
+                   ? new TextEncoder().encode(content).buffer 
+                   : content as ArrayBuffer;
+                 sha = await calculateSHA256(contentBuffer);
+             }
+             
+             if (sha) {
+                // Determine the key used in rdf.yaml (which corresponds to upload path)
+                let key = file.path;
+                if (key.includes('/')) key = file.name;
+                fileShaMap[key] = sha;
+             }
+           } catch (e) {
+             console.error(`Error calculating SHA for ${file.name}`, e);
+           }
+        }
+        
+        // Check for SHA mismatches and prompt user
+        const { updated: needsUpdate, updatedPaths } = updateManifestSha256(manifest, fileShaMap, true);
+        
+        if (needsUpdate) {
+            // Prompt for each file that needs update
+            for (const path of updatedPaths) {
+                // Find the filename from path (might be nested or just filename)
+                const fileName = path.split('/').pop() || path;
+                
+                // Use a short timeout to ensure the UI updates before the alert blocks thread
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const confirmed = window.confirm(
+                    `The file content for "${fileName}" has changed since it was last referenced in rdf.yaml.\n\nDo you want to update the reference (SHA256) in rdf.yaml?`
+                );
+                
+                if (!confirmed) {
+                    console.log(`User declined to update SHA for ${fileName}. Skipping upload of this file.`);
+                    skippedFiles.add(path);
+                    // Also remove it from fileShaMap so updateManifestSha256 doesn't update it later
+                    delete fileShaMap[path];
+                    // Also try removing by filename if path might be different key
+                    if (path.includes('/')) {
+                        delete fileShaMap[path.split('/').pop()!];
+                    }
+                }
+            }
+            
+            // If we get here, user processed all prompts. Now apply approved updates.
+            // Note: fileShaMap has been modified to remove skipped files, so only approved ones are updated.
+            const { count } = updateManifestSha256(manifest, fileShaMap, false);
+            console.log(`Updated ${count} SHA references in rdf.yaml`);
+        }
 
         // Extract weight files for later use
         weightFilePaths = manifest.type === 'model' ? extractWeightFiles(manifest) : [];
@@ -880,6 +966,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const remainingFiles = updatedFiles.filter(file => !file.path.endsWith('rdf.yaml'));
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
+        
+        // Normalize file path for checking against skipped files
+        const normalizedPath = file.path.startsWith('./') ? file.path.substring(2) : file.path;
+        
+        if (skippedFiles.has(normalizedPath) || skippedFiles.has(file.name)) {
+            console.log(`Skipping upload of ${file.path} (user declined SHA update)`);
+            continue;
+        }
+
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info',

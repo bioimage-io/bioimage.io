@@ -11,6 +11,7 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -105,112 +106,9 @@ const isFileUnreferenced = (fileName: string, manifest: any): boolean => {
   return !referencedFiles.has(fileName);
 };
 
-// Helper function to recursively update sha256 values for source fields in manifest
-// Returns true if any sha256 was updated
-const updateSourceSha256Values = (
-  obj: any, 
-  fileSha256Map: Record<string, string>,
-  updatedPaths: string[] = []
-): boolean => {
-  if (!obj || typeof obj !== 'object') return false;
-  
-  let updated = false;
-  
-  if (Array.isArray(obj)) {
-    obj.forEach(item => {
-      if (updateSourceSha256Values(item, fileSha256Map, updatedPaths)) {
-        updated = true;
-      }
-    });
-  } else {
-    // Check if this object has a 'source' field
-    if ('source' in obj && typeof obj.source === 'string') {
-      const sourcePath = normalizePath(obj.source);
-      const sha256 = fileSha256Map[sourcePath];
-      
-      if (sha256) {
-        // Only update if sha256 is missing or different
-        if (!obj.sha256 || obj.sha256 !== sha256) {
-          obj.sha256 = sha256;
-          updatedPaths.push(sourcePath);
-          updated = true;
-        }
-      }
-    }
-    
-    // Recursively process all object properties
-    Object.entries(obj).forEach(([key, value]) => {
-      // Skip 'covers' and 'documentation' fields as they don't have sha256
-      if (key === 'covers' || key === 'documentation') return;
-      
-      if (typeof value === 'object') {
-        if (updateSourceSha256Values(value, fileSha256Map, updatedPaths)) {
-          updated = true;
-        }
-      }
-    });
-  }
-  
-  return updated;
-};
+// Helper function to recursively update sha256 values for source fields in manifest - Removed (replaced by updateManifestSha256)
+// Helper function to find and update sha256 for a specific source file in manifest - Removed (replaced by updateRdfFileReference)
 
-// Helper function to find and update sha256 for a specific source file in manifest
-// Returns the updated manifest if any changes were made, null otherwise
-const updateSha256ForSourceFile = (
-  manifest: any,
-  fileName: string,
-  sha256: string
-): { updated: boolean; manifest: any } => {
-  if (!manifest || typeof manifest !== 'object') {
-    return { updated: false, manifest };
-  }
-  
-  // Create a deep copy to avoid mutating the original
-  const manifestCopy = JSON.parse(JSON.stringify(manifest));
-  const normalizedFileName = normalizePath(fileName);
-  
-  const updateInObject = (obj: any): boolean => {
-    if (!obj || typeof obj !== 'object') return false;
-    
-    let updated = false;
-    
-    if (Array.isArray(obj)) {
-      obj.forEach(item => {
-        if (updateInObject(item)) {
-          updated = true;
-        }
-      });
-    } else {
-      // Check if this object has a 'source' field matching our file
-      if ('source' in obj && typeof obj.source === 'string') {
-        const sourcePath = normalizePath(obj.source);
-        if (sourcePath === normalizedFileName) {
-          if (!obj.sha256 || obj.sha256 !== sha256) {
-            obj.sha256 = sha256;
-            updated = true;
-          }
-        }
-      }
-      
-      // Recursively process all object properties
-      Object.entries(obj).forEach(([key, value]) => {
-        // Skip 'covers' and 'documentation' fields as they don't have sha256
-        if (key === 'covers' || key === 'documentation') return;
-        
-        if (typeof value === 'object') {
-          if (updateInObject(value)) {
-            updated = true;
-          }
-        }
-      });
-    }
-    
-    return updated;
-  };
-  
-  const updated = updateInObject(manifestCopy);
-  return { updated, manifest: manifestCopy };
-};
 
 // Add this interface for size-only file info
 interface SizeInfo {
@@ -326,31 +224,17 @@ const Edit: React.FC = () => {
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [editVersion, setEditVersion] = useState<string | undefined>(version);
   const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
-  const [sha256Notifications, setSha256Notifications] = useState<Array<{ id: string; fileName: string; timestamp: number }>>([]);
+  const [shaDialogState, setShaDialogState] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
 
-  // Auto-dismiss sha256 notifications after 10 seconds
-  useEffect(() => {
-    if (sha256Notifications.length === 0) return;
-    
-    const timer = setTimeout(() => {
-      const now = Date.now();
-      setSha256Notifications(prev => 
-        prev.filter(notification => now - notification.timestamp < 10000)
-      );
-    }, 1000);
-    
-    return () => clearTimeout(timer);
-  }, [sha256Notifications]);
-
-  const addSha256Notification = (fileName: string) => {
-    const id = `${fileName}-${Date.now()}`;
-    console.log(`[SHA256 Update] Updated sha256 for file reference: ${fileName}`);
-    setSha256Notifications(prev => [...prev, { id, fileName, timestamp: Date.now() }]);
-  };
-
-  const dismissSha256Notification = (id: string) => {
-    setSha256Notifications(prev => prev.filter(n => n.id !== id));
-  };
+  const [overwriteDialogState, setOverwriteDialogState] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
 
   useEffect(() => {
     setEditVersion(version);
@@ -746,8 +630,11 @@ const Edit: React.FC = () => {
     }
   };
 
-  const handleSave = async (file: FileNode) => {
-    if (!artifactManager || !unsavedChanges[file.path]) return;
+  const handleSave = async (file: FileNode, contentOverride?: string, sha256Override?: { path: string, sha: string }) => {
+    // Determine content to save: priority to override, then unsaved changes
+    const contentToSave = contentOverride || unsavedChanges[file.path];
+    
+    if (!artifactManager || !contentToSave) return;
 
     // If not in staging mode and not a collection admin, no changes are allowed
     if (!isStaged && !isCollectionAdmin) {
@@ -759,19 +646,17 @@ const Edit: React.FC = () => {
     }
 
     // Check if this is an RDF file with changes that haven't been validated
-    if (file.path.endsWith('rdf.yaml') && hasContentChanged && !isContentValid) {
+    // Use contentToSave for validation instead of looking up unsavedChanges again
+    if (file.path.endsWith('rdf.yaml') && (hasContentChanged || contentOverride) && !isContentValid) {
       // If it's an RDF file and has changes that haven't been validated, run validation first
       if (!user?.email) {
         setValidationErrors(['You must be logged in to save changes']);
         return;
       }
 
-      // Get the latest content
-      const content = unsavedChanges[file.path];
-      
       // Validate the content
       const validation = validateRdfContent(
-        content,
+        contentToSave,
         artifactInfo?.id || "",
         artifactInfo?.manifest?.id_emoji || null,
         user.email
@@ -799,7 +684,7 @@ const Edit: React.FC = () => {
       });
 
       // Track the final content that was uploaded (may be modified during save)
-      let finalSavedContent: string = unsavedChanges[file.path];
+      let finalSavedContent: string = contentToSave;
 
       // If user is collection admin and not in stage mode, create temporary stage
       let needsStageCleanup = false;
@@ -831,7 +716,7 @@ const Edit: React.FC = () => {
           }
 
           // Parse the YAML content
-          let content = unsavedChanges[file.path];
+          let content = contentToSave;
           let manifest = yaml.load(content) as any;
 
           // Only add/update uploader info if not a collection admin and uploader is missing
@@ -843,11 +728,13 @@ const Edit: React.FC = () => {
               };
               // Update the content with new uploader info
               content = yaml.dump(manifest);
-              // Update unsaved changes with new content
-              setUnsavedChanges(prev => ({
-                ...prev,
-                [file.path]: content
-              }));
+              // Update unsaved changes with new content if not using override
+              if (!contentOverride) {
+                setUnsavedChanges(prev => ({
+                  ...prev,
+                  [file.path]: content
+                }));
+              }
             }
           }
 
@@ -869,27 +756,37 @@ const Edit: React.FC = () => {
             const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
             
             // Get file_sha256 map from the existing manifest
-            const fileSha256Map: Record<string, string> = (existingManifest as any).file_sha256 || {};
+            const existingFileSha256Map: Record<string, string> = (existingManifest as any).file_sha256 || {};
+            
+            // Merge with override if provided to ensure we check against latest SHA even if artifactInfo is stale
+            const fileSha256Map: Record<string, string> = {
+              ...existingFileSha256Map,
+              ...(sha256Override ? { [sha256Override.path]: sha256Override.sha } : {})
+            };
             
             // Update sha256 values for all source fields in the manifest
-            const updatedPaths: string[] = [];
-            const sha256Updated = updateSourceSha256Values(manifest, fileSha256Map, updatedPaths);
+            const { updated: sha256Updated, updatedPaths } = updateManifestSha256(manifest, fileSha256Map);
             
             if (sha256Updated) {
               // Re-dump the manifest with updated sha256 values
               content = yaml.dump(manifest);
               // Track the final content that will be saved
               finalSavedContent = content;
-              // Update unsaved changes with new content
-              setUnsavedChanges(prev => ({
-                ...prev,
-                [file.path]: content
-              }));
+              // Update unsaved changes with new content if not using override
+              if (!contentOverride) {
+                setUnsavedChanges(prev => ({
+                  ...prev,
+                  [file.path]: content
+                }));
+              }
               
               // Show notifications for each updated file
-              updatedPaths.forEach(path => {
-                addSha256Notification(path);
-              });
+              // updatedPaths.forEach(path => {
+              //   // Don't show notification for the file we just manually overrode
+              //   if (!sha256Override || path !== sha256Override.path) {
+              //     addSha256Notification(path);
+              //   }
+              // });
               
               // Update files state and selectedFile to refresh the editor
               setFiles(prevFiles =>
@@ -994,7 +891,7 @@ const Edit: React.FC = () => {
           }
         } else {
           // Handle non-rdf.yaml files
-          const content = unsavedChanges[file.path];
+          const content = contentToSave;
           
           // Calculate SHA256 before uploading
           let fileSha256: string | null = null;
@@ -1074,16 +971,15 @@ const Edit: React.FC = () => {
                 }
 
                 if (rdfContent) {
-                  const rdfManifest = yaml.load(rdfContent) as any;
-                  const { updated, manifest: updatedManifest } = updateSha256ForSourceFile(
-                    rdfManifest,
+                  const { updated, newRdfContent } = updateRdfFileReference(
+                    rdfContent,
                     file.name,
                     fileSha256
                   );
 
-                  if (updated) {
+                  if (updated && newRdfContent) {
                     // Mark rdf.yaml as having unsaved changes with updated sha256
-                    const newRdfContent = yaml.dump(updatedManifest);
+
                     setUnsavedChanges(prev => ({
                       ...prev,
                       'rdf.yaml': newRdfContent
@@ -1102,8 +998,6 @@ const Edit: React.FC = () => {
                         : prev
                     );
                     
-                    // Show notification
-                    addSha256Notification(file.name);
                     
                     // Trigger save for rdf.yaml (this will use the normal save flow)
                     const rdfFileNode: FileNode = {
@@ -1115,7 +1009,9 @@ const Edit: React.FC = () => {
                     };
                     // Use setTimeout to allow state to update before triggering save
                     setTimeout(() => {
-                      handleSave(rdfFileNode);
+                      // Pass both the content override AND the SHA override
+                      // Note: passing file.path (not file.name) to ensure matching key in map
+                      handleSave(rdfFileNode, newRdfContent, { path: file.path, sha: fileSha256! });
                     }, 100);
                   }
                 }
@@ -1148,7 +1044,7 @@ const Edit: React.FC = () => {
         }
 
         // Update the local state with the final saved content (which may have been modified during save)
-        setFiles(files.map(f => 
+        setFiles(prevFiles => prevFiles.map(f => 
           f.path === file.path 
             ? { ...f, content: finalSavedContent, edited: false }
             : f
@@ -1599,6 +1495,68 @@ const Edit: React.FC = () => {
     }
   }, [isStaged]);
 
+  // Helper prompt function for SHA update
+  const promptShaUpdate = (fileName: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setShaDialogState({
+        isOpen: true,
+        fileName,
+        resolve
+      });
+    });
+  };
+
+  const promptOverwrite = (fileName: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setOverwriteDialogState({
+        isOpen: true,
+        fileName,
+        resolve,
+      });
+    });
+  };
+
+  const handleOverwriteDialogClose = (result: boolean) => {
+    if (overwriteDialogState?.resolve) {
+      overwriteDialogState.resolve(result);
+    }
+    setOverwriteDialogState(null);
+  };
+
+  const renderOverwriteDialog = () => (
+    <MuiDialog
+      open={!!overwriteDialogState?.isOpen}
+      onClose={() => handleOverwriteDialogClose(false)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Overwrite File?
+        </h3>
+        <p className="text-gray-600 mb-6">
+          A file named "{overwriteDialogState?.fileName}" already exists in this artifact.
+          <br /><br />
+          Do you want to overwrite it?
+        </p>
+        <div className="flex justify-end space-x-3">
+          <button
+            onClick={() => handleOverwriteDialogClose(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => handleOverwriteDialogClose(true)}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Overwrite
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
   // Add file upload handler
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
@@ -1668,9 +1626,7 @@ const Edit: React.FC = () => {
         // Check if a file with this name already exists
         const existingFile = files.find(f => f.name === file.name || f.path === file.name);
         if (existingFile) {
-          const shouldOverwrite = window.confirm(
-            `A file named "${file.name}" already exists in this artifact.\n\nDo you want to overwrite it?`
-          );
+          const shouldOverwrite = await promptOverwrite(file.name);
           if (!shouldOverwrite) {
             setUploadStatus({
               message: `Upload of ${file.name} cancelled`,
@@ -1678,6 +1634,66 @@ const Edit: React.FC = () => {
             });
             continue; // Skip this file and continue with the next one
           }
+        }
+
+        setUploadStatus({
+          message: `Processing ${file.name}...`,
+          severity: 'info'
+        });
+
+        // Calculate SHA256 using chunked reading for large files
+        let fileSha256: string | null = null;
+        try {
+          fileSha256 = await calculateFileSHA256(file, (progress) => {
+            if (file.size > 10 * 1024 * 1024) { // Only show progress for files > 10MB
+              setUploadStatus({
+                message: `Calculating checksum for ${file.name}... ${Math.round(progress)}%`,
+                severity: 'info'
+              });
+            }
+          });
+          console.log('📄 File checksum:', {
+            name: file.name,
+            sha256: fileSha256
+          });
+        } catch (error) {
+          console.error('Error calculating SHA256:', error);
+        }
+
+        // Check if file is referenced in rdf.yaml and if SHA mismatches
+        // This implements "Case 1: Uploading a New File (Prompt)" logic
+        let rdfContentForPrompt: string | null = null;
+        try {
+          const rdfFile = files.find(f => f.path.endsWith('rdf.yaml'));
+          if (rdfFile && fileSha256) {
+            if (unsavedChanges['rdf.yaml']) {
+              rdfContentForPrompt = unsavedChanges['rdf.yaml'];
+            } else if (rdfFile.content && typeof rdfFile.content === 'string') {
+              rdfContentForPrompt = rdfFile.content;
+            } else if (!rdfFile.content) {
+              const fetchedContent = await fetchFileContent(rdfFile);
+              if (typeof fetchedContent === 'string') {
+                rdfContentForPrompt = fetchedContent;
+              }
+            }
+
+            if (rdfContentForPrompt) {
+              const { found, updated } = updateRdfFileReference(rdfContentForPrompt, file.name, fileSha256);
+              if (found && updated) {
+                const shouldUpdate = await promptShaUpdate(file.name);
+                
+                if (!shouldUpdate) {
+                  setUploadStatus({
+                    message: `Upload of ${file.name} aborted by user.`,
+                    severity: 'info'
+                  });
+                  continue; // Abort operation
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking rdf.yaml references:', error);
         }
 
         setUploadStatus({
@@ -1711,27 +1727,6 @@ const Edit: React.FC = () => {
         
         const presignedUrl = await artifactManager.put_file(putConfig);
 
-        // Calculate SHA256 using chunked reading for large files (avoids loading entire file into memory)
-        let fileSha256: string | null = null;
-        try {
-          fileSha256 = await calculateFileSHA256(file, (progress) => {
-            if (file.size > 10 * 1024 * 1024) { // Only show progress for files > 10MB
-              setUploadStatus({
-                message: `Calculating checksum for ${file.name}... ${Math.round(progress)}%`,
-                severity: 'info'
-              });
-            }
-          });
-          console.log('📄 Uploading file:', {
-            name: file.name,
-            path: file.name,
-            size: file.size,
-            sha256: fileSha256
-          });
-        } catch (error) {
-          console.error('Error calculating SHA256:', error);
-        }
-
         // Upload file content
         const response = await fetch(presignedUrl, {
           method: 'PUT',
@@ -1745,7 +1740,7 @@ const Edit: React.FC = () => {
           throw new Error('Failed to upload file');
         }
 
-        // Update manifest with file_sha256
+        // Update manifest with file_sha256 map (Metadata update)
         if (fileSha256) {
           const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
           await artifactManager.edit({
@@ -1773,68 +1768,56 @@ const Edit: React.FC = () => {
             } as typeof prev.manifest
           } : null);
 
-          // Check if rdf.yaml needs sha256 update for this file
+          // Update rdf.yaml content (Case 1: Execution)
           try {
+            // Re-fetch or reuse content (content may have changed if we process multiple files)
             const rdfFile = files.find(f => f.path.endsWith('rdf.yaml'));
-            if (rdfFile) {
-              // Get the current rdf.yaml content
-              let rdfContent: string | null = null;
-              if (unsavedChanges['rdf.yaml']) {
+            let rdfContent = rdfContentForPrompt; // Reuse what we read earlier if valid
+            
+            // Just to be safe, get latest content again if it's not the first file being processed
+            if (unsavedChanges['rdf.yaml']) {
                 rdfContent = unsavedChanges['rdf.yaml'];
-              } else if (rdfFile.content && typeof rdfFile.content === 'string') {
+            } else if (rdfFile && rdfFile.content && typeof rdfFile.content === 'string') {
                 rdfContent = rdfFile.content;
-              } else if (!rdfFile.content) {
-                const fetchedContent = await fetchFileContent(rdfFile);
-                if (typeof fetchedContent === 'string') {
-                  rdfContent = fetchedContent;
-                }
-              }
+            }
 
-              if (rdfContent) {
-                const rdfManifest = yaml.load(rdfContent) as any;
-                const { updated, manifest: updatedManifest } = updateSha256ForSourceFile(
-                  rdfManifest,
-                  file.name,
-                  fileSha256
+            if (rdfContent) {
+              const { updated, newRdfContent } = updateRdfFileReference(
+                rdfContent,
+                file.name,
+                fileSha256
+              );
+
+              if (updated) {
+                // Mark rdf.yaml as having unsaved changes
+                setUnsavedChanges(prev => ({
+                  ...prev,
+                  'rdf.yaml': newRdfContent
+                }));
+                setFiles(prevFiles =>
+                  prevFiles.map(f =>
+                    f.path === 'rdf.yaml'
+                      ? { ...f, content: newRdfContent, edited: true }
+                      : f
+                  )
                 );
-
-                if (updated) {
-                  // Mark rdf.yaml as having unsaved changes with updated sha256
-                  const newRdfContent = yaml.dump(updatedManifest);
-                  setUnsavedChanges(prev => ({
-                    ...prev,
-                    'rdf.yaml': newRdfContent
-                  }));
-                  setFiles(prevFiles =>
-                    prevFiles.map(f =>
-                      f.path === 'rdf.yaml'
-                        ? { ...f, content: newRdfContent, edited: true }
-                        : f
-                    )
-                  );
-                  // Update selectedFile if rdf.yaml is selected
-                  setSelectedFile(prev => 
-                    prev?.path === 'rdf.yaml' 
-                      ? { ...prev, content: newRdfContent, edited: true }
-                      : prev
-                  );
-                  
-                  // Show notification
-                  addSha256Notification(file.name);
-                  
-                  // Trigger save for rdf.yaml (this will use the normal save flow)
-                  const rdfFileNode: FileNode = {
-                    name: 'rdf.yaml',
-                    path: 'rdf.yaml',
-                    content: newRdfContent,
-                    isDirectory: false,
-                    edited: true
-                  };
-                  // Use setTimeout to allow state to update before triggering save
-                  setTimeout(() => {
-                    handleSave(rdfFileNode);
-                  }, 100);
-                }
+                setSelectedFile(prev => 
+                  prev?.path === 'rdf.yaml' 
+                    ? { ...prev, content: newRdfContent, edited: true }
+                    : prev
+                );
+                
+                // Trigger save for rdf.yaml
+                const rdfFileNode: FileNode = {
+                  name: 'rdf.yaml',
+                  path: 'rdf.yaml',
+                  content: newRdfContent,
+                  isDirectory: false,
+                  edited: true
+                };
+                setTimeout(() => {
+                  handleSave(rdfFileNode, newRdfContent, { path: file.name, sha: fileSha256! });
+                }, 100);
               }
             }
           } catch (error) {
@@ -1900,7 +1883,7 @@ const Edit: React.FC = () => {
         });
       }
     }
-  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, isStaged, unsavedChanges, fetchFileContent, addSha256Notification, handleSave]);
+  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, isStaged, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -2883,6 +2866,50 @@ const Edit: React.FC = () => {
     }
   };
 
+  const handleShaDialogClose = (result: boolean) => {
+    if (shaDialogState && shaDialogState.resolve) {
+      shaDialogState.resolve(result);
+    }
+    setShaDialogState(null);
+  };
+
+  const renderShaDialog = () => (
+    <MuiDialog 
+      open={!!shaDialogState?.isOpen} 
+      onClose={() => handleShaDialogClose(false)} // Treat closing as "No"
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Update RDF Reference?
+        </h3>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            The file content for <span className="font-semibold text-gray-700">{shaDialogState?.fileName}</span> has changed since it was last referenced in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>.
+          </p>
+          <p className="text-sm text-gray-500">
+            Do you want to update the reference (SHA256) in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>?
+          </p>
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => handleShaDialogClose(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Abort Upload
+          </button>
+          <button
+            onClick={() => handleShaDialogClose(true)}
+            className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
+          >
+            Update & Continue
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
   // Add this function before renderFileContent
   const renderDeleteVersionDialog = () => (
     <MuiDialog 
@@ -2928,50 +2955,7 @@ const Edit: React.FC = () => {
 
   return (
     <div className="flex flex-col">
-      {/* SHA256 Update Notification Banners */}
-      {sha256Notifications.length > 0 && (
-        <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-md">
-          {sha256Notifications.map(notification => {
-            const elapsed = Date.now() - notification.timestamp;
-            const remaining = Math.max(0, 10000 - elapsed);
-            const progressPercent = (remaining / 10000) * 100;
-            
-            return (
-              <div 
-                key={notification.id}
-                className="bg-blue-50 border border-blue-200 rounded-lg shadow-md overflow-hidden animate-in slide-in-from-right duration-300"
-              >
-                <div className="p-3 flex items-start gap-3">
-                  <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-blue-700">
-                      Updated <span className="font-mono text-blue-800 bg-blue-100 px-1 rounded text-xs">{notification.fileName}</span> sha256 in rdf.yaml
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => dismissSha256Notification(notification.id)}
-                    className="text-blue-400 hover:text-blue-600 p-0.5 hover:bg-blue-100 rounded transition-colors"
-                    aria-label="Dismiss notification"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                {/* Progress bar for auto-dismiss countdown */}
-                <div className="h-1 bg-blue-100">
-                  <div 
-                    className="h-full bg-blue-300 transition-all duration-1000 ease-linear"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+
 
       {/* Header - make it fixed for small screens */}
       <div className="bg-white px-4 py-2 flex justify-between items-center sticky top-0 border-b border-gray-200">
@@ -3156,6 +3140,10 @@ const Edit: React.FC = () => {
       {renderDeleteConfirmDialog()}
 
       {renderNewVersionDialog()}
+
+      {renderShaDialog()}
+
+      {renderOverwriteDialog()}
 
       {/* Add Delete Version Dialog */}
       {renderDeleteVersionDialog()}
