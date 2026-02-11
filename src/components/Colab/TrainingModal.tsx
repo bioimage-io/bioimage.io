@@ -35,6 +35,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   const [learningRate, setLearningRate] = useState(0.000001);
   const [weightDecay, setWeightDecay] = useState(0.0001);
 
+  // Validation & advanced settings
+  const [validationInterval, setValidationInterval] = useState<number>(1);
+  const [testImages, setTestImages] = useState<string>('');
+  const [testAnnotations, setTestAnnotations] = useState<string>('');
+
   const availableModels = [
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
   ];
@@ -63,7 +68,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       );
 
       setExistingModels(models);
-      console.log(`✓ Loaded ${models.length} existing models for dataset`);
+      console.log(`Loaded ${models.length} existing models for dataset`);
     } catch (err) {
       console.error('Error loading existing models:', err);
       setError(`Failed to load existing models: ${err instanceof Error ? err.message : String(err)}`);
@@ -93,7 +98,8 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       console.log('Starting training with artifact:', dataArtifactId);
 
       const maskFolder = label ? `masks_${label}` : 'annotations';
-      const sessionStatus = await cellposeService.start_training({
+
+      const trainingParams: any = {
         artifact: String(dataArtifactId),
         model: String(selectedModel),
         train_images: 'input_images/*.png',
@@ -104,10 +110,23 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         n_samples: null,
         min_train_masks: 1,
         _rkwargs: true,
-      });
+      };
+
+      // Add optional test data parameters
+      if (testImages.trim()) {
+        trainingParams.test_images = testImages.trim();
+        trainingParams.test_annotations = testAnnotations.trim() || `${maskFolder}/*.png`;
+      }
+
+      // Add validation interval
+      if (validationInterval > 0) {
+        trainingParams.validation_interval = validationInterval;
+      }
+
+      const sessionStatus = await cellposeService.start_training(trainingParams);
 
       const sessionId = sessionStatus.session_id;
-      console.log('✓ Training started with session ID:', sessionId);
+      console.log('Training started with session ID:', sessionId);
 
       // Close modal and navigate to training page
       setShowTrainingModal(false);
@@ -306,6 +325,61 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Advanced Settings */}
+              <details className="border border-gray-200 rounded-lg">
+                <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50 select-none">
+                  Validation & Advanced Settings
+                </summary>
+                <div className="px-4 pb-4 space-y-4 pt-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Validation Interval (epochs)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={validationInterval}
+                      onChange={(e) => setValidationInterval(parseInt(e.target.value) || 1)}
+                      min="1"
+                      max="1000"
+                      disabled={isStarting}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Run validation every N epochs. Requires test data below.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Test Images Path (optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={testImages}
+                      onChange={(e) => setTestImages(e.target.value)}
+                      placeholder="e.g., input_images/*.png (same as training data)"
+                      disabled={isStarting}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Provide test images to enable per-epoch validation metrics and final AP evaluation.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Test Annotations Path (optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={testAnnotations}
+                      onChange={(e) => setTestAnnotations(e.target.value)}
+                      placeholder="e.g., masks_cells/*.png (auto-matched if empty)"
+                      disabled={isStarting}
+                    />
+                  </div>
+                </div>
+              </details>
 
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-amber-700 text-sm">

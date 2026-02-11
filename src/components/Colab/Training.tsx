@@ -4,6 +4,31 @@ import { useNavigate } from 'react-router-dom';
 // Declare Plotly as a global variable
 declare const Plotly: any;
 
+interface ValidationMetrics {
+  pixel_accuracy: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  iou: number;
+}
+
+interface InstanceMetrics {
+  ap_0_5: number;
+  ap_0_75: number;
+  ap_0_9: number;
+  n_true: number;
+  n_pred: number;
+}
+
+interface ExportResult {
+  artifact_id: string;
+  artifact_url: string;
+  download_url: string;
+  files: string[];
+  model_name: string;
+  status: string;
+}
+
 interface TrainingProps {
   sessionId?: string;
   dataArtifactId?: string;
@@ -21,6 +46,7 @@ const Training: React.FC<TrainingProps> = ({
 }) => {
   const navigate = useNavigate();
   const plotRef = useRef<HTMLDivElement>(null);
+  const metricsPlotRef = useRef<HTMLDivElement>(null);
   const [plotlyLoaded, setPlotlyLoaded] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId || null);
   const [isTraining, setIsTraining] = useState(false);
@@ -32,7 +58,7 @@ const Training: React.FC<TrainingProps> = ({
   const [trainingProgress, setTrainingProgress] = useState('');
   const [statusType, setStatusType] = useState<string>('');
   const [trainLosses, setTrainLosses] = useState<number[]>([]);
-  const [testLosses, setTestLosses] = useState<number[]>([]);
+  const [testLosses, setTestLosses] = useState<(number | null)[]>([]);
   const [currentEpoch, setCurrentEpoch] = useState<number | null>(null);
   const [totalEpochs, setTotalEpochs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
@@ -51,6 +77,34 @@ const Training: React.FC<TrainingProps> = ({
   const [storedArtifactId, setStoredArtifactId] = useState<string | null>(null);
   const [datasetInfo, setDatasetInfo] = useState<any>(null);
   const [storedLabel, setStoredLabel] = useState<string | null>(label || null);
+
+  // New state for batch-level progress
+  const [currentBatch, setCurrentBatch] = useState<number | null>(null);
+  const [totalBatches, setTotalBatches] = useState<number | null>(null);
+
+  // New state for start time
+  const [startTime, setStartTime] = useState<string | null>(null);
+
+  // New state for validation metrics
+  const [testMetrics, setTestMetrics] = useState<(ValidationMetrics | null)[]>([]);
+
+  // New state for instance metrics (end-of-training)
+  const [instanceMetrics, setInstanceMetrics] = useState<InstanceMetrics | null>(null);
+
+  // New state for export enhancements
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [modelName, setModelName] = useState<string>('');
+
+  // New state for stop training
+  const [isStopping, setIsStopping] = useState(false);
+
+  // New state for chart tab
+  const [activeChartTab, setActiveChartTab] = useState<'loss' | 'metrics'>('loss');
+
+  // New state for validation config
+  const [validationInterval, setValidationInterval] = useState<number>(1);
+  const [testImages, setTestImages] = useState<string>('');
+  const [testAnnotations, setTestAnnotations] = useState<string>('');
 
   // Initialize storedArtifactId from dataArtifactId prop (for new training sessions)
   useEffect(() => {
@@ -133,6 +187,18 @@ const Training: React.FC<TrainingProps> = ({
         if (status.n_train != null) setNTrain(status.n_train);
         if (status.n_test != null) setNTest(status.n_test);
 
+        // New fields
+        if (status.current_batch != null) setCurrentBatch(status.current_batch);
+        if (status.total_batches != null) setTotalBatches(status.total_batches);
+        if (status.start_time) setStartTime(status.start_time);
+        if (status.test_metrics) setTestMetrics(status.test_metrics);
+        if (status.instance_metrics) setInstanceMetrics(status.instance_metrics);
+
+        // Recover exported artifact ID from status (for resumed sessions)
+        if (status.exported_artifact_id && !exportedArtifactId) {
+          setExportedArtifactId(status.exported_artifact_id);
+        }
+
         // Check if training is in a terminal state
         const isTerminalState = ['completed', 'failed', 'stopped'].includes(status.status_type);
 
@@ -175,18 +241,20 @@ const Training: React.FC<TrainingProps> = ({
     };
   }, [sessionId, server]);
 
-  // Update Plotly chart when losses change
+  // Update Plotly loss chart when losses change
   useEffect(() => {
     if (!plotlyLoaded || !plotRef.current || trainLosses.length === 0) return;
 
-    const validTrainLosses = trainLosses.filter((l) => l > 0);
-    const validTestLosses = testLosses.filter((l) => l > 0);
+    // Preserve epoch indices for train losses, filter out invalid values
+    const trainLossData = trainLosses
+      .map((l, i) => ({ epoch: i + 1, loss: l }))
+      .filter((d) => d.loss != null && d.loss > 0);
 
-    if (validTrainLosses.length === 0) return;
+    if (trainLossData.length === 0) return;
 
     const trainTrace = {
-      x: validTrainLosses.map((_, i) => i + 1),
-      y: validTrainLosses,
+      x: trainLossData.map((d) => d.epoch),
+      y: trainLossData.map((d) => d.loss),
       mode: "lines+markers",
       name: "Train Loss",
       line: { color: "#3b82f6", width: 2 },
@@ -195,10 +263,15 @@ const Training: React.FC<TrainingProps> = ({
 
     const traces: any[] = [trainTrace];
 
-    if (validTestLosses.length > 0) {
+    // test_losses uses null for skipped epochs - preserve epoch indices
+    const testLossData = testLosses
+      .map((l, i) => ({ epoch: i + 1, loss: l }))
+      .filter((d) => d.loss !== null && d.loss !== undefined && (d.loss as number) > 0);
+
+    if (testLossData.length > 0) {
       const testTrace = {
-        x: validTestLosses.map((_, i) => i + 1),
-        y: validTestLosses,
+        x: testLossData.map((d) => d.epoch),
+        y: testLossData.map((d) => d.loss),
         mode: "lines+markers",
         name: "Test Loss",
         line: { color: "#10b981", width: 2, dash: "dash" },
@@ -241,6 +314,54 @@ const Training: React.FC<TrainingProps> = ({
     Plotly.newPlot(plotRef.current, traces, layout, config);
   }, [trainLosses, testLosses, plotlyLoaded]);
 
+  // Update Plotly validation metrics chart
+  useEffect(() => {
+    if (!plotlyLoaded || !metricsPlotRef.current || testMetrics.length === 0) return;
+
+    const validMetrics = testMetrics
+      .map((m, i) => ({ epoch: i + 1, metrics: m }))
+      .filter((d) => d.metrics !== null);
+
+    if (validMetrics.length === 0) return;
+
+    const metricDefs: { key: keyof ValidationMetrics; label: string; color: string }[] = [
+      { key: 'f1', label: 'F1 / Dice', color: '#8b5cf6' },
+      { key: 'iou', label: 'IoU', color: '#3b82f6' },
+      { key: 'precision', label: 'Precision', color: '#10b981' },
+      { key: 'recall', label: 'Recall', color: '#f59e0b' },
+      { key: 'pixel_accuracy', label: 'Pixel Accuracy', color: '#ef4444' },
+    ];
+
+    const traces = metricDefs.map(({ key, label, color }) => ({
+      x: validMetrics.map((d) => d.epoch),
+      y: validMetrics.map((d) => d.metrics![key]),
+      mode: "lines+markers",
+      name: label,
+      line: { color, width: 2 },
+      marker: { size: 5 },
+    }));
+
+    const layout = {
+      title: "Validation Metrics (Pixel-Level)",
+      xaxis: { title: "Epoch", showgrid: true, gridcolor: "#e5e7eb" },
+      yaxis: { title: "Score", showgrid: true, gridcolor: "#e5e7eb", range: [0, 1] },
+      plot_bgcolor: "#f9fafb",
+      paper_bgcolor: "#f9fafb",
+      margin: { l: 60, r: 40, t: 40, b: 60 },
+      legend: { x: 1, xanchor: "right", y: 1 },
+      hovermode: "closest",
+    };
+
+    const config = {
+      responsive: true,
+      displayModeBar: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ["pan2d", "lasso2d", "select2d"],
+    };
+
+    Plotly.newPlot(metricsPlotRef.current, traces, layout, config);
+  }, [testMetrics, plotlyLoaded]);
+
   const handleStartTraining = async (continueFromSession?: boolean) => {
     if (!server) {
       setError('Not connected to server. Please login first.');
@@ -263,6 +384,16 @@ const Training: React.FC<TrainingProps> = ({
     setError(null);
     setTrainingProgress('Connecting to training service...');
     setShowTrainingDialog(false);
+
+    // Reset new state for fresh training
+    setCurrentBatch(null);
+    setTotalBatches(null);
+    setStartTime(null);
+    setTestMetrics([]);
+    setInstanceMetrics(null);
+    setExportResult(null);
+    setExportedArtifactId(null);
+    setActiveChartTab('loss');
 
     try {
       console.log('Getting cellpose-finetuning service...');
@@ -291,7 +422,7 @@ const Training: React.FC<TrainingProps> = ({
         console.log(`Starting new training with model: ${selectedModel}`);
       }
 
-      const trainingParams = {
+      const trainingParams: any = {
         artifact: String(artifactToUse),
         model: String(modelParam),
         train_images: 'input_images/*.png',
@@ -303,6 +434,17 @@ const Training: React.FC<TrainingProps> = ({
         min_train_masks: 1,
         _rkwargs: true,
       };
+
+      // Add optional test data parameters
+      if (testImages.trim()) {
+        trainingParams.test_images = testImages.trim();
+        trainingParams.test_annotations = testAnnotations.trim() || `${maskFolder}/*.png`;
+      }
+
+      // Add validation interval
+      if (validationInterval > 0) {
+        trainingParams.validation_interval = validationInterval;
+      }
 
       console.log('Training parameters:', JSON.stringify(trainingParams, null, 2));
 
@@ -337,7 +479,7 @@ const Training: React.FC<TrainingProps> = ({
       if (sessionStatus.n_train != null) setNTrain(sessionStatus.n_train);
       if (sessionStatus.n_test != null) setNTest(sessionStatus.n_test);
 
-      console.log('✓ Training started with session ID:', newSessionId);
+      console.log('Training started with session ID:', newSessionId);
 
     } catch (error) {
       console.error('Error starting training:', error);
@@ -361,17 +503,40 @@ const Training: React.FC<TrainingProps> = ({
     try {
       console.log('Exporting model from session:', sessionId);
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
-      const result = await cellposeService.export_model(sessionId, { _rkwargs: true });
+
+      const exportParams: any = { _rkwargs: true };
+      if (modelName.trim()) {
+        exportParams.model_name = modelName.trim();
+      }
+
+      const result = await cellposeService.export_model(sessionId, exportParams);
 
       const artifactId = result.artifact_id || result;
       setExportedArtifactId(artifactId);
+      setExportResult(result);
 
-      console.log('✓ Model exported successfully to artifact:', artifactId);
+      console.log('Model exported successfully:', result);
     } catch (error) {
       console.error('Error exporting model:', error);
       setError(`Failed to export model: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleStopTraining = async () => {
+    if (!sessionId || !server) return;
+
+    setIsStopping(true);
+    try {
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+      await cellposeService.stop_training(sessionId);
+      console.log('Stop training requested for session:', sessionId);
+    } catch (error) {
+      console.error('Error stopping training:', error);
+      setError(`Failed to stop training: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -386,6 +551,74 @@ const Training: React.FC<TrainingProps> = ({
       navigate('/colab');
     }
   };
+
+  // Helper to get the latest non-null validation metrics
+  const getLatestValidationMetrics = () => {
+    if (testMetrics.length === 0) return null;
+    for (let i = testMetrics.length - 1; i >= 0; i--) {
+      if (testMetrics[i] !== null) {
+        return { epoch: i + 1, metrics: testMetrics[i]! };
+      }
+    }
+    return null;
+  };
+
+  // Render the advanced settings section (shared between config form and dialog)
+  const renderAdvancedSettings = (disabled: boolean) => (
+    <details className="border border-gray-200 rounded-lg">
+      <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50 select-none">
+        Validation & Advanced Settings
+      </summary>
+      <div className="px-4 pb-4 space-y-4 pt-2">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Validation Interval (epochs)
+          </label>
+          <input
+            type="number"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            value={validationInterval}
+            onChange={(e) => setValidationInterval(parseInt(e.target.value) || 1)}
+            min="1"
+            max="1000"
+            disabled={disabled}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Run validation every N epochs. Requires test data below.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Test Images Path (optional)
+          </label>
+          <input
+            type="text"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            value={testImages}
+            onChange={(e) => setTestImages(e.target.value)}
+            placeholder="e.g., input_images/*.png (same as training data)"
+            disabled={disabled}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Provide test images to enable per-epoch validation metrics and final AP evaluation.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Test Annotations Path (optional)
+          </label>
+          <input
+            type="text"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            value={testAnnotations}
+            onChange={(e) => setTestAnnotations(e.target.value)}
+            placeholder="e.g., masks_cells/*.png (auto-matched if empty)"
+            disabled={disabled}
+          />
+        </div>
+      </div>
+    </details>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
@@ -412,19 +645,44 @@ const Training: React.FC<TrainingProps> = ({
               </p>
             )}
           </div>
-          {sessionId && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-white/80 rounded-lg border border-gray-200 shadow-sm">
-              <div className={`w-2 h-2 rounded-full ${
-                statusType === 'completed' ? 'bg-green-500' :
-                statusType === 'failed' ? 'bg-red-500' :
-                statusType === 'running' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-500 animate-pulse'
-              }`}></div>
-              <span className="text-sm font-medium text-gray-700">
-                {statusType || 'Initializing...'}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Stop Training Button */}
+            {sessionId && statusType === 'running' && (
+              <button
+                onClick={handleStopTraining}
+                disabled={isStopping}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white text-sm rounded-lg flex items-center gap-2 transition-colors"
+              >
+                {isStopping ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                    Stop Training
+                  </>
+                )}
+              </button>
+            )}
+            {sessionId && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-white/80 rounded-lg border border-gray-200 shadow-sm">
+                <div className={`w-2 h-2 rounded-full ${
+                  statusType === 'completed' ? 'bg-green-500' :
+                  statusType === 'failed' ? 'bg-red-500' :
+                  statusType === 'stopped' ? 'bg-orange-500' :
+                  statusType === 'running' ? 'bg-blue-500 animate-pulse' :
+                  'bg-gray-500 animate-pulse'
+                }`}></div>
+                <span className="text-sm font-medium text-gray-700">
+                  {statusType || 'Initializing...'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Main Content */}
@@ -502,6 +760,9 @@ const Training: React.FC<TrainingProps> = ({
                   </div>
                 </div>
 
+                {/* Advanced Settings */}
+                {renderAdvancedSettings(isTraining)}
+
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-amber-700 text-sm">
                     <strong>Note:</strong> Training will use annotations from your data artifact{' '}
@@ -540,7 +801,7 @@ const Training: React.FC<TrainingProps> = ({
                 {/* Training Info Box */}
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">Training Configuration</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Model Type</p>
                       <p className="text-sm font-medium text-gray-800">
@@ -549,7 +810,7 @@ const Training: React.FC<TrainingProps> = ({
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Epochs</p>
-                      <p className="text-sm font-medium text-gray-800">{trainingConfig?.epochs || epochs}</p>
+                      <p className="text-sm font-medium text-gray-800">{totalEpochs || trainingConfig?.epochs || epochs}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Learning Rate</p>
@@ -587,13 +848,14 @@ const Training: React.FC<TrainingProps> = ({
                   </div>
                 </div>
 
-                {/* Progress Info */}
-                {currentEpoch != null && totalEpochs != null && statusType === 'running' && (
+                {/* Progress Info - Enhanced with batch-level progress */}
+                {currentEpoch != null && totalEpochs != null && (statusType === 'running' || statusType === 'preparing') && (
                   <div>
                     <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
                       <span className="font-medium">Training Progress</span>
                       <span>Epoch {currentEpoch} / {totalEpochs}</span>
                     </div>
+                    {/* Epoch progress bar */}
                     <div className="w-full bg-gray-200 rounded-full h-3">
                       <div
                         className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-300"
@@ -602,11 +864,39 @@ const Training: React.FC<TrainingProps> = ({
                         }}
                       ></div>
                     </div>
-                    {elapsedSeconds != null && (
-                      <p className="text-xs text-gray-500 mt-2">
-                        Elapsed: {Math.floor(elapsedSeconds / 60)}m {Math.floor(elapsedSeconds % 60)}s
-                      </p>
+                    {/* Batch-level progress within current epoch */}
+                    {currentBatch != null && totalBatches != null && totalBatches > 0 && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>Batch Progress</span>
+                          <span>{currentBatch} / {totalBatches}</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-300 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${(currentBatch / totalBatches) * 100}%` }}
+                          ></div>
+                        </div>
+                      </div>
                     )}
+                    {/* Time info */}
+                    <div className="flex items-center gap-4 mt-2">
+                      {startTime && (
+                        <p className="text-xs text-gray-500">
+                          Started: {new Date(startTime).toLocaleTimeString()}
+                        </p>
+                      )}
+                      {elapsedSeconds != null && (
+                        <p className="text-xs text-gray-500">
+                          Elapsed: {Math.floor(elapsedSeconds / 60)}m {Math.floor(elapsedSeconds % 60)}s
+                        </p>
+                      )}
+                      {elapsedSeconds != null && currentEpoch != null && totalEpochs != null && currentEpoch > 0 && (
+                        <p className="text-xs text-gray-500">
+                          ETA: ~{Math.floor((elapsedSeconds / currentEpoch) * (totalEpochs - currentEpoch) / 60)}m {Math.floor((elapsedSeconds / currentEpoch) * (totalEpochs - currentEpoch) % 60)}s
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -628,10 +918,65 @@ const Training: React.FC<TrainingProps> = ({
                   </div>
                 )}
 
-                {/* Training Loss Chart */}
+                {/* Latest Validation Metrics Summary */}
+                {(() => {
+                  const latest = getLatestValidationMetrics();
+                  if (!latest) return null;
+                  const m = latest.metrics;
+                  return (
+                    <div className="bg-purple-50/50 rounded-lg p-4 border border-purple-200/60">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                        Validation Metrics (Epoch {latest.epoch})
+                      </h4>
+                      <div className="grid grid-cols-5 gap-3">
+                        {[
+                          { label: 'F1 / Dice', value: m.f1, color: 'text-purple-600' },
+                          { label: 'IoU', value: m.iou, color: 'text-blue-600' },
+                          { label: 'Precision', value: m.precision, color: 'text-green-600' },
+                          { label: 'Recall', value: m.recall, color: 'text-amber-600' },
+                          { label: 'Pixel Acc', value: m.pixel_accuracy, color: 'text-red-600' },
+                        ].map(({ label: metricLabel, value, color }) => (
+                          <div key={metricLabel} className="text-center">
+                            <p className="text-xs text-gray-500">{metricLabel}</p>
+                            <p className={`text-lg font-bold ${color}`}>{(value * 100).toFixed(1)}%</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Chart Tabs & Charts */}
                 {trainLosses.length > 0 && (
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <div ref={plotRef} style={{ width: '100%', height: '400px' }}></div>
+                  <div>
+                    <div className="flex border-b border-gray-200 mb-0">
+                      <button
+                        onClick={() => setActiveChartTab('loss')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${
+                          activeChartTab === 'loss'
+                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        Training Loss
+                      </button>
+                      {testMetrics.some(m => m !== null) && (
+                        <button
+                          onClick={() => setActiveChartTab('metrics')}
+                          className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            activeChartTab === 'metrics'
+                              ? 'border-b-2 border-purple-500 text-purple-600'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          Validation Metrics
+                        </button>
+                      )}
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 border-t-0 rounded-t-none">
+                      <div ref={plotRef} style={{ width: '100%', height: '400px', display: activeChartTab === 'loss' ? 'block' : 'none' }}></div>
+                      <div ref={metricsPlotRef} style={{ width: '100%', height: '400px', display: activeChartTab === 'metrics' ? 'block' : 'none' }}></div>
+                    </div>
                   </div>
                 )}
 
@@ -642,49 +987,140 @@ const Training: React.FC<TrainingProps> = ({
                   </div>
                 )}
 
+                {/* Instance Metrics (shown when training completes with test data) */}
+                {instanceMetrics && (
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 border border-green-200">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                      Instance Segmentation Results
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Average Precision computed by running full Cellpose inference on the test set with Hungarian matching.
+                    </p>
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="bg-white/60 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">AP @ IoU 0.5</p>
+                        <p className="text-2xl font-bold text-green-600">{(instanceMetrics.ap_0_5 * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="bg-white/60 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">AP @ IoU 0.75</p>
+                        <p className="text-2xl font-bold text-green-600">{(instanceMetrics.ap_0_75 * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="bg-white/60 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">AP @ IoU 0.9</p>
+                        <p className="text-2xl font-bold text-green-600">{(instanceMetrics.ap_0_9 * 100).toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-white/60 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">Ground Truth Instances</p>
+                        <p className="text-xl font-bold text-gray-800">{instanceMetrics.n_true}</p>
+                      </div>
+                      <div className="bg-white/60 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">Predicted Instances</p>
+                        <p className="text-xl font-bold text-gray-800">{instanceMetrics.n_pred}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Export Section */}
-                {statusType === 'completed' && (
+                {(statusType === 'completed' || statusType === 'stopped') && (
                   <div className="pt-6 border-t border-gray-200 space-y-4">
                     {!exportedArtifactId ? (
-                      <button
-                        onClick={handleExportModel}
-                        disabled={isExporting}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
-                      >
-                        {isExporting ? (
-                          <>
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                            Exporting Model...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Export Model
-                          </>
-                        )}
-                      </button>
+                      <div className="space-y-4">
+                        {/* Model Name Input */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Model Name (optional)
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            value={modelName}
+                            onChange={(e) => setModelName(e.target.value)}
+                            placeholder="e.g., My Cell Segmentation Model v1"
+                          />
+                        </div>
+                        <button
+                          onClick={handleExportModel}
+                          disabled={isExporting}
+                          className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                        >
+                          {isExporting ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Exporting Model...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Export Model to BioImage.IO
+                            </>
+                          )}
+                        </button>
+                      </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="flex items-center text-green-700 bg-green-50 px-4 py-3 rounded-lg border border-green-200">
-                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          Model exported successfully!
+                          <span>
+                            Model exported successfully!
+                            {exportResult?.model_name && (
+                              <span className="ml-1 font-semibold">{exportResult.model_name}</span>
+                            )}
+                          </span>
                         </div>
 
-                        <a
-                          href={`${server?.config?.publicBaseUrl || 'https://hypha.bioimage.io'}/bioimage-io/artifacts/${exportedArtifactId.split('/').pop()}/create-zip-file`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
-                        >
-                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          Download Model ZIP
-                        </a>
+                        <div className="grid grid-cols-2 gap-3">
+                          <a
+                            href={exportResult?.download_url || `${server?.config?.publicBaseUrl || 'https://hypha.aicell.io'}/bioimage-io/artifacts/${exportedArtifactId.split('/').pop()}/create-zip-file`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
+                          >
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download ZIP
+                          </a>
+
+                          {exportResult?.artifact_url && (
+                            <a
+                              href={exportResult.artifact_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 flex items-center justify-center transition-colors"
+                            >
+                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                              View Artifact
+                            </a>
+                          )}
+                        </div>
+
+                        {/* Exported Files List */}
+                        {exportResult?.files && exportResult.files.length > 0 && (
+                          <details className="bg-gray-50 rounded-lg border border-gray-200">
+                            <summary className="px-4 py-3 text-xs text-gray-600 font-semibold cursor-pointer hover:bg-gray-100 select-none">
+                              Exported Files ({exportResult.files.length})
+                            </summary>
+                            <ul className="px-4 pb-3 text-xs font-mono text-gray-700 space-y-1">
+                              {exportResult.files.map((file, i) => (
+                                <li key={i} className="flex items-center">
+                                  <svg className="w-3 h-3 mr-1.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  {file}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
 
                         <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                           <p className="text-xs text-gray-600 mb-1">Artifact ID:</p>
@@ -730,6 +1166,15 @@ const Training: React.FC<TrainingProps> = ({
                     </p>
                   </div>
                 )}
+
+                {/* Stopped Display */}
+                {statusType === 'stopped' && !exportedArtifactId && (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <p className="text-orange-700 text-sm">
+                      Training was stopped. You can export the model with the current weights or continue training.
+                    </p>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -738,7 +1183,7 @@ const Training: React.FC<TrainingProps> = ({
           {error && (
             <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-red-600 text-sm flex items-center">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 {error}
@@ -869,6 +1314,9 @@ const Training: React.FC<TrainingProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Advanced Settings */}
+                {renderAdvancedSettings(false)}
 
                 {/* Info Box */}
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
