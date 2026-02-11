@@ -157,4 +157,5 @@ export interface Manifest {
   weights?: Weight[];
   status?: string;
   uploader: Uploader;
+  file_sha256?: { [key: string]: string };
 } 

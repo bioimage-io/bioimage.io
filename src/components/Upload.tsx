@@ -10,6 +10,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
+import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { updateManifestSha256 } from '../utils/sha-handling';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -682,6 +684,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       let manifest: RdfManifest;
       let weightFilePaths: string[] = [];
+      const skippedFiles = new Set<string>();
       
       try {
         // Ensure rdf.yaml content is loaded
@@ -704,6 +707,90 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
         
         manifest = yaml.load(rdfContent) as RdfManifest;
+
+        // Calculate SHAs for all files to update manifest before upload
+        setUploadStatus({
+          message: 'Calculating file checksums...',
+          severity: 'info'
+        });
+        
+        const fileShaMap: Record<string, string> = {};
+        
+        for (const file of files) {
+           if (file.path.endsWith('rdf.yaml')) continue;
+           
+           try {
+             let sha = '';
+             let content: string | ArrayBuffer | null = null;
+             
+             // Determine if we should show progress for this file
+             if (file.file && file.file.size > 10 * 1024 * 1024) {
+               setUploadStatus({
+                 message: `Calculating checksum for ${file.name}...`,
+                 severity: 'info'
+               });
+             }
+             
+             if (file.handle) {
+                const isBinary = !isKnownTextFile(file.name);
+                content = await file.handle.async(isBinary ? 'arraybuffer' : 'string');
+             } else if (file.file) {
+                sha = await calculateFileSHA256(file.file);
+             } else if (file.content) {
+                content = file.content;
+             }
+             
+             if (!sha && content) {
+                 const contentBuffer = typeof content === 'string' 
+                   ? new TextEncoder().encode(content).buffer 
+                   : content as ArrayBuffer;
+                 sha = await calculateSHA256(contentBuffer);
+             }
+             
+             if (sha) {
+                // Determine the key used in rdf.yaml (which corresponds to upload path)
+                let key = file.path;
+                if (key.includes('/')) key = file.name;
+                fileShaMap[key] = sha;
+             }
+           } catch (e) {
+             console.error(`Error calculating SHA for ${file.name}`, e);
+           }
+        }
+        
+        // Check for SHA mismatches and prompt user
+        const { updated: needsUpdate, updatedPaths } = updateManifestSha256(manifest, fileShaMap, true);
+        
+        if (needsUpdate) {
+            // Prompt for each file that needs update
+            for (const path of updatedPaths) {
+                // Find the filename from path (might be nested or just filename)
+                const fileName = path.split('/').pop() || path;
+                
+                // Use a short timeout to ensure the UI updates before the alert blocks thread
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const confirmed = window.confirm(
+                    `The file content for "${fileName}" has changed since it was last referenced in rdf.yaml.\n\nDo you want to update the reference (SHA256) in rdf.yaml?`
+                );
+                
+                if (!confirmed) {
+                    console.log(`User declined to update SHA for ${fileName}. Skipping upload of this file.`);
+                    skippedFiles.add(path);
+                    // Also remove it from fileShaMap so updateManifestSha256 doesn't update it later
+                    delete fileShaMap[path];
+                    // Also try removing by filename if path might be different key
+                    if (path.includes('/')) {
+                        delete fileShaMap[path.split('/').pop()!];
+                    }
+                }
+            }
+            
+            // If we get here, user processed all prompts. Now apply approved updates.
+            // Note: fileShaMap has been modified to remove skipped files, so only approved ones are updated.
+            const { count } = updateManifestSha256(manifest, fileShaMap, false);
+            console.log(`Updated ${count} SHA references in rdf.yaml`);
+        }
 
         // Extract weight files for later use
         weightFilePaths = manifest.type === 'model' ? extractWeightFiles(manifest) : [];
@@ -841,6 +928,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true,
       });
 
+      // Calculate SHA256 and log upload info for rdf.yaml
+      // Also collect all file SHA256 values to update manifest at the end
+      const fileSha256Map: { [key: string]: string } = {};
+      
+      try {
+        const rdfContent = typeof updatedRdfFile.content === 'string' 
+          ? updatedRdfFile.content 
+          : new TextDecoder().decode(updatedRdfFile.content as ArrayBuffer);
+        const rdfSha256 = await calculateSHA256(rdfContent);
+        fileSha256Map[rdfUploadPath] = rdfSha256;
+        console.log('📄 Uploading file:', {
+          name: 'rdf.yaml',
+          path: rdfUploadPath,
+          size: rdfContent.length,
+          sha256: rdfSha256
+        });
+      } catch (error) {
+        console.error('Error calculating SHA256 for rdf.yaml:', error);
+      }
+
       await axios.put(rdfPutUrl, updatedRdfFile.content, {
         headers: {
           "Content-Type": ""
@@ -859,6 +966,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const remainingFiles = updatedFiles.filter(file => !file.path.endsWith('rdf.yaml'));
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
+        
+        // Normalize file path for checking against skipped files
+        const normalizedPath = file.path.startsWith('./') ? file.path.substring(2) : file.path;
+        
+        if (skippedFiles.has(normalizedPath) || skippedFiles.has(file.name)) {
+            console.log(`Skipping upload of ${file.path} (user declined SHA update)`);
+            continue;
+        }
+
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info',
@@ -908,13 +1024,31 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                    weightPath.endsWith(`/${normalizedFilePath}`);
           });
           
-          // Debug log for file paths
-          console.log('Uploading file:', {
-            name: file.name,
-            path: file.path,
-            isDirectory: file.isDirectory,
-            size: file.size
-          });
+          // Calculate SHA256 for the file
+          let fileSha256: string | null = null;
+          try {
+            if (content) {
+              fileSha256 = await calculateSHA256(content);
+            } else if (fileObject) {
+              // Show progress for large file SHA256 calculation
+              if (isLargeFile) {
+                setUploadStatus({
+                  message: `Calculating checksum for ${file.name}...`,
+                  severity: 'info',
+                  progress: ((index) / (remainingFiles.length + 1)) * 100
+                });
+              }
+              fileSha256 = await calculateFileSHA256(fileObject, isLargeFile ? (progress) => {
+                setUploadStatus({
+                  message: `Calculating checksum for ${file.name}... (${Math.round(progress)}%)`,
+                  severity: 'info',
+                  progress: ((index + (progress / 200)) / (remainingFiles.length + 1)) * 100
+                });
+              } : undefined);
+            }
+          } catch (error) {
+            console.error(`Error calculating SHA256 for ${file.name}:`, error);
+          }
           
           // For directory uploads, we need to strip the folder name from the path
           // and only use the file name for the artifact manager
@@ -925,6 +1059,21 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             // Extract just the filename without the directory structure
             uploadPath = file.name;
             console.log(`Directory upload detected: Changed path from "${file.path}" to "${uploadPath}"`);
+          }
+          
+          // Debug log for file paths with SHA256
+          console.log('📄 Uploading file:', {
+            name: file.name,
+            path: file.path,
+            uploadPath: uploadPath,
+            isDirectory: file.isDirectory,
+            size: file.size,
+            sha256: fileSha256
+          });
+          
+          // Store SHA256 in the map using the actual upload path
+          if (fileSha256) {
+            fileSha256Map[uploadPath] = fileSha256;
           }
           
           const putConfig: {
@@ -940,6 +1089,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           if (isWeightFile) {
             putConfig.download_weight = 1;
           }
+
           // Get the upload URL with download_weight if this is a weight file
           const putUrl = await artifactManager.put_file(putConfig);
 
@@ -988,6 +1138,19 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         }
       }
 
+      // Update manifest with all file SHA256 values
+      if (Object.keys(fileSha256Map).length > 0) {
+        await artifactManager.edit({
+          artifact_id: artifact.id,
+          manifest: {
+            ...updatedManifest,
+            file_sha256: fileSha256Map
+          },
+          stage: true,
+          _rkwargs: true
+        });
+      }
+
       // After successful upload, redirect to edit page
       navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`);
 
@@ -999,79 +1162,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           : 'Upload failed: Unknown error occurred',
         severity: 'error'
       });
-      setIsUploading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (isUploading) return;
-    
-    if (!artifactManager || !uploadedArtifact) {
-      setUploadStatus({
-        message: 'No artifact to save to',
-        severity: 'error'
-      });
-      return;
-    }
-
-    try {
-      setIsUploading(true);
-      
-      // Filter files that have been edited
-      const filesToUpload = files.filter(file => file.edited);
-      
-      // Upload only edited files sequentially with progress
-      for (let index = 0; index < filesToUpload.length; index++) {
-        const file = filesToUpload[index];
-        setUploadStatus({
-          message: `Saving ${file.name}...`,
-          severity: 'info',
-          progress: (index / filesToUpload.length) * 100
-        });
-
-        const putUrl = await artifactManager.put_file({
-          artifact_id: uploadedArtifact.id,
-          file_path: file.path,
-          _rkwargs: true,
-        });
-        
-        const blob = new Blob([file.content!], { type: "application/octet-stream" });
-        await axios.put(putUrl, blob, {
-          headers: {
-            "Content-Type": ""
-          },
-          onUploadProgress: (progressEvent) => {
-            const progress = progressEvent.total
-              ? (progressEvent.loaded / progressEvent.total) * 100
-              : 0;
-            
-            setUploadStatus({
-              message: `Saving ${file.name}...`,
-              severity: 'info',
-              progress: ((index + (progress / 100)) / filesToUpload.length) * 100
-            });
-          }
-        });
-      }
-
-      // Reset edited flags after successful save
-      setFiles(files.map(file => ({ ...file, edited: false })));
-
-      setUploadStatus({
-        message: 'Changes saved successfully!',
-        severity: 'success',
-        progress: 100
-      });
-
-    } catch (error) {
-      console.error('Save failed:', error);
-      setUploadStatus({
-        message: error instanceof Error 
-          ? `Save failed: ${error.message}` 
-          : 'Save failed: Unknown error occurred',
-        severity: 'error'
-      });
-    } finally {
       setIsUploading(false);
     }
   };
