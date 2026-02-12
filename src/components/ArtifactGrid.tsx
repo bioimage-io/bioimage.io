@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
@@ -119,7 +119,8 @@ const LoadingOverlay = () => (
 
 export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1', 10) || 1;
   const location = useLocation();
   const navigate = useNavigate();
   const { 
@@ -130,6 +131,18 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     totalItems,
     itemsPerPage
   } = useHyphaStore();
+  const setCurrentPage = useCallback((page: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (page <= 1) {
+        next.delete('page');
+      } else {
+        next.set('page', String(page));
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
