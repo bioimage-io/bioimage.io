@@ -13,7 +13,6 @@ import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
-import TestReportBadge from './TestReportBadge';
 import { useBookmarks } from '../hooks/useBookmarks';
 
 interface ResourceCardProps {
@@ -322,14 +321,6 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           </div>
         )}
 
-        {/* Test Report Badge */}
-        <TestReportBadge
-          artifact={artifact}
-          mode="floating"
-          size="medium"
-          showPopover={true}
-          onStopPropagation={true}
-        />
       </div>
       <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>
         <div className="space-y-2">
