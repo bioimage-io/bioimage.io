@@ -39,6 +39,7 @@ import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import Editor from '@monaco-editor/react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
@@ -81,6 +82,28 @@ const ArtifactDetails = () => {
   const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
   const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
   const [testReportData, setTestReportData] = useState<DetailedTestReport | null>(null);
+
+  // Documentation links for consumer software in the compatibility list.
+  // These override the generic partner.docs links with more specific
+  // BioImage-Model-Zoo-related pages where available.
+  const softwareDocsMap: Record<string, string> = {
+    'bioengine': 'https://bioimage-io.github.io/bioengine/',
+    'bioimageio.core': 'https://bioimage-io.github.io/core-bioimage-io-python/',
+    'deepimagej': 'https://deepimagej.github.io/',
+    'ilastik': 'https://www.ilastik.org/documentation/nn/nn',
+    'biapy': 'https://biapy.readthedocs.io/en/latest/get_started/bmz.html',
+    'careamics': 'https://careamics.github.io/',
+  };
+
+  // Resolve a documentation URL for a given software name.
+  const getSoftwareDocsUrl = (name: string): string | undefined => {
+    // Check the explicit map first (case-insensitive)
+    for (const [key, url] of Object.entries(softwareDocsMap)) {
+      if (name.toLowerCase().includes(key)) return url;
+    }
+    // Fall back to the partner service
+    return partnerService.getPartnerByName(name)?.link;
+  };
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -1369,7 +1392,6 @@ const ArtifactDetails = () => {
                                           height: 20,
                                           objectFit: 'contain',
                                           flexShrink: 0,
-                                          cursor: 'default'
                                         }}
                                         onError={(e) => {
                                           const img = e.target as HTMLImageElement;
@@ -1377,18 +1399,27 @@ const ArtifactDetails = () => {
                                         }}
                                       />
                                     )}
-                                    <Typography
-                                      variant="body2"
+                                    <Link
+                                      href={getSoftwareDocsUrl('bioengine')}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      underline="hover"
                                       sx={{
                                         minWidth: '100px',
                                         fontWeight: 500,
                                         color: '#1f2937',
                                         fontFamily: 'monospace',
-                                        fontSize: '0.875rem'
+                                        fontSize: '0.875rem',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        '&:hover': { color: '#3b82f6' },
                                       }}
                                     >
                                       bioengine
-                                    </Typography>
+                                      <OpenInNewIcon sx={{ fontSize: 12, opacity: 0.5 }} />
+                                    </Link>
                                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
                                       <Chip
                                         label={bioimageioCoreVersion}
@@ -1511,29 +1542,11 @@ const ArtifactDetails = () => {
                                   component="img"
                                   src={partnerIcons.get(softwareName)}
                                   alt={softwareName}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Special case for bioimageio.core
-                                    if (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io')) {
-                                      window.open('https://bioimage-io.github.io/core-bioimage-io-python/', '_blank', 'noopener,noreferrer');
-                                      return;
-                                    }
-                                    const partner = partnerService.getPartnerByName(softwareName);
-                                    if (partner?.link) {
-                                      window.open(partner.link, '_blank', 'noopener,noreferrer');
-                                    }
-                                  }}
                                   sx={{
                                     width: 20,
                                     height: 20,
                                     objectFit: 'contain',
                                     flexShrink: 0,
-                                    cursor: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'pointer' : 'default',
-                                    transition: 'all 0.2s ease',
-                                    '&:hover': {
-                                      transform: (softwareName.toLowerCase().includes('bioimageio.core') || softwareName.toLowerCase().includes('bioimage.io') || partnerService.getPartnerByName(softwareName)?.link) ? 'scale(1.2)' : 'none',
-                                      filter: 'brightness(1.1)'
-                                    }
                                   }}
                                   onError={(e) => {
                                     const img = e.target as HTMLImageElement;
@@ -1541,18 +1554,45 @@ const ArtifactDetails = () => {
                                   }}
                                 />
                               )}
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  minWidth: '100px',
-                                  fontWeight: 500,
-                                  color: '#1f2937',
-                                  fontFamily: 'monospace',
-                                  fontSize: '0.875rem'
-                                }}
-                              >
-                                {softwareName}
-                              </Typography>
+                              {(() => {
+                                const docsUrl = getSoftwareDocsUrl(softwareName);
+                                return docsUrl ? (
+                                  <Link
+                                    href={docsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    underline="hover"
+                                    sx={{
+                                      minWidth: '100px',
+                                      fontWeight: 500,
+                                      color: '#1f2937',
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.875rem',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 0.5,
+                                      '&:hover': { color: '#3b82f6' },
+                                    }}
+                                  >
+                                    {softwareName}
+                                    <OpenInNewIcon sx={{ fontSize: 12, opacity: 0.5 }} />
+                                  </Link>
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      minWidth: '100px',
+                                      fontWeight: 500,
+                                      color: '#1f2937',
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.875rem'
+                                    }}
+                                  >
+                                    {softwareName}
+                                  </Typography>
+                                );
+                              })()}
                               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
                                 {Object.entries(versions).map(([version, versionData]: [string, any]) => {
                                   const isPassed = versionData.status === 'passed';
