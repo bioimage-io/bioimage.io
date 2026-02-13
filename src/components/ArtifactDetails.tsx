@@ -83,25 +83,18 @@ const ArtifactDetails = () => {
   const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
   const [testReportData, setTestReportData] = useState<DetailedTestReport | null>(null);
 
-  // Documentation links for consumer software in the compatibility list.
-  // These override the generic partner.docs links with more specific
-  // BioImage-Model-Zoo-related pages where available.
-  const softwareDocsMap: Record<string, string> = {
-    'bioengine': 'https://bioimage-io.github.io/bioengine/',
-    'bioimageio.core': 'https://bioimage-io.github.io/core-bioimage-io-python/',
-    'deepimagej': 'https://deepimagej.github.io/',
-    'ilastik': 'https://www.ilastik.org/documentation/nn/nn',
-    'biapy': 'https://biapy.readthedocs.io/en/latest/get_started/bmz.html',
-    'careamics': 'https://careamics.github.io/',
-  };
-
   // Resolve a documentation URL for a given software name.
+  // bioengine and bioimageio.core are not in the partner API so they
+  // have hardcoded URLs; everything else comes from the partner service
+  // docs field (managed in each partner's collection YAML).
   const getSoftwareDocsUrl = (name: string): string | undefined => {
-    // Check the explicit map first (case-insensitive)
-    for (const [key, url] of Object.entries(softwareDocsMap)) {
-      if (name.toLowerCase().includes(key)) return url;
+    const lower = name.toLowerCase();
+    if (lower.includes('bioimageio.core') || lower.includes('bioimage.io')) {
+      return 'https://bioimage-io.github.io/core-bioimage-io-python/';
     }
-    // Fall back to the partner service
+    if (lower === 'bioengine') {
+      return 'https://bioimage-io.github.io/bioengine/';
+    }
     return partnerService.getPartnerByName(name)?.link;
   };
 
