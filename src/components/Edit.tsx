@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, TextField } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
@@ -202,15 +202,7 @@ const Edit: React.FC = () => {
   const [showDeleteVersionDialog, setShowDeleteVersionDialog] = useState(false);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
-  const [newVersionData, setNewVersionData] = useState({
-    copyFiles: true
-  });
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
-  const [copyProgress, setCopyProgress] = useState<{
-    current: number;
-    total: number;
-    file: string;
-  } | null>(null);
 
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
@@ -2356,16 +2348,16 @@ const Edit: React.FC = () => {
   // Add function to handle new version creation
   const handleCreateNewVersion = async () => {
     if (!artifactManager || isCreatingVersion) return;
-    
+
     setIsCreatingVersion(true);
-    
+
     try {
       setUploadStatus({
         message: 'Creating new version...',
         severity: 'info'
       });
-      
-      // Create the new version first
+
+      // Create the new version in staging mode
       const newArtifact = await artifactManager.edit({
         artifact_id: artifactId,
         type: artifactType,
@@ -2374,133 +2366,11 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
       console.log('new version created', newArtifact);
-      // get the latest version, the last one
-      const latestVersion = newArtifact.versions[newArtifact.versions.length - 1].version;
 
-      // If user wants to copy files, do the copy process
-      if (newVersionData.copyFiles) {
-        try {
-          // Get the file list from the previous version
-          setUploadStatus({
-            message: 'Getting file list from previous version...',
-            severity: 'info'
-          });
-
-          const fileList = await artifactManager.list_files({
-            artifact_id: artifactId,
-            version: latestVersion,
-            _rkwargs: true
-          });
-
-          if (!fileList || fileList.length === 0) {
-            setUploadStatus({
-              message: 'No files found in previous version to copy.',
-              severity: 'info'
-            });
-          } else {
-            // Filter out directories, only copy files
-            const filesToCopy = fileList.filter((file: any) => file.type !== 'directory');
-            
-            setUploadStatus({
-              message: `Found ${filesToCopy.length} files to copy. Starting copy process...`,
-              severity: 'info'
-            });
-
-            // Copy files one by one
-            for (let i = 0; i < filesToCopy.length; i++) {
-              const file = filesToCopy[i];
-              
-              // Update progress
-              setCopyProgress({
-                current: i + 1,
-                total: filesToCopy.length,
-                file: file.name
-              });
-
-              try {
-                // Get download URL for the file from previous version
-                const downloadUrl = await artifactManager.get_file({
-                  artifact_id: artifactId,
-                  file_path: file.name,
-                  version: latestVersion,
-                  _rkwargs: true
-                });
-
-                // Download the file content
-                const response = await fetch(downloadUrl);
-                if (!response.ok) {
-                  throw new Error(`Failed to download ${file.name}`);
-                }
-                
-                const fileContent = await response.blob();
-
-                // Get presigned URL for uploading to new version
-                const presignedUrl = await artifactManager.put_file({
-                  artifact_id: artifactId,
-                  file_path: file.name,
-                  _rkwargs: true
-                });
-
-                // Calculate SHA256 and log upload info
-                try {
-                  const arrayBuffer = await fileContent.arrayBuffer();
-                  const sha256 = await calculateSHA256(arrayBuffer);
-                  console.log('📄 Uploading file:', {
-                    name: file.name,
-                    path: file.name,
-                    size: fileContent.size,
-                    sha256
-                  });
-                } catch (error) {
-                  console.error('Error calculating SHA256:', error);
-                }
-
-                // Upload the file to new version
-                const uploadResponse = await fetch(presignedUrl, {
-                  method: 'PUT',
-                  body: fileContent,
-                  headers: {
-                    'Content-Type': '' // important for s3
-                  }
-                });
-
-                if (!uploadResponse.ok) {
-                  throw new Error(`Failed to upload ${file.name}`);
-                }
-
-                console.log(`Successfully copied ${file.name} (${i + 1}/${filesToCopy.length})`);
-              } catch (fileError) {
-                console.error(`Error copying ${file.name}:`, fileError);
-                // Continue with other files even if one fails
-                setUploadStatus({
-                  message: `Warning: Failed to copy ${file.name}. Continuing with other files...`,
-                  severity: 'error'
-                });
-              }
-            }
-
-            // Clear copy progress
-            setCopyProgress(null);
-
-            setUploadStatus({
-              message: 'Files copied successfully. Redirecting to edit mode...',
-              severity: 'success'
-            });
-          }
-        } catch (copyError) {
-          console.error('Error copying files:', copyError);
-          setCopyProgress(null);
-          setUploadStatus({
-            message: 'Warning: New version created but failed to copy files. You can upload files manually.',
-            severity: 'error'
-          });
-        }
-      } else {
-        setUploadStatus({
-          message: 'New version created successfully. Redirecting to edit mode...',
-          severity: 'success'
-        });
-      }
+      setUploadStatus({
+        message: 'New version created successfully. Redirecting to edit mode...',
+        severity: 'success'
+      });
 
       // Close the dialog
       setShowNewVersionDialog(false);
@@ -2545,34 +2415,9 @@ const Edit: React.FC = () => {
               </svg>
               <div className="flex-1">
                 <h4 className="font-medium text-blue-900 mb-2">Creating New Version</h4>
-                
-                {/* Show current status */}
-                <div className="text-sm text-blue-800 mb-3">
+                <div className="text-sm text-blue-800">
                   {uploadStatus?.message || 'Processing...'}
                 </div>
-
-                {/* Show file copying progress */}
-                {copyProgress && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm text-blue-800">
-                      <span>Copying files ({copyProgress.current}/{copyProgress.total})</span>
-                      <span>{Math.round((copyProgress.current / copyProgress.total) * 100)}%</span>
-                    </div>
-                    
-                    {/* Progress bar */}
-                    <div className="w-full bg-blue-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(copyProgress.current / copyProgress.total) * 100}%` }}
-                      />
-                    </div>
-                    
-                    {/* Current file being copied */}
-                    <div className="text-xs text-blue-700 truncate">
-                      Current file: {copyProgress.file}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -2609,40 +2454,6 @@ const Edit: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <div className="text-sm text-amber-800">
-                  <h4 className="font-semibold mb-1">File Copying Process</h4>
-                  <p>If you choose to copy files, we will download all files from version <span className="font-mono bg-amber-100 px-1 rounded">{editVersion || 'latest'}</span> and upload them to the new version. This process may take several minutes depending on file sizes.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Options - only show when not creating */}
-        {!isCreatingVersion && (
-          <div className="space-y-4">
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={newVersionData.copyFiles}
-                  onChange={(e) => setNewVersionData(prev => ({ ...prev, copyFiles: e.target.checked }))}
-                />
-              }
-              label={
-                <div className="ml-2">
-                  <div className="font-medium">Copy existing files to new version</div>
-                  <div className="text-sm text-gray-500">
-                    This will download and copy all files from the current version to the new version. 
-                    Uncheck if you plan to upload completely new files.
-                  </div>
-                </div>
-              }
-            />
           </div>
         )}
 
@@ -3077,35 +2888,23 @@ const Edit: React.FC = () => {
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   {/* Status section - add max width for large screens */}
                   <div className="flex-grow min-w-0 lg:max-w-[50%]">
-                    {copyProgress ? (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className="text-blue-600 truncate">
-                            Copying files ({copyProgress.current}/{copyProgress.total}): {copyProgress.file}
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        {uploadStatus && (
-                          <div className="flex items-center gap-2">
-                            <span className={`text-base truncate ${
-                              uploadStatus.severity === 'error' ? 'text-red-600' :
-                              uploadStatus.severity === 'success' ? 'text-green-600' :
-                              'text-blue-600'
-                            }`}>
-                              {uploadStatus.message}
-                            </span>
-                          </div>
-                        )}
-                        {uploadStatus?.progress !== undefined && (
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={uploadStatus.progress} 
-                            sx={{ mt: 1, height: 4, borderRadius: 2 }}
-                          />
-                        )}
-                      </>
+                    {uploadStatus && (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base truncate ${
+                          uploadStatus.severity === 'error' ? 'text-red-600' :
+                          uploadStatus.severity === 'success' ? 'text-green-600' :
+                          'text-blue-600'
+                        }`}>
+                          {uploadStatus.message}
+                        </span>
+                      </div>
+                    )}
+                    {uploadStatus?.progress !== undefined && (
+                      <LinearProgress
+                        variant="determinate"
+                        value={uploadStatus.progress}
+                        sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                      />
                     )}
                   </div>
 
