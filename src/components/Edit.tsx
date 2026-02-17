@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog as MuiDialog, TextField } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
@@ -202,7 +202,13 @@ const Edit: React.FC = () => {
   const [showDeleteVersionDialog, setShowDeleteVersionDialog] = useState(false);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
+  const [newVersionCopyFiles, setNewVersionCopyFiles] = useState(true);
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
+  const [copyProgress, setCopyProgress] = useState<{
+    current: number;
+    total: number;
+    file: string;
+  } | null>(null);
 
   const [isContentValid, setIsContentValid] = useState<boolean>(true);
   const [hasContentChanged, setHasContentChanged] = useState<boolean>(false);
@@ -2350,8 +2356,12 @@ const Edit: React.FC = () => {
     if (!artifactManager || isCreatingVersion) return;
 
     setIsCreatingVersion(true);
+    setCopyProgress(null);
 
     try {
+      // Remember the current committed version before entering staging
+      const previousVersion = artifactInfo?.versions?.[artifactInfo.versions.length - 1]?.version;
+
       setUploadStatus({
         message: 'Creating new version...',
         severity: 'info'
@@ -2366,6 +2376,92 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
       console.log('new version created', newArtifact);
+
+      // Copy files from previous version if requested
+      if (newVersionCopyFiles && previousVersion) {
+        try {
+          setUploadStatus({
+            message: 'Getting file list from previous version...',
+            severity: 'info'
+          });
+
+          const fileList = await artifactManager.list_files({
+            artifact_id: artifactId,
+            version: previousVersion,
+            _rkwargs: true
+          });
+
+          // Filter out directories
+          const filesToCopy = (fileList || []).filter((file: any) => file.type !== 'directory');
+
+          if (filesToCopy.length > 0) {
+            setUploadStatus({
+              message: `Copying ${filesToCopy.length} files to new version...`,
+              severity: 'info'
+            });
+
+            for (let i = 0; i < filesToCopy.length; i++) {
+              const file = filesToCopy[i];
+
+              setCopyProgress({
+                current: i + 1,
+                total: filesToCopy.length,
+                file: file.name
+              });
+
+              try {
+                // Download from previous committed version
+                const downloadUrl = await artifactManager.get_file({
+                  artifact_id: artifactId,
+                  file_path: file.name,
+                  version: previousVersion,
+                  _rkwargs: true
+                });
+
+                const response = await fetch(downloadUrl);
+                if (!response.ok) {
+                  throw new Error(`Failed to download ${file.name}`);
+                }
+                const fileContent = await response.blob();
+
+                // Upload to new version staging
+                const presignedUrl = await artifactManager.put_file({
+                  artifact_id: artifactId,
+                  file_path: file.name,
+                  _rkwargs: true
+                });
+
+                const uploadResponse = await fetch(presignedUrl, {
+                  method: 'PUT',
+                  body: fileContent,
+                  headers: { 'Content-Type': '' }
+                });
+
+                if (!uploadResponse.ok) {
+                  throw new Error(`Failed to upload ${file.name}`);
+                }
+
+                console.log(`Copied ${file.name} (${i + 1}/${filesToCopy.length})`);
+              } catch (fileError) {
+                console.error(`Error copying ${file.name}:`, fileError);
+                setUploadStatus({
+                  message: `Warning: Failed to copy ${file.name}. Continuing...`,
+                  severity: 'error'
+                });
+              }
+            }
+
+            setCopyProgress(null);
+          }
+        } catch (copyError) {
+          console.error('Error copying files:', copyError);
+          setCopyProgress(null);
+          setUploadStatus({
+            message: 'Warning: New version created but failed to copy files. You can upload files manually.',
+            severity: 'error'
+          });
+        }
+      }
 
       setUploadStatus({
         message: 'New version created successfully. Redirecting to edit mode...',
@@ -2415,9 +2511,26 @@ const Edit: React.FC = () => {
               </svg>
               <div className="flex-1">
                 <h4 className="font-medium text-blue-900 mb-2">Creating New Version</h4>
-                <div className="text-sm text-blue-800">
+                <div className="text-sm text-blue-800 mb-2">
                   {uploadStatus?.message || 'Processing...'}
                 </div>
+                {copyProgress && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm text-blue-800">
+                      <span>Copying files ({copyProgress.current}/{copyProgress.total})</span>
+                      <span>{Math.round((copyProgress.current / copyProgress.total) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(copyProgress.current / copyProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-blue-700 truncate">
+                      Current file: {copyProgress.file}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2434,15 +2547,15 @@ const Edit: React.FC = () => {
                 <div className="text-sm text-blue-800">
                   <h4 className="font-semibold mb-2">When should you create a new version?</h4>
                   <div className="space-y-2">
-                    <p><strong>✅ Create new version when:</strong></p>
+                    <p><strong>Create new version when:</strong></p>
                     <ul className="list-disc pl-4 space-y-1">
                       <li>Model weight files have changed</li>
                       <li>Model architecture or functionality has been modified</li>
                       <li>Breaking changes to the model interface</li>
                       <li>Significant improvements that warrant a version bump</li>
                     </ul>
-                    
-                    <p className="mt-3"><strong>❌ You don't need a new version for:</strong></p>
+
+                    <p className="mt-3"><strong>You don't need a new version for:</strong></p>
                     <ul className="list-disc pl-4 space-y-1">
                       <li>Editing the RDF.yaml metadata file</li>
                       <li>Updating cover images or documentation</li>
@@ -2454,6 +2567,23 @@ const Edit: React.FC = () => {
               </div>
             </div>
 
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newVersionCopyFiles}
+                  onChange={(e) => setNewVersionCopyFiles(e.target.checked)}
+                />
+              }
+              label={
+                <div className="ml-2">
+                  <div className="font-medium">Copy existing files to new version</div>
+                  <div className="text-sm text-gray-500">
+                    Downloads all files from the current version and re-uploads them to the new version.
+                    This may take several minutes for large models. Uncheck to start with a clean version.
+                  </div>
+                </div>
+              }
+            />
           </div>
         )}
 
