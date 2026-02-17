@@ -238,6 +238,7 @@ const Edit: React.FC = () => {
 
   useEffect(() => {
     setEditVersion(version);
+    setIsStaged(version === 'stage');
   }, [version]);
 
   useEffect(() => {
@@ -248,9 +249,9 @@ const Edit: React.FC = () => {
 
   useEffect(() => {
     if (artifactId && artifactManager && isLoggedIn) {
-      loadArtifactFiles();
+      loadArtifactFiles(version);
     }
-  }, [artifactId, artifactManager, isLoggedIn]);
+  }, [artifactId, artifactManager, isLoggedIn, version]);
 
   useEffect(() => {
     if (artifactInfo?.versions && artifactInfo.versions.length > 0) {
@@ -319,8 +320,11 @@ const Edit: React.FC = () => {
     return languageMap[extension] || 'plaintext';
   };
 
-  const loadArtifactFiles = async () => {
+  const loadArtifactFiles = async (versionOverride?: string) => {
     if (!artifactManager || !artifactId || !server) return;
+    // Use the override if provided, otherwise fall back to state
+    const currentVersion = versionOverride || editVersion;
+    const currentIsStaged = (versionOverride || version) === 'stage';
     try {
       setIsLoadingFiles(true);
       setUploadStatus({
@@ -338,18 +342,18 @@ const Edit: React.FC = () => {
       // Get artifact info
       const artifact = await artifactManager.read({
         artifact_id: artifactId,
-        version: editVersion,
+        version: currentVersion,
         _rkwargs: true
       });
-      console.log("DEBUG:", {artifact, editVersion})
-      if(!editVersion) {
+      console.log("DEBUG:", {artifact, currentVersion})
+      if(!currentVersion) {
         // get the last value of .versions
         setEditVersion(artifact.versions[artifact.versions.length - 1].version);
       }
-      
+
       // Set artifact type from manifest
       setArtifactType(artifact.manifest?.type || null);
-      
+
       // Check collection admin status
       try {
         const collection = await artifactManager.read({
@@ -367,21 +371,21 @@ const Edit: React.FC = () => {
         console.error('Error checking collection admin status:', error);
         setIsCollectionAdmin(false);
       }
-    
+
       setArtifactInfo(artifact);
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
         artifact_id: artifactId || '',
-        version: isStaged ? 'stage' : 'latest', 
+        version: currentIsStaged ? 'stage' : 'latest',
         _rkwargs: true
       });
 
       if (!fileList || fileList.length === 0) {
         setFiles([]);
         setUploadStatus({
-          message: 'No files found',
-          severity: 'error'
+          message: currentIsStaged ? 'New version created. Upload files to get started.' : 'No files found',
+          severity: currentIsStaged ? 'info' : 'error'
         });
         setIsLoadingFiles(false);
         return;

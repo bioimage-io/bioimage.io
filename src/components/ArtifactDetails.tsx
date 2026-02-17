@@ -90,7 +90,7 @@ const ArtifactDetails = () => {
   const getSoftwareDocsUrl = (name: string): string | undefined => {
     const lower = name.toLowerCase();
     if (lower.includes('bioimageio.core') || lower.includes('bioimage.io')) {
-      return 'https://bioimage-io.github.io/core-bioimage-io-python/';
+      return 'https://github.com/bioimage-io/core-bioimage-io-python';
     }
     if (lower === 'bioengine') {
       return 'https://bioimage-io.github.io/bioengine/';
