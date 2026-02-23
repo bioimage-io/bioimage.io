@@ -1,0 +1,117 @@
+name: BioImage.IO Model Inference
+
+on:
+  schedule:
+    # Run daily at 2:00 AM UTC (offset from model testing)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      model_ids:
+        description: 'Specific model IDs to test (comma-separated, leave empty for all)'
+        required: false
+        type: string
+      dry_run:
+        description: "Run in dry-run mode (don't update artifacts)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  test-bioimageio-model-inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-inference-v1
+        restore-keys: |
+          ${{ runner.os }}-pip-inference-
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install hypha-rpc numpy httpx pyyaml
+
+    - name: Run BioImage.IO model inference checks
+      env:
+        HYPHA_TOKEN: ${{ secrets.HYPHA_TOKEN }}
+      run: |
+        cd scripts
+
+        # Set safe defaults for inputs (handle scheduled runs)
+        MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
+        DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+        # Build command arguments
+        ARGS=""
+
+        if [ -n "$MODEL_IDS" ]; then
+          MODEL_IDS_SPACE=$(echo "$MODEL_IDS" | tr ',' ' ')
+          ARGS="$ARGS --model-ids $MODEL_IDS_SPACE"
+        fi
+
+        if [ "$DRY_RUN" = "true" ]; then
+          ARGS="$ARGS --dry-run"
+        fi
+
+        echo "Running: python -u bioengine_model_infer.py $ARGS"
+        python -u bioengine_model_infer.py $ARGS
+        EXIT_CODE=$?
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "❌ Model inference checks failed with exit code $EXIT_CODE"
+          exit $EXIT_CODE
+        fi
+
+    - name: Generate summary report
+      if: always()
+      run: |
+        echo "# BioImage.IO Model Inference Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ github.event.inputs.model_ids }}" != "" ]; then
+          echo "**Models tested:** ${{ github.event.inputs.model_ids }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**Models tested:** All models" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          echo "**Mode:** Dry run (no updates made)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**Mode:** Production (collection updated)" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## About Model Inference Testing" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This workflow validates that models can run inference through the BioEngine model-runner service:" >> $GITHUB_STEP_SUMMARY
+        echo "- Fetches sample input images from model test data" >> $GITHUB_STEP_SUMMARY
+        echo "- Runs inference through the model-runner service" >> $GITHUB_STEP_SUMMARY
+        echo "- Tracks inference status (passed/failed/timeout)" >> $GITHUB_STEP_SUMMARY
+        echo "- Updates the collection manifest with results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Models are skipped if they haven't changed since the last successful test." >> $GITHUB_STEP_SUMMARY
+
+    - name: Comment on failure
+      if: failure()
+      run: |
+        echo "# ❌ BioImage.IO Model Inference Failed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The BioImage.IO model inference workflow has failed." >> $GITHUB_STEP_SUMMARY
+        echo "Please check the logs for more details." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Failed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY

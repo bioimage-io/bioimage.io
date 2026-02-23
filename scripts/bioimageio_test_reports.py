@@ -575,7 +575,7 @@ async def test_bmz_models(
     server_url = "https://hypha.aicell.io"
     token = os.environ.get("HYPHA_TOKEN") or await login({"server_url": server_url})
     server = await connect_to_server(
-        {"server_url": server_url, "token": token, "method_timeout": 3000}
+        {"server_url": server_url, "token": token, "method_timeout": 300}
     )
 
     runner = await server.get_service(

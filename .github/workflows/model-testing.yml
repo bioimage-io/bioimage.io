@@ -1,9 +1,9 @@
 name: BioImage.IO Model Testing
 
 on:
-  schedule:
-    # Run daily at 2:00 AM UTC
-    - cron: '0 2 * * *'
+  # schedule:
+    # Run daily at 3:00 AM UTC
+    # - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       model_ids:
