@@ -45,6 +45,27 @@ import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
 
+let cachedInferenceResults: Record<string, any> | null = null;
+let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
+
+const getInferenceResults = async (artifactManager: any) => {
+  if (cachedInferenceResults) return cachedInferenceResults;
+  if (inferenceResultsPromise) return inferenceResultsPromise;
+
+  inferenceResultsPromise = artifactManager.read('bioimage-io/bioimage.io')
+    .then((collection: any) => {
+      cachedInferenceResults = collection.manifest?.bioengine_inference || {};
+      return cachedInferenceResults;
+    })
+    .catch((error: any) => {
+      console.error('Failed to fetch bioengine inference results:', error);
+      inferenceResultsPromise = null; // Allow retrying on error
+      return {};
+    });
+
+  return inferenceResultsPromise;
+};
+
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
   const { selectedResource, fetchResource, isLoading, error, user, isLoggedIn, artifactManager } = useHyphaStore();
@@ -82,6 +103,12 @@ const ArtifactDetails = () => {
   const [selectedCompatibilityTest, setSelectedCompatibilityTest] = useState<{ name: string; data: any } | null>(null);
   const [partnerIcons, setPartnerIcons] = useState<Map<string, string>>(new Map());
   const [testReportData, setTestReportData] = useState<DetailedTestReport | null>(null);
+  const [bioengineStatus, setBioengineStatus] = useState<{
+    status: 'passed' | 'failed' | 'timeout';
+    message: string;
+    tested_at: number;
+  } | null>(null);
+  const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -262,6 +289,28 @@ const ArtifactDetails = () => {
     fetchCompatibilityData();
     fetchTestReport();
   }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_reports, version, latestVersion]);
+
+  // Fetch BioEngine inference status
+  useEffect(() => {
+    const fetchBioengineStatus = async () => {
+      if (!artifactManager || !selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
+
+      try {
+        const inferenceResults = await getInferenceResults(artifactManager);
+        const modelId = selectedResource.id.split('/').pop();
+        
+        if (modelId && inferenceResults?.[modelId]) {
+          setBioengineStatus(inferenceResults[modelId]);
+        } else {
+          setBioengineStatus(null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch bioengine status:', error);
+      }
+    };
+
+    fetchBioengineStatus();
+  }, [artifactManager, selectedResource?.id, selectedResource?.manifest?.type]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
@@ -609,6 +658,7 @@ const ArtifactDetails = () => {
                     backgroundColor: 'rgba(255, 255, 255, 0.9)',
                     borderColor: 'rgba(251, 191, 36, 0.3)',
                     transform: 'scale(1.05)',
+                    boxShadow: '0 8px 25px rgba(251, 191, 36, 0.2)',
                   }
                 }}
               >
@@ -683,56 +733,58 @@ const ArtifactDetails = () => {
             {selectedResource?.manifest?.type === 'model' && (
               <>
                 {!showModelRunner && (
+                  <>
                   <Button
-                    onClick={handleRunModel}
+                    disabled={!bioengineStatus}
+                    onClick={() => {
+                      if (bioengineStatus?.status === 'passed') {
+                        handleRunModel();
+                      } else if (bioengineStatus) {
+                        setIsBioengineErrorDialogOpen(true);
+                      }
+                    }}
                     variant="outlined"
                     size="medium"
-                    startIcon={(() => {
-                      const status = getTestReportStatus();
-                      if (!status) return undefined;
-                      const iconSx = { fontSize: 20 };
-                      const icon = status === 'all-passed'
-                        ? <CheckCircleIcon sx={{ ...iconSx, color: '#22c55e' }} />
-                        : status === 'some-passed'
-                        ? <WarningIcon sx={{ ...iconSx, color: '#f59e0b' }} />
-                        : <CancelIcon sx={{ ...iconSx, color: '#ef4444' }} />;
-                      return (
-                        <Tooltip title={`BioEngine Validation: ${getTestReports()?.filter(r => r.status === 'passed').length || 0}/${getTestReports()?.length || 0} passed (click for details)`}>
-                          <Box
-                            component="span"
-                            onClick={(e: React.MouseEvent<HTMLElement>) => {
-                              e.stopPropagation();
-                              setTestReportPopoverAnchorEl(e.currentTarget);
-                            }}
-                            sx={{ display: 'inline-flex', cursor: 'pointer' }}
-                          >
-                            {icon}
-                          </Box>
-                        </Tooltip>
-                      );
-                    })()}
+                    startIcon={bioengineStatus ? (
+                      <Tooltip 
+                        title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
+                        arrow
+                      >
+                        <Box component="span" sx={{ display: 'flex' }}>
+                          {bioengineStatus.status === 'passed' ? 
+                            <CheckCircleIcon sx={{ fontSize: 20 }} /> : 
+                            <CancelIcon sx={{ fontSize: 20 }} />
+                          }
+                        </Box>
+                      </Tooltip>
+                    ) : undefined}
                     sx={{
                       borderRadius: '12px',
-                      backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                      backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
                       backdropFilter: 'blur(8px)',
-                      border: '2px solid #3b82f6',
-                      color: '#3b82f6',
+                      border: `2px solid ${bioengineStatus?.status === 'passed' ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
+                      color: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
                       fontWeight: 500,
                       px: 4,
                       py: 1.5,
                       fontSize: '0.95rem',
                       transition: 'all 0.3s ease',
                       '&:hover': {
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        borderColor: '#2563eb',
-                        color: '#2563eb',
+                        backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                        borderColor: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
+                        color: bioengineStatus?.status === 'passed' ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
                         transform: 'translateY(-2px) scale(1.02)',
-                        boxShadow: '0 8px 25px rgba(59, 130, 246, 0.2)',
+                        boxShadow: `0 8px 25px ${bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
                       },
+                      '&.Mui-disabled': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                        color: 'rgba(0, 0, 0, 0.26)'
+                      }
                     }}
                   >
                     Test Run Model
                   </Button>
+                  </>
                 )}
                 {/* Test Report Popover */}
                 <Popover
@@ -2012,6 +2064,43 @@ const ArtifactDetails = () => {
         isInvalidJson={isInvalidJson}
       />
 
+      {/* BioEngine Error Dialog */}
+      <Dialog
+        open={isBioengineErrorDialogOpen}
+        onClose={() => setIsBioengineErrorDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CancelIcon sx={{ color: '#ef4444' }} />
+            BioEngine Test Run Failed
+          </Typography>
+          <IconButton
+            onClick={() => setIsBioengineErrorDialogOpen(false)}
+            aria-label="close"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ p: 2, backgroundColor: '#f9fafb', borderRadius: 2 }}>
+            <pre style={{ 
+              whiteSpace: 'pre-wrap', 
+              wordWrap: 'break-word',
+              fontFamily: 'monospace',
+              fontSize: '0.875rem',
+              color: '#374151',
+              margin: 0,
+              maxHeight: '60vh',
+              overflow: 'auto'
+            }}>
+              {bioengineStatus?.message || 'No error message available.'}
+            </pre>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
       {/* Compatibility Details Dialog */}
       <TestDetailsDialog
         open={isCompatibilityDialogOpen}
@@ -2029,4 +2118,4 @@ const ArtifactDetails = () => {
   );
 };
 
-export default ArtifactDetails; 
+export default ArtifactDetails;
