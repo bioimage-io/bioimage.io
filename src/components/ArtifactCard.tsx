@@ -8,12 +8,14 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditIcon from '@mui/icons-material/Edit';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { useComparison } from '../hooks/useComparison';
 
 interface ResourceCardProps {
   artifact: ArtifactInfo;
@@ -29,6 +31,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
 
   const { setSelectedResource, user, isLoggedIn, artifactManager } = useHyphaStore();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
+  const { isSelected, toggleSelection, isSelectable, isFull, tooltipMessage } = useComparison();
 
   // Check if user has edit permissions
   useEffect(() => {
@@ -173,6 +176,9 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           '& .bookmark-button': {
             opacity: 1,
           },
+          '& .compare-button': {
+            opacity: 1,
+          },
           '& .download-button': {
             opacity: 1,
             transform: 'translateY(0)',
@@ -259,6 +265,43 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               <StarBorderIcon fontSize="small" sx={{ color: 'rgba(107, 114, 128, 1)' }} />
             )}
           </IconButton>
+        </Tooltip>
+      )}
+
+      {isLoggedIn && artifactManager && artifact.manifest.type === 'model' && (
+        <Tooltip
+          title={tooltipMessage(artifact.id) ?? (isSelected(artifact.id) ? 'Deselect from comparison' : 'Select for comparison')}
+          placement="top"
+        >
+          <span style={{ position: 'absolute', top: 8, left: canEdit ? 152 : 104, zIndex: 1 }}>
+            <IconButton
+              className="compare-button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleSelection(artifact.id);
+              }}
+              disabled={!!tooltipMessage(artifact.id)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.5)',
+                borderRadius: '12px',
+                opacity: 0,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  borderColor: 'rgba(99, 102, 241, 0.3)',
+                  transform: 'scale(1.05)',
+                },
+              }}
+            >
+              <CompareArrowsIcon
+                fontSize="small"
+                sx={{ color: isSelected(artifact.id) ? 'rgba(99, 102, 241, 1)' : 'rgba(107, 114, 128, 1)' }}
+              />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
 

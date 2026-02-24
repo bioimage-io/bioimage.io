@@ -4,8 +4,9 @@ import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
 import PartnerScroll from './PartnerScroll';
-import { Grid } from '@mui/material';
+import { Grid, Tooltip } from '@mui/material';
 import TagSelection from './TagSelection';
+import { useComparison } from '../hooks/useComparison';
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -128,9 +129,14 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     resourceType,
     setResourceType,
     fetchResources,
+    fetchSegmentationModelIds,
+    fetchBioenginePassedModelIds,
+    isConnected,
+    isLoggedIn,
     totalItems,
     itemsPerPage
   } = useHyphaStore();
+  const { selectedIds, toggleSelection, clearSelection } = useComparison();
   const setCurrentPage = useCallback((page: number) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
@@ -259,6 +265,16 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setCurrentPage(1);
   }, []);
 
+  // Fetch segmentation model IDs once when on models tab and connected
+  useEffect(() => {
+    if (isConnected && resourceType === 'model') {
+      fetchSegmentationModelIds();
+      if (isLoggedIn) {
+        fetchBioenginePassedModelIds();
+      }
+    }
+  }, [isConnected, isLoggedIn, resourceType, fetchSegmentationModelIds, fetchBioenginePassedModelIds]);
+
   const handleTagSelect = (tag: string) => {
     setSelectedTags(prev => {
       return [tag];
@@ -325,6 +341,74 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
             </div>
           </div>
         </div>
+
+        {/* Model Comparison Panel - show when ≥1 model selected for comparison */}
+        {resourceType === 'model' && selectedIds.length > 0 && (
+          <div className="max-w-3xl mx-auto mb-6 sm:mb-8 px-2 sm:px-0">
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-all duration-200">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center flex-1">
+                    <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mr-4 shadow-md p-1 flex-shrink-0">
+                      <img src="/bioengine-icon.svg" alt="BioEngine" className="w-10 h-10" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                        Image-Based Model Screening with BioEngine
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        Compare selected segmentation models side by side, powered by BioEngine. Screen your images across multiple models to find the best fit.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto flex-shrink-0">
+                    <Tooltip
+                      title={selectedIds.length < 2 ? 'Select at least 2 models to start comparison' : ''}
+                      placement="top"
+                    >
+                      <span>
+                        <button
+                          onClick={() => navigate('/compare')}
+                          disabled={selectedIds.length < 2}
+                          className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                        >
+                          <span className="mr-2">Start Comparison</span>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                          </svg>
+                        </button>
+                      </span>
+                    </Tooltip>
+                  </div>
+                </div>
+                {/* Selected model chips */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {selectedIds.map((id) => (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-white rounded-full border border-blue-200 text-xs text-blue-700"
+                    >
+                      {id.split('/').pop()}
+                      <button
+                        onClick={() => toggleSelection(id)}
+                        className="ml-0.5 text-blue-400 hover:text-blue-700 font-bold leading-none"
+                        aria-label={`Remove ${id.split('/').pop()} from comparison`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={clearSelection}
+                    className="px-3 py-1 border border-blue-300 text-blue-600 text-xs font-semibold rounded-full hover:bg-blue-50 transition-all duration-200"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* BioEngine Button - Only show for applications */}
         {resourceType === 'application' && (

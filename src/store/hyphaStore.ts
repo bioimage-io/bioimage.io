@@ -64,6 +64,14 @@ export interface HyphaState {
   setReviewArtifactsPage: (page: number) => void;
   setReviewArtifactsTotalItems: (total: number) => void;
   logout: () => void;
+  // Model comparison
+  segmentationModelIds: string[];
+  bioenginePassedModelIds: string[];
+  selectedComparisonIds: string[];
+  fetchSegmentationModelIds: () => Promise<void>;
+  fetchBioenginePassedModelIds: () => Promise<void>;
+  toggleComparisonSelection: (id: string) => void;
+  clearComparisonSelection: () => void;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -90,6 +98,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   myArtifactsTotalItems: 0,
   reviewArtifactsPage: 1,
   reviewArtifactsTotalItems: 0,
+  segmentationModelIds: [],
+  bioenginePassedModelIds: [],
+  selectedComparisonIds: [],
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -122,6 +133,17 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       const isAuthenticated = !!config.token;
       
+      const connectedUser = server.config.user;
+      // Hydrate comparison selection from localStorage for this user
+      const storageKey = `comparison_ids_${connectedUser?.id || 'anonymous'}`;
+      let hydratedComparisonIds: string[] = [];
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) hydratedComparisonIds = JSON.parse(stored);
+      } catch {
+        hydratedComparisonIds = [];
+      }
+
       set({
         client,
         server,
@@ -129,9 +151,10 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         isConnected: true,
         isAuthenticated,
         isLoggedIn: isAuthenticated,
-        user: server.config.user,
+        user: connectedUser,
         isInitialized: true,
-        isConnecting: false
+        isConnecting: false,
+        selectedComparisonIds: hydratedComparisonIds,
       });
 
       return server;
@@ -300,7 +323,54 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       user: null,
       isInitialized: false,
       isConnecting: false,
-      error: null
+      error: null,
+      selectedComparisonIds: [],
     });
+  },
+  fetchSegmentationModelIds: async () => {
+    try {
+      const url =
+        'https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=0&limit=500&stage=false' +
+        '&filters=' + encodeURIComponent(JSON.stringify({ type: 'model' })) +
+        '&keywords=' + encodeURIComponent('segmentation');
+      const response = await fetch(url);
+      const data = await response.json();
+      const ids: string[] = (data.items || []).map((item: any) => item.id as string);
+      set({ segmentationModelIds: ids });
+    } catch (error) {
+      console.error('Error fetching segmentation model IDs:', error);
+    }
+  },
+  fetchBioenginePassedModelIds: async () => {
+    try {
+      const url = 'https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io';
+      const response = await fetch(url);
+      const data = await response.json();
+      const inferenceResults: Record<string, { status: string }> = data.manifest?.bioengine_inference || {};
+      const ids: string[] = Object.entries(inferenceResults)
+        .filter(([, v]) => v.status === 'passed')
+        .map(([shortId]) => `bioimage-io/${shortId}`);
+      set({ bioenginePassedModelIds: ids });
+    } catch (error) {
+      console.error('Error fetching BioEngine passed model IDs:', error);
+    }
+  },
+  toggleComparisonSelection: (id: string) => {
+    const { segmentationModelIds, bioenginePassedModelIds, selectedComparisonIds, user } = get();
+    if (!segmentationModelIds.includes(id) || !bioenginePassedModelIds.includes(id)) return;
+    const alreadySelected = selectedComparisonIds.includes(id);
+    if (!alreadySelected && selectedComparisonIds.length >= 6) return;
+    const updatedIds = alreadySelected
+      ? selectedComparisonIds.filter((i) => i !== id)
+      : [...selectedComparisonIds, id];
+    set({ selectedComparisonIds: updatedIds });
+    const storageKey = `comparison_ids_${user?.id || 'anonymous'}`;
+    try { localStorage.setItem(storageKey, JSON.stringify(updatedIds)); } catch { /* ignore */ }
+  },
+  clearComparisonSelection: () => {
+    const { user } = get();
+    set({ selectedComparisonIds: [] });
+    const storageKey = `comparison_ids_${user?.id || 'anonymous'}`;
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
   },
 })); 

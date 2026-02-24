@@ -23,6 +23,7 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
@@ -44,6 +45,7 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { useComparison } from '../hooks/useComparison';
 
 let cachedInferenceResults: Record<string, any> | null = null;
 let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
@@ -68,7 +70,7 @@ const getInferenceResults = async (artifactManager: any) => {
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
-  const { selectedResource, fetchResource, isLoading, error, user, isLoggedIn, artifactManager } = useHyphaStore();
+  const { selectedResource, fetchResource, isLoading, error, user, isLoggedIn, artifactManager, fetchSegmentationModelIds, fetchBioenginePassedModelIds, isConnected } = useHyphaStore();
   const [documentation, setDocumentation] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [latestVersion, setLatestVersion] = useState<{
@@ -96,6 +98,7 @@ const ArtifactDetails = () => {
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
+  const { isSelected, toggleSelection, isSelectable, isFull, tooltipMessage } = useComparison();
   const [compatibilityData, setCompatibilityData] = useState<any>(null);
   const [isLoadingCompatibility, setIsLoadingCompatibility] = useState(false);
   const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
@@ -124,6 +127,16 @@ const ArtifactDetails = () => {
     }
     return partnerService.getPartnerByName(name)?.link;
   };
+
+  // Fetch segmentation model IDs so comparison eligibility is known on detail pages too
+  useEffect(() => {
+    if (isConnected && selectedResource?.manifest?.type === 'model') {
+      fetchSegmentationModelIds();
+      if (isLoggedIn) {
+        fetchBioenginePassedModelIds();
+      }
+    }
+  }, [isConnected, isLoggedIn, selectedResource?.manifest?.type, fetchSegmentationModelIds, fetchBioenginePassedModelIds]);
 
   // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
   useEffect(() => {
@@ -784,6 +797,47 @@ const ArtifactDetails = () => {
                   >
                     Test Run Model
                   </Button>
+                  {isLoggedIn && artifactManager && (
+                    <Tooltip
+                      title={tooltipMessage(selectedResource?.id ?? '') ?? (isSelected(selectedResource?.id ?? '') ? 'Deselect from comparison' : 'Select for comparison')}
+                      placement="top"
+                    >
+                      <span>
+                        <Button
+                          variant="outlined"
+                          size="medium"
+                          startIcon={<CompareArrowsIcon />}
+                          disabled={!!tooltipMessage(selectedResource?.id ?? '')}
+                          onClick={() => toggleSelection(selectedResource?.id ?? '')}
+                          sx={{
+                            borderRadius: '12px',
+                            backgroundColor: isSelected(selectedResource?.id ?? '') ? 'rgba(99, 102, 241, 0.05)' : 'rgba(99, 102, 241, 0.03)',
+                            backdropFilter: 'blur(8px)',
+                            border: `2px solid ${isSelected(selectedResource?.id ?? '') ? '#6366f1' : '#a5b4fc'}`,
+                            color: isSelected(selectedResource?.id ?? '') ? '#4f46e5' : '#6366f1',
+                            fontWeight: 500,
+                            px: 4,
+                            py: 1.5,
+                            fontSize: '0.95rem',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                              borderColor: '#4f46e5',
+                              color: '#4338ca',
+                              transform: 'translateY(-2px) scale(1.02)',
+                              boxShadow: '0 8px 25px rgba(99, 102, 241, 0.2)',
+                            },
+                            '&.Mui-disabled': {
+                              borderColor: 'rgba(0, 0, 0, 0.12)',
+                              color: 'rgba(0, 0, 0, 0.26)',
+                            },
+                          }}
+                        >
+                          {isSelected(selectedResource?.id ?? '') ? 'Deselect from Comparison' : 'Select for Comparison'}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
                   </>
                 )}
                 {/* Test Report Popover */}

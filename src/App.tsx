@@ -21,6 +21,7 @@ import BioEngineHome from './components/BioEngine/BioEngineHome';
 import BioEngineWorker from './components/BioEngine/BioEngineWorker';
 import ColabPage from './components/Colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
+import ComparePage from './pages/ComparePage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -92,6 +93,7 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
           <Route path="/training/:sessionId?" element={<TrainingPage />} />
+          <Route path="/compare" element={<ComparePage />} />
         </Routes>
       </main>
       <Footer />
