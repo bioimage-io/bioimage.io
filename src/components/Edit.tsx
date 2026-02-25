@@ -493,8 +493,15 @@ const Edit: React.FC = () => {
       }
     } catch (error) {
       console.error('Error fetching file content:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNotFound = errorMessage.includes('FileNotFoundError') || 
+                         errorMessage.includes('does not exist') ||
+                         errorMessage.includes('Not Found') ||
+                         errorMessage.includes('404');
       setUploadStatus({
-        message: 'Error loading file content',
+        message: isNotFound 
+          ? `File '${file.name}' not found in this version. It may not have been uploaded yet.`
+          : 'Error loading file content',
         severity: 'error'
       });
     }
@@ -1093,11 +1100,22 @@ const Edit: React.FC = () => {
         message: 'Publishing artifact...',
         severity: 'info'
       });
-      const artifact = await artifactManager?.commit({
-        artifact_id: artifactId,
-        comment: `Published by ${user?.email}`,
-        _rkwargs: true
-      });
+
+      let artifact;
+      // Only commit if artifact is in staging mode
+      if (artifactInfo?.staging) {
+        artifact = await artifactManager?.commit({
+          artifact_id: artifactId,
+          comment: `Published by ${user?.email}`,
+          _rkwargs: true
+        });
+      } else {
+        // Already committed, just read the current state
+        artifact = await artifactManager?.read({
+          artifact_id: artifactId,
+          _rkwargs: true
+        });
+      }
 
       // add create_zip_file to download_weights
       const newConfig = {
