@@ -1931,9 +1931,11 @@ const Edit: React.FC = () => {
         }
       }
 
+      // For directories, remove the .keep placeholder file that represents the folder
+      const filePath = file.isDirectory ? `${file.path}/.keep` : file.path;
       await artifactManager.remove_file({
         artifact_id: artifactId,
-        file_path: file.path,
+        file_path: filePath,
         _rkwargs: true
       });
 
