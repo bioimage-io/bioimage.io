@@ -329,11 +329,25 @@ const ReviewArtifacts: React.FC = () => {
       
       const acceptanceComment = `Accepted by ${user?.id || 'reviewer'}`;
 
-      await artifactManager.commit({
-        artifact_id: artifact.id,
-        comment: acceptanceComment,
-        _rkwargs: true
-      });
+      // Check if artifact is in staging mode
+      if (artifact.staging) {
+        // Artifact is staged - commit it
+        await artifactManager.commit({
+          artifact_id: artifact.id,
+          comment: acceptanceComment,
+          _rkwargs: true
+        });
+      } else {
+        // Artifact is already committed - just update the manifest status
+        await artifactManager.edit({
+          artifact_id: artifact.id,
+          manifest: {
+            ...artifact.manifest,
+            status: 'accepted'
+          },
+          _rkwargs: true
+        });
+      }
       
       // Refresh the list
       await loadArtifacts();
