@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
@@ -64,7 +64,7 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
       >
         Previous
       </button>
-      
+
       {/* Page numbers with ellipsis */}
       {pageNumbers.map((pageNum, index) => {
         if (pageNum === '...') {
@@ -74,14 +74,14 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
             </span>
           );
         }
-        
+
         return (
           <button
             key={pageNum}
             onClick={() => onPageChange(pageNum as number)}
             className={`px-3 py-2 rounded-lg border transition-colors ${
-              currentPage === pageNum 
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+              currentPage === pageNum
+                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
             }`}
           >
@@ -89,7 +89,7 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
           </button>
         );
       })}
-      
+
       <button
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
@@ -97,7 +97,7 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
       >
         Next
       </button>
-      
+
       {/* Page info */}
       <div className="ml-4 text-sm text-gray-600 hidden sm:block">
         Page {currentPage} of {totalPages} ({totalItems} items)
@@ -120,10 +120,13 @@ const LoadingOverlay = () => (
 export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Derive page from URL search params (main's approach)
   const currentPage = parseInt(searchParams.get('page') || '1', 10) || 1;
+
   const location = useLocation();
   const navigate = useNavigate();
-  const { 
+  const {
     resources,
     resourceType,
     setResourceType,
@@ -131,6 +134,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     totalItems,
     itemsPerPage
   } = useHyphaStore();
+
+  // Page is set via URL params directly
   const setCurrentPage = useCallback((page: number) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
@@ -143,15 +148,41 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     }, { replace: true });
   }, [setSearchParams]);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [serverSearchQuery, setServerSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  // Initialize search query and tags from URL search params for back-navigation
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
+  const [serverSearchQuery, setServerSearchQuery] = useState(() => searchParams.get('q') || '');
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
+    const tags = searchParams.get('tags');
+    return tags ? tags.split(',').filter(Boolean) : [];
+  });
   const [isTyping, setIsTyping] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const isInitialMount = useRef(true);
+
+  // Sync search query and tags to URL search params
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (serverSearchQuery) {
+        next.set('q', serverSearchQuery);
+      } else {
+        next.delete('q');
+      }
+      if (selectedTags.length > 0) {
+        next.set('tags', selectedTags.join(','));
+      } else {
+        next.delete('tags');
+      }
+      return next;
+    }, { replace: true });
+  }, [serverSearchQuery, selectedTags, setSearchParams]);
 
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
-    // Convert plural path to singular type
     const typeMap: { [key: string]: string } = {
       'models': 'model',
       'datasets': 'dataset',
@@ -162,22 +193,17 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   }, [location.pathname]);
 
   useEffect(() => {
-    // Update artifact type in store when path changes
     const currentType = getCurrentType();
     setResourceType(currentType);
-    // Reset to first page when artifact type changes
-    setCurrentPage(1);
   }, [getCurrentType, setResourceType]);
 
   useEffect(() => {
     const loadResources = async () => {
       try {
-        // Cancel any ongoing request
         if (abortController) {
           abortController.abort();
         }
 
-        // Create new abort controller for this request
         const newAbortController = new AbortController();
         setAbortController(newAbortController);
 
@@ -186,7 +212,6 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           tags: selectedTags
         });
       } catch (error) {
-        // Don't set loading to false if the request was aborted
         if (error instanceof Error && error.name === 'AbortError') {
           return;
         }
@@ -204,7 +229,6 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     getCurrentType();
   }, [getCurrentType]);
 
-  // Cleanup effect to cancel ongoing requests when component unmounts
   useEffect(() => {
     return () => {
       if (abortController) {
@@ -215,13 +239,12 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   // Improved debounced server search that respects user typing
   useEffect(() => {
-    // Only set up debounced search if user is actively typing
     if (isTyping) {
       const timer = setTimeout(() => {
         setIsTyping(false);
         setServerSearchQuery(searchQuery);
         setCurrentPage(1);
-      }, 800); // Slightly longer delay for better UX
+      }, 800);
 
       return () => clearTimeout(timer);
     }
@@ -229,38 +252,38 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-    // Scroll to top when page changes
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Handle search input changes with improved UX
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
     setIsTyping(true);
-    
-    // Cancel any ongoing request when user starts typing
+
     if (abortController) {
       abortController.abort();
       setAbortController(null);
     }
   };
 
-  // Handle immediate search when user hits Enter
   const handleSearchConfirm = () => {
     setIsTyping(false);
     setServerSearchQuery(searchQuery);
     setCurrentPage(1);
   };
 
+  // Issue #21 fix: Use partner link format (e.g. "deepimagej/deepimagej") to filter
+  // only models that declare actual compatibility via the links field, instead of
+  // keyword-matching on tags which can include incompatible models.
   const handlePartnerClick = useCallback((partnerId: string) => {
+    const partnerLinkQuery = `${partnerId}/${partnerId}`;
     setSearchQuery(partnerId);
     setIsTyping(false);
-    setServerSearchQuery(partnerId);
+    setServerSearchQuery(partnerLinkQuery);
     setCurrentPage(1);
   }, []);
 
   const handleTagSelect = (tag: string) => {
-    setSelectedTags(prev => {
+    setSelectedTags(() => {
       return [tag];
     });
     setSearchQuery(tag);
@@ -281,10 +304,10 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           {/* Subtle shadow line */}
           <div className="absolute inset-0 w-full h-2 bg-gradient-to-b from-blue-50/20 to-transparent transform translate-y-1"></div>
         </div>
-        
+
         {/* Show loading overlay when loading (but not when just typing) */}
         {loading && !isTyping && <LoadingOverlay />}
-        
+
         <div className="community-partners mb-4">
           <div className="partner-logos">
             <PartnerScroll onPartnerClick={handlePartnerClick} />
@@ -293,31 +316,31 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
         {/* Hero Slogan Section */}
         <div className="text-center px-2 sm:px-0">
-         
+
            <p className="text-base sm:text-lg md:text-xl font-medium mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">
              Discover, explore, and deploy cutting-edge bioimage analysis models
            </p>
 
         </div>
-        
+
         <div className="relative mb-6 sm:mb-8">
-          <div 
-            className="absolute right-2 sm:right-10 -bottom-6 w-32 h-32 sm:w-64 sm:h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none" 
-            style={{ 
+          <div
+            className="absolute right-2 sm:right-10 -bottom-6 w-32 h-32 sm:w-64 sm:h-64 bg-contain bg-no-repeat bg-right-bottom opacity-20 pointer-events-none"
+            style={{
               backgroundImage: 'url(/static/img/zoo-background.svg)'
-            }} 
+            }}
           />
           <div className="max-w-3xl mx-auto w-full px-2 sm:px-0">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <div className="flex-1 min-w-0">
-                <SearchBar 
+                <SearchBar
                   value={searchQuery}
                   onSearchChange={handleSearchChange}
                   onSearchConfirm={handleSearchConfirm}
                 />
               </div>
               <div className="flex-none self-center sm:self-auto">
-                <TagSelection 
+                <TagSelection
                   onTagSelect={handleTagSelect}
                   selectedTags={selectedTags}
                 />
@@ -360,13 +383,13 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
         <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
           {resources.map((artifact) => (
-            <Grid 
-              item 
-              key={artifact.id} 
+            <Grid
+              item
+              key={artifact.id}
               xs={12}
-              sm={6} 
-              md={4} 
-              lg={3} 
+              sm={6}
+              md={4}
+              lg={3}
               sx={{
                 minWidth: { xs: 'auto', sm: 280 },
                 maxWidth: { xs: '100%', sm: 320 },
@@ -377,7 +400,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
             </Grid>
           ))}
         </Grid>
-        
+
         {totalPages > 1 && (
           <Pagination
             currentPage={currentPage}
@@ -391,4 +414,4 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   );
 };
 
-export default ArtifactGrid; 
+export default ArtifactGrid;
