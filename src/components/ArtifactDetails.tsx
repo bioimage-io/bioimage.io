@@ -167,18 +167,21 @@ const ArtifactDetails = () => {
       if (selectedResource?.manifest.documentation) {
         try {
           const docUrl = resolveHyphaUrl(selectedResource.manifest.documentation, selectedResource.id, true);
-          
+
           const response = await fetch(docUrl);
+          if (!response.ok) {
+            setDocumentation(null);
+            return;
+          }
           const text = await response.text();
           setDocumentation(text);
         } catch (error) {
           console.error('Failed to fetch documentation:', error);
-          setDocumentation("Failed to fetch documentation.");
+          setDocumentation(null);
         }
       }
       else {
-        // No documentation found
-        setDocumentation("No documentation found.");
+        setDocumentation(null);
       }
     };
 
@@ -423,6 +426,10 @@ const ArtifactDetails = () => {
       try {
         const rdfUrl = resolveHyphaUrl('rdf.yaml', selectedResource.id);
         const response = await fetch(rdfUrl);
+        if (!response.ok) {
+          console.error('Failed to fetch RDF source:', response.status);
+          return;
+        }
         const text = await response.text();
         setRdfContent(text);
         setIsRdfDialogOpen(true);
