@@ -24,6 +24,7 @@ interface FilterOptions {
   type?: string;
   tags?: string[];
   manifest?: Record<string, string>;
+  partnerLink?: string; // For keyword search by partner links (e.g., "stardist/stardist")
 }
 
 export interface HyphaState {
@@ -229,13 +230,13 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     try {
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
-      
+
       // Construct the base URL
       let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
-      
+
       // Prepare filters object
       const filters: any = {};
-      
+
       // Add type filter if resourceType is specified
       if (get().resourceType) {
         filters.type = get().resourceType;
@@ -253,8 +254,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       if (Object.keys(filters).length > 0) {
         url += `&filters=${encodeURIComponent(JSON.stringify(filters))}`;
       }
-      
-      // Combine search query with tags
+
+      // Combine search query with tags and partner links as keywords
       let keywords = [];
       if (searchQuery) {
         keywords.push(...searchQuery.split(' ').map(k => k.trim()));
@@ -262,23 +263,28 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       if (filterOptions?.tags) {
         keywords.push(...filterOptions.tags);
       }
-      
+      // Add partner link filter as a keyword search
+      // This searches for models where the links array contains the partner link (e.g., "ilastik/ilastik")
+      if (filterOptions?.partnerLink) {
+        keywords.push(filterOptions.partnerLink);
+      }
+
       // Add combined keywords to URL if any exist
       if (keywords.length > 0) {
         url += `&keywords=${encodeURIComponent(keywords.join(','))}`;
       }
-      
+
       const response = await fetch(url);
       const data = await response.json();
-      
-      set({ 
+
+      set({
         resources: data.items || [],
         totalItems: data.total || 0,
         isLoading: false
       });
     } catch (error) {
       console.error('Error fetching resources:', error);
-      set({ 
+      set({
         isLoading: false,
         error: (error instanceof Error) ? error.message : 'Failed to fetch resources'
       });
@@ -287,31 +293,31 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   fetchResource: async (id: string, version?: string) => {
     set({ isLoading: true, selectedResource: null, error: null });
     try {
-      const [workspace, artifactName] = id.includes('/') 
+      const [workspace, artifactName] = id.includes('/')
         ? id.split('/')
         : ['bioimage-io', id];
 
       const url = `${HYPHA_SERVER_URL}/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
-      
+
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to fetch artifact: ${artifactName} ${version ? `version: ${version}` : ''}`);
       }
-      
+
       const data = await response.json();
       set({ selectedResource: data, isLoading: false });
     } catch (error) {
       console.error('Error fetching artifact:', error);
-      set({ 
-        isLoading: false, 
+      set({
+        isLoading: false,
         error: error instanceof Error ? error.message : 'An unknown error occurred',
-        selectedResource: null 
+        selectedResource: null
       });
     }
   },
   login: async (username: string, password: string) => {
     const state = get();
-    
+
     if (state.isLoggingIn || state.isAuthenticated) {
       return;
     }
@@ -339,18 +345,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       });
 
       // Set both isAuthenticated and isLoggedIn to true after successful login
-      set({ 
+      set({
         isAuthenticated: true,
-        isLoggedIn: true 
+        isLoggedIn: true
       });
 
     } catch (error) {
       console.error('Login failed:', error);
-      set({ 
+      set({
         isAuthenticated: false,
         isConnected: false,
         isLoggedIn: false,
-        user: null 
+        user: null
       });
       throw error;
     } finally {
@@ -386,4 +392,4 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       error: null
     });
   },
-})); 
+}));

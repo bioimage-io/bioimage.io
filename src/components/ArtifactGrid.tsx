@@ -79,11 +79,10 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
           <button
             key={pageNum}
             onClick={() => onPageChange(pageNum as number)}
-            className={`px-3 py-2 rounded-lg border transition-colors ${
-              currentPage === pageNum
+            className={`px-3 py-2 rounded-lg border transition-colors ${currentPage === pageNum
                 ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+              }`}
           >
             {pageNum}
           </button>
@@ -151,6 +150,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   // Initialize search query and tags from URL search params for back-navigation
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
   const [serverSearchQuery, setServerSearchQuery] = useState(() => searchParams.get('q') || '');
+  const [partnerLink, setPartnerLink] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     const tags = searchParams.get('tags');
     return tags ? tags.split(',').filter(Boolean) : [];
@@ -209,7 +209,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
 
         setLoading(true);
         await fetchResources(currentPage, serverSearchQuery, {
-          tags: selectedTags
+          tags: selectedTags,
+          partnerLink: partnerLink || undefined
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
@@ -223,7 +224,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     };
 
     loadResources();
-  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, fetchResources]);
+  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, partnerLink, fetchResources]);
 
   useEffect(() => {
     getCurrentType();
@@ -243,6 +244,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
       const timer = setTimeout(() => {
         setIsTyping(false);
         setServerSearchQuery(searchQuery);
+        setPartnerLink(''); // Clear partner link filter when doing text search
         setCurrentPage(1);
       }, 800);
 
@@ -268,17 +270,29 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const handleSearchConfirm = () => {
     setIsTyping(false);
     setServerSearchQuery(searchQuery);
+    setPartnerLink(''); // Clear partner link filter when doing text search
     setCurrentPage(1);
   };
 
-  // Issue #21 fix: Use partner link format (e.g. "deepimagej/deepimagej") to filter
-  // only models that declare actual compatibility via the links field, instead of
-  // keyword-matching on tags which can include incompatible models.
+  // Issue #21 fix: Use partner link format (e.g. "deepimagej/deepimagej") as a keyword search
+  // to find models that declare actual compatibility via the links field. This searches for the
+  // specific partner link string in the model metadata, primarily matching the links array.
+  // Note: Different partners use different link formats:
+  // - Most use "partnerId/partnerId" (e.g., "ilastik/ilastik")
+  // - Some use "bioimageio/partnerId" (e.g., "bioimageio/stardist", "bioimageio/qupath")
   const handlePartnerClick = useCallback((partnerId: string) => {
-    const partnerLinkQuery = `${partnerId}/${partnerId}`;
+    // List of partners that use bioimageio/ prefix instead of partnerId/partnerId
+    const bioimageioPartners = ['stardist', 'qupath'];
+
+    const partnerLinkQuery = bioimageioPartners.includes(partnerId.toLowerCase())
+      ? `bioimageio/${partnerId}`
+      : `${partnerId}/${partnerId}`;
+
     setSearchQuery(partnerId);
     setIsTyping(false);
-    setServerSearchQuery(partnerLinkQuery);
+    // Pass empty serverSearchQuery and use setPartnerLink instead
+    setServerSearchQuery('');
+    setPartnerLink(partnerLinkQuery);
     setCurrentPage(1);
   }, []);
 
@@ -289,6 +303,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setSearchQuery(tag);
     setIsTyping(false);
     setServerSearchQuery(tag);
+    setPartnerLink(''); // Clear partner link filter when doing tag search
     setCurrentPage(1);
   };
 
@@ -317,9 +332,9 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
         {/* Hero Slogan Section */}
         <div className="text-center px-2 sm:px-0">
 
-           <p className="text-base sm:text-lg md:text-xl font-medium mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">
-             Discover, explore, and deploy cutting-edge bioimage analysis models
-           </p>
+          <p className="text-base sm:text-lg md:text-xl font-medium mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">
+            Discover, explore, and deploy cutting-edge bioimage analysis models
+          </p>
 
         </div>
 
