@@ -10,19 +10,33 @@ import {
   ToggleButtonGroup,
   Typography,
   Box,
+  IconButton,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import VectorSource from 'ol/source/Vector';
 import Feature from 'ol/Feature';
 import { Geometry } from 'ol/geom';
-import * as turf from '@turf/turf';
 import GeoJSON from 'ol/format/GeoJSON';
+import { Style, Fill, Stroke } from 'ol/style';
 
 const geojsonFormat = new GeoJSON();
 
-function getFeatureArea(feature: Feature<Geometry>): number {
+const SELECTED_STYLE = new Style({
+  fill: new Fill({ color: 'rgba(255, 255, 0, 0.3)' }),
+  stroke: new Stroke({ color: '#ffff00', width: 3 }),
+});
+
+/** Compute polygon area in pixel² using the shoelace formula */
+function getFeatureAreaPixels(feature: Feature<Geometry>): number {
   const geojson = geojsonFormat.writeFeatureObject(feature);
   if (geojson.geometry.type !== 'Polygon') return 0;
-  return turf.area(geojson as turf.Feature<turf.Polygon>);
+  const coords = (geojson.geometry as any).coordinates[0] as number[][];
+  if (!coords || coords.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    area += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1];
+  }
+  return Math.abs(area) / 2;
 }
 
 interface MaskFilterDialogProps {
@@ -40,17 +54,17 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
   onSaveUndo,
   onBanner,
 }) => {
-  const [threshold, setThreshold] = useState<number>(100);
+  const [threshold, setThreshold] = useState<number>(500);
   const [mode, setMode] = useState<'below' | 'above'>('below');
   const [preview, setPreview] = useState<{ total: number; matching: number } | null>(null);
 
-  const handlePreview = useCallback(() => {
+  const handleCount = useCallback(() => {
     const vs = getVectorSource?.();
     if (!vs) return;
     const features = vs.getFeatures();
     let matching = 0;
     for (const f of features) {
-      const area = getFeatureArea(f);
+      const area = getFeatureAreaPixels(f);
       if (mode === 'below' && area < threshold) matching++;
       if (mode === 'above' && area > threshold) matching++;
     }
@@ -61,15 +75,15 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
     const vs = getVectorSource?.();
     if (!vs) return;
     const features = vs.getFeatures();
+    // Clear all styles first
+    features.forEach((f) => f.setStyle(undefined as any));
     let count = 0;
     for (const f of features) {
-      const area = getFeatureArea(f);
+      const area = getFeatureAreaPixels(f);
       const matches = mode === 'below' ? area < threshold : area > threshold;
       if (matches) {
-        f.setProperties({ _selected: true });
+        f.setStyle(SELECTED_STYLE);
         count++;
-      } else {
-        f.unset('_selected');
       }
     }
     onBanner(`Selected ${count} mask${count !== 1 ? 's' : ''}`, 'info', 3000);
@@ -83,7 +97,7 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
     const features = vs.getFeatures();
     const toRemove: Feature<Geometry>[] = [];
     for (const f of features) {
-      const area = getFeatureArea(f);
+      const area = getFeatureAreaPixels(f);
       if (mode === 'below' && area < threshold) toRemove.push(f);
       if (mode === 'above' && area > threshold) toRemove.push(f);
     }
@@ -95,7 +109,12 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Filter Masks by Area</DialogTitle>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        Filter Masks by Area
+        <IconButton size="small" onClick={onClose} sx={{ mr: -1 }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 1, mb: 2 }}>
           <ToggleButtonGroup
@@ -127,13 +146,13 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={handlePreview} color="inherit">
+        <Button onClick={handleCount} color="inherit" size="small">
           Count
         </Button>
-        <Button onClick={handleSelect} color="primary">
+        <Button onClick={handleSelect} color="inherit" size="small">
           Select
         </Button>
-        <Button onClick={handleDelete} color="error" variant="contained">
+        <Button onClick={handleDelete} size="small" sx={{ color: 'error.main' }}>
           Delete Matching
         </Button>
       </DialogActions>

@@ -32,8 +32,7 @@ interface CLAHEDialogProps {
   open: boolean;
   config: CLAHEConfig;
   onConfigChange: (config: CLAHEConfig) => void;
-  onPreview: () => void;
-  onReset: () => void;
+  onApply: () => void;
   onClose: () => void;
 }
 
@@ -73,8 +72,7 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
   open,
   config,
   onConfigChange,
-  onPreview,
-  onReset,
+  onApply,
   onClose,
 }) => {
   const update = (partial: Partial<CLAHEConfig>) =>
@@ -82,19 +80,8 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>CLAHE Settings</DialogTitle>
+      <DialogTitle>Contrast Enhancement (CLAHE)</DialogTitle>
       <DialogContent>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={config.enabled}
-              onChange={(e) => update({ enabled: e.target.checked })}
-            />
-          }
-          label="Enable CLAHE"
-          sx={{ mb: 2 }}
-        />
-
         <ParamRow
           label="Clip Limit"
           tooltip="Controls contrast amplification. Higher values give more contrast. Values above 3-4 can introduce noise."
@@ -116,13 +103,12 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onReset} color="inherit">
-          Reset to Original
+        <Button onClick={onClose} color="inherit">
+          Cancel
         </Button>
-        <Button onClick={onPreview} variant="contained" disabled={!config.enabled}>
-          Preview
+        <Button onClick={onApply} variant="contained">
+          Apply
         </Button>
-        <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );
@@ -315,7 +301,7 @@ export function useCLAHE() {
       config: claheConfig,
       onConfigChange: setClaheConfig,
       onClose: closeDialog,
-    } as Omit<CLAHEDialogProps, 'onPreview' | 'onReset'>,
+    } as Omit<CLAHEDialogProps, 'onApply'>,
   };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
 import Map from 'ol/Map';
+import MapBrowserEvent from 'ol/MapBrowserEvent';
 import VectorSource from 'ol/source/Vector';
 import Draw from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
@@ -9,7 +10,7 @@ import Collection from 'ol/Collection';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Geometry, Polygon as OlPolygon, LineString as OlLineString } from 'ol/geom';
 import DragBox from 'ol/interaction/DragBox';
-import { platformModifierKeyOnly, always } from 'ol/events/condition';
+import { always } from 'ol/events/condition';
 import * as turf from '@turf/turf';
 import { useAnnotationStore } from '../../../store/annotationStore';
 
@@ -34,6 +35,40 @@ const SELECT_BOX_STYLE = new Style({
 
 const geojsonFormat = new GeoJSON();
 
+/**
+ * Create a thin polygon buffer around a line in pixel coordinates.
+ * This replaces turf.buffer which interprets coordinates as geographic degrees.
+ */
+function pixelBufferLine(
+  lineCoords: number[][],
+  bufferDistance: number,
+): number[][] {
+  const left: number[][] = [];
+  const right: number[][] = [];
+
+  for (let i = 0; i < lineCoords.length - 1; i++) {
+    const [x1, y1] = lineCoords[i];
+    const [x2, y2] = lineCoords[i + 1];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) continue;
+    // Perpendicular normal
+    const nx = (-dy / len) * bufferDistance;
+    const ny = (dx / len) * bufferDistance;
+
+    left.push([x1 + nx, y1 + ny]);
+    left.push([x2 + nx, y2 + ny]);
+    right.push([x1 - nx, y1 - ny]);
+    right.push([x2 - nx, y2 - ny]);
+  }
+
+  right.reverse();
+  const coords = [...left, ...right];
+  if (coords.length > 0) coords.push(coords[0]); // close ring
+  return coords;
+}
+
 function polygonCutWithBuffer(
   polygon: turf.Feature<turf.Polygon | turf.MultiPolygon>,
   line: turf.Feature<turf.LineString>,
@@ -49,13 +84,16 @@ function polygonCutWithBuffer(
   const intersectPoints = turf.lineIntersect(polygon, line);
   if (intersectPoints.features.length < 2) return null;
 
-  const bufferWidth = 0.5;
-  const buffered = turf.buffer(line, bufferWidth, { units: 'degrees' });
-  if (!buffered) return null;
+  // Build a thin pixel-space buffer polygon around the cut line
+  const lineCoords = turf.getCoords(line) as number[][];
+  const bufferCoords = pixelBufferLine(lineCoords, 0.5);
+  if (bufferCoords.length < 4) return null;
+
+  const buffered = turf.polygon([bufferCoords]);
 
   const diff = turf.difference(turf.featureCollection([
     polygon as turf.Feature<turf.Polygon>,
-    buffered as turf.Feature<turf.Polygon>,
+    buffered,
   ]));
   if (!diff) return null;
 
@@ -80,6 +118,36 @@ function olFeatureToTurf(feature: Feature<Geometry>): turf.Feature<turf.Polygon>
 function turfFeatureToOl(turfFeature: turf.Feature<turf.Polygon>, properties: Record<string, any>): Feature<OlPolygon> {
   const geojson = { ...turfFeature, properties: { ...properties } };
   return geojsonFormat.readFeature(geojson) as Feature<OlPolygon>;
+}
+
+/**
+ * Clip a turf polygon to the image extent [0, 0, imageWidth, imageHeight].
+ */
+function clipToImageBounds(
+  turfPoly: turf.Feature<turf.Polygon>,
+  imageWidth: number,
+  imageHeight: number,
+): turf.Feature<turf.Polygon> | null {
+  const bounds = turf.polygon([[
+    [0, 0], [imageWidth, 0], [imageWidth, imageHeight], [0, imageHeight], [0, 0],
+  ]]);
+  const clipped = turf.intersect(turf.featureCollection([turfPoly, bounds]));
+  if (!clipped) return null;
+  if (clipped.geometry.type === 'Polygon') {
+    return clipped as turf.Feature<turf.Polygon>;
+  }
+  // If MultiPolygon, take the largest piece
+  if (clipped.geometry.type === 'MultiPolygon') {
+    let maxArea = 0;
+    let best: number[][] | null = null;
+    for (const coords of clipped.geometry.coordinates) {
+      const p = turf.polygon(coords);
+      const a = turf.area(p);
+      if (a > maxArea) { maxArea = a; best = coords; }
+    }
+    if (best) return turf.polygon(best);
+  }
+  return null;
 }
 
 function saveSnapshot(vectorSource: VectorSource): string {
@@ -180,6 +248,9 @@ export function useDrawInteraction(
   const activeLabelRef = useRef(activeLabel);
   activeLabelRef.current = activeLabel;
 
+  const imageWidth = useAnnotationStore((s) => s.imageWidth);
+  const imageHeight = useAnnotationStore((s) => s.imageHeight);
+
   const pushUndo = useAnnotationStore((s) => s.pushUndo);
   const popUndo = useAnnotationStore((s) => s.popUndo);
 
@@ -227,25 +298,38 @@ export function useDrawInteraction(
         break;
 
       case 'select': {
+        // Track whether a drag occurred so we can distinguish click from drag
+        let isDragging = false;
+
         // DragBox for rectangle selection — does NOT pan the map
         const dragBox = new DragBox({
           condition: always,
           className: 'ol-dragbox',
         });
 
-        dragBox.on('boxend', () => {
-          // Clear previous selection
+        dragBox.on('boxstart', () => {
+          isDragging = true;
+          // Clear previous selection on new drag
           selectedFeatures.forEach((f) => f.setStyle(undefined as any));
           selectedFeatures.clear();
+        });
 
+        dragBox.on('boxend', () => {
           const boxExtent = dragBox.getGeometry().getExtent();
+          const boxWidth = boxExtent[2] - boxExtent[0];
+          const boxHeight = boxExtent[3] - boxExtent[1];
+
+          // If the box is very small, treat it as a click (handled below)
+          if (boxWidth < 3 && boxHeight < 3) {
+            isDragging = false;
+            return;
+          }
 
           // Select all features fully within the box
           vectorSource.getFeatures().forEach((feature) => {
             const geom = feature.getGeometry();
             if (geom) {
               const featureExtent = geom.getExtent();
-              // Check if feature is fully contained within the box
               if (
                 featureExtent[0] >= boxExtent[0] &&
                 featureExtent[1] >= boxExtent[1] &&
@@ -257,17 +341,35 @@ export function useDrawInteraction(
               }
             }
           });
-          console.log('[Select] Selected', selectedFeatures.getLength(), 'features');
-        });
-
-        dragBox.on('boxstart', () => {
-          // Clear previous selection on new drag
-          selectedFeatures.forEach((f) => f.setStyle(undefined as any));
-          selectedFeatures.clear();
+          console.log('[Select] Rectangle selected', selectedFeatures.getLength(), 'features');
         });
 
         map.addInteraction(dragBox);
         refs.dragBox = dragBox;
+
+        // Click-to-select individual features
+        const clickHandler = (e: MapBrowserEvent<UIEvent>) => {
+          if (isDragging) {
+            isDragging = false;
+            return;
+          }
+
+          // Clear previous selection
+          selectedFeatures.forEach((f) => f.setStyle(undefined as any));
+          selectedFeatures.clear();
+
+          // Find the topmost feature at the click point
+          map.forEachFeatureAtPixel(e.pixel, (feature) => {
+            if (feature instanceof Feature) {
+              selectedFeatures.push(feature);
+              feature.setStyle(HIGHLIGHT_STYLE);
+              console.log('[Select] Click-selected feature');
+              return true; // stop after first hit
+            }
+            return false;
+          });
+        };
+        map.on('singleclick', clickHandler);
 
         // Modify selected features
         const modify = new Modify({ features: selectedFeatures });
@@ -287,6 +389,11 @@ export function useDrawInteraction(
           }
         };
         document.addEventListener('keydown', keyHandler);
+
+        // Store click handler for cleanup
+        const cleanupClick = () => map.un('singleclick', clickHandler);
+        const origCleanup = refs as any;
+        origCleanup._cleanupClick = cleanupClick;
         break;
       }
 
@@ -307,6 +414,19 @@ export function useDrawInteraction(
             face_color: label.color,
             edge_width: 2,
           });
+
+          // Clip polygon to image bounds
+          if (imageWidth > 0 && imageHeight > 0) {
+            const turfPoly = olFeatureToTurf(e.feature);
+            if (turfPoly) {
+              const clipped = clipToImageBounds(turfPoly, imageWidth, imageHeight);
+              if (clipped) {
+                const clippedOl = geojsonFormat.readGeometry(clipped.geometry) as OlPolygon;
+                e.feature.setGeometry(clippedOl);
+              }
+            }
+          }
+
           console.log('[Draw] Created polygon with label:', label.id);
         });
         map.addInteraction(draw);
@@ -353,12 +473,13 @@ export function useDrawInteraction(
       if (refs.draw) { map.removeInteraction(refs.draw); refs.draw = null; }
       if (refs.dragBox) { map.removeInteraction(refs.dragBox); refs.dragBox = null; }
       if (refs.modify) { map.removeInteraction(refs.modify); refs.modify = null; }
+      if ((refs as any)._cleanupClick) { (refs as any)._cleanupClick(); (refs as any)._cleanupClick = null; }
       if (keyHandler) document.removeEventListener('keydown', keyHandler);
       // Clear selection styles on cleanup
       selectedFeatures.forEach((f) => f.setStyle(undefined as any));
       selectedFeatures.clear();
     };
-  }, [activeTool, mapRef, vectorSourceRef, pushUndo]);
+  }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight]);
 
   return { selectedFeatures: selectedFeaturesRef };
 }

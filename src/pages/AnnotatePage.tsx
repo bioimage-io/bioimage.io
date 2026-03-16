@@ -5,7 +5,7 @@ import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
 import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
-import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG } from '../components/annotate/CellposeConfigDialog';
+import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
@@ -32,7 +32,12 @@ const AnnotatePage: React.FC = () => {
 
   const { service, loading: serviceLoading, error: serviceError } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement } = useCellposeConfig();
+  const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
+  const [isRunningCellpose, setIsRunningCellpose] = useState(false);
+  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement } = useCellposeConfig({
+    onRun: (config) => runCellposeRef.current(config),
+    isRunning: isRunningCellpose,
+  });
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog, applyToImage } = useCLAHE();
 
   const imageUrl = useAnnotationStore((s) => s.imageUrl);
@@ -45,7 +50,6 @@ const AnnotatePage: React.FC = () => {
   const pushUndo = useAnnotationStore((s) => s.pushUndo);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -94,7 +98,8 @@ const AnnotatePage: React.FC = () => {
     loadNewImage(false).finally(() => setIsLoading(false));
   }, [service, hasLoadedOnce, loadNewImage, setIsLoading]);
 
-  const handleRunCellpose = useCallback(async () => {
+  const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
+    const cfg = cfgOverride || cellposeConfig;
     if (!service || !imageUrl) return;
     const sourceUrl = originalImageUrl || imageUrl;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
@@ -102,12 +107,12 @@ const AnnotatePage: React.FC = () => {
     const bannerId = addBanner('Running Cellpose segmentation...', 'loading', 0);
     try {
       const masks = await service.runCellpose(sourceUrl, imageWidth, imageHeight, {
-        model: cellposeConfig.model,
-        diameter: cellposeConfig.diameter,
-        flow_threshold: cellposeConfig.flow_threshold,
-        cellprob_threshold: cellposeConfig.cellprob_threshold,
-        niter: cellposeConfig.niter,
-        min_mask_area: cellposeConfig.min_mask_area,
+        model: cfg.model,
+        diameter: cfg.diameter,
+        flow_threshold: cfg.flow_threshold,
+        cellprob_threshold: cfg.cellprob_threshold,
+        niter: cfg.niter,
+        min_mask_area: cfg.min_mask_area,
       });
 
       removeBanner(bannerId);
@@ -150,6 +155,11 @@ const AnnotatePage: React.FC = () => {
       setIsRunningCellpose(false);
     }
   }, [service, imageUrl, originalImageUrl, imageWidth, imageHeight, cellposeConfig, getVectorSource, pushUndo, addBanner, removeBanner]);
+
+  // Keep ref in sync so the config dialog's Run button can trigger cellpose
+  React.useEffect(() => {
+    runCellposeRef.current = handleRunCellpose;
+  }, [handleRunCellpose]);
 
   const handleSave = useCallback(async () => {
     const vs = getVectorSource?.();
@@ -255,7 +265,7 @@ const AnnotatePage: React.FC = () => {
     }
   }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner]);
 
-  const handleCLAHEPreview = useCallback(() => {
+  const handleCLAHEApply = useCallback(() => {
     if (!imageUrl) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -282,26 +292,6 @@ const AnnotatePage: React.FC = () => {
     };
     img.src = originalImageUrl || imageUrl;
   }, [imageUrl, originalImageUrl, getImageLayer, applyToImage, closeCLAHEDialog, addBanner]);
-
-  const handleCLAHEReset = useCallback(() => {
-    const layer = getImageLayer?.();
-    if (layer && originalImageUrl) {
-      const source = layer.getSource() as Static;
-      if (source) {
-        layer.setSource(new Static({
-          url: originalImageUrl,
-          projection: source.getProjection()!,
-          imageExtent: source.getImageExtent(),
-          crossOrigin: 'anonymous',
-        }));
-      }
-    }
-    setIsCLAHEActive(false);
-    setOriginalImageUrl(null);
-    closeCLAHEDialog();
-    console.log('[AnnotatePage] CLAHE reset to original');
-    addBanner('Original image restored', 'info', 3000);
-  }, [getImageLayer, originalImageUrl, closeCLAHEDialog, addBanner]);
 
   const hasCustomCellposeConfig = useMemo(() => {
     return (
@@ -432,8 +422,7 @@ const AnnotatePage: React.FC = () => {
         open={claheDialogOpen}
         config={claheConfig}
         onConfigChange={setClaheConfig}
-        onPreview={handleCLAHEPreview}
-        onReset={handleCLAHEReset}
+        onApply={handleCLAHEApply}
         onClose={closeCLAHEDialog}
       />
 

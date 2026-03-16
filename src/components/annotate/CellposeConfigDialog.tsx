@@ -127,6 +127,8 @@ interface CellposeConfigDialogProps {
   config: CellposeConfig;
   onClose: () => void;
   onApply: (config: CellposeConfig) => void;
+  onRun?: (config: CellposeConfig) => void;
+  isRunning?: boolean;
 }
 
 const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
@@ -134,6 +136,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   config: initialConfig,
   onClose,
   onApply,
+  onRun,
+  isRunning,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
 
@@ -310,12 +314,25 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
         <Button onClick={handleApply} variant="contained" color="primary">
           Apply
         </Button>
+        {onRun && (
+          <Button
+            onClick={() => { handleApply(); onRun(config); }}
+            variant="contained"
+            color="secondary"
+            disabled={isRunning}
+          >
+            Run Segmentation
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
 };
 
-export function useCellposeConfig(): {
+export function useCellposeConfig(opts?: {
+  onRun?: (config: CellposeConfig) => void;
+  isRunning?: boolean;
+}): {
   config: CellposeConfig;
   openDialog: () => void;
   dialogElement: React.ReactNode;
@@ -343,6 +360,8 @@ export function useCellposeConfig(): {
       config={config}
       onClose={handleClose}
       onApply={handleApply}
+      onRun={opts?.onRun}
+      isRunning={opts?.isRunning}
     />
   );
 
