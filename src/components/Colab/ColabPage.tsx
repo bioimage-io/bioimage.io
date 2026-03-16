@@ -195,16 +195,14 @@ print("Service registered successfully", end='')
 
           const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
 
-          // Generate annotation URL
-          const pluginCommitHash = '6a18797';
-          const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
-          const configStr = JSON.stringify({
-            serverUrl: serverUrl,
-            imageProviderId: fullServiceId,
+          // Generate annotation URL pointing to our own #/annotate page
+          const annotateParams = new URLSearchParams({
+            server_url: serverUrl,
+            image_provider_id: fullServiceId,
             label: sessionLabel,
           });
-          const encodedConfig = encodeURIComponent(configStr);
-          const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
+          const baseUrl = window.location.origin + window.location.pathname;
+          const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
           // Update state
           setAnnotationURL(annotatorUrl);

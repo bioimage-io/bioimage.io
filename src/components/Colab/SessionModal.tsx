@@ -484,17 +484,14 @@ print("Service registered successfully", end='')
         await uploadFilesToArtifact(fullServiceId);
       }
 
-      // Generate annotation URL using the known service ID
-      const pluginCommitHash = '6a18797';
-      const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
-      const configStr = JSON.stringify({
-        serverUrl: serverUrl,
-        imageProviderId: fullServiceId,
+      // Generate annotation URL pointing to our own #/annotate page
+      const annotateParams = new URLSearchParams({
+        server_url: serverUrl,
+        image_provider_id: fullServiceId,
         label: label,
-        // token: token,
       });
-      const encodedConfig = encodeURIComponent(configStr);
-      const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
+      const baseUrl = window.location.origin + window.location.pathname;
+      const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
       console.log('Annotation URL:', annotatorUrl);
       console.log('Selected Label:', label);

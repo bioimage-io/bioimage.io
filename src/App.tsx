@@ -21,10 +21,11 @@ import BioEngineHome from './components/BioEngine/BioEngineHome';
 import BioEngineWorker from './components/BioEngine/BioEngineWorker';
 import ColabPage from './components/Colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
+import AnnotatePage from './pages/AnnotatePage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
-  return pathname.startsWith('/edit/') || pathname === '/upload';
+  return pathname.startsWith('/edit/') || pathname === '/upload' || pathname === '/annotate';
 };
 
 // Create a wrapper component that uses Router hooks
@@ -92,9 +93,10 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
           <Route path="/training/:sessionId?" element={<TrainingPage />} />
+          <Route path="/annotate" element={<AnnotatePage />} />
         </Routes>
       </main>
-      <Footer />
+      {!hideFooter && <Footer />}
     </div>
   );
 };

@@ -509,6 +509,40 @@ async def upload_images_from_temp(
     return result
 
 
+async def get_save_urls(
+    artifact_manager: ObjectProxy,
+    artifact_id: str,
+    label: str,
+    image_name: str,
+    context: dict = None,
+) -> dict:
+    """Get presigned PUT URLs for saving annotation files (PNG mask + GeoJSON).
+
+    Args:
+        image_name: Image filename (e.g. "image.png")
+
+    Returns:
+        dict with keys: 'png_url', 'geojson_url', 'image_stem'
+    """
+    image_stem = Path(image_name).stem
+    mask_path = f"masks_{label}/{image_stem}.png"
+    geojson_path = f"masks_{label}/{image_stem}.geojson"
+
+    console.log(f"🔵 get_save_urls for {image_stem}")
+
+    png_url = await artifact_manager.put_file(artifact_id, file_path=mask_path)
+    geojson_url = await artifact_manager.put_file(artifact_id, file_path=geojson_path)
+
+    console.log(f"  PNG URL: {png_url[:80]}...")
+    console.log(f"  GeoJSON URL: {geojson_url[:80]}...")
+
+    return {
+        "png_url": png_url,
+        "geojson_url": geojson_url,
+        "image_stem": image_stem,
+    }
+
+
 async def register_service(
     server_url: str,
     token: str,
@@ -666,6 +700,7 @@ async def register_service(
                 artifact_id=artifact.id,
             ),
             "save_annotation": partial(save_annotation, artifact_manager, artifact.id, label),
+            "get_save_urls": partial(get_save_urls, artifact_manager, artifact.id, label),
         }
     )
 
