@@ -267,30 +267,55 @@ const AnnotatePage: React.FC = () => {
 
   const handleCLAHEApply = useCallback(() => {
     if (!imageUrl) return;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      applyToImage(img).then((url) => {
-        const layer = getImageLayer?.();
-        if (layer) {
-          const source = layer.getSource() as Static;
-          if (source) {
-            if (!originalImageUrl) setOriginalImageUrl(imageUrl);
-            layer.setSource(new Static({
-              url: url,
-              projection: source.getProjection()!,
-              imageExtent: source.getImageExtent(),
-              crossOrigin: 'anonymous',
-            }));
-          }
-        }
-        setIsCLAHEActive(true);
+    const sourceUrl = originalImageUrl || imageUrl;
+
+    // For cross-origin images, fetch as blob to avoid tainted canvas
+    fetch(sourceUrl)
+      .then((res) => res.blob())
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          applyToImage(img)
+            .then((url) => {
+              URL.revokeObjectURL(blobUrl);
+              const layer = getImageLayer?.();
+              if (layer) {
+                const source = layer.getSource() as Static;
+                if (source) {
+                  if (!originalImageUrl) setOriginalImageUrl(imageUrl);
+                  layer.setSource(new Static({
+                    url: url,
+                    projection: source.getProjection()!,
+                    imageExtent: source.getImageExtent(),
+                    crossOrigin: 'anonymous',
+                  }));
+                }
+              }
+              setIsCLAHEActive(true);
+              closeCLAHEDialog();
+              console.log('[AnnotatePage] CLAHE applied');
+              addBanner('CLAHE contrast enhancement applied', 'success', 3000);
+            })
+            .catch((err) => {
+              URL.revokeObjectURL(blobUrl);
+              console.error('[AnnotatePage] CLAHE apply failed:', err);
+              closeCLAHEDialog();
+              addBanner('CLAHE failed: ' + (err.message || 'Unknown error'), 'error', 5000);
+            });
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          closeCLAHEDialog();
+          addBanner('Failed to load image for CLAHE', 'error', 5000);
+        };
+        img.src = blobUrl;
+      })
+      .catch((err) => {
+        console.error('[AnnotatePage] CLAHE fetch failed:', err);
         closeCLAHEDialog();
-        console.log('[AnnotatePage] CLAHE applied');
-        addBanner('CLAHE contrast enhancement applied', 'success', 3000);
+        addBanner('Failed to fetch image for CLAHE: ' + (err.message || 'Unknown error'), 'error', 5000);
       });
-    };
-    img.src = originalImageUrl || imageUrl;
   }, [imageUrl, originalImageUrl, getImageLayer, applyToImage, closeCLAHEDialog, addBanner]);
 
   const hasCustomCellposeConfig = useMemo(() => {

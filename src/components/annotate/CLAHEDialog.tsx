@@ -263,17 +263,21 @@ export function useCLAHE() {
 
   const applyToImage = useCallback(
     (image: HTMLImageElement): Promise<string> => {
-      return new Promise((resolve) => {
-        // Store original src on first application
-        if (!originalImageRef.current) {
-          originalImageRef.current = image.src;
+      return new Promise((resolve, reject) => {
+        try {
+          // Store original src on first application
+          if (!originalImageRef.current) {
+            originalImageRef.current = image.src;
+          }
+          const dataUrl = applyCLAHE(
+            image,
+            claheConfig.clipLimit,
+            claheConfig.tileGridSize,
+          );
+          resolve(dataUrl);
+        } catch (err) {
+          reject(err);
         }
-        const dataUrl = applyCLAHE(
-          image,
-          claheConfig.clipLimit,
-          claheConfig.tileGridSize,
-        );
-        resolve(dataUrl);
       });
     },
     [claheConfig.clipLimit, claheConfig.tileGridSize],
