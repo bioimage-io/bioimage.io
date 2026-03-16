@@ -311,9 +311,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
         <Button onClick={onClose} color="inherit">
           Cancel
         </Button>
-        <Button onClick={handleApply} variant="contained" color="primary">
-          Apply
-        </Button>
         {onRun && (
           <Button
             onClick={() => { handleApply(); onRun(config); }}

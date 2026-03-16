@@ -21,12 +21,11 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { useAnnotationStore, AnnotationTool } from '../../store/annotationStore';
 
-/** Lasso icon with a small cursor arrow */
+/** Lasso icon (same shape as AI lasso but without sparkles) */
 const LassoIcon: React.FC = () => (
   <SvgIcon viewBox="0 0 24 24">
-    <path d="M12 3C7 3 3 6.1 3 10c0 2.4 1.6 4.5 4 5.7V17c0 1.1.9 2 2 2h1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <ellipse cx="12" cy="10" rx="8" ry="6" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    <path d="M14 15l4 6h-3l-1.5-2.5L12 21H9l4-6z" fill="currentColor" />
+    <path d="M11 4C6.6 4 3 6.7 3 10c0 2.2 1.4 4.1 3.5 5.3V17c0 .8.5 1.5 1.2 1.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <ellipse cx="11" cy="10" rx="7.5" ry="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
   </SvgIcon>
 );
 
@@ -49,7 +48,7 @@ interface ToolDef {
 
 const tools: ToolDef[] = [
   { id: 'move', label: 'Move', icon: <OpenWithIcon /> },
-  { id: 'select', label: 'Select (drag rect or click, Del to delete)', icon: <NearMeIcon /> },
+  { id: 'select', label: 'Select (click, Shift/Ctrl for multi, Del to delete)', icon: <NearMeIcon /> },
   { id: 'polygon', label: 'Draw Mask (Lasso)', icon: <LassoIcon /> },
   { id: 'cutter', label: 'Cut Mask', icon: <ContentCutIcon /> },
   { id: 'eraser', label: 'Eraser', icon: <AutoFixOffIcon /> },

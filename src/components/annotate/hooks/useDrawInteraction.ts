@@ -9,8 +9,6 @@ import Feature from 'ol/Feature';
 import Collection from 'ol/Collection';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Geometry, Polygon as OlPolygon, LineString as OlLineString } from 'ol/geom';
-import DragBox from 'ol/interaction/DragBox';
-import { always } from 'ol/events/condition';
 import * as turf from '@turf/turf';
 import { useAnnotationStore } from '../../../store/annotationStore';
 
@@ -26,11 +24,6 @@ const ERASER_STYLE = new Style({
 
 const CUTTER_STYLE = new Style({
   stroke: new Stroke({ color: '#ff9800', width: 2, lineDash: [8, 4] }),
-});
-
-const SELECT_BOX_STYLE = new Style({
-  fill: new Fill({ color: 'rgba(0, 120, 215, 0.1)' }),
-  stroke: new Stroke({ color: '#0078d7', width: 1.5, lineDash: [4, 4] }),
 });
 
 const geojsonFormat = new GeoJSON();
@@ -237,9 +230,8 @@ export function useDrawInteraction(
 ) {
   const interactionRefs = useRef<{
     draw: Draw | null;
-    dragBox: DragBox | null;
     modify: Modify | null;
-  }>({ draw: null, dragBox: null, modify: null });
+  }>({ draw: null, modify: null });
 
   const selectedFeaturesRef = useRef<Collection<Feature<Geometry>>>(new Collection());
 
@@ -279,7 +271,6 @@ export function useDrawInteraction(
     // Remove previous interactions
     const refs = interactionRefs.current;
     if (refs.draw) { map.removeInteraction(refs.draw); refs.draw = null; }
-    if (refs.dragBox) { map.removeInteraction(refs.dragBox); refs.dragBox = null; }
     if (refs.modify) { map.removeInteraction(refs.modify); refs.modify = null; }
 
     // Clear selection styling
@@ -298,72 +289,35 @@ export function useDrawInteraction(
         break;
 
       case 'select': {
-        // Track whether a drag occurred so we can distinguish click from drag
-        let isDragging = false;
-
-        // DragBox for rectangle selection — does NOT pan the map
-        const dragBox = new DragBox({
-          condition: always,
-          className: 'ol-dragbox',
-        });
-
-        dragBox.on('boxstart', () => {
-          isDragging = true;
-          // Clear previous selection on new drag
-          selectedFeatures.forEach((f) => f.setStyle(undefined as any));
-          selectedFeatures.clear();
-        });
-
-        dragBox.on('boxend', () => {
-          const boxExtent = dragBox.getGeometry().getExtent();
-          const boxWidth = boxExtent[2] - boxExtent[0];
-          const boxHeight = boxExtent[3] - boxExtent[1];
-
-          // If the box is very small, treat it as a click (handled below)
-          if (boxWidth < 3 && boxHeight < 3) {
-            isDragging = false;
-            return;
-          }
-
-          // Select all features fully within the box
-          vectorSource.getFeatures().forEach((feature) => {
-            const geom = feature.getGeometry();
-            if (geom) {
-              const featureExtent = geom.getExtent();
-              if (
-                featureExtent[0] >= boxExtent[0] &&
-                featureExtent[1] >= boxExtent[1] &&
-                featureExtent[2] <= boxExtent[2] &&
-                featureExtent[3] <= boxExtent[3]
-              ) {
-                selectedFeatures.push(feature);
-                feature.setStyle(HIGHLIGHT_STYLE);
-              }
-            }
-          });
-          console.log('[Select] Rectangle selected', selectedFeatures.getLength(), 'features');
-        });
-
-        map.addInteraction(dragBox);
-        refs.dragBox = dragBox;
-
-        // Click-to-select individual features
+        // Click-to-select with Shift/Ctrl for multi-select
         const clickHandler = (e: MapBrowserEvent<UIEvent>) => {
-          if (isDragging) {
-            isDragging = false;
-            return;
-          }
+          const multiSelect = e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey;
 
-          // Clear previous selection
-          selectedFeatures.forEach((f) => f.setStyle(undefined as any));
-          selectedFeatures.clear();
+          if (!multiSelect) {
+            // Clear previous selection
+            selectedFeatures.forEach((f) => f.setStyle(undefined as any));
+            selectedFeatures.clear();
+          }
 
           // Find the topmost feature at the click point
           map.forEachFeatureAtPixel(e.pixel, (feature) => {
             if (feature instanceof Feature) {
+              // If already selected and multi-select, deselect it
+              if (multiSelect) {
+                let alreadySelected = false;
+                selectedFeatures.forEach((f) => {
+                  if (f === feature) alreadySelected = true;
+                });
+                if (alreadySelected) {
+                  selectedFeatures.remove(feature);
+                  feature.setStyle(undefined as any);
+                  console.log('[Select] Deselected feature');
+                  return true;
+                }
+              }
               selectedFeatures.push(feature);
               feature.setStyle(HIGHLIGHT_STYLE);
-              console.log('[Select] Click-selected feature');
+              console.log('[Select] Selected feature (' + selectedFeatures.getLength() + ' total)');
               return true; // stop after first hit
             }
             return false;
@@ -471,7 +425,6 @@ export function useDrawInteraction(
 
     return () => {
       if (refs.draw) { map.removeInteraction(refs.draw); refs.draw = null; }
-      if (refs.dragBox) { map.removeInteraction(refs.dragBox); refs.dragBox = null; }
       if (refs.modify) { map.removeInteraction(refs.modify); refs.modify = null; }
       if ((refs as any)._cleanupClick) { (refs as any)._cleanupClick(); (refs as any)._cleanupClick = null; }
       if (keyHandler) document.removeEventListener('keydown', keyHandler);
