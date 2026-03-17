@@ -12,7 +12,9 @@ import OpenWithIcon from '@mui/icons-material/OpenWith';
 import NearMeIcon from '@mui/icons-material/NearMe';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import AutoFixOffIcon from '@mui/icons-material/AutoFixOff';
+import BrushIcon from '@mui/icons-material/Brush';
 import SaveIcon from '@mui/icons-material/Save';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import UndoIcon from '@mui/icons-material/Undo';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
@@ -47,11 +49,12 @@ interface ToolDef {
 }
 
 const tools: ToolDef[] = [
-  { id: 'move', label: 'Move', icon: <OpenWithIcon /> },
-  { id: 'select', label: 'Select (click, Shift/Ctrl for multi, Del to delete)', icon: <NearMeIcon /> },
-  { id: 'polygon', label: 'Draw Mask (Lasso)', icon: <LassoIcon /> },
-  { id: 'cutter', label: 'Cut Mask', icon: <ContentCutIcon /> },
-  { id: 'eraser', label: 'Eraser', icon: <AutoFixOffIcon /> },
+  { id: 'move', label: 'Move (M)', icon: <OpenWithIcon /> },
+  { id: 'select', label: 'Select (S) — click to select, Shift for multi, Del to delete', icon: <NearMeIcon /> },
+  { id: 'polygon', label: 'Draw Mask (D)', icon: <LassoIcon /> },
+  { id: 'cutter', label: 'Cut Mask (C)', icon: <ContentCutIcon /> },
+  { id: 'eraser', label: 'Eraser (E)', icon: <AutoFixOffIcon /> },
+  { id: 'expander', label: 'Expand Mask (A) — paint to add area', icon: <BrushIcon /> },
 ];
 
 interface ToolBarProps {
@@ -64,6 +67,7 @@ interface ToolBarProps {
   onToggleCLAHE: () => void;
   onOpenMaskFilter: () => void;
   onHelp: () => void;
+  sessionUrl?: string | null;
   isSaving: boolean;
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
@@ -73,7 +77,7 @@ interface ToolBarProps {
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
   onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp,
-  isSaving, isRunningCellpose, isCLAHEActive, hasCustomCellposeConfig,
+  sessionUrl, isSaving, isRunningCellpose, isCLAHEActive, hasCustomCellposeConfig,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
   const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
@@ -174,6 +178,19 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <SaveIcon />
         </IconButton>
       </Tooltip>
+
+      {sessionUrl && (
+        <Tooltip title="View Session" placement="right">
+          <IconButton
+            size="small"
+            data-tool="session"
+            onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
+            color="info"
+          >
+            <OpenInNewIcon />
+          </IconButton>
+        </Tooltip>
+      )}
 
       <Box sx={{ flex: 1 }} />
 

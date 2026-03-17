@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type AnnotationTool = 'move' | 'select' | 'polygon' | 'cutter' | 'eraser';
+export type AnnotationTool = 'move' | 'select' | 'polygon' | 'cutter' | 'eraser' | 'expander';
 
 export interface Label {
   id: string;

@@ -108,8 +108,8 @@ const MaskFilterDialog: React.FC<MaskFilterDialogProps> = ({
   }, [getVectorSource, threshold, mode, onSaveUndo, onClose, onBanner]);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 600 }}>
         Filter Masks by Area
         <IconButton size="small" onClick={onClose} sx={{ mr: -1 }}>
           <CloseIcon fontSize="small" />

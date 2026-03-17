@@ -17,6 +17,7 @@ interface SessionModalProps {
   user: any;
   artifactManager: any;
   resumeArtifactId?: string | null;
+  cellposeModel?: string;
 }
 
 type DataSourceType = 'local' | 'upload' | 'resume';
@@ -38,6 +39,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   user,
   artifactManager,
   resumeArtifactId: initialResumeArtifactId,
+  cellposeModel,
 }) => {
   // Step management
   const [step, setStep] = useState<'choose' | 'configure' | 'creating'>(
@@ -490,6 +492,12 @@ print("Service registered successfully", end='')
         image_provider_id: fullServiceId,
         label: label,
       });
+      if (targetArtifactId) {
+        annotateParams.set('session_id', targetArtifactId);
+      }
+      if (cellposeModel) {
+        annotateParams.set('cellpose_model', cellposeModel);
+      }
       const baseUrl = window.location.origin + window.location.pathname;
       const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 

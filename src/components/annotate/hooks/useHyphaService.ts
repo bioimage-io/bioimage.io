@@ -27,8 +27,16 @@ export interface CellposeParams {
   min_mask_area?: number;
 }
 
+export interface AllAnnotatedResult {
+  status: 'all_annotated';
+  total: number;
+  annotated: number;
+  label: string;
+  message: string;
+}
+
 export interface AnnotationDataService {
-  getImage: () => Promise<string>;
+  getImage: () => Promise<string | AllAnnotatedResult>;
   getSaveUrls: (imageName: string) => Promise<SaveUrls>;
   saveAnnotation: (filename: string, geojson: object, dimensions: [number, number]) => Promise<void>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
@@ -232,9 +240,14 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
         const wrappedService: AnnotationDataService = {
           getImage: async () => {
-            const url = await dataService.get_image();
-            console.log('[useHyphaService] Image URL:', url);
-            return url;
+            const result = await dataService.get_image();
+            // Service returns a dict with status:"all_annotated" when done
+            if (result && typeof result === 'object' && (result as any).status === 'all_annotated') {
+              console.log('[useHyphaService] All images annotated:', result);
+              return result as AllAnnotatedResult;
+            }
+            console.log('[useHyphaService] Image URL:', result);
+            return result as string;
           },
           getSaveUrls: async (imageName: string) => {
             console.log('[useHyphaService] Getting save URLs for:', imageName);

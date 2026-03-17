@@ -10,7 +10,7 @@ import Collection from 'ol/Collection';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Geometry, Polygon as OlPolygon, LineString as OlLineString } from 'ol/geom';
 import * as turf from '@turf/turf';
-import { useAnnotationStore } from '../../../store/annotationStore';
+import { useAnnotationStore, AnnotationTool } from '../../../store/annotationStore';
 
 const HIGHLIGHT_STYLE = new Style({
   fill: new Fill({ color: 'rgba(255, 255, 0, 0.3)' }),
@@ -20,6 +20,11 @@ const HIGHLIGHT_STYLE = new Style({
 const ERASER_STYLE = new Style({
   fill: new Fill({ color: 'rgba(255, 0, 0, 0.2)' }),
   stroke: new Stroke({ color: '#ff0000', width: 2, lineDash: [6, 4] }),
+});
+
+const EXPANDER_STYLE = new Style({
+  fill: new Fill({ color: 'rgba(0, 200, 0, 0.2)' }),
+  stroke: new Stroke({ color: '#00c800', width: 2, lineDash: [6, 4] }),
 });
 
 const CUTTER_STYLE = new Style({
@@ -224,6 +229,110 @@ function applyEraser(eraserGeom: OlPolygon, vectorSource: VectorSource) {
   featuresToAdd.forEach((f) => vectorSource.addFeature(f));
 }
 
+function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource) {
+  const expanderGeoJSON = geojsonFormat.writeGeometryObject(expanderGeom);
+  const turfExpander = turf.polygon((expanderGeoJSON as any).coordinates);
+
+  // Find all features that intersect the drawn area
+  const intersecting: { feature: Feature<Geometry>; turfPoly: turf.Feature<turf.Polygon> }[] = [];
+
+  vectorSource.getFeatures().forEach((existingFeature) => {
+    const turfPoly = olFeatureToTurf(existingFeature);
+    if (!turfPoly) return;
+    try {
+      if (turf.booleanIntersects(turfPoly, turfExpander)) {
+        intersecting.push({ feature: existingFeature, turfPoly });
+      }
+    } catch {
+      // skip
+    }
+  });
+
+  if (intersecting.length === 0) return;
+
+  // Expand the first intersecting feature (topmost) by unioning with the drawn polygon
+  const target = intersecting[0];
+  try {
+    const united = turf.union(turf.featureCollection([target.turfPoly, turfExpander]));
+    if (!united) return;
+
+    const props = target.feature.getProperties();
+    delete props.geometry;
+
+    vectorSource.removeFeature(target.feature);
+
+    let newFeature: Feature<Geometry> | null = null;
+    if (united.geometry.type === 'Polygon') {
+      newFeature = turfFeatureToOl(united as turf.Feature<turf.Polygon>, props);
+    } else if (united.geometry.type === 'MultiPolygon') {
+      // Take the largest polygon piece
+      let maxArea = 0;
+      let bestCoords: number[][][] | null = null;
+      for (const coords of united.geometry.coordinates) {
+        const p = turf.polygon(coords);
+        const a = turf.area(p);
+        if (a > maxArea) { maxArea = a; bestCoords = coords; }
+      }
+      if (bestCoords) {
+        newFeature = turfFeatureToOl(turf.polygon(bestCoords), props);
+      }
+    }
+
+    if (newFeature) {
+      vectorSource.addFeature(newFeature);
+      // Trim other masks so no overlap
+      const geom = newFeature.getGeometry() as OlPolygon;
+      if (geom) {
+        trimExistingMasks(geom, vectorSource, newFeature);
+      }
+    }
+  } catch (err) {
+    console.warn('Expander failed for a feature:', err);
+  }
+}
+
+/**
+ * Trim all existing features so they don't overlap with the given polygon.
+ * Each pixel should belong to at most one mask.
+ */
+function trimExistingMasks(newPoly: OlPolygon, vectorSource: VectorSource, excludeFeature?: Feature<Geometry>) {
+  const newGeoJSON = geojsonFormat.writeGeometryObject(newPoly);
+  const turfNew = turf.polygon((newGeoJSON as any).coordinates);
+
+  const featuresToRemove: Feature<Geometry>[] = [];
+  const featuresToAdd: Feature<Geometry>[] = [];
+
+  vectorSource.getFeatures().forEach((existingFeature) => {
+    if (excludeFeature && existingFeature === excludeFeature) return;
+    const turfPoly = olFeatureToTurf(existingFeature);
+    if (!turfPoly) return;
+
+    try {
+      if (!turf.booleanIntersects(turfPoly, turfNew)) return;
+
+      const diff = turf.difference(turf.featureCollection([turfPoly, turfNew]));
+      const props = existingFeature.getProperties();
+      delete props.geometry;
+
+      featuresToRemove.push(existingFeature);
+      if (diff) {
+        if (diff.geometry.type === 'Polygon') {
+          featuresToAdd.push(turfFeatureToOl(diff as turf.Feature<turf.Polygon>, props));
+        } else if (diff.geometry.type === 'MultiPolygon') {
+          diff.geometry.coordinates.forEach((coords) => {
+            featuresToAdd.push(turfFeatureToOl(turf.polygon(coords), props));
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Trim failed for a feature:', err);
+    }
+  });
+
+  featuresToRemove.forEach((f) => vectorSource.removeFeature(f));
+  featuresToAdd.forEach((f) => vectorSource.addFeature(f));
+}
+
 export function useDrawInteraction(
   mapRef: MutableRefObject<Map | null>,
   vectorSourceRef: MutableRefObject<VectorSource | null>,
@@ -236,6 +345,7 @@ export function useDrawInteraction(
   const selectedFeaturesRef = useRef<Collection<Feature<Geometry>>>(new Collection());
 
   const activeTool = useAnnotationStore((s) => s.activeTool);
+  const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
   const activeLabel = useAnnotationStore((s) => s.activeLabel);
   const activeLabelRef = useRef(activeLabel);
   activeLabelRef.current = activeLabel;
@@ -263,6 +373,33 @@ export function useDrawInteraction(
     return () => document.removeEventListener('keydown', handler);
   }, [popUndo, vectorSourceRef]);
 
+  // Tool shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in input fields
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      const shortcutMap: Record<string, AnnotationTool> = {
+        m: 'move',
+        s: 'select',
+        d: 'polygon',
+        c: 'cutter',
+        e: 'eraser',
+        a: 'expander',
+      };
+      const tool = shortcutMap[key];
+      if (tool) {
+        e.preventDefault();
+        setActiveTool(tool);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [setActiveTool]);
+
   useEffect(() => {
     const map = mapRef.current;
     const vectorSource = vectorSourceRef.current;
@@ -289,9 +426,9 @@ export function useDrawInteraction(
         break;
 
       case 'select': {
-        // Click-to-select with Shift/Ctrl for multi-select
+        // Click-to-select with Shift for multi-select
         const clickHandler = (e: MapBrowserEvent<UIEvent>) => {
-          const multiSelect = e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey;
+          const multiSelect = e.originalEvent.shiftKey;
 
           if (!multiSelect) {
             // Clear previous selection
@@ -381,6 +518,16 @@ export function useDrawInteraction(
             }
           }
 
+          // Trim overlapping masks so each pixel belongs to one mask
+          // Use setTimeout so the feature is added to the source first
+          const drawnFeature = e.feature;
+          setTimeout(() => {
+            const geom = drawnFeature.getGeometry() as OlPolygon;
+            if (geom) {
+              trimExistingMasks(geom, vectorSource, drawnFeature);
+            }
+          }, 0);
+
           console.log('[Draw] Created polygon with label:', label.id);
         });
         map.addInteraction(draw);
@@ -416,6 +563,23 @@ export function useDrawInteraction(
           const eraserGeom = e.feature.getGeometry() as OlPolygon;
           applyEraser(eraserGeom, vectorSource);
           console.log('[Eraser] Applied eraser');
+        });
+        map.addInteraction(draw);
+        refs.draw = draw;
+        break;
+      }
+
+      case 'expander': {
+        const draw = new Draw({
+          type: 'Polygon',
+          freehand: true,
+          style: EXPANDER_STYLE,
+        });
+        draw.on('drawend', (e) => {
+          saveUndo();
+          const expanderGeom = e.feature.getGeometry() as OlPolygon;
+          applyExpander(expanderGeom, vectorSource);
+          console.log('[Expander] Applied expander');
         });
         map.addInteraction(draw);
         refs.draw = draw;

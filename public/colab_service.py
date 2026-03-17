@@ -151,12 +151,42 @@ def read_image(file_path: Path) -> np.ndarray:
         raise
 
 
+async def _get_annotated_stems(
+    artifact_manager: ObjectProxy, artifact_id: str, label: str,
+) -> set:
+    """Return the set of image stems that already have a mask for the given label."""
+    try:
+        mask_files = await artifact_manager.list_files(
+            artifact_id, dir_path=f"masks_{label}", stage=True
+        )
+        # Only count .png mask files (ignore .geojson)
+        stems = {
+            Path(f["name"]).stem
+            for f in (mask_files or [])
+            if f["name"].endswith(".png")
+        }
+        console.log(f"  Found {len(stems)} existing masks for label '{label}'")
+        return stems
+    except Exception:
+        # masks directory may not exist yet
+        return set()
+
+
 async def get_image(
-    server_url: str, artifact_manager: ObjectProxy, artifact_id: str, images_path: Path, context: dict = None,
+    server_url: str, artifact_manager: ObjectProxy, artifact_id: str,
+    images_path: Path, label: str, context: dict = None,
 ) -> str:
-    """Get a random image from the folder or artifact and return its URL."""
+    """Get a random *unannotated* image and return its URL.
+
+    Prioritises images that do not yet have a mask for the current label.
+    Returns a URL string normally, or a dict with ``status: "all_annotated"``
+    when every image has been annotated.
+    """
     console.log(f"\n🔵 get_image called")
     console.log(f"   images_path: {images_path}")
+
+    # --- Collect the set of already-annotated stems ---
+    annotated_stems = await _get_annotated_stems(artifact_manager, artifact_id, label)
 
     # Check if we should use local folder or remote artifact
     use_local_folder = images_path and images_path.exists() and images_path.is_dir()
@@ -169,9 +199,23 @@ async def get_image(
         if not filenames:
             raise ValueError(f"No images found with supported types in {images_path}")
 
-        r = np.random.randint(len(filenames))
-        image_path = filenames[r]
-        console.log(f"  Selected image: {image_path.name} (index {r} of {len(filenames)})")
+        # Filter to unannotated images
+        unannotated = [f for f in filenames if f.stem not in annotated_stems]
+        console.log(f"  {len(unannotated)} unannotated / {len(filenames)} total images")
+
+        if not unannotated:
+            console.log(f"  All {len(filenames)} images annotated for label '{label}'")
+            return {
+                "status": "all_annotated",
+                "total": len(filenames),
+                "annotated": len(filenames),
+                "label": label,
+                "message": f"All {len(filenames)} images have been annotated for label '{label}'. Start a new annotation label to continue.",
+            }
+
+        r = np.random.randint(len(unannotated))
+        image_path = unannotated[r]
+        console.log(f"  Selected image: {image_path.name} (index {r} of {len(unannotated)})")
 
         # Read image from local folder
         image = read_image(image_path)
@@ -212,9 +256,26 @@ async def get_image(
             if not remote_files:
                 raise ValueError(f"No images found in artifact {artifact_id}/input_images")
 
-            # Pick a random image from the artifact
-            r = np.random.randint(len(remote_files))
-            image_name = remote_files[r]["name"]
+            # Filter to unannotated images
+            unannotated = [
+                f for f in remote_files
+                if Path(f["name"]).stem not in annotated_stems
+            ]
+            console.log(f"  {len(unannotated)} unannotated / {len(remote_files)} total images")
+
+            if not unannotated:
+                console.log(f"  All {len(remote_files)} images annotated for label '{label}'")
+                return {
+                    "status": "all_annotated",
+                    "total": len(remote_files),
+                    "annotated": len(remote_files),
+                    "label": label,
+                    "message": f"All {len(remote_files)} images have been annotated for label '{label}'. Start a new annotation label to continue.",
+                }
+
+            # Pick a random unannotated image
+            r = np.random.randint(len(unannotated))
+            image_name = unannotated[r]["name"]
             console.log(f"Selected remote image: {image_name}")
         except Exception as e:
             console.log(f"Error accessing artifact images: {e}")
@@ -678,6 +739,7 @@ async def register_service(
                 artifact_manager=artifact_manager,
                 artifact_id=artifact.id,
                 images_path=images_path,
+                label=label,
             ),
             "get_local_image_base64": partial(
                 get_local_image_base64,

@@ -34,6 +34,8 @@ interface CLAHEDialogProps {
   onConfigChange: (config: CLAHEConfig) => void;
   onApply: () => void;
   onClose: () => void;
+  kernelReady?: boolean;
+  isApplying?: boolean;
 }
 
 const ParamRow: React.FC<{
@@ -74,14 +76,28 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
   onConfigChange,
   onApply,
   onClose,
+  kernelReady = true,
+  isApplying = false,
 }) => {
   const update = (partial: Partial<CLAHEConfig>) =>
     onConfigChange({ ...config, ...partial });
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Contrast Enhancement (CLAHE)</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ fontWeight: 600 }}>Contrast Enhancement (CLAHE)</DialogTitle>
       <DialogContent>
+        {!kernelReady && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <span style={{ display: 'inline-block', width: 16, height: 16 }}>
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="31.4" strokeDashoffset="10">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                </circle>
+              </svg>
+            </span>
+            Python kernel is starting up...
+          </Typography>
+        )}
         <ParamRow
           label="Clip Limit"
           tooltip="Controls contrast amplification. Higher values give more contrast. Values above 3-4 can introduce noise."
@@ -106,8 +122,8 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
         <Button onClick={onClose} color="inherit">
           Cancel
         </Button>
-        <Button onClick={onApply} variant="contained">
-          Apply
+        <Button onClick={onApply} variant="contained" disabled={!kernelReady || isApplying}>
+          {isApplying ? 'Applying...' : kernelReady ? 'Apply' : 'Kernel Starting...'}
         </Button>
       </DialogActions>
     </Dialog>

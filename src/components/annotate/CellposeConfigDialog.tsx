@@ -6,14 +6,10 @@ import {
   DialogActions,
   Button,
   TextField,
-  Select,
-  MenuItem,
   Slider,
   Typography,
   IconButton,
   Tooltip,
-  FormControl,
-  InputLabel,
   Grid,
   Box,
 } from '@mui/material';
@@ -34,22 +30,10 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   flow_threshold: 0.4,
   cellprob_threshold: 0.0,
   niter: null,
-  min_mask_area: 0,
+  min_mask_area: 100,
 };
 
-const MODEL_OPTIONS = [
-  'cpsam',
-  'cyto3',
-  'cyto2',
-  'cyto',
-  'nuclei',
-  'livecell',
-  'tissuenet',
-];
-
 const PARAM_DESCRIPTIONS: Record<string, string> = {
-  model:
-    "The pretrained Cellpose model to use. 'cpsam' is the latest SAM-based model with best general performance. 'cyto3'/'cyto2'/'cyto' are cytoplasm models. 'nuclei' segments cell nuclei. 'livecell' and 'tissuenet' are trained on specific datasets.",
   diameter:
     'Approximate cell diameter in pixels. Set to 0 or leave empty for automatic estimation. Larger values detect larger objects.',
   flow_threshold:
@@ -87,7 +71,6 @@ function saveConfig(config: CellposeConfig): void {
 
 function configDiffersFromDefault(config: CellposeConfig): boolean {
   return (
-    config.model !== DEFAULT_CELLPOSE_CONFIG.model ||
     config.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter ||
     config.flow_threshold !== DEFAULT_CELLPOSE_CONFIG.flow_threshold ||
     config.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
@@ -165,27 +148,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   const showReset = configDiffersFromDefault(config);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Cellpose Configuration</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ fontWeight: 600 }}>Cellpose Configuration</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2.5} sx={{ pt: 0.5 }}>
-          {/* Model */}
-          <Grid size={12}>
-            <ParamLabel label="Model" paramKey="model" />
-            <FormControl fullWidth size="small">
-              <Select
-                value={config.model}
-                onChange={(e) => update('model', e.target.value)}
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <MenuItem key={m} value={m}>
-                    {m}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
           {/* Diameter */}
           <Grid size={6}>
             <ParamLabel label="Diameter" paramKey="diameter" />

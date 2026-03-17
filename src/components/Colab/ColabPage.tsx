@@ -41,6 +41,7 @@ const ColabPage: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [cellposeModel, setCellposeModel] = useState('Base');
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -201,6 +202,12 @@ print("Service registered successfully", end='')
             image_provider_id: fullServiceId,
             label: sessionLabel,
           });
+          if (cellposeModel) {
+            annotateParams.set('cellpose_model', cellposeModel);
+          }
+          if (fullArtifactId) {
+            annotateParams.set('session_id', fullArtifactId);
+          }
           const baseUrl = window.location.origin + window.location.pathname;
           const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
@@ -743,6 +750,7 @@ print("Service registered successfully", end='')
           user={user}
           artifactManager={artifactManager}
           resumeArtifactId={resumeArtifactId}
+          cellposeModel={cellposeModel}
         />
       )}
 
@@ -752,6 +760,24 @@ print("Service registered successfully", end='')
           label={label}
           dataArtifactId={dataArtifactId}
           setShowShareModal={setShowShareModal}
+          cellposeModel={cellposeModel}
+          onCellposeModelChange={(model) => {
+            setCellposeModel(model);
+            // Update annotation URL with new model
+            try {
+              const hashIdx = annotationURL.indexOf('#/annotate?');
+              if (hashIdx >= 0) {
+                const params = new URLSearchParams(annotationURL.substring(hashIdx + '#/annotate?'.length));
+                if (model) {
+                  params.set('cellpose_model', model);
+                } else {
+                  params.delete('cellpose_model');
+                }
+                const baseUrl = annotationURL.substring(0, hashIdx);
+                setAnnotationURL(`${baseUrl}#/annotate?${params.toString()}`);
+              }
+            } catch { /* ignore */ }
+          }}
         />
       )}
 

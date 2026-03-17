@@ -1,15 +1,20 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Alert } from '@mui/material';
+import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
 import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
 import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
+import { useColabKernel } from '../components/Colab/useColabKernel';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult } from '../components/annotate/hooks/useHyphaService';
+import Button from '@mui/material/Button';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { exportGeoJSON, renderInstanceSegmentationPNG } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
 import VectorSource from 'ol/source/Vector';
@@ -30,6 +35,23 @@ const AnnotatePage: React.FC = () => {
     return { serverUrl, imageProviderId, label };
   }, [location.search]);
 
+  // Read cellpose model from URL (set by the session owner in the Colab page)
+  const cellposeModelId = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('cellpose_model') || undefined;
+  }, [location.search]);
+
+  // Read session ID from URL for "View Session" link
+  const sessionId = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('session_id') || undefined;
+  }, [location.search]);
+
+  const sessionUrl = useMemo(() => {
+    if (!sessionId) return null;
+    return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}`;
+  }, [sessionId]);
+
   const { service, loading: serviceLoading, error: serviceError } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
@@ -38,7 +60,27 @@ const AnnotatePage: React.FC = () => {
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
   });
-  const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog, applyToImage } = useCLAHE();
+  const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
+  const { isReady: kernelReady, kernelStatus, executeCode } = useColabKernel();
+  const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
+
+  // Install scikit-image in the kernel once it's ready
+  useEffect(() => {
+    if (!kernelReady || !executeCode || kernelPackagesInstalled) return;
+    const install = async () => {
+      console.log('[AnnotatePage] Installing CLAHE packages in kernel...');
+      await executeCode(`
+import micropip
+await micropip.install(['scikit-image', 'numpy', 'Pillow'])
+print('CLAHE packages ready')
+`, {
+        onOutput: (o) => console.log('[Kernel]', o.content),
+      });
+      setKernelPackagesInstalled(true);
+      console.log('[AnnotatePage] CLAHE kernel packages installed');
+    };
+    install();
+  }, [kernelReady, executeCode, kernelPackagesInstalled]);
 
   const imageUrl = useAnnotationStore((s) => s.imageUrl);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
@@ -61,16 +103,29 @@ const AnnotatePage: React.FC = () => {
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer | null) | undefined>(undefined);
 
+  const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
+
   const loadNewImage = useCallback(async (showBanner = true) => {
     if (!service) return;
     setIsLoadingImage(true);
     setError(null);
+    setAllAnnotatedInfo(null);
     setIsCLAHEActive(false);
     setOriginalImageUrl(null);
     console.log('[AnnotatePage] Loading new image...');
     const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
     try {
-      const url = await service.getImage();
+      const result = await service.getImage();
+
+      // Check if all images are annotated
+      if (typeof result === 'object' && result.status === 'all_annotated') {
+        console.log('[AnnotatePage] All images annotated:', result);
+        setAllAnnotatedInfo(result);
+        setHasLoadedOnce(true);
+        return;
+      }
+
+      const url = result as string;
       console.log('[AnnotatePage] Got image URL:', url);
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -265,58 +320,118 @@ const AnnotatePage: React.FC = () => {
     }
   }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner]);
 
-  const handleCLAHEApply = useCallback(() => {
-    if (!imageUrl) return;
+  const [isApplyingCLAHE, setIsApplyingCLAHE] = useState(false);
+
+  const handleCLAHEApply = useCallback(async () => {
+    if (!imageUrl || !executeCode || !kernelPackagesInstalled) return;
     const sourceUrl = originalImageUrl || imageUrl;
 
-    // For cross-origin images, fetch as blob to avoid tainted canvas
-    fetch(sourceUrl)
-      .then((res) => res.blob())
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-          applyToImage(img)
-            .then((url) => {
-              URL.revokeObjectURL(blobUrl);
-              const layer = getImageLayer?.();
-              if (layer) {
-                const source = layer.getSource() as Static;
-                if (source) {
-                  if (!originalImageUrl) setOriginalImageUrl(imageUrl);
-                  layer.setSource(new Static({
-                    url: url,
-                    projection: source.getProjection()!,
-                    imageExtent: source.getImageExtent(),
-                    crossOrigin: 'anonymous',
-                  }));
-                }
-              }
-              setIsCLAHEActive(true);
-              closeCLAHEDialog();
-              console.log('[AnnotatePage] CLAHE applied');
-              addBanner('CLAHE contrast enhancement applied', 'success', 3000);
-            })
-            .catch((err) => {
-              URL.revokeObjectURL(blobUrl);
-              console.error('[AnnotatePage] CLAHE apply failed:', err);
-              closeCLAHEDialog();
-              addBanner('CLAHE failed: ' + (err.message || 'Unknown error'), 'error', 5000);
-            });
-        };
-        img.onerror = () => {
-          URL.revokeObjectURL(blobUrl);
-          closeCLAHEDialog();
-          addBanner('Failed to load image for CLAHE', 'error', 5000);
-        };
-        img.src = blobUrl;
-      })
-      .catch((err) => {
-        console.error('[AnnotatePage] CLAHE fetch failed:', err);
-        closeCLAHEDialog();
-        addBanner('Failed to fetch image for CLAHE: ' + (err.message || 'Unknown error'), 'error', 5000);
+    setIsApplyingCLAHE(true);
+    closeCLAHEDialog();
+    const bannerId = addBanner('Applying CLAHE contrast enhancement...', 'loading', 0);
+
+    try {
+      // Fetch image as blob, convert to base64
+      const res = await fetch(sourceUrl);
+      const blob = await res.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      // Send to Python kernel for CLAHE processing
+      const { clipLimit, tileGridSize } = claheConfig;
+      let resultBase64 = '';
+      let hasError = false;
+
+      await executeCode(`
+import base64
+import io
+import numpy as np
+from PIL import Image
+from skimage import exposure
+
+# Decode input image
+img_bytes = base64.b64decode("""${base64}""")
+img = Image.open(io.BytesIO(img_bytes))
+img_array = np.array(img)
+
+# Apply CLAHE
+clip_limit = ${clipLimit / 100}
+grid_size = ${tileGridSize}
+
+if img_array.ndim == 2:
+    enhanced = exposure.equalize_adapthist(img_array, kernel_size=grid_size, clip_limit=clip_limit)
+    enhanced = (enhanced * 255).astype(np.uint8)
+elif img_array.ndim == 3:
+    # Apply to each channel or convert to LAB
+    from skimage import color
+    if img_array.shape[2] >= 3:
+        lab = color.rgb2lab(img_array[:, :, :3])
+        lab[:, :, 0] = exposure.equalize_adapthist(lab[:, :, 0] / 100, kernel_size=grid_size, clip_limit=clip_limit) * 100
+        rgb_enhanced = color.lab2rgb(lab)
+        enhanced = (rgb_enhanced * 255).astype(np.uint8)
+        if img_array.shape[2] == 4:
+            enhanced = np.dstack([enhanced, img_array[:, :, 3]])
+    else:
+        enhanced = img_array.copy()
+        for c in range(img_array.shape[2]):
+            enhanced[:, :, c] = (exposure.equalize_adapthist(img_array[:, :, c], kernel_size=grid_size, clip_limit=clip_limit) * 255).astype(np.uint8)
+else:
+    enhanced = img_array
+
+# Encode result
+result_img = Image.fromarray(enhanced)
+buf = io.BytesIO()
+result_img.save(buf, format='PNG')
+result_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+print("CLAHE_RESULT:" + result_b64)
+`, {
+        onOutput: (output) => {
+          if (output.type === 'error') {
+            hasError = true;
+            console.error('[CLAHE Python]', output.content);
+          } else if (output.content.startsWith('CLAHE_RESULT:')) {
+            resultBase64 = output.content.substring('CLAHE_RESULT:'.length).trim();
+          }
+        },
       });
-  }, [imageUrl, originalImageUrl, getImageLayer, applyToImage, closeCLAHEDialog, addBanner]);
+
+      if (hasError || !resultBase64) {
+        removeBanner(bannerId);
+        addBanner('CLAHE processing failed', 'error', 5000);
+        setIsApplyingCLAHE(false);
+        return;
+      }
+
+      // Apply result to OpenLayers layer
+      const dataUrl = `data:image/png;base64,${resultBase64}`;
+      const layer = getImageLayer?.();
+      if (layer) {
+        const source = layer.getSource() as Static;
+        if (source) {
+          if (!originalImageUrl) setOriginalImageUrl(imageUrl);
+          layer.setSource(new Static({
+            url: dataUrl,
+            projection: source.getProjection()!,
+            imageExtent: source.getImageExtent(),
+          }));
+        }
+      }
+      setIsCLAHEActive(true);
+      removeBanner(bannerId);
+      addBanner('CLAHE contrast enhancement applied', 'success', 3000);
+    } catch (err: any) {
+      console.error('[AnnotatePage] CLAHE failed:', err);
+      removeBanner(bannerId);
+      addBanner('CLAHE failed: ' + (err.message || 'Unknown error'), 'error', 5000);
+    } finally {
+      setIsApplyingCLAHE(false);
+    }
+  }, [imageUrl, originalImageUrl, getImageLayer, executeCode, kernelPackagesInstalled, claheConfig, closeCLAHEDialog, addBanner, removeBanner]);
 
   const hasCustomCellposeConfig = useMemo(() => {
     return (
@@ -348,42 +463,41 @@ const AnnotatePage: React.FC = () => {
     );
   }
 
+  // Determine the status message for the overlay
+  const showStatusOverlay = serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce);
+  let statusMessage = '';
+  let statusSeverity: 'info' | 'error' = 'info';
   if (serviceLoading) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 2 }}>
-        <CircularProgress />
-        <Typography variant="body2" color="text.secondary">Connecting to annotation service...</Typography>
-      </Box>
-    );
-  }
-
-  if (serviceError) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', p: 4 }}>
-        <Alert severity="error">Service connection failed: {serviceError}</Alert>
-      </Box>
-    );
-  }
-
-  if (!hasLoadedOnce && !error) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 2 }}>
-        <CircularProgress />
-        <Typography variant="body2" color="text.secondary">Loading image...</Typography>
-      </Box>
-    );
-  }
-
-  if (error && !hasLoadedOnce) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', p: 4 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
+    statusMessage = 'Connecting to annotation service...';
+  } else if (serviceError) {
+    statusMessage = `Service connection failed: ${serviceError}`;
+    statusSeverity = 'error';
+  } else if (error && !hasLoadedOnce) {
+    statusMessage = error;
+    statusSeverity = 'error';
+  } else if (!hasLoadedOnce && !error) {
+    statusMessage = 'Loading image...';
   }
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden', position: 'relative' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Compact header with logo and user button */}
+      <div
+        className="flex items-center justify-between px-4 h-10 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
+        style={{ position: 'relative', zIndex: 1000 }}
+      >
+        <Link to="/" className="flex items-center group">
+          <img
+            src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
+            alt="BioImage.IO"
+            className="h-7 group-hover:scale-105 transition-transform duration-300"
+          />
+        </Link>
+        <LoginButton />
+      </div>
+
+      {/* Main annotation area */}
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
       <ToolBar
         onRunCellpose={handleRunCellpose}
         onOpenCellposeConfig={openCellposeConfig}
@@ -394,13 +508,14 @@ const AnnotatePage: React.FC = () => {
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
         onHelp={() => setHelpOpen(true)}
+        sessionUrl={sessionUrl}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
         hasCustomCellposeConfig={hasCustomCellposeConfig}
       />
       <Box sx={{ flex: 1, position: 'relative' }}>
-        {imageUrl && (
+        {imageUrl && !allAnnotatedInfo && (
           <AnnotationViewer
             imageUrl={imageUrl}
             imageWidth={imageWidth}
@@ -411,7 +526,7 @@ const AnnotatePage: React.FC = () => {
           />
         )}
 
-        {(isLoadingImage || isSaving || isRunningCellpose) && (
+        {allAnnotatedInfo && (
           <Box
             sx={{
               position: 'absolute',
@@ -419,12 +534,72 @@ const AnnotatePage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              bgcolor: 'rgba(0,0,0,0.35)',
+              bgcolor: 'rgba(0,0,0,0.03)',
               zIndex: 1100,
-              pointerEvents: 'all',
             }}
           >
-            <CircularProgress size={48} sx={{ color: '#fff' }} />
+            <Box
+              sx={{
+                textAlign: 'center',
+                p: 5,
+                maxWidth: 480,
+                bgcolor: 'white',
+                borderRadius: 3,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+              }}
+            >
+              <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
+              <Typography variant="h5" fontWeight={600} gutterBottom>
+                All Images Annotated
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                {allAnnotatedInfo.message}
+              </Typography>
+              {sessionUrl && (
+                <Button
+                  variant="contained"
+                  startIcon={<OpenInNewIcon />}
+                  onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    px: 3,
+                    py: 1,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  }}
+                >
+                  View Session
+                </Button>
+              )}
+            </Box>
+          </Box>
+        )}
+
+        {(showStatusOverlay || isLoadingImage || isSaving || isRunningCellpose) && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'column',
+              gap: 2,
+              bgcolor: 'rgba(0,0,0,0.35)',
+              zIndex: 1100,
+              pointerEvents: showStatusOverlay ? 'all' : 'all',
+            }}
+          >
+            {statusSeverity === 'error' ? (
+              <Alert severity="error">{statusMessage}</Alert>
+            ) : (
+              <>
+                <CircularProgress size={48} sx={{ color: '#fff' }} />
+                {statusMessage && (
+                  <Typography variant="body2" sx={{ color: '#fff' }}>{statusMessage}</Typography>
+                )}
+              </>
+            )}
           </Box>
         )}
 
@@ -449,6 +624,8 @@ const AnnotatePage: React.FC = () => {
         onConfigChange={setClaheConfig}
         onApply={handleCLAHEApply}
         onClose={closeCLAHEDialog}
+        kernelReady={kernelPackagesInstalled}
+        isApplying={isApplyingCLAHE}
       />
 
       <MaskFilterDialog
@@ -460,6 +637,7 @@ const AnnotatePage: React.FC = () => {
       />
 
       <HelpTutorial open={helpOpen} onClose={() => setHelpOpen(false)} />
+      </Box>
     </Box>
   );
 };
