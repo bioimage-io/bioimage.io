@@ -15,7 +15,7 @@ import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult } from '..
 import Button from '@mui/material/Button';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { exportGeoJSON, renderInstanceSegmentationPNG } from '../components/annotate/exportAnnotation';
+import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
@@ -56,10 +56,24 @@ const AnnotatePage: React.FC = () => {
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement } = useCellposeConfig({
+  
+  const [dynamicCellposeModel, setDynamicCellposeModel] = useState<string | undefined>(undefined);
+  
+  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
   });
+  
+  // Use either the dynamically loaded model or the one from the URL (for backward compatibility)
+  const activeCellposeModel = dynamicCellposeModel || cellposeModelId || DEFAULT_CELLPOSE_CONFIG.model;
+  
+  // Sync the loaded model to the config dialog if it changes
+  useEffect(() => {
+    if (activeCellposeModel && activeCellposeModel !== cellposeConfig.model) {
+      setCellposeConfig((prev: CellposeConfig) => ({ ...prev, model: activeCellposeModel }));
+    }
+  }, [activeCellposeModel, cellposeConfig.model, setCellposeConfig]);
+
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
   const { isReady: kernelReady, kernelStatus, executeCode } = useColabKernel();
   const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
@@ -90,6 +104,7 @@ print('CLAHE packages ready')
   const error = useAnnotationStore((s) => s.error);
   const setError = useAnnotationStore((s) => s.setError);
   const pushUndo = useAnnotationStore((s) => s.pushUndo);
+  const activeLabel = useAnnotationStore((s) => s.activeLabel);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
@@ -101,7 +116,19 @@ print('CLAHE packages ready')
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
-  const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer | null) | undefined>(undefined);
+  const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
+
+  const handleResetViewReady = useCallback((fn: () => void) => {
+    setResetView(() => fn);
+  }, []);
+
+  const handleVectorSourceReady = useCallback((fn: () => VectorSource | null) => {
+    setGetVectorSource(() => fn);
+  }, []);
+
+  const handleImageLayerReady = useCallback((fn: () => ImageLayer<Static> | null) => {
+    setGetImageLayer(() => fn);
+  }, []);
 
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
 
@@ -118,14 +145,20 @@ print('CLAHE packages ready')
       const result = await service.getImage();
 
       // Check if all images are annotated
-      if (typeof result === 'object' && result.status === 'all_annotated') {
+      if (result && typeof result === 'object' && 'status' in result && result.status === 'all_annotated') {
         console.log('[AnnotatePage] All images annotated:', result);
-        setAllAnnotatedInfo(result);
+        setAllAnnotatedInfo(result as AllAnnotatedResult);
         setHasLoadedOnce(true);
         return;
       }
 
-      const url = result as string;
+      const imageResult = result as { url: string; cellpose_model?: string };
+      const url = imageResult.url;
+      
+      if (imageResult.cellpose_model) {
+        setDynamicCellposeModel(imageResult.cellpose_model);
+      }
+      
       console.log('[AnnotatePage] Got image URL:', url);
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -239,7 +272,7 @@ print('CLAHE packages ready')
         const saveUrls = await service.getSaveUrls(imageName);
         console.log('[AnnotatePage] Got save URLs for:', saveUrls.image_stem);
 
-        const geojson = exportGeoJSON(vs);
+        const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
         const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
         await fetch(saveUrls.geojson_url, { method: 'PUT', body: geojsonBlob });
         console.log('[AnnotatePage] Uploaded GeoJSON');
@@ -453,6 +486,26 @@ print("CLAHE_RESULT:" + result_b64)
     }
   }, [getVectorSource, pushUndo]);
 
+  const handleUploadGeoJSON = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        const vs = getVectorSource?.();
+        if (vs) {
+          handleSaveUndo(); // Save current state to undo stack before loading
+          importGeoJSON(vs, data, imageHeight, activeLabel);
+          addBanner('GeoJSON loaded successfully', 'success');
+        }
+      } catch (err: any) {
+        console.error('Failed to parse GeoJSON:', err);
+        addBanner('Failed to load GeoJSON: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  }, [getVectorSource, imageHeight, activeLabel, addBanner, handleSaveUndo]);
+
   if (!serviceConfig) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', p: 4 }}>
@@ -508,7 +561,9 @@ print("CLAHE_RESULT:" + result_b64)
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
         onHelp={() => setHelpOpen(true)}
+        onUploadGeoJSON={handleUploadGeoJSON}
         sessionUrl={sessionUrl}
+        imageName={(originalImageUrl || imageUrl)?.split('/').pop()}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
@@ -520,9 +575,9 @@ print("CLAHE_RESULT:" + result_b64)
             imageUrl={imageUrl}
             imageWidth={imageWidth}
             imageHeight={imageHeight}
-            onResetViewReady={(fn) => setResetView(() => fn)}
-            onVectorSourceReady={(fn) => setGetVectorSource(() => fn)}
-            onImageLayerReady={(fn) => setGetImageLayer(() => fn)}
+            onResetViewReady={handleResetViewReady}
+            onVectorSourceReady={handleVectorSourceReady}
+            onImageLayerReady={handleImageLayerReady}
           />
         )}
 

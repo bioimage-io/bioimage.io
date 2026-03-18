@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ShareModalProps {
   annotationURL: string;
@@ -7,7 +7,8 @@ interface ShareModalProps {
   setShowShareModal: (show: boolean) => void;
   cellposeModel?: string;
   onCellposeModelChange?: (model: string) => void;
-  availableModels?: { id: string; name: string }[];
+  server?: any;
+  artifactManager?: any;
 }
 
 const QR_SIZE = 200;
@@ -117,18 +118,136 @@ const ShareModal: React.FC<ShareModalProps> = ({
   setShowShareModal,
   cellposeModel = 'Base',
   onCellposeModelChange,
-  availableModels,
+  server,
+  artifactManager,
 }) => {
+  const baseModel = { id: 'Base', name: 'Base (Cellpose-SAM)', group: 'Default' };
   const [showInstructions, setShowInstructions] = useState(false);
+  const [availableModels, setAvailableModels] = useState<{ id: string; name: string; group: string }[]>([baseModel]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   const sessionURL = dataArtifactId
     ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}`
     : null;
 
-  // Default models: Base + any available finetuned models
-  const models = availableModels && availableModels.length > 0
-    ? availableModels
-    : [{ id: 'Base', name: 'Base (Cellpose-SAM)' }];
+  useEffect(() => {
+    let mounted = true;
+    
+    async function fetchModels() {
+      setIsLoadingModels(true);
+      const fetchedModels: { id: string; name: string; group: string }[] = [];
+      
+      try {
+        // 1. Fetch dataset-specific models, including active/in-progress training sessions.
+        if (server && dataArtifactId) {
+          try {
+            const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+            const datasetModels = await cellposeService.list_models_by_dataset(
+              dataArtifactId,
+              {
+                collection: 'bioimage-io/colab-annotations',
+                _rkwargs: true
+              }
+            );
+
+            if (mounted && datasetModels) {
+              datasetModels.forEach((m: any) => {
+                const modelId = m?.id || m?.session_id;
+                if (!modelId) return;
+
+                const statusText = String(m?.status || m?.status_type || '').toLowerCase();
+                const isInProgress =
+                  statusText.includes('progress') ||
+                  statusText.includes('running') ||
+                  statusText.includes('training') ||
+                  statusText.includes('queued') ||
+                  statusText.includes('started');
+
+                fetchedModels.push({
+                  id: modelId,
+                  name: m?.name || modelId,
+                  group: isInProgress ? 'In-Progress Training Sessions' : 'Models for this Dataset'
+                });
+              });
+            }
+          } catch (e) {
+            console.warn('Skipping dataset model listing, service unavailable:', e);
+          }
+        }
+
+        // Fetch all published fine-tuned model artifacts from colab-annotations.
+        if (artifactManager) {
+          try {
+            const artifacts = await artifactManager.list({
+              parent_id: "bioimage-io/colab-annotations",
+              filters: { type: 'model' },
+              _rkwargs: true
+            });
+            if (mounted && artifacts) {
+              artifacts.forEach((a: any) => {
+                // Avoid duplicating dataset models if they exist here
+                if (!fetchedModels.some(m => m.id === a.id)) {
+                  fetchedModels.push({
+                    id: a.id,
+                    name: a.manifest?.name || a.id,
+                    group: 'Colab Annotations Models'
+                  });
+                }
+              });
+            }
+          } catch (e) {
+            console.error('Error fetching artifact models:', e);
+          }
+        }
+      } catch (e) {
+        console.error('Error in fetchModels:', e);
+      } finally {
+        if (mounted) {
+          const uniqueById = new Map<string, { id: string; name: string; group: string }>();
+          [baseModel, ...fetchedModels].forEach((model) => {
+            uniqueById.set(model.id, model);
+          });
+          setAvailableModels(Array.from(uniqueById.values()));
+          setIsLoadingModels(false);
+        }
+      }
+    }
+
+    fetchModels();
+
+    return () => {
+      mounted = false;
+    };
+  }, [server, dataArtifactId, artifactManager]);
+
+  // Group models for select and order groups/models for better discoverability.
+  const groupedModels = availableModels.reduce((acc, m) => {
+    if (!acc[m.group]) acc[m.group] = [];
+    acc[m.group].push(m);
+    return acc;
+  }, {} as Record<string, typeof availableModels>);
+
+  const preferredGroupOrder = [
+    'In-Progress Training Sessions',
+    'Models for this Dataset',
+    'Colab Annotations Models',
+    'Default',
+  ];
+
+  const orderedGroupEntries = [
+    ...preferredGroupOrder
+      .filter((group) => groupedModels[group]?.length)
+      .map((group) => [group, groupedModels[group]] as const),
+    ...Object.entries(groupedModels)
+      .filter(([group]) => !preferredGroupOrder.includes(group))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ].map(([group, models]) => {
+    const selected = models.filter((m) => m.id === cellposeModel);
+    const rest = models
+      .filter((m) => m.id !== cellposeModel)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [group, [...selected, ...rest]] as const;
+  });
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
@@ -173,16 +292,29 @@ const ShareModal: React.FC<ShareModalProps> = ({
 
             {/* Cellpose Model Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Cellpose Model for Pre-segmentation</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                Cellpose Model for Pre-segmentation
+                {isLoadingModels && (
+                  <svg className="animate-spin h-4 w-4 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+              </label>
               <select
                 value={cellposeModel}
                 onChange={(e) => onCellposeModelChange?.(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                disabled={isLoadingModels}
               >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
+                {orderedGroupEntries.map(([group, models]) => (
+                  <optgroup key={group} label={group}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">

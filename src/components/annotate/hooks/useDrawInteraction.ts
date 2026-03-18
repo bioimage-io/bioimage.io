@@ -295,7 +295,7 @@ function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource) {
  * Trim all existing features so they don't overlap with the given polygon.
  * Each pixel should belong to at most one mask.
  */
-function trimExistingMasks(newPoly: OlPolygon, vectorSource: VectorSource, excludeFeature?: Feature<Geometry>) {
+export function trimExistingMasks(newPoly: OlPolygon, vectorSource: VectorSource, excludeFeature?: Feature<Geometry>) {
   const newGeoJSON = geojsonFormat.writeGeometryObject(newPoly);
   const turfNew = turf.polygon((newGeoJSON as any).coordinates);
 

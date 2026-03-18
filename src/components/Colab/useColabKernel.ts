@@ -263,6 +263,16 @@ export const useColabKernel = (): KernelManager => {
     }
 
     initializeKernel();
+
+    return () => {
+      const manager = kernelManagerRef.current?.manager;
+      const kernelId = currentKernelIdRef.current;
+      if (manager && kernelId) {
+        console.log('[Colab Kernel] Destroying kernel on unmount...');
+        manager.destroyKernel(kernelId).catch((e: any) => console.error('[Colab Kernel] Error destroying kernel:', e));
+        currentKernelIdRef.current = null;
+      }
+    };
   }, [loadWebPythonKernel, createExecuteCodeFunction]);
 
   // Function to interrupt kernel execution

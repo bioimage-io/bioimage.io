@@ -174,12 +174,12 @@ async def _get_annotated_stems(
 
 async def get_image(
     server_url: str, artifact_manager: ObjectProxy, artifact_id: str,
-    images_path: Path, label: str, context: dict = None,
-) -> str:
-    """Get a random *unannotated* image and return its URL.
+    images_path: Path, label: str, state: dict = None, context: dict = None,
+) -> dict:
+    """Get a random *unannotated* image and return its info.
 
     Prioritises images that do not yet have a mask for the current label.
-    Returns a URL string normally, or a dict with ``status: "all_annotated"``
+    Returns a dict with `url` normally, or a dict with `status: "all_annotated"`
     when every image has been annotated.
     """
     console.log(f"\n🔵 get_image called")
@@ -288,7 +288,10 @@ async def get_image(
 
     console.log(f"🔵 get_image returned url: {image_url}")
 
-    return image_url
+    return {
+        "url": image_url,
+        "cellpose_model": state.get("cellpose_model") if state else None
+    }
 
 
 async def get_local_image_base64(
@@ -614,6 +617,7 @@ async def register_service(
     label: str,
     client_id: str = None,
     service_id: str = None,
+    cellpose_model: str = None,
 ):
     """Register the data providing service with Hypha.
 
@@ -641,8 +645,44 @@ async def register_service(
         connect_config["client_id"] = client_id
         console.log(f"Using client_id: {client_id}")
 
-    client = await connect_to_server(connect_config)
-    artifact_manager = await client.get_service("public/artifact-manager")
+    global _hypha_client
+
+    async def _disconnect_hypha_client():
+        global _hypha_client
+        if "_hypha_client" in globals() and _hypha_client is not None:
+            try:
+                await _hypha_client.disconnect()
+            except Exception as disconnect_error:
+                console.log(f"Failed to disconnect Hypha client cleanly: {disconnect_error}")
+            _hypha_client = None
+
+    if "_hypha_client" in globals() and _hypha_client is not None:
+        try:
+            console.log("Disconnecting existing Hypha client...")
+            await _hypha_client.disconnect()
+        except:
+            pass
+        _hypha_client = None
+
+    try:
+        _hypha_client = await connect_to_server(connect_config)
+    except Exception as e:
+        raise ValueError(f"Failed to connect to Hypha server: {e}")
+
+    try:
+        artifact_manager = await _hypha_client.get_service("public/artifact-manager")
+    except Exception as e:
+        await _disconnect_hypha_client()
+        raise ValueError(f"Failed to get artifact-manager service: {e}")
+
+    # Make sure the target collection exists
+    try:
+        await artifact_manager.read(artifact_id=COLLECTION_ID)
+    except Exception as e:
+        await _disconnect_hypha_client()
+        raise ValueError(
+            f"Collection {COLLECTION_ID} not found or not accessible: {e}"
+        )
 
     # Check if images are in local folder or artifact
     # images_path can be None for cloud-only mode
@@ -667,6 +707,7 @@ async def register_service(
         console.log(f"Using local folder: {images_path}")
         image_files = list_image_files(images_path)
         if not image_files:
+            await _disconnect_hypha_client()
             raise ValueError(f"No images found with supported types in {images_path}")
     else:
         # Remote mode: check for images in artifact
@@ -694,27 +735,32 @@ async def register_service(
             # For cloud-only mode, just get the artifact info without editing
             console.log(f"Cloud-only mode - reading artifact (no write access needed)")
             artifact = await artifact_manager.read(artifact_id=artifact_id, stage=True)
-    except KeyError as e:
-        console.log(f"Artifact with ID {artifact_id} not found.")
-        raise e
-    except PermissionError as e:
-        console.log(f"Permission denied to access artifact with ID {artifact_id}.")
-        raise e
     except Exception as e:
-        console.log(f"Failed to access artifact with ID {artifact_id}: {e}")
-        raise e
+        console.log(f"Failed to read artifact info for {artifact_id}: {e}")
+        await _disconnect_hypha_client()
+        raise ValueError(f"Artifact {artifact_id} not found or accessible.")
 
     if artifact.type != "dataset":
         console.log(f"Artifact with ID {artifact_id} is not a dataset.")
+        await _disconnect_hypha_client()
         raise ValueError(f"Artifact {artifact_id} is not a dataset.")
 
     if artifact.parent_id != COLLECTION_ID:
         console.log(
             f"Artifact with ID {artifact_id} is not part of the expected collection {COLLECTION_ID}."
         )
+        await _disconnect_hypha_client()
         raise ValueError(
             f"Artifact {artifact_id} is not part of the expected collection {COLLECTION_ID}."
         )
+
+    # State for dynamic updates
+    state = {"cellpose_model": cellpose_model}
+
+    def set_cellpose_model(model: str, context: dict = None):
+        console.log(f"🔵 set_cellpose_model called with: {model}")
+        state["cellpose_model"] = model
+        return True
 
     # Register the service
     console.log(f"Registering service: {name}")
@@ -722,60 +768,66 @@ async def register_service(
     # Use provided service_id or generate one
     actual_service_id = service_id if service_id else "data-provider-" + str(int(time.time() * 100))
 
-    svc = await client.register_service(
-        {
-            "name": name,
-            "description": description,
-            "id": actual_service_id,
-            "type": "annotation-data-provider",
-            "config": {
-                "visibility": "public",
-                "require_context": True,
-            },
-            # Exposed functions:
-            "get_image": partial(
-                get_image,
-                server_url=server_url,
-                artifact_manager=artifact_manager,
-                artifact_id=artifact.id,
-                images_path=images_path,
-                label=label,
-            ),
-            "get_local_image_base64": partial(
-                get_local_image_base64,
-                images_path=images_path,
-            ),
-            "list_local_images": partial(
-                list_local_images,
-                images_path=images_path,
-            ),
-            "upload_local_images_to_artifact": partial(
-                upload_local_images_to_artifact,
-                artifact_manager=artifact_manager,
-                artifact_id=artifact.id,
-                images_path=images_path,
-            ),
-            "write_file_to_temp": write_file_to_temp,
-            "upload_images_from_temp": partial(
-                upload_images_from_temp,
-                artifact_manager=artifact_manager,
-                artifact_id=artifact.id,
-            ),
-            "save_annotation": partial(save_annotation, artifact_manager, artifact.id, label),
-            "get_save_urls": partial(get_save_urls, artifact_manager, artifact.id, label),
-        }
-    )
+    try:
+        svc = await _hypha_client.register_service(
+            {
+                "name": name,
+                "description": description,
+                "id": actual_service_id,
+                "type": "annotation-data-provider",
+                "config": {
+                    "visibility": "public",
+                    "require_context": True,
+                },
+                # Exposed functions:
+                "get_image": partial(
+                    get_image,
+                    server_url=server_url,
+                    artifact_manager=artifact_manager,
+                    artifact_id=artifact.id,
+                    images_path=images_path,
+                    label=label,
+                    state=state,
+                ),
+                "set_cellpose_model": set_cellpose_model,
+                "get_local_image_base64": partial(
+                    get_local_image_base64,
+                    images_path=images_path,
+                ),
+                "list_local_images": partial(
+                    list_local_images,
+                    images_path=images_path,
+                ),
+                "upload_local_images_to_artifact": partial(
+                    upload_local_images_to_artifact,
+                    artifact_manager=artifact_manager,
+                    artifact_id=artifact.id,
+                    images_path=images_path,
+                ),
+                "write_file_to_temp": write_file_to_temp,
+                "upload_images_from_temp": partial(
+                    upload_images_from_temp,
+                    artifact_manager=artifact_manager,
+                    artifact_id=artifact.id,
+                ),
+                "save_annotation": partial(save_annotation, artifact_manager, artifact.id, label),
+                "get_save_urls": partial(get_save_urls, artifact_manager, artifact.id, label),
+            }
+        )
+    except Exception as e:
+        await _disconnect_hypha_client()
+        raise ValueError(f"Failed to register service: {e}")
 
     console.log(f"✓ Service registered!")
     console.log(f"  Service ID: {svc['id']}")
-    console.log(f"  Client ID: {client.config.get('client_id', 'N/A')}")
-    console.log(f"  Workspace: {client.config.get('workspace', 'N/A')}")
+    console.log(f"  Client ID: {_hypha_client.config.get('client_id', 'N/A')}")
+    console.log(f"  Workspace: {_hypha_client.config.get('workspace', 'N/A')}")
     console.log(f"  Available functions: {list(svc.get('service_schema', {}).keys())}")
 
     # Return structured data instead of raw service/artifact objects
     return {
         "service_id": svc["id"],
         "artifact_id": artifact.id,
-        "workspace": client.config.get("workspace", WORKSPACE),
-        "client_id": client.config.get("client_id", ""),
+        "workspace": _hypha_client.config.get("workspace", WORKSPACE),
+        "client_id": _hypha_client.config.get("client_id", ""),
     }

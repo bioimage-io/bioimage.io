@@ -29,6 +29,11 @@ interface ExportResult {
   status: string;
 }
 
+interface ModelAuthor {
+  name: string;
+  affiliation?: string;
+}
+
 interface TrainingProps {
   sessionId?: string;
   dataArtifactId?: string;
@@ -94,6 +99,7 @@ const Training: React.FC<TrainingProps> = ({
   // New state for export enhancements
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [modelName, setModelName] = useState<string>('');
+  const [authors, setAuthors] = useState<ModelAuthor[]>([{ name: '', affiliation: '' }]);
 
   // New state for stop training
   const [isStopping, setIsStopping] = useState(false);
@@ -399,6 +405,22 @@ const Training: React.FC<TrainingProps> = ({
       console.log('Getting cellpose-finetuning service...');
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
+      console.log('Committing data artifact before training...');
+      const artifactManager = await server.getService('public/artifact-manager');
+      
+      await artifactManager.commit({
+        artifact_id: String(artifactToUse),
+        comment: "Committing dataset before training",
+        _rkwargs: true
+      });
+
+      console.log('Resetting dataset artifact to edit mode...');
+      await artifactManager.edit({
+        artifact_id: String(artifactToUse),
+        stage: true,
+        _rkwargs: true
+      });
+
       console.log('Starting training with artifact:', artifactToUse);
       setTrainingProgress('Starting training...');
 
@@ -497,6 +519,30 @@ const Training: React.FC<TrainingProps> = ({
       return;
     }
 
+    const normalizedAuthors = authors
+      .map((author) => ({
+        name: author.name.trim(),
+        affiliation: (author.affiliation || '').trim(),
+      }))
+      .filter((author) => author.name.length > 0)
+      .map((author) => {
+        if (author.affiliation) {
+          return { name: author.name, affiliation: author.affiliation };
+        }
+        return { name: author.name };
+      });
+
+    if (normalizedAuthors.length === 0) {
+      setError('Please add at least one author with a name before exporting.');
+      return;
+    }
+
+    const uploaderEmail = server?.config?.user?.email;
+    if (!uploaderEmail) {
+      setError('Could not determine uploader email from the logged in user. Please log in again.');
+      return;
+    }
+
     setIsExporting(true);
     setError(null);
 
@@ -508,6 +554,11 @@ const Training: React.FC<TrainingProps> = ({
       if (modelName.trim()) {
         exportParams.model_name = modelName.trim();
       }
+      exportParams.authors = normalizedAuthors;
+      exportParams.uploader = {
+        name: 'N/A',
+        email: uploaderEmail,
+      };
 
       const result = await cellposeService.export_model(sessionId, exportParams);
 
@@ -838,11 +889,32 @@ const Training: React.FC<TrainingProps> = ({
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Images in Dataset</p>
                       <p className="text-sm font-medium text-gray-800">
-                        {datasetInfo ? (
-                          datasetInfo.manifest?.files
-                            ? Object.keys(datasetInfo.manifest.files).filter((f: string) => f.startsWith('input_images/')).length
-                            : 'N/A'
-                        ) : 'Loading...'}
+                        {datasetInfo ? (() => {
+                          const files = datasetInfo.manifest?.files;
+
+                          // Support both object maps and file arrays in manifest.files.
+                          if (Array.isArray(files)) {
+                            const count = files.filter((f: any) => {
+                              if (typeof f === 'string') return f.startsWith('input_images/');
+                              if (f && typeof f.path === 'string') return f.path.startsWith('input_images/');
+                              if (f && typeof f.name === 'string') return f.name.startsWith('input_images/');
+                              return false;
+                            }).length;
+                            if (count > 0) return count;
+                          }
+
+                          if (files && typeof files === 'object') {
+                            const count = Object.keys(files).filter((f: string) => f.startsWith('input_images/')).length;
+                            if (count > 0) return count;
+                          }
+
+                          // Fallback to known sample counts from training status.
+                          if (nTrain != null && nTest != null) return nTrain + nTest;
+                          if (nTrain != null) return nTrain;
+                          if (nTest != null) return nTest;
+
+                          return 'N/A';
+                        })() : 'Loading...'}
                       </p>
                     </div>
                   </div>
@@ -1041,6 +1113,69 @@ const Training: React.FC<TrainingProps> = ({
                             placeholder="e.g., My Cell Segmentation Model v1"
                           />
                         </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-sm font-medium text-gray-700">
+                              Authors
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setAuthors((prev) => [...prev, { name: '', affiliation: '' }])}
+                              className="px-3 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
+                            >
+                              Add Author
+                            </button>
+                          </div>
+
+                          {authors.map((author, index) => (
+                            <div key={`author-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                              <input
+                                type="text"
+                                className="md:col-span-5 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                value={author.name}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAuthors((prev) =>
+                                    prev.map((item, i) => (i === index ? { ...item, name: value } : item))
+                                  );
+                                }}
+                                placeholder="Author name"
+                              />
+                              <input
+                                type="text"
+                                className="md:col-span-6 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                value={author.affiliation || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAuthors((prev) =>
+                                    prev.map((item, i) => (i === index ? { ...item, affiliation: value } : item))
+                                  );
+                                }}
+                                placeholder="Affiliation (optional)"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAuthors((prev) => {
+                                    if (prev.length === 1) {
+                                      return [{ name: '', affiliation: '' }];
+                                    }
+                                    return prev.filter((_, i) => i !== index);
+                                  });
+                                }}
+                                className="md:col-span-1 px-3 py-2 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                                aria-label={`Remove author ${index + 1}`}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                          <p className="text-xs text-gray-500">
+                            Add one or more authors. Uploader is set automatically from your logged in account.
+                          </p>
+                        </div>
+
                         <button
                           onClick={handleExportModel}
                           disabled={isExporting}

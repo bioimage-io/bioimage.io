@@ -34,6 +34,8 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
 };
 
 const PARAM_DESCRIPTIONS: Record<string, string> = {
+  model:
+    'Active segmentation model for Cellpose inference. This is selected from collaboration/training controls and is read-only here.',
   diameter:
     'Approximate cell diameter in pixels. Set to 0 or leave empty for automatic estimation. Larger values detect larger objects.',
   flow_threshold:
@@ -138,7 +140,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const handleReset = () => {
-    setConfig({ ...DEFAULT_CELLPOSE_CONFIG });
+    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, model: prev.model }));
   };
 
   const handleApply = () => {
@@ -152,8 +154,25 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       <DialogTitle sx={{ fontWeight: 600 }}>Cellpose Configuration</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2.5} sx={{ pt: 0.5 }}>
+          {/* Model (read-only, selected elsewhere) */}
+          <Grid item xs={12}>
+            <ParamLabel label="Model" paramKey="model" />
+            <TextField
+              fullWidth
+              size="small"
+              value={config.model || 'cpsam'}
+              disabled
+              slotProps={{
+                input: {
+                  readOnly: true,
+                },
+              }}
+              helperText="Model selection is controlled from collaboration/training settings."
+            />
+          </Grid>
+
           {/* Diameter */}
-          <Grid size={6}>
+          <Grid item xs={6}>
             <ParamLabel label="Diameter" paramKey="diameter" />
             <TextField
               fullWidth
@@ -179,7 +198,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Grid>
 
           {/* Min Mask Area */}
-          <Grid size={6}>
+          <Grid item xs={6}>
             <ParamLabel label="Min Mask Area" paramKey="min_mask_area" />
             <TextField
               fullWidth
@@ -199,7 +218,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Grid>
 
           {/* Flow Threshold */}
-          <Grid size={6}>
+          <Grid item xs={6}>
             <ParamLabel label="Flow Threshold" paramKey="flow_threshold" />
             <Box sx={{ px: 1 }}>
               <Slider
@@ -218,7 +237,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Grid>
 
           {/* Cell Probability Threshold */}
-          <Grid size={6}>
+          <Grid item xs={6}>
             <ParamLabel
               label="Cell Prob Threshold"
               paramKey="cellprob_threshold"
@@ -242,7 +261,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Grid>
 
           {/* Niter */}
-          <Grid size={6}>
+          <Grid item xs={6}>
             <ParamLabel label="Iterations (niter)" paramKey="niter" />
             <TextField
               fullWidth
@@ -299,6 +318,7 @@ export function useCellposeConfig(opts?: {
   config: CellposeConfig;
   openDialog: () => void;
   dialogElement: React.ReactNode;
+  setConfig: React.Dispatch<React.SetStateAction<CellposeConfig>>;
 } {
   const [config, setConfig] = useState<CellposeConfig>(loadConfig);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -328,7 +348,7 @@ export function useCellposeConfig(opts?: {
     />
   );
 
-  return { config, openDialog, dialogElement };
+  return { config, openDialog, dialogElement, setConfig };
 }
 
 export default CellposeConfigDialog;

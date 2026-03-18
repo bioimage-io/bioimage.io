@@ -2,13 +2,81 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import Feature from 'ol/Feature';
 import { Geometry, Polygon as OlPolygon } from 'ol/geom';
+import { trimExistingMasks } from './hooks/useDrawInteraction';
+import UPNG from 'upng-js';
 
 const geojsonFormat = new GeoJSON();
 
 /** Export features as a GeoJSON FeatureCollection */
-export function exportGeoJSON(vectorSource: VectorSource): object {
+export function exportGeoJSON(vectorSource: VectorSource, imageHeight?: number): object {
   const features = vectorSource.getFeatures();
+  
+  if (imageHeight !== undefined) {
+    const clonedFeatures = features.map(f => {
+      const clone = f.clone();
+      const geom = clone.getGeometry();
+      if (geom) {
+        geom.scale(1, -1, [0, 0]);
+        geom.translate(0, imageHeight);
+      }
+      return clone;
+    });
+    return JSON.parse(geojsonFormat.writeFeatures(clonedFeatures));
+  }
+  
   return JSON.parse(geojsonFormat.writeFeatures(features));
+}
+
+/** Import features from a GeoJSON FeatureCollection */
+export function importGeoJSON(
+  vectorSource: VectorSource,
+  geojsonData: any,
+  imageHeight: number,
+  defaultLabel?: { id: string; color: string }
+): void {
+  if (!geojsonData || geojsonData.type !== 'FeatureCollection' || !Array.isArray(geojsonData.features)) {
+    throw new Error('Invalid format: file must be a GeoJSON FeatureCollection');
+  }
+
+  const features = geojsonFormat.readFeatures(geojsonData) as Feature<Geometry>[];
+  
+  if (features.length === 0) {
+    throw new Error('GeoJSON file contains no features');
+  }
+
+  for (const feature of features) {
+    const geom = feature.getGeometry();
+    if (geom) {
+      geom.scale(1, -1, [0, 0]);
+      geom.translate(0, imageHeight);
+    }
+    
+    // Strip all existing properties (like edge_color from the file) except the geometry
+    const geomName = feature.getGeometryName();
+    for (const key of feature.getKeys()) {
+      if (key !== geomName) {
+        feature.unset(key);
+      }
+    }
+
+    // Force the active label's styling
+    if (defaultLabel) {
+      feature.setProperties({
+        label: defaultLabel.id,
+        edge_color: defaultLabel.color,
+        face_color: defaultLabel.color,
+        edge_width: 2,
+      });
+    }
+
+    // Add them individually like the drawing tool
+    vectorSource.addFeature(feature);
+
+    // Trim existing masks so this new one overlays them correctly
+    if (geom && geom.getType() === 'Polygon') {
+      trimExistingMasks(geom as OlPolygon, vectorSource, feature);
+    }
+  }
 }
 
 /**
@@ -86,16 +154,11 @@ export function renderInstanceSegmentationPNG(
     out[i * 4 + 2] = 0;                    // B = 0
     out[i * 4 + 3] = 255;                  // A = opaque
   }
-  ctx.putImageData(outputData, 0, 0);
 
-  // Convert canvas to blob synchronously via toDataURL
-  const dataUrl = canvas.toDataURL('image/png');
-  const binary = atob(dataUrl.split(',')[1]);
-  const array = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    array[i] = binary.charCodeAt(i);
-  }
-  return new Blob([array], { type: 'image/png' });
+  // Use upng-js to encode the RGBA array into a 3-channel (RGB) PNG.
+  // UPNG automatically drops the alpha channel since all pixels are opaque (A=255).
+  const pngBuffer = UPNG.encode([outputData.data.buffer], width, height, 0);
+  return new Blob([pngBuffer], { type: 'image/png' });
 }
 
 /** Trigger a file download in the browser */

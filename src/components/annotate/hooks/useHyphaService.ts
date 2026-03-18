@@ -35,8 +35,13 @@ export interface AllAnnotatedResult {
   message: string;
 }
 
+export interface ImageResult {
+  url: string;
+  cellpose_model?: string;
+}
+
 export interface AnnotationDataService {
-  getImage: () => Promise<string | AllAnnotatedResult>;
+  getImage: () => Promise<ImageResult | AllAnnotatedResult>;
   getSaveUrls: (imageName: string) => Promise<SaveUrls>;
   saveAnnotation: (filename: string, geojson: object, dimensions: [number, number]) => Promise<void>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
@@ -80,7 +85,7 @@ function maskToPolygons(maskData: number[] | Uint16Array | Uint32Array | Float32
 
   const results: CellposeMask[] = [];
 
-  for (const label of labelSet) {
+  for (const label of Array.from(labelSet)) {
     // Create binary mask for this label
     const binary = new Uint8Array(width * height);
     let minX = width, maxX = 0, minY = height, maxY = 0;
@@ -246,8 +251,13 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               console.log('[useHyphaService] All images annotated:', result);
               return result as AllAnnotatedResult;
             }
-            console.log('[useHyphaService] Image URL:', result);
-            return result as string;
+            // Older versions or different implementations might still return a string
+            if (typeof result === 'string') {
+              console.log('[useHyphaService] Image URL:', result);
+              return { url: result } as ImageResult;
+            }
+            console.log('[useHyphaService] Image Info:', result);
+            return result as ImageResult;
           },
           getSaveUrls: async (imageName: string) => {
             console.log('[useHyphaService] Getting save URLs for:', imageName);

@@ -21,6 +21,8 @@ import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import ContrastIcon from '@mui/icons-material/Contrast';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import InfoIcon from '@mui/icons-material/Info';
 import { useAnnotationStore, AnnotationTool } from '../../store/annotationStore';
 
 /** Lasso icon (same shape as AI lasso but without sparkles) */
@@ -67,7 +69,9 @@ interface ToolBarProps {
   onToggleCLAHE: () => void;
   onOpenMaskFilter: () => void;
   onHelp: () => void;
+  onUploadGeoJSON: (file: File) => void;
   sessionUrl?: string | null;
+  imageName?: string;
   isSaving: boolean;
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
@@ -76,12 +80,15 @@ interface ToolBarProps {
 
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
-  onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp,
-  sessionUrl, isSaving, isRunningCellpose, isCLAHEActive, hasCustomCellposeConfig,
+  onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
+  sessionUrl, imageName, isSaving, isRunningCellpose, isCLAHEActive, hasCustomCellposeConfig,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
   const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
   const canUndo = useAnnotationStore((s) => s.canUndo);
+  const imageWidth = useAnnotationStore((s) => s.imageWidth);
+  const imageHeight = useAnnotationStore((s) => s.imageHeight);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   return (
     <Paper
@@ -172,6 +179,35 @@ const ToolBar: React.FC<ToolBarProps> = ({
       </Tooltip>
 
       <Divider flexItem sx={{ my: 0.5 }} />
+
+      <Tooltip title={
+        <div style={{ whiteSpace: 'pre-wrap' }}>
+          {`File: ${imageName || 'Unknown'}\nSize (CxHxW): 3 x ${imageHeight} x ${imageWidth}`}
+        </div>
+      } placement="right">
+        <IconButton size="small">
+          <InfoIcon />
+        </IconButton>
+      </Tooltip>
+
+      <Tooltip title="Upload GeoJSON" placement="right">
+        <IconButton size="small" onClick={() => fileInputRef.current?.click()}>
+          <UploadFileIcon />
+        </IconButton>
+      </Tooltip>
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept=".geojson,.json,application/geo+json,application/json"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            onUploadGeoJSON(file);
+            e.target.value = ''; // reset after upload
+          }
+        }}
+      />
 
       <Tooltip title="Save Annotation" placement="right">
         <IconButton size="small" data-tool="save" onClick={onSave} disabled={isSaving} color="success">
