@@ -45,8 +45,9 @@ export const useColabKernel = (): KernelManager => {
 
     try {
       console.log('[Colab Kernel] Loading kernel module...');
-      const baseUrl = process.env.PUBLIC_URL || '';
-      const WebPythonKernel = await import(/* webpackIgnore: true */ `${baseUrl}/web-python-kernel.mjs`);
+      // Resolve relative to the page URL, not the JS module location
+      const pageBase = new URL('.', window.location.href).href;
+      const WebPythonKernel = await import(/* webpackIgnore: true */ `${pageBase}web-python-kernel.mjs`);
 
       (window as any).WebPythonKernel = WebPythonKernel;
       window.dispatchEvent(new Event('web-python-kernel-loaded'));
@@ -262,6 +263,16 @@ export const useColabKernel = (): KernelManager => {
     }
 
     initializeKernel();
+
+    return () => {
+      const manager = kernelManagerRef.current?.manager;
+      const kernelId = currentKernelIdRef.current;
+      if (manager && kernelId) {
+        console.log('[Colab Kernel] Destroying kernel on unmount...');
+        manager.destroyKernel(kernelId).catch((e: any) => console.error('[Colab Kernel] Error destroying kernel:', e));
+        currentKernelIdRef.current = null;
+      }
+    };
   }, [loadWebPythonKernel, createExecuteCodeFunction]);
 
   // Function to interrupt kernel execution

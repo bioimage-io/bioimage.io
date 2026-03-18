@@ -17,6 +17,7 @@ interface SessionModalProps {
   user: any;
   artifactManager: any;
   resumeArtifactId?: string | null;
+  cellposeModel?: string;
 }
 
 type DataSourceType = 'local' | 'upload' | 'resume';
@@ -38,6 +39,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   user,
   artifactManager,
   resumeArtifactId: initialResumeArtifactId,
+  cellposeModel,
 }) => {
   // Step management
   const [step, setStep] = useState<'choose' | 'configure' | 'creating'>(
@@ -48,13 +50,9 @@ const SessionModal: React.FC<SessionModalProps> = ({
   );
 
   // Common state
-  const [sessionName, setSessionName] = useState(
-    localStorage.getItem('colabSessionName') || ''
-  );
-  const [sessionDescription, setSessionDescription] = useState(
-    localStorage.getItem('colabSessionDescription') || ''
-  );
-  const [label, setLabel] = useState(localStorage.getItem('colabSessionLabel') || '');
+  const [sessionName, setSessionName] = useState('');
+  const [sessionDescription, setSessionDescription] = useState('');
+  const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Local folder state
@@ -69,11 +67,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
   // Resume state
   const [resumeArtifactId, setResumeArtifactId] = useState(
-    initialResumeArtifactId || localStorage.getItem('colabResumeArtifactId') || ''
+    initialResumeArtifactId || ''
   );
   const [userArtifacts, setUserArtifacts] = useState<any[]>([]);
   const [availableLabels, setAvailableLabels] = useState<string[]>([]);
-  const [canUseLocal, setCanUseLocal] = useState(true);
+  const [canUseLocal, setCanUseLocal] = useState(false);
+  const [isLoadingArtifacts, setIsLoadingArtifacts] = useState(false);
+  const [artifactsFetched, setArtifactsFetched] = useState(false);
+  const [noArtifactsFound, setNoArtifactsFound] = useState(false);
 
   const supportedExtensions = ['.png', '.jpg', '.jpeg', '.tif', '.tiff'];
 
@@ -83,10 +84,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
     return userAgent.includes('chrome') || userAgent.includes('chromium') || userAgent.includes('edge');
   };
 
-  // Fetch user's artifacts
+  // Fetch user's artifacts immediately on mount
   useEffect(() => {
-    const fetchArtifacts = async () => {
+    const fetchUserArtifacts = async () => {
       if (!artifactManager || !user) return;
+      setIsLoadingArtifacts(true);
+      setNoArtifactsFound(false);
+      setError(null);
       try {
         const artifacts = await artifactManager.list({
           parent_id: "bioimage-io/colab-annotations",
@@ -96,13 +100,51 @@ const SessionModal: React.FC<SessionModalProps> = ({
         const myArtifacts = artifacts.filter((a: any) =>
           a.manifest?.owner?.id === user.id || a.manifest?.created_by === user.id
         );
-        setUserArtifacts(myArtifacts);
+
+        // Read full details for each to get the latest labels 
+        const fetchedArtifacts = await Promise.all(
+          myArtifacts.map(async (a: any) => {
+            try {
+              return await artifactManager.read({
+                 artifact_id: a.id,
+                 stage: true,
+                 _rkwargs: true
+              });
+            } catch (e) {
+              console.error("Failed to read details for", a.id, e);
+              return a; // fallback to shallow info
+            }
+          })
+        );
+
+        setUserArtifacts(fetchedArtifacts);
+        if (fetchedArtifacts.length === 0) {
+          setNoArtifactsFound(true);
+        }
+
+        // Initialize labels if resumeArtifactId is already set
+        if (initialResumeArtifactId) {
+          const artifact = fetchedArtifacts.find(a => a.id === initialResumeArtifactId);
+          if (artifact) {
+            const labels = artifact.manifest?.labels || [];
+            if (labels.length > 0) {
+              setAvailableLabels(labels);
+              // Only override the label if it wasn't already set, or just use the first available
+              setLabel(prev => prev || labels[0]);
+            }
+          }
+        }
       } catch (e) {
         console.error("Failed to fetch artifacts", e);
+        // Error handling if it fails entirely
+        setError("Failed to fetch user sessions.");
+      } finally {
+        setIsLoadingArtifacts(false);
+        setArtifactsFetched(true);
       }
     };
-    fetchArtifacts();
-  }, [artifactManager, user]);
+    fetchUserArtifacts();
+  }, [artifactManager, user, initialResumeArtifactId]);
 
   const handleLocalFolderSelect = async () => {
     try {
@@ -219,21 +261,24 @@ const SessionModal: React.FC<SessionModalProps> = ({
     setResumeArtifactId(artifactId);
     if (artifactId && userArtifacts.length > 0) {
       const artifact = userArtifacts.find(a => a.id === artifactId);
-      if (artifact?.manifest) {
-        const labels = artifact.manifest.labels || [];
+      if (artifact) {
+        const labels = artifact.manifest?.labels || [];
         setAvailableLabels(labels);
         if (labels.length > 0) setLabel(labels[0]);
 
-        let name = artifact.manifest.name || '';
+        let name = artifact.manifest?.name || '';
         if (name.startsWith('Annotation Session ')) {
           name = name.substring('Annotation Session '.length);
         }
         setSessionName(name);
 
-        let description = artifact.manifest.description || '';
+        let description = artifact.manifest?.description || '';
         description = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
         setSessionDescription(description);
       }
+    } else {
+      setAvailableLabels([]);
+      setLabel('');
     }
   };
 
@@ -310,12 +355,17 @@ const SessionModal: React.FC<SessionModalProps> = ({
     setIsRunning(true);
 
     try {
-      // Save to localStorage
-      localStorage.setItem('colabSessionName', sessionName);
-      localStorage.setItem('colabSessionDescription', sessionDescription);
-      localStorage.setItem('colabSessionLabel', label);
-
-      const token = localStorage.getItem('token') || '';
+      let token = localStorage.getItem('token') || '';
+      if (!token && typeof server?.generateToken === 'function') {
+        try {
+          token = await server.generateToken();
+        } catch (tokenError) {
+          console.warn('Failed to generate token for Python service:', tokenError);
+        }
+      }
+      if (!token) {
+        throw new Error('Authentication token missing. Please log in again.');
+      }
       const serverUrl = server.config.publicBaseUrl;
       let targetArtifactId = '';
       let shouldMountLocal = false;
@@ -325,7 +375,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
         console.log('Creating artifact for lazy upload (local folder)...');
         const manifest = {
           name: `Annotation Session ${sessionName}`,
-          description: `${sessionDescription} (Owner: ${user.email})`,
+          description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
           owner: { id: user.id, email: user.email },
           labels: [label],
           data_source: 'lazy_upload'
@@ -345,7 +395,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
         console.log('Creating artifact for eager upload...');
         const manifest = {
           name: `Annotation Session ${sessionName}`,
-          description: `${sessionDescription} (Owner: ${user.email})`,
+          description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
           owner: { id: user.id, email: user.email },
           labels: [label],
           data_source: 'eager_upload'
@@ -363,19 +413,9 @@ const SessionModal: React.FC<SessionModalProps> = ({
       } else if (dataSourceType === 'resume') {
         console.log('Resuming existing session...');
         targetArtifactId = resumeArtifactId;
-        localStorage.setItem('colabResumeArtifactId', targetArtifactId);
 
-        // Check if artifact has input_images
-        try {
-          const files = await artifactManager.list_files({
-            artifact_id: targetArtifactId,
-            dir_path: 'input_images',
-            _rkwargs: true
-          });
-          shouldMountLocal = files.length === 0 && canUseLocal && localFolderHandle !== null;
-        } catch {
-          shouldMountLocal = canUseLocal && localFolderHandle !== null;
-        }
+        // User can always mount local folder if requested, regardless of existing cloud images
+        shouldMountLocal = canUseLocal && localFolderHandle !== null;
 
         // Update labels if needed
         const artifact = userArtifacts.find(a => a.id === targetArtifactId);
@@ -405,25 +445,42 @@ print("Packages installed", end='')
 `;
 
       let hasError = false;
+      let lastPythonError: string | null = null;
       await executeCode(installCode, {
         onOutput: (output: any) => {
-          if (output.type === 'error') hasError = true;
+          if (output.type === 'error') {
+            hasError = true;
+            lastPythonError = output.content || output.short_content || 'Unknown Python error';
+          }
         },
       });
 
-      if (hasError) throw new Error('Failed to install Python packages');
+      if (hasError) {
+        throw new Error(
+          `Failed to install Python packages${lastPythonError ? `: ${lastPythonError}` : ''}`
+        );
+      }
 
       // Load service code
       console.log('Loading service code...');
       const serviceCodeResponse = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
       const serviceCode = await serviceCodeResponse.text();
+      hasError = false;
+      lastPythonError = null;
       await executeCode(serviceCode, {
         onOutput: (output: any) => {
-          if (output.type === 'error') hasError = true;
+          if (output.type === 'error') {
+            hasError = true;
+            lastPythonError = output.content || output.short_content || 'Unknown Python error';
+          }
         },
       });
 
-      if (hasError) throw new Error('Failed to load service code');
+      if (hasError) {
+        throw new Error(
+          `Failed to load service code${lastPythonError ? `: ${lastPythonError}` : ''}`
+        );
+      }
 
       // Mount local folder if needed
       if (shouldMountLocal && mountDirectory && localFolderHandle) {
@@ -437,11 +494,18 @@ files = list_image_files(Path("/mnt"))
 print(f"Found {len(files)} images", end='')
 `, {
           onOutput: (output: any) => {
-            if (output.type === 'error') hasError = true;
+            if (output.type === 'error') {
+              hasError = true;
+              lastPythonError = output.content || output.short_content || 'Unknown Python error';
+            }
           },
         });
 
-        if (hasError) throw new Error('Failed to verify mounted folder');
+        if (hasError) {
+          throw new Error(
+            `Failed to verify mounted folder${lastPythonError ? `: ${lastPythonError}` : ''}`
+          );
+        }
       }
 
       // Register service
@@ -457,23 +521,33 @@ service_info = await register_service(
     server_url="${serverUrl}",
     token="${token}",
     name="${sessionName}",
-    description="${sessionDescription} (Owner: ${user.email})",
+    description="${sessionDescription}",
     artifact_id="${targetArtifactId}",
     images_path=${imagesPath},
     label="${label}",
     client_id="${clientId}",
     service_id="${serviceId}",
+    cellpose_model="${cellposeModel || ''}"
 )
 print("Service registered successfully", end='')
 `;
 
+      hasError = false;
+      lastPythonError = null;
       await executeCode(registerCode, {
         onOutput: (output: any) => {
-          if (output.type === 'error') hasError = true;
+          if (output.type === 'error') {
+            hasError = true;
+            lastPythonError = output.content || output.short_content || 'Unknown Python error';
+          }
         },
       });
 
-      if (hasError) throw new Error('Failed to register service');
+      if (hasError) {
+        throw new Error(
+          `Failed to register service${lastPythonError ? `: ${lastPythonError}` : ''}`
+        );
+      }
 
       console.log('Service registered successfully');
       const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
@@ -484,17 +558,17 @@ print("Service registered successfully", end='')
         await uploadFilesToArtifact(fullServiceId);
       }
 
-      // Generate annotation URL using the known service ID
-      const pluginCommitHash = '6a18797';
-      const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
-      const configStr = JSON.stringify({
-        serverUrl: serverUrl,
-        imageProviderId: fullServiceId,
+      // Generate annotation URL pointing to our own #/annotate page
+      const annotateParams = new URLSearchParams({
+        server_url: serverUrl,
+        image_provider_id: fullServiceId,
         label: label,
-        // token: token,
       });
-      const encodedConfig = encodeURIComponent(configStr);
-      const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
+      if (targetArtifactId) {
+        annotateParams.set('session_id', targetArtifactId);
+      }
+      const baseUrl = window.location.origin + window.location.pathname;
+      const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
       console.log('Annotation URL:', annotatorUrl);
       console.log('Selected Label:', label);
@@ -556,30 +630,7 @@ print("Service registered successfully", end='')
             </div>
             <div className="flex-1">
               <h4 className="font-semibold text-gray-800 mb-1">Mount Local Folder</h4>
-              <p className="text-sm text-gray-600">Start immediately. Images uploaded as you annotate.</p>
-              <span className="inline-block mt-2 text-xs font-medium text-purple-600">Recommended for large datasets</span>
-            </div>
-          </div>
-        </button>
-
-        {/* Option 2: Upload Files - Eager Upload */}
-        <button
-          onClick={() => {
-            setDataSourceType('upload');
-            setStep('configure');
-          }}
-          className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
-        >
-          <div className="flex items-start">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-blue-200">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <h4 className="font-semibold text-gray-800 mb-1">Upload to Cloud</h4>
-              <p className="text-sm text-gray-600">Upload all images first. Fully backed up before starting.</p>
-              <span className="inline-block mt-2 text-xs font-medium text-blue-600">Best for small to medium datasets</span>
+              <p className="text-sm text-gray-600">Start a new annotation project from scratch.</p>
             </div>
           </div>
         </button>
@@ -590,20 +641,27 @@ print("Service registered successfully", end='')
             setDataSourceType('resume');
             setStep('configure');
           }}
-          disabled={userArtifacts.length === 0}
+          disabled={isLoadingArtifacts || userArtifacts.length === 0}
           className="p-6 border-2 border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex items-start">
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-green-200">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              {isLoadingArtifacts ? (
+                <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
             </div>
             <div className="flex-1">
               <h4 className="font-semibold text-gray-800 mb-1">Resume Previous Session</h4>
               <p className="text-sm text-gray-600">Continue working on an existing annotation project.</p>
-              {userArtifacts.length > 0 && (
+              {!isLoadingArtifacts && userArtifacts.length > 0 && (
                 <span className="inline-block mt-2 text-xs font-medium text-green-600">{userArtifacts.length} session(s) available</span>
+              )}
+              {!isLoadingArtifacts && userArtifacts.length === 0 && (
+                <span className="inline-block mt-2 text-xs font-medium text-gray-500">No sessions available</span>
               )}
             </div>
           </div>
@@ -647,7 +705,7 @@ print("Service registered successfully", end='')
                   <p className="text-xs text-yellow-700 mt-1">
                     Local folder mounting works best in Chromium-based browsers (Chrome, Edge, Brave).
                     Your current browser may not support the File System Access API.
-                    Consider using "Upload to Cloud" instead or switch to a Chromium browser.
+                    Consider switching to a Chromium browser.
                   </p>
                 </div>
               </div>
@@ -671,144 +729,102 @@ print("Service registered successfully", end='')
         </div>
       )}
 
-      {dataSourceType === 'upload' && (
-        <div className="space-y-3">
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start">
-              <svg className="w-5 h-5 text-blue-600 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-sm text-blue-800 font-medium">Eager Upload Mode</p>
-                <p className="text-xs text-blue-700 mt-1">
-                  All selected images will be uploaded before annotation starts. Supports files and folders.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select or Drag Images/Folders
-            </label>
-
-            {/* Drag and Drop Area */}
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-all ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-              }`}
-            >
-              <input
-                type="file"
-                multiple
-                accept={supportedExtensions.join(',')}
-                onChange={handleFileSelect}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                title="Click to select files or drag and drop"
-              />
-
-              <div className="pointer-events-none">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <p className="mt-2 text-sm text-gray-600">
-                  <span className="font-semibold">Click to browse</span> or drag files/folders here
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Supported: PNG, JPG, JPEG, TIF, TIFF
-                </p>
-              </div>
-            </div>
-
-            {selectedFiles.length > 0 && (
-              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-700 font-medium">
-                  {selectedFiles.length} file(s) selected
-                </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  Total size: {Math.round(selectedFiles.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024 * 10) / 10} MB
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {dataSourceType === 'resume' && (
         <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Session to Resume
-            </label>
-            <select
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              value={resumeArtifactId}
-              onChange={(e) => handleResumeArtifactChange(e.target.value)}
-            >
-              <option value="">Choose a session...</option>
-              {userArtifacts.map(artifact => {
-                // Clean up the name by removing "Annotation Session " prefix
-                let displayName = artifact.manifest?.name || artifact.id;
-                if (displayName.startsWith('Annotation Session ')) {
-                  displayName = displayName.substring('Annotation Session '.length);
-                }
-
-                // Get short artifact ID (last part after /)
-                const shortId = artifact.id.split('/').pop() || artifact.id;
-
-                return (
-                  <option key={artifact.id} value={artifact.id}>
-                    {shortId} - {displayName} ({artifact.manifest?.labels?.join(', ') || 'no labels'})
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          {resumeArtifactId && (
+          {noArtifactsFound ? (
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+              No previous sessions found. Please start a new session instead.
+            </div>
+          ) : (
             <>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="useLocalFolder"
-                  checked={canUseLocal}
-                  onChange={(e) => setCanUseLocal(e.target.checked)}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-                <label htmlFor="useLocalFolder" className="text-sm text-gray-700">
-                  Also mount local folder for this session
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Session to Resume
                 </label>
+                <select
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  value={resumeArtifactId}
+                  onChange={(e) => handleResumeArtifactChange(e.target.value)}
+                >
+                  <option value="" disabled>Choose a Session...</option>
+                  {userArtifacts.map(artifact => {
+                    let displayName = artifact.manifest?.name || artifact.id;
+                    if (displayName.startsWith('Annotation Session ')) {
+                      displayName = displayName.substring('Annotation Session '.length);
+                    }
+                    const shortId = artifact.id.split('/').pop() || artifact.id;
+                    return (
+                      <option key={artifact.id} value={artifact.id}>
+                        {shortId} - {displayName} ({artifact.manifest?.labels?.join(', ') || 'no labels'})
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
-              {canUseLocal && (
-                <button
-                  onClick={handleLocalFolderSelect}
-                  className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-all text-sm"
-                >
-                  {localFolderHandle ? `${localFolderHandle.name} (${localFileCount} images)` : 'Choose Folder (Optional)'}
-                </button>
-              )}
+              {resumeArtifactId && (
+                <>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="useLocalFolder"
+                      checked={canUseLocal}
+                      onChange={(e) => setCanUseLocal(e.target.checked)}
+                      className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <label htmlFor="useLocalFolder" className="text-sm text-gray-700">
+                      Add images from local folder to this session
+                    </label>
+                  </div>
 
-              {availableLabels.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Continue with Label
-                  </label>
-                  <select
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                  >
-                    {availableLabels.map(lbl => (
-                      <option key={lbl} value={lbl}>{lbl}</option>
-                    ))}
-                  </select>
-                </div>
+                  {canUseLocal && (
+                    <button
+                      onClick={handleLocalFolderSelect}
+                      className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-all text-sm"
+                    >
+                      {localFolderHandle ? `${localFolderHandle.name} (${localFileCount} images)` : 'Choose Folder'}
+                    </button>
+                  )}
+
+                  {availableLabels.length > 0 ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Continue with Label
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        value={availableLabels.includes(label) ? label : '__new__'}
+                        onChange={(e) => {
+                          if (e.target.value === '__new__') {
+                            setLabel('');
+                          } else {
+                            setLabel(e.target.value);
+                          }
+                        }}
+                      >
+                        {availableLabels.map(lbl => (
+                          <option key={lbl} value={lbl}>{lbl}</option>
+                        ))}
+                        <option value="__new__">+ Create new label...</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Start with Label
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        value="__new__"
+                        onChange={(e) => {
+                          setLabel(e.target.value === '__new__' ? '' : e.target.value);
+                        }}
+                      >
+                        <option value="__new__">+ Create new label...</option>
+                      </select>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -846,23 +862,24 @@ print("Service registered successfully", end='')
         </>
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Annotation Label
-          <span className="text-xs text-gray-500 ml-2">(e.g., nuclei, cells, mitochondria)</span>
-        </label>
-        <input
-          type="text"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-          placeholder="e.g., nuclei"
-          value={label}
-          onChange={(e) => setLabel(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
-          disabled={dataSourceType === 'resume' && availableLabels.length > 0}
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          Only letters, numbers, dots, underscores, and hyphens allowed
-        </p>
-      </div>
+      {(dataSourceType !== 'resume' || (resumeArtifactId && (!availableLabels.length || !availableLabels.includes(label)))) && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Annotation Label
+            <span className="text-xs text-gray-500 ml-2">(e.g., nuclei, cells, mitochondria)</span>
+          </label>
+          <input
+            type="text"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            placeholder="e.g., nuclei"
+            value={label}
+            onChange={(e) => setLabel(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Only letters, numbers, dots, underscores, and hyphens allowed
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">

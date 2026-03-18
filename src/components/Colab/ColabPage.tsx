@@ -41,6 +41,25 @@ const ColabPage: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [cellposeModel, setCellposeModel] = useState('Base');
+
+  const handleCellposeModelChange = (model: string) => {
+    setCellposeModel(model);
+
+    // Keep the running annotation service in sync when available.
+    if (executeCode) {
+      executeCode(`
+try:
+    if "service_info" in globals() and "_hypha_client" in globals():
+        svc_id = service_info["service_id"]
+        svc = await _hypha_client.get_service(svc_id)
+        await svc.set_cellpose_model("${model}")
+        print(f"Updated cellpose model to {model}")
+except Exception as e:
+    print(f"Failed to update cellpose model: {e}")
+      `).catch(console.error);
+    }
+  };
 
   // Supported file types
   const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
@@ -89,7 +108,17 @@ const ColabPage: React.FC = () => {
         try {
           setIsRunning(true);
 
-          const token = localStorage.getItem('token') || '';
+          let token = localStorage.getItem('token') || '';
+          if (!token && typeof server?.generateToken === 'function') {
+            try {
+              token = await server.generateToken();
+            } catch (tokenError) {
+              console.warn('Failed to generate token for Python service:', tokenError);
+            }
+          }
+          if (!token) {
+            throw new Error('Authentication token missing. Please log in again.');
+          }
           const serverUrl = server.config.publicBaseUrl;
 
           // Install Python packages
@@ -101,25 +130,42 @@ print("Packages installed", end='')
 `;
 
           let hasError = false;
+          let lastPythonError: string | null = null;
           await executeCode(installCode, {
             onOutput: (output: any) => {
-              if (output.type === 'error') hasError = true;
+              if (output.type === 'error') {
+                hasError = true;
+                lastPythonError = output.content || output.short_content || 'Unknown Python error';
+              }
             },
           });
 
-          if (hasError) throw new Error('Failed to install Python packages');
+          if (hasError) {
+            throw new Error(
+              `Failed to install Python packages${lastPythonError ? `: ${lastPythonError}` : ''}`
+            );
+          }
 
           // Load service code
           console.log('Loading service code...');
           const serviceCodeResponse = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
           const serviceCode = await serviceCodeResponse.text();
+          hasError = false;
+          lastPythonError = null;
           await executeCode(serviceCode, {
             onOutput: (output: any) => {
-              if (output.type === 'error') hasError = true;
+              if (output.type === 'error') {
+                hasError = true;
+                lastPythonError = output.content || output.short_content || 'Unknown Python error';
+              }
             },
           });
 
-          if (hasError) throw new Error('Failed to load service code');
+          if (hasError) {
+            throw new Error(
+              `Failed to load service code${lastPythonError ? `: ${lastPythonError}` : ''}`
+            );
+          }
 
           // Get artifact info to determine label
           // If sessionId contains '/', it's an absolute artifact ID (workspace/alias)
@@ -181,30 +227,39 @@ service_info = await register_service(
     label="${sessionLabel}",
     client_id="${clientId}",
     service_id="${serviceId}",
+    cellpose_model="${cellposeModel || ''}"
 )
 print("Service registered successfully", end='')
 `;
 
           await executeCode(registerCode, {
             onOutput: (output: any) => {
-              if (output.type === 'error') hasError = true;
+              if (output.type === 'error') {
+                hasError = true;
+                lastPythonError = output.content || output.short_content || 'Unknown Python error';
+              }
             },
           });
 
-          if (hasError) throw new Error('Failed to register service');
+          if (hasError) {
+            throw new Error(
+              `Failed to register service${lastPythonError ? `: ${lastPythonError}` : ''}`
+            );
+          }
 
           const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
 
-          // Generate annotation URL
-          const pluginCommitHash = '6a18797';
-          const pluginUrl = `https://raw.githubusercontent.com/bioimage-io/bioimageio-colab/${pluginCommitHash}/plugins/bioimageio-colab-annotator.imjoy.html`;
-          const configStr = JSON.stringify({
-            serverUrl: serverUrl,
-            imageProviderId: fullServiceId,
+          // Generate annotation URL pointing to our own #/annotate page
+          const annotateParams = new URLSearchParams({
+            server_url: serverUrl,
+            image_provider_id: fullServiceId,
             label: sessionLabel,
           });
-          const encodedConfig = encodeURIComponent(configStr);
-          const annotatorUrl = `https://imjoy.io/lite?plugin=${pluginUrl}&config=${encodedConfig}`;
+          if (fullArtifactId) {
+            annotateParams.set('session_id', fullArtifactId);
+          }
+          const baseUrl = window.location.origin + window.location.pathname;
+          const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
           // Update state
           setAnnotationURL(annotatorUrl);
@@ -218,10 +273,17 @@ print("Service registered successfully", end='')
 
           console.log('✓ Session loaded from URL successfully!');
           setIsRunning(false);
-        } catch (err) {
+        } catch (err: any) {
           console.error('Failed to auto-load session:', err);
-          alert('Failed to load session: ' + (err as Error).message);
           setIsRunning(false);
+          
+          if (err.message && err.message.includes('does not exist')) {
+            alert('This session no longer exists or has been deleted.');
+            navigate('/colab', { replace: true });
+          } else {
+            alert('Failed to load session: ' + err.message);
+          }
+          
           // Fallback: show modal for manual configuration
           setShowSessionModal(true);
         }
@@ -259,40 +321,53 @@ print("Service registered successfully", end='')
     }
   };
 
-  // Load images from artifact for cloud-only mode (upload or resume without local folder)
-  useEffect(() => {
-    const loadImagesFromArtifact = async () => {
-      if (dataArtifactId && !imageFolderHandle && artifactManager) {
-        try {
-          setIsLoadingImages(true);
-          console.log('Loading images from artifact for cloud-only mode...');
-          const files = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: 'input_images',
-            _rkwargs: true
-          });
-          const imageNames = files.map((f: any) => f.name);
-          setImageList(imageNames);
-          console.log(`Loaded ${imageNames.length} images from artifact`);
-        } catch (error) {
-          console.error('Error loading images from artifact:', error);
-          setImageList([]);
-        } finally {
-          setIsLoadingImages(false);
-        }
-      }
-    };
-    loadImagesFromArtifact();
-  }, [dataArtifactId, imageFolderHandle, artifactManager]);
+  // Load and merge images from artifact and local folder
+  const loadAllImages = async () => {
+    if (!dataArtifactId && !imageFolderHandle) return;
+    
+    setIsLoadingImages(true);
+    const allFiles = new Set<string>();
 
-  // Update images when folder is mounted (for local mode only)
-  useEffect(() => {
-    if (imageFolderHandle && supportedFileTypes.length > 0) {
-      updateFileList(imageFolderHandle, setImageList, setIsLoadingImages);
-      // Note: Don't clear annotationURL/dataArtifactId here anymore
-      // as they're managed by the session modal
+    // 1. Fetch cloud images if we have an artifact ID
+    if (dataArtifactId && artifactManager) {
+      try {
+        console.log('Loading images from artifact...');
+        const files = await artifactManager.list_files({
+          artifact_id: dataArtifactId,
+          dir_path: 'input_images',
+          _rkwargs: true
+        });
+        const imageNames = files.map((f: any) => f.name);
+        imageNames.forEach((name: string) => allFiles.add(name));
+        console.log(`Loaded ${imageNames.length} images from artifact`);
+      } catch (error) {
+        console.log('No cloud images or failed to fetch:', error);
+      }
     }
-  }, [imageFolderHandle, supportedFileTypes]);
+
+    // 2. Fetch local images if we have a folder handle
+    if (imageFolderHandle && supportedFileTypes.length > 0) {
+      try {
+        for await (const entry of (imageFolderHandle as any).values()) {
+          if (entry.kind === 'file') {
+            const fileType = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+            if (supportedFileTypes.includes(fileType)) {
+              allFiles.add(entry.name);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error updating local file list:', error);
+      }
+    }
+
+    setImageList(Array.from(allFiles).sort());
+    setIsLoadingImages(false);
+  };
+
+  useEffect(() => {
+    loadAllImages();
+  }, [dataArtifactId, imageFolderHandle, artifactManager, supportedFileTypes]);
 
   // Cleanup refresh interval on unmount
   useEffect(() => {
@@ -306,9 +381,7 @@ print("Service registered successfully", end='')
   }, []);
 
   const updateImages = async () => {
-    if (imageFolderHandle) {
-      await updateFileList(imageFolderHandle, setImageList, setIsLoadingImages);
-    }
+    await loadAllImages();
   };
 
   const updateAnnotations = async () => {
@@ -391,6 +464,7 @@ print("Service registered successfully", end='')
     setAnnotationsList([]);
     setAnnotationURL('');
     setLabel('');
+    navigate('/colab', { replace: true });
   };
 
   const handleUploadAll = async () => {
@@ -403,12 +477,21 @@ print("Service registered successfully", end='')
       console.log(`Uploading ${imageList.length} images to cloud...`);
 
       // Extract service ID from annotation URL
-      const configMatch = annotationURL.match(/config=([^&]+)/);
-      if (!configMatch) {
+      let serviceId = null;
+      const serviceIdMatch = annotationURL.match(/image_provider_id=([^&]+)/);
+      if (serviceIdMatch) {
+        serviceId = decodeURIComponent(serviceIdMatch[1]);
+      } else {
+        const configMatch = annotationURL.match(/config=([^&]+)/);
+        if (configMatch) {
+          const config = JSON.parse(decodeURIComponent(configMatch[1]));
+          serviceId = config.imageProviderId;
+        }
+      }
+
+      if (!serviceId) {
         throw new Error('Could not extract service ID from annotation URL');
       }
-      const config = JSON.parse(decodeURIComponent(configMatch[1]));
-      const serviceId = config.imageProviderId;
 
       // Get the data provider service
       const dataService = await server.getService(serviceId);
@@ -651,6 +734,10 @@ print("Service registered successfully", end='')
               server={server}
               onDelete={() => setShowDeleteModal(true)}
               onUploadAll={handleUploadAll}
+              onRefresh={async () => {
+                await updateImages();
+                await updateAnnotations();
+              }}
             />
           ) : (
             <div className="h-full bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md flex flex-col overflow-hidden">
@@ -745,6 +832,7 @@ print("Service registered successfully", end='')
           user={user}
           artifactManager={artifactManager}
           resumeArtifactId={resumeArtifactId}
+          cellposeModel={cellposeModel}
         />
       )}
 
@@ -754,6 +842,10 @@ print("Service registered successfully", end='')
           label={label}
           dataArtifactId={dataArtifactId}
           setShowShareModal={setShowShareModal}
+          cellposeModel={cellposeModel}
+          server={server}
+          artifactManager={artifactManager}
+          onCellposeModelChange={handleCellposeModelChange}
         />
       )}
 
@@ -772,6 +864,9 @@ print("Service registered successfully", end='')
           dataArtifactId={dataArtifactId}
           label={label}
           server={server}
+          artifactManager={artifactManager}
+          cellposeModel={cellposeModel}
+          onCellposeModelChange={handleCellposeModelChange}
         />
       )}
 

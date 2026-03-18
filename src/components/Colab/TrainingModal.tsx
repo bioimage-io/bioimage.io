@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 interface TrainingModalProps {
   setShowTrainingModal: (show: boolean) => void;
   dataArtifactId: string | null;
   label: string;
   server: any;
+  artifactManager?: any;
+  cellposeModel?: string;
+  onCellposeModelChange?: (model: string) => void;
 }
 
 interface ExistingModel {
@@ -21,8 +23,9 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   dataArtifactId,
   label,
   server,
+  cellposeModel = 'Base',
+  onCellposeModelChange,
 }) => {
-  const navigate = useNavigate();
   const [mode, setMode] = useState<'choose' | 'new' | 'existing'>('choose');
   const [isStarting, setIsStarting] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -30,7 +33,12 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   const [existingModels, setExistingModels] = useState<ExistingModel[]>([]);
 
   // Training configuration for new training
-  const [selectedModel, setSelectedModel] = useState('cpsam');
+  const toTrainingModel = (model: string) => (model === 'Base' ? 'cpsam' : model);
+  const toSharedModel = (model: string) => (model === 'cpsam' ? 'Base' : model);
+  const isSharedExistingModel = cellposeModel !== 'Base' && cellposeModel !== 'cpsam';
+  const [selectedModel, setSelectedModel] = useState(
+    isSharedExistingModel ? 'cpsam' : toTrainingModel(cellposeModel)
+  );
   const [epochs, setEpochs] = useState(10);
   const [learningRate, setLearningRate] = useState(0.000001);
   const [weightDecay, setWeightDecay] = useState(0.0001);
@@ -40,9 +48,17 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   const [testImages, setTestImages] = useState<string>('');
   const [testAnnotations, setTestAnnotations] = useState<string>('');
 
-  const availableModels = [
+  const [availableModels, setAvailableModels] = useState<{ value: string; label: string; description: string }[]>([
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
-  ];
+  ]);
+
+  const toErrorMessage = (err: unknown): string => {
+    const text = err instanceof Error ? err.message : String(err);
+    if (text.includes('HYPHA_TOKEN environment variable not set')) {
+      return 'Training service cannot access dataset-specific models right now.';
+    }
+    return text;
+  };
 
   // Load existing models when switching to existing mode
   useEffect(() => {
@@ -51,27 +67,41 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     }
   }, [mode, dataArtifactId, server]);
 
+  // Keep dialog selection synchronized with parent-level shared model.
+  useEffect(() => {
+    // When annotation currently uses a fine-tuned/in-progress model,
+    // keep "Start New Training" defaulted to base model and nudge users to Existing Models.
+    if (cellposeModel !== 'Base' && cellposeModel !== 'cpsam') {
+      setSelectedModel('cpsam');
+      return;
+    }
+    setSelectedModel(toTrainingModel(cellposeModel));
+  }, [cellposeModel]);
+
   const loadExistingModels = async () => {
-    if (!dataArtifactId || !server) return;
+    if (!dataArtifactId) return;
 
     setIsLoadingModels(true);
     setError(null);
 
     try {
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
-      const models = await cellposeService.list_models_by_dataset(
-        dataArtifactId,
-        {
-          collection: 'bioimage-io/colab-annotations',
-          _rkwargs: true
-        }
-      );
+      if (server) {
+        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+        const models = await cellposeService.list_models_by_dataset(
+          dataArtifactId,
+          {
+            collection: 'bioimage-io/colab-annotations',
+            _rkwargs: true
+          }
+        );
 
-      setExistingModels(models);
-      console.log(`Loaded ${models.length} existing models for dataset`);
+        setExistingModels(models || []);
+        console.log(`Loaded ${models?.length || 0} existing models for dataset`);
+      }
     } catch (err) {
       console.error('Error loading existing models:', err);
-      setError(`Failed to load existing models: ${err instanceof Error ? err.message : String(err)}`);
+      setExistingModels([]);
+      setError(`Failed to load existing models: ${toErrorMessage(err)}`);
     } finally {
       setIsLoadingModels(false);
     }
@@ -94,6 +124,22 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     try {
       console.log('Getting cellpose-finetuning service...');
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+
+      console.log('Committing data artifact before training...');
+      const artifactManager = await server.getService('public/artifact-manager');
+      
+      await artifactManager.commit({
+        artifact_id: String(dataArtifactId),
+        comment: "Committing dataset before training",
+        _rkwargs: true
+      });
+
+      console.log('Resetting dataset artifact to edit mode...');
+      await artifactManager.edit({
+        artifact_id: String(dataArtifactId),
+        stage: true,
+        _rkwargs: true
+      });
 
       console.log('Starting training with artifact:', dataArtifactId);
 
@@ -128,11 +174,10 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       const sessionId = sessionStatus.session_id;
       console.log('Training started with session ID:', sessionId);
 
-      // Close modal and navigate to training page
+      // Close modal and open training page in a new tab.
       setShowTrainingModal(false);
-      navigate(`/training/${sessionId}`, {
-        state: { dataArtifactId, label }
-      });
+      const trainingUrl = `${window.location.origin}${window.location.pathname}#/training/${sessionId}`;
+      window.open(trainingUrl, '_blank', 'noopener,noreferrer');
 
     } catch (error) {
       console.error('Error starting training:', error);
@@ -143,18 +188,88 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     }
   };
 
-  const handleSelectExistingModel = (model: ExistingModel) => {
-    // Extract session ID from model ID (format: workspace/collection/session_id)
-    const sessionId = model.id.split('/').pop() || model.id;
+  const handleSelectExistingModel = async (model: ExistingModel) => {
+    try {
+      const candidates = new Set<string>();
 
-    setShowTrainingModal(false);
-    navigate(`/training/${sessionId}`, {
-      state: { dataArtifactId, label }
-    });
+      const addCandidate = (value?: string) => {
+        if (!value) return;
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        candidates.add(trimmed);
+        const lastSegment = trimmed.split('/').pop();
+        if (lastSegment && lastSegment !== trimmed) {
+          candidates.add(lastSegment);
+        }
+      };
+
+      // Prefer backend-provided session ID, then derive fallbacks from id/url.
+      addCandidate(model.session_id);
+      addCandidate(model.id);
+      addCandidate(model.url);
+
+      const candidateList = Array.from(candidates);
+      let resolvedSessionId = candidateList[0];
+
+      // Probe status for each candidate and pick the most plausible training session.
+      if (server && candidateList.length > 1) {
+        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'last' });
+
+        let bestScore = -1;
+        for (const candidate of candidateList) {
+          try {
+            const status = await cellposeService.get_training_status(candidate);
+            const statusType = String(status?.status_type || '').toLowerCase();
+            const message = String(status?.message || '').toLowerCase();
+
+            let score = 0;
+            if (['running', 'preparing', 'completed', 'failed', 'stopped'].includes(statusType)) score += 3;
+            if (status?.current_epoch != null) score += 2;
+            if (Array.isArray(status?.train_losses) && status.train_losses.length > 0) score += 2;
+            if (status?.total_epochs != null) score += 1;
+            if (status?.dataset_artifact_id) score += 1;
+            if (message.includes('waiting for training to start')) score -= 1;
+            if (message.includes('not found')) score -= 2;
+
+            if (score > bestScore) {
+              bestScore = score;
+              resolvedSessionId = candidate;
+            }
+          } catch {
+            // Ignore candidate probe failures and keep evaluating others.
+          }
+        }
+      }
+
+      if (!resolvedSessionId) {
+        setError('Could not resolve training session ID for this model.');
+        return;
+      }
+
+      setShowTrainingModal(false);
+      const trainingUrl = `${window.location.origin}${window.location.pathname}#/training/${resolvedSessionId}`;
+      window.open(trainingUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('Error resolving existing training session:', error);
+      setError(`Failed to open training session: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleString();
+  };
+
+  const isActiveExistingModel = (model: ExistingModel) => {
+    if (!cellposeModel || cellposeModel === 'Base' || cellposeModel === 'cpsam') {
+      return false;
+    }
+
+    const selected = String(cellposeModel);
+    return (
+      selected === String(model.id) ||
+      (model.session_id && selected === String(model.session_id)) ||
+      (model.url && selected === String(model.url))
+    );
   };
 
   return (
@@ -196,7 +311,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
           {mode === 'choose' && (
             <div className="space-y-4">
               <p className="text-gray-600 mb-6">
-                Choose whether to start a new training or view existing models trained on this dataset.
+                Choose whether to start a new training or continue an existing training session.
               </p>
 
               {/* Start New Training */}
@@ -225,7 +340,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
               {/* View Existing Models */}
               <button
                 onClick={() => setMode('existing')}
-                className="w-full p-6 border-2 border-purple-200 hover:border-purple-400 rounded-xl hover:bg-purple-50 transition-all group text-left"
+                className={`w-full p-6 border-2 rounded-xl transition-all group text-left ${
+                  isSharedExistingModel
+                    ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300 ring-offset-1 shadow-md'
+                    : 'border-purple-200 hover:border-purple-400 hover:bg-purple-50'
+                }`}
               >
                 <div className="flex items-start">
                   <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
@@ -238,6 +357,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                     <p className="text-sm text-gray-600">
                       Browse and monitor models that were previously trained on this dataset
                     </p>
+                    {isSharedExistingModel && (
+                      <p className="mt-2 inline-flex items-center text-xs font-medium text-purple-700 bg-purple-100 px-2 py-1 rounded-md">
+                        Recommended: Annotation currently uses a fine-tuned/in-progress model.
+                      </p>
+                    )}
                   </div>
                   <svg className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -259,6 +383,15 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                 Back
               </button>
 
+              {isSharedExistingModel && (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <p className="text-purple-700 text-sm">
+                    Collaboration is currently using a fine-tuned or in-progress model.
+                    If you want to continue from that model/session, use <strong>View Existing Models</strong>.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Model Type
@@ -266,7 +399,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                 <select
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSelectedModel(value);
+                    onCellposeModelChange?.(toSharedModel(value));
+                  }}
                   disabled={isStarting}
                 >
                   {availableModels.map((model) => (
@@ -467,7 +604,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                     <button
                       key={model.id}
                       onClick={() => handleSelectExistingModel(model)}
-                      className="w-full p-4 border-2 border-gray-200 hover:border-purple-400 rounded-xl hover:bg-purple-50 transition-all group text-left"
+                      className={`w-full p-4 border-2 rounded-xl transition-all group text-left ${
+                        isActiveExistingModel(model)
+                          ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300 ring-offset-1 shadow-md'
+                          : 'border-gray-200 hover:border-purple-400 hover:bg-purple-50'
+                      }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -476,8 +617,22 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                           <p className="text-xs text-gray-600">
                             Created: {formatDate(model.created_at)}
                           </p>
+                          {isActiveExistingModel(model) && (
+                            <p className="mt-2 inline-flex items-center text-xs font-medium text-purple-700 bg-purple-100 px-2 py-1 rounded-md">
+                              Selected in collaboration
+                            </p>
+                          )}
                         </div>
-                        <svg className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg
+                          className={`w-5 h-5 transition-colors flex-shrink-0 ml-2 ${
+                            isActiveExistingModel(model)
+                              ? 'text-purple-600'
+                              : 'text-gray-400 group-hover:text-purple-600'
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </div>

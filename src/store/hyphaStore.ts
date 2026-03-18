@@ -3,6 +3,9 @@ import { hyphaWebsocketClient } from 'hypha-rpc';
 // import { hRPC } from 'hypha';
 import { ArtifactInfo } from '../types/artifact';;
 
+let pendingConnectPromise: Promise<any> | null = null;
+let activeConnectKey: string | null = null;
+
 
 // Add a type for connection config
 interface ConnectionConfig {
@@ -63,7 +66,7 @@ export interface HyphaState {
   setMyArtifactsTotalItems: (total: number) => void;
   setReviewArtifactsPage: (page: number) => void;
   setReviewArtifactsTotalItems: (total: number) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -109,48 +112,77 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
   setSelectedResource: (artifact) => set({ selectedResource: artifact }),
   connect: async (config: ConnectionConfig) => {
-    set({ isConnecting: true, error: null });
-    try {
-      const client = hyphaWebsocketClient;
-      const server = await client.connectToServer(config);
-      
-      if (!server) {
-        throw new Error('Failed to connect to server');
-      }
+    const connectKey = `${config.server_url}|${config.token || ''}`;
+    const currentState = get();
 
-      const artifactManager = await server.getService('public/artifact-manager');
-
-      const isAuthenticated = !!config.token;
-      
-      set({
-        client,
-        server,
-        artifactManager,
-        isConnected: true,
-        isAuthenticated,
-        isLoggedIn: isAuthenticated,
-        user: server.config.user,
-        isInitialized: true,
-        isConnecting: false
-      });
-
-      return server;
-    } catch (error) {
-      console.error('Failed to connect to Hypha:', error);
-      set({ 
-        client: null,
-        server: null,
-        artifactManager: null,
-        isConnected: false,
-        isAuthenticated: false,
-        isLoggedIn: false,
-        user: null,
-        isInitialized: false,
-        isConnecting: false,
-        error: (error instanceof Error) ? error.message : 'Connection failed'
-      });
-      throw error;
+    if (currentState.server && currentState.isConnected && activeConnectKey === connectKey) {
+      return currentState.server;
     }
+
+    if (pendingConnectPromise) {
+      return pendingConnectPromise;
+    }
+
+    set({ isConnecting: true, error: null });
+
+    pendingConnectPromise = (async () => {
+      try {
+        const latestState = get();
+        if (latestState.server && typeof latestState.server.disconnect === 'function') {
+          try {
+            await latestState.server.disconnect();
+          } catch (disconnectError) {
+            console.warn('Failed to disconnect stale Hypha connection:', disconnectError);
+          }
+        }
+
+        const client = hyphaWebsocketClient;
+        const server = await client.connectToServer(config);
+
+        if (!server) {
+          throw new Error('Failed to connect to server');
+        }
+
+        const artifactManager = await server.getService('public/artifact-manager');
+
+        const isAuthenticated = !!config.token;
+
+        activeConnectKey = connectKey;
+        set({
+          client,
+          server,
+          artifactManager,
+          isConnected: true,
+          isAuthenticated,
+          isLoggedIn: isAuthenticated,
+          user: server.config.user,
+          isInitialized: true,
+          isConnecting: false
+        });
+
+        return server;
+      } catch (error) {
+        console.error('Failed to connect to Hypha:', error);
+        activeConnectKey = null;
+        set({
+          client: null,
+          server: null,
+          artifactManager: null,
+          isConnected: false,
+          isAuthenticated: false,
+          isLoggedIn: false,
+          user: null,
+          isInitialized: false,
+          isConnecting: false,
+          error: (error instanceof Error) ? error.message : 'Connection failed'
+        });
+        throw error;
+      } finally {
+        pendingConnectPromise = null;
+      }
+    })();
+
+    return pendingConnectPromise;
   },
   fetchResources: async (page: number, searchQuery?: string, filterOptions?: FilterOptions) => {
     set({ isLoading: true });
@@ -289,7 +321,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setMyArtifactsTotalItems: (total) => set({ myArtifactsTotalItems: total }),
   setReviewArtifactsPage: (page) => set({ reviewArtifactsPage: page }),
   setReviewArtifactsTotalItems: (total) => set({ reviewArtifactsTotalItems: total }),
-  logout: () => {
+  logout: async () => {
+    const currentServer = get().server;
+    if (currentServer && typeof currentServer.disconnect === 'function') {
+      try {
+        await currentServer.disconnect();
+      } catch (disconnectError) {
+        console.warn('Failed to disconnect from Hypha during logout:', disconnectError);
+      }
+    }
+
+    pendingConnectPromise = null;
+    activeConnectKey = null;
     set({
       client: hyphaWebsocketClient,
       server: null,

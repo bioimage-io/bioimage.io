@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { RiLoginBoxLine } from 'react-icons/ri';
@@ -43,6 +43,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const { client, user, connect, setUser, server, isConnecting, isConnected, logout } = useHyphaStore();
   const navigate = useNavigate();
   const location = useLocation(); // Get location
+  const autoLoginAttemptedRef = useRef(false);
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -67,7 +68,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear redirect path on logout
       
       // Perform logout logic - this will clear all connection state
-      logout();
+      await logout();
       setIsDropdownOpen(false);
       
       // Optionally redirect to home page
@@ -103,6 +104,10 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   };
 
   const handleLogin = useCallback(async () => {
+    if (isConnected && server) {
+      return;
+    }
+
     // Store the intended path BEFORE initiating login
     // Use location.pathname for BrowserRouter or location.hash for HashRouter
     // Assuming HashRouter based on snippet's use of location.hash
@@ -142,15 +147,19 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       setIsLoggingIn(false);
     }
     // Update dependencies: include location and connect
-  }, [connect, location.pathname, location.search, location.hash, navigate, login]);
+  }, [connect, location.pathname, location.search, location.hash, navigate, login, isConnected, server]);
 
 
   // Auto-login on component mount if token exists and not connected/connecting
   useEffect(() => {
     const autoLogin = async () => {
+      if (autoLoginAttemptedRef.current) {
+        return;
+      }
       const token = getSavedToken();
       // Only attempt auto-login if we have a token and are not already connected or connecting
       if (token && !isConnected && !isConnecting) {
+        autoLoginAttemptedRef.current = true;
         setIsLoggingIn(true); // Show visual feedback
         try {
           await connect({
@@ -233,6 +242,14 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                 onClick={() => setIsDropdownOpen(false)}
               >
                 BioEngine
+              </Link>
+
+              <Link
+                to="/colab"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                onClick={() => setIsDropdownOpen(false)}
+              >
+                Colab
               </Link>
               
               {/* Add API Documentation link */}

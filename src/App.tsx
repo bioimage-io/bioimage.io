@@ -21,10 +21,16 @@ import BioEngineHome from './components/BioEngine/BioEngineHome';
 import BioEngineWorker from './components/BioEngine/BioEngineWorker';
 import ColabPage from './components/Colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
+import AnnotatePage from './pages/AnnotatePage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
-  return pathname.startsWith('/edit/') || pathname === '/upload';
+  return pathname.startsWith('/edit/') || pathname === '/upload' || pathname === '/annotate';
+};
+
+// Hide the full navbar on the annotate page (it has its own compact header)
+const shouldHideNavbar = (pathname: string): boolean => {
+  return pathname === '/annotate';
 };
 
 // Create a wrapper component that uses Router hooks
@@ -33,6 +39,7 @@ const AppContent: React.FC = () => {
   const searchParams = new URLSearchParams(location.search);
   const hasResourceId = searchParams.has('id');
   const hideFooter = shouldHideFooter(location.pathname);
+  const hideNavbar = shouldHideNavbar(location.pathname);
 
   // Add state for Snackbar
   const [snackbarOpen, setSnackbarOpen] = React.useState(false);
@@ -53,7 +60,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Navbar />
+      {!hideNavbar && <Navbar />}
       <Snackbar 
         isOpen={snackbarOpen}
         message={snackbarMessage}
@@ -92,9 +99,10 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
           <Route path="/training/:sessionId?" element={<TrainingPage />} />
+          <Route path="/annotate" element={<AnnotatePage />} />
         </Routes>
       </main>
-      <Footer />
+      {!hideFooter && <Footer />}
     </div>
   );
 };
