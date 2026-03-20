@@ -102,7 +102,7 @@ const AppContent: React.FC = () => {
           <Route path="/api" element={<ApiDocs />} />
           <Route path="/toc" element={<TermsOfService />} />
           <Route path="/bioengine" element={<BioEngineHome />} />
-          <Route path="/bioengine-worker" element={<BioEngineWorker />} />
+          <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
           <Route path="/training" element={<TrainingRedirect />} />
           <Route path="/training/:sessionId" element={<TrainingRedirect />} />
