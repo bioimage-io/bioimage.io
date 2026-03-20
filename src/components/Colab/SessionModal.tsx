@@ -53,6 +53,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [sessionName, setSessionName] = useState('');
   const [sessionDescription, setSessionDescription] = useState('');
   const [label, setLabel] = useState('');
+  const [newLabelValue, setNewLabelValue] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Local folder state
@@ -75,6 +76,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [isLoadingArtifacts, setIsLoadingArtifacts] = useState(false);
   const [artifactsFetched, setArtifactsFetched] = useState(false);
   const [noArtifactsFound, setNoArtifactsFound] = useState(false);
+  const [isLoadingLabels, setIsLoadingLabels] = useState(false);
 
   const supportedExtensions = ['.png', '.jpg', '.jpeg', '.tif', '.tiff'];
 
@@ -82,6 +84,49 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const isChromiumBrowser = () => {
     const userAgent = navigator.userAgent.toLowerCase();
     return userAgent.includes('chrome') || userAgent.includes('chromium') || userAgent.includes('edge');
+  };
+
+  const extractLabelsFromFileList = (files: any[]): string[] => {
+    const labels = new Set<string>();
+
+    console.log('📁 Extracting labels from files:', files);
+    for (const file of files || []) {
+      const rawName = String(file?.name || '');
+      if (!rawName) continue;
+
+      const topLevel = rawName.split('/')[0];
+      console.log(`  Checking "${rawName}" -> topLevel "${topLevel}"`);
+      if (topLevel.startsWith('masks_') && topLevel.length > 'masks_'.length) {
+        const label = topLevel.substring('masks_'.length);
+        console.log(`    ✓ Found label: "${label}"`);
+        labels.add(label);
+      }
+    }
+
+    const result = Array.from(labels);
+    console.log('📋 Extracted labels:', result);
+    return result;
+  };
+
+  const fetchLabelsFromArtifactFolders = async (artifactId: string): Promise<string[]> => {
+    if (!artifactId || !artifactManager) {
+      console.warn('⚠️ Missing artifactId or artifactManager:', { artifactId, hasManager: !!artifactManager });
+      return [];
+    }
+
+    try {
+      console.log('📂 Fetching files from artifact:', artifactId);
+      const files = await artifactManager.list_files({
+        artifact_id: artifactId,
+        stage: true,
+        _rkwargs: true
+      });
+      console.log('📦 Received files response with', files?.length || 0, 'entries');
+      return extractLabelsFromFileList(files);
+    } catch (error) {
+      console.error('❌ Failed to fetch artifact files:', error);
+      throw error;
+    }
   };
 
   // Fetch user's artifacts immediately on mount
@@ -126,7 +171,15 @@ const SessionModal: React.FC<SessionModalProps> = ({
         if (initialResumeArtifactId) {
           const artifact = fetchedArtifacts.find(a => a.id === initialResumeArtifactId);
           if (artifact) {
-            const labels = artifact.manifest?.labels || [];
+            let labels: string[] = [];
+            try {
+              labels = await fetchLabelsFromArtifactFolders(initialResumeArtifactId);
+            } catch (e) {
+              console.warn('Falling back to manifest labels for initial resume artifact', e);
+            }
+            if (labels.length === 0) {
+              labels = artifact.manifest?.labels || [];
+            }
             if (labels.length > 0) {
               setAvailableLabels(labels);
               // Only override the label if it wasn't already set, or just use the first available
@@ -259,26 +312,78 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
   const handleResumeArtifactChange = async (artifactId: string) => {
     setResumeArtifactId(artifactId);
-    if (artifactId && userArtifacts.length > 0) {
-      const artifact = userArtifacts.find(a => a.id === artifactId);
-      if (artifact) {
-        const labels = artifact.manifest?.labels || [];
-        setAvailableLabels(labels);
-        if (labels.length > 0) setLabel(labels[0]);
-
-        let name = artifact.manifest?.name || '';
-        if (name.startsWith('Annotation Session ')) {
-          name = name.substring('Annotation Session '.length);
-        }
-        setSessionName(name);
-
-        let description = artifact.manifest?.description || '';
-        description = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
-        setSessionDescription(description);
-      }
-    } else {
+    if (!artifactId) {
       setAvailableLabels([]);
       setLabel('');
+      setIsLoadingLabels(false);
+      return;
+    }
+
+    setIsLoadingLabels(true);
+    try {
+      console.log('🔄 Resume artifact selected:', artifactId);
+      const latestArtifact = await artifactManager.read({
+        artifact_id: artifactId,
+        stage: true,
+        _rkwargs: true
+      });
+
+      // Keep local artifact list in sync so dropdown metadata stays fresh.
+      setUserArtifacts(prevArtifacts =>
+        prevArtifacts.map(a => (a.id === artifactId ? latestArtifact : a))
+      );
+
+      let labels: string[] = [];
+      try {
+        console.log('📂 Fetching labels from artifact folders...');
+        labels = await fetchLabelsFromArtifactFolders(artifactId);
+        console.log('✅ Labels from folders:', labels);
+      } catch (folderError) {
+        console.warn('Failed to derive labels from artifact folders, falling back to manifest labels', folderError);
+      }
+      if (labels.length === 0) {
+        console.log('⚠️ No folder-based labels found, checking manifest...');
+        labels = latestArtifact.manifest?.labels || [];
+        console.log('📋 Manifest labels:', labels);
+      }
+      console.log('🏷️ Final available labels:', labels);
+      setAvailableLabels(labels);
+      setLabel('');
+
+      let name = latestArtifact.manifest?.name || '';
+      if (name.startsWith('Annotation Session ')) {
+        name = name.substring('Annotation Session '.length);
+      }
+      setSessionName(name);
+
+      let description = latestArtifact.manifest?.description || '';
+      description = description.replace(/\s*\(Owner:.*?\)\s*$/, '');
+      setSessionDescription(description);
+      setError(null);
+      setIsLoadingLabels(false);
+    } catch (e) {
+      console.error('Failed to reload selected session details', e);
+      setError('Failed to refresh the selected session. Please try again.');
+
+      // Fallback to the already fetched artifact list if fresh read fails.
+      const fallbackArtifact = userArtifacts.find(a => a.id === artifactId);
+      if (fallbackArtifact) {
+        let labels: string[] = [];
+        try {
+          labels = await fetchLabelsFromArtifactFolders(artifactId);
+        } catch (folderError) {
+          console.warn('Fallback: Failed to derive labels from artifact folders', folderError);
+        }
+        if (labels.length === 0) {
+          labels = fallbackArtifact.manifest?.labels || [];
+        }
+        setAvailableLabels(labels);
+        if (labels.length > 0) setLabel(labels[0]);
+      } else {
+        setAvailableLabels([]);
+        setLabel('');
+      }
+      setIsLoadingLabels(false);
     }
   };
 
@@ -328,12 +433,24 @@ const SessionModal: React.FC<SessionModalProps> = ({
     }
 
     // Validation
-    if (!label) {
+    let finalLabel = label;
+    if (label === '__new__') {
+      if (!newLabelValue) {
+        setError('Please specify a label for annotations.');
+        return;
+      }
+      finalLabel = newLabelValue;
+    } else if (!label) {
       setError('Please specify a label for annotations.');
       return;
     }
-    if (!/^[a-zA-Z0-9._-]+$/.test(label)) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(finalLabel)) {
       setError('Label must contain only letters, numbers, dots, underscores, or hyphens.');
+      return;
+    }
+
+    if (dataSourceType !== 'resume' && !sessionDescription) {
+      setError('Please provide a description for your session.');
       return;
     }
 
@@ -376,9 +493,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
         const manifest = {
           name: `Annotation Session ${sessionName}`,
           description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
-          owner: { id: user.id, email: user.email },
-          labels: [label],
-          data_source: 'lazy_upload'
+          owner: { id: user.id, email: user.email }
         };
 
         const artifact = await artifactManager.create({
@@ -396,9 +511,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
         const manifest = {
           name: `Annotation Session ${sessionName}`,
           description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
-          owner: { id: user.id, email: user.email },
-          labels: [label],
-          data_source: 'eager_upload'
+          owner: { id: user.id, email: user.email }
         };
 
         const artifact = await artifactManager.create({
@@ -416,24 +529,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
         // User can always mount local folder if requested, regardless of existing cloud images
         shouldMountLocal = canUseLocal && localFolderHandle !== null;
-
-        // Update labels if needed
-        const artifact = userArtifacts.find(a => a.id === targetArtifactId);
-        if (artifact) {
-          const existingLabels = artifact.manifest.labels || [];
-          if (!existingLabels.includes(label)) {
-            const updatedManifest = {
-              ...artifact.manifest,
-              labels: [...existingLabels, label]
-            };
-            await artifactManager.edit({
-              artifact_id: targetArtifactId,
-              manifest: updatedManifest,
-              stage: true,
-              _rkwargs: true
-            });
-          }
-        }
       }
 
       // Install Python packages
@@ -524,7 +619,7 @@ service_info = await register_service(
     description="${sessionDescription}",
     artifact_id="${targetArtifactId}",
     images_path=${imagesPath},
-    label="${label}",
+    label="${finalLabel}",
     client_id="${clientId}",
     service_id="${serviceId}",
     cellpose_model="${cellposeModel || ''}"
@@ -562,7 +657,7 @@ print("Service registered successfully", end='')
       const annotateParams = new URLSearchParams({
         server_url: serverUrl,
         image_provider_id: fullServiceId,
-        label: label,
+        label: finalLabel,
       });
       if (targetArtifactId) {
         annotateParams.set('session_id', targetArtifactId);
@@ -571,12 +666,12 @@ print("Service registered successfully", end='')
       const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
 
       console.log('Annotation URL:', annotatorUrl);
-      console.log('Selected Label:', label);
+      console.log('Selected Label:', finalLabel);
 
       // Update parent component state
       setAnnotationURL(annotatorUrl);
       setDataArtifactId(targetArtifactId);
-      setSessionLabel(label);
+      setSessionLabel(finalLabel);
       setParentSessionName(sessionName);
       setParentDataSourceType(dataSourceType);
       // Only set image folder handle if we actually mounted a local folder
@@ -618,6 +713,8 @@ print("Service registered successfully", end='')
         <button
           onClick={() => {
             setDataSourceType('local');
+            setLabel('');
+            setNewLabelValue('');
             setStep('configure');
           }}
           className="p-6 border-2 border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
@@ -639,6 +736,8 @@ print("Service registered successfully", end='')
         <button
           onClick={() => {
             setDataSourceType('resume');
+            setLabel('');
+            setNewLabelValue('');
             setStep('configure');
           }}
           disabled={isLoadingArtifacts || userArtifacts.length === 0}
@@ -786,42 +885,56 @@ print("Service registered successfully", end='')
                     </button>
                   )}
 
-                  {availableLabels.length > 0 ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Continue with Label
-                      </label>
-                      <select
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                        value={availableLabels.includes(label) ? label : '__new__'}
-                        onChange={(e) => {
-                          if (e.target.value === '__new__') {
-                            setLabel('');
-                          } else {
-                            setLabel(e.target.value);
-                          }
-                        }}
-                      >
-                        {availableLabels.map(lbl => (
-                          <option key={lbl} value={lbl}>{lbl}</option>
-                        ))}
-                        <option value="__new__">+ Create new label...</option>
-                      </select>
+                  {isLoadingLabels ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="w-6 h-6 border-3 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="ml-3 text-sm text-gray-600">Loading labels...</span>
                     </div>
                   ) : (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Start with Label
-                      </label>
-                      <select
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                        value="__new__"
-                        onChange={(e) => {
-                          setLabel(e.target.value === '__new__' ? '' : e.target.value);
-                        }}
-                      >
-                        <option value="__new__">+ Create new label...</option>
-                      </select>
+                      {label === '__new__' ? (
+                        <>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Set Annotation Label
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            placeholder="Type a label (e.g., nuclei, cells, mitochondria)"
+                            value={newLabelValue}
+                            onChange={(e) => setNewLabelValue(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Only letters, numbers, dots, underscores, and hyphens allowed
+                          </p>
+                          <button
+                            onClick={() => {
+                              setLabel('');
+                              setNewLabelValue('');
+                            }}
+                            className="text-sm text-gray-600 hover:text-gray-900 mt-2"
+                          >
+                            ← Back to label selection
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Set Annotation Label
+                          </label>
+                          <select
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            value={label}
+                            onChange={(e) => setLabel(e.target.value)}
+                          >
+                            <option value="" disabled>Choose a label...</option>
+                            {availableLabels.length > 0 && availableLabels.map(lbl => (
+                              <option key={lbl} value={lbl}>{lbl}</option>
+                            ))}
+                            <option value="__new__">+ Create new label...</option>
+                          </select>
+                        </>
+                      )}
                     </div>
                   )}
                 </>
@@ -849,7 +962,7 @@ print("Service registered successfully", end='')
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description (Optional)
+              Description
             </label>
             <textarea
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
@@ -862,16 +975,15 @@ print("Service registered successfully", end='')
         </>
       )}
 
-      {(dataSourceType !== 'resume' || (resumeArtifactId && (!availableLabels.length || !availableLabels.includes(label)))) && (
+      {dataSourceType !== 'resume' && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Annotation Label
-            <span className="text-xs text-gray-500 ml-2">(e.g., nuclei, cells, mitochondria)</span>
+            Set Annotation Label
           </label>
           <input
             type="text"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-            placeholder="e.g., nuclei"
+            placeholder="Type a label (e.g., nuclei, cells, mitochondria)"
             value={label}
             onChange={(e) => setLabel(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
           />
@@ -891,6 +1003,7 @@ print("Service registered successfully", end='')
         onClick={handleStartSession}
         disabled={
           !label ||
+          !sessionDescription ||
           (dataSourceType === 'local' && !localFolderHandle) ||
           (dataSourceType === 'upload' && selectedFiles.length === 0) ||
           (dataSourceType === 'resume' && !resumeArtifactId)

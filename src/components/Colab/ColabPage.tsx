@@ -184,35 +184,8 @@ print("Packages installed", end='')
             sessionName = sessionName.substring('Annotation Session '.length);
           }
 
-          // Check if this was a lazy_upload session and if images exist
-          const dataSource = artifact.manifest?.data_source;
-          if (dataSource === 'lazy_upload') {
-            // Check if images have been uploaded
-            try {
-              const imageFiles = await artifactManager.list_files({
-                artifact_id: fullArtifactId,
-                dir_path: 'input_images',
-                _rkwargs: true
-              });
-              if (!imageFiles || imageFiles.length === 0) {
-                throw new Error(
-                  'This session was created with "Mount Local Folder" mode and no images have been uploaded to the cloud yet. ' +
-                  'Please go back to the original browser where the session was created, click "Upload All" to upload images, ' +
-                  'then you can share this session URL.'
-                );
-              }
-              console.log(`Found ${imageFiles.length} images in artifact for lazy_upload session`);
-            } catch (listError: any) {
-              if (listError.message?.includes('Mount Local Folder')) {
-                throw listError; // Re-throw our custom error
-              }
-              // Other errors - assume no images exist
-              throw new Error(
-                'This session was created with "Mount Local Folder" mode but no images are available in the cloud. ' +
-                'Please use the Annotation URL from the original session to collaborate, or upload images first.'
-              );
-            }
-          }
+          // Cloud availability is handled per image in the viewer.
+          // Do not block session resume based on legacy manifest.data_source.
 
           // Register service
           const clientId = `colab-client-${Date.now()}`;
