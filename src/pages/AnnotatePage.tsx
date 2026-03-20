@@ -8,7 +8,7 @@ import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
 import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
-import { useColabKernel } from '../components/Colab/useColabKernel';
+import { useColabKernel } from '../components/colab/useColabKernel';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult } from '../components/annotate/hooks/useHyphaService';

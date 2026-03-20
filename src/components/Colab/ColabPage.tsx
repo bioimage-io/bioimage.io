@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Routes, Route } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { useColabKernel } from './useColabKernel';
 import ColabGuide from './ColabGuide';
@@ -8,13 +8,15 @@ import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
 import TrainingModal from './TrainingModal';
 import ImageViewer from './ImageViewer';
+import TrainingPage from '../../pages/TrainingPage';
 
 const ColabPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
   // Parse sessionId from path: /colab/bioimage-io/cold-badger-tick-roughly -> bioimage-io/cold-badger-tick-roughly
-  const sessionId = location.pathname.startsWith('/colab/')
+  const isTrainingRoute = location.pathname.startsWith('/colab/training');
+  const sessionId = !isTrainingRoute && location.pathname.startsWith('/colab/')
     ? location.pathname.slice('/colab/'.length) || undefined
     : undefined;
 
@@ -522,6 +524,15 @@ print("Service registered successfully", end='')
 
   // Check if we're loading a session from URL
   const isLoadingSession = sessionId && (!isReady || !user?.email || !artifactManager);
+
+  if (isTrainingRoute) {
+    return (
+      <Routes>
+        <Route path="training" element={<TrainingPage />} />
+        <Route path="training/:sessionId" element={<TrainingPage />} />
+      </Routes>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">

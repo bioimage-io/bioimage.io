@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import Training from '../components/Colab/Training';
+import Training from '../components/colab/Training';
 import { useHyphaStore } from '../store/hyphaStore';
 
 const TrainingPage: React.FC = () => {

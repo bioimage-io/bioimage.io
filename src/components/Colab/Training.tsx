@@ -489,7 +489,7 @@ const Training: React.FC<TrainingProps> = ({
       });
 
       // Update URL with session ID
-      navigate(`/training/${newSessionId}`, { replace: true });
+      navigate(`/colab/training/${newSessionId}`, { replace: true });
 
       // Extract initial status if available
       if (sessionStatus.status_type) setStatusType(sessionStatus.status_type);
@@ -680,11 +680,13 @@ const Training: React.FC<TrainingProps> = ({
             <div className="flex items-center gap-3 mb-2">
               <button
                 onClick={handleBack}
-                className="p-2 hover:bg-white/60 rounded-lg transition-colors"
+                className="group flex items-center gap-2 px-3 py-1.5 hover:bg-white/60 rounded-lg transition-colors border border-transparent hover:border-gray-200"
+                title="Return to Colab session"
               >
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-gray-600 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
+                <span className="text-sm font-medium text-gray-600 group-hover:text-purple-600 transition-colors">Return to Colab</span>
               </button>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight">
                 Train AI Model

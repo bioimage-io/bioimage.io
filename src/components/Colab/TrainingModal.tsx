@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface TrainingModalProps {
   setShowTrainingModal: (show: boolean) => void;
@@ -26,6 +27,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   cellposeModel = 'Base',
   onCellposeModelChange,
 }) => {
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'choose' | 'new' | 'existing'>('choose');
   const [isStarting, setIsStarting] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -174,10 +176,9 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       const sessionId = sessionStatus.session_id;
       console.log('Training started with session ID:', sessionId);
 
-      // Close modal and open training page in a new tab.
+      // Close modal and navigate to training page in the same tab.
       setShowTrainingModal(false);
-      const trainingUrl = `${window.location.origin}${window.location.pathname}#/training/${sessionId}`;
-      window.open(trainingUrl, '_blank', 'noopener,noreferrer');
+      navigate(`/colab/training/${sessionId}`);
 
     } catch (error) {
       console.error('Error starting training:', error);
@@ -247,8 +248,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       }
 
       setShowTrainingModal(false);
-      const trainingUrl = `${window.location.origin}${window.location.pathname}#/training/${resolvedSessionId}`;
-      window.open(trainingUrl, '_blank', 'noopener,noreferrer');
+      navigate(`/colab/training/${resolvedSessionId}`);
     } catch (error) {
       console.error('Error resolving existing training session:', error);
       setError(`Failed to open training session: ${error instanceof Error ? error.message : String(error)}`);

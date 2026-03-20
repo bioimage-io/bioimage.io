@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, Navigate, useParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
 
 import ArtifactGrid from './components/ArtifactGrid';
@@ -17,9 +17,9 @@ import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
-import BioEngineHome from './components/BioEngine/BioEngineHome';
-import BioEngineWorker from './components/BioEngine/BioEngineWorker';
-import ColabPage from './components/Colab/ColabPage';
+import BioEngineHome from './components/bioengine/BioEngineHome';
+import BioEngineWorker from './components/bioengine/BioEngineWorker';
+import ColabPage from './components/colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
 import AnnotatePage from './pages/AnnotatePage';
 
@@ -31,6 +31,12 @@ const shouldHideFooter = (pathname: string): boolean => {
 // Hide the full navbar on the annotate page (it has its own compact header)
 const shouldHideNavbar = (pathname: string): boolean => {
   return pathname === '/annotate';
+};
+
+const TrainingRedirect: React.FC = () => {
+  const { sessionId } = useParams<{ sessionId?: string }>();
+  const location = useLocation();
+  return <Navigate to={sessionId ? `/colab/training/${sessionId}` : '/colab/training'} state={location.state} replace />;
 };
 
 // Create a wrapper component that uses Router hooks
@@ -98,7 +104,8 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
-          <Route path="/training/:sessionId?" element={<TrainingPage />} />
+          <Route path="/training" element={<TrainingRedirect />} />
+          <Route path="/training/:sessionId" element={<TrainingRedirect />} />
           <Route path="/annotate" element={<AnnotatePage />} />
         </Routes>
       </main>
