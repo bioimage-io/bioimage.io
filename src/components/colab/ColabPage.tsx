@@ -874,24 +874,20 @@ const ColabPage: React.FC = () => {
   const isTrainingRoute = location.pathname.startsWith('/colab/training');
   const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
 
-  // For training routes, render without kernel provider (training doesn't need Python)
-  if (isTrainingRoute) {
-    return <TrainingPage />;
-  }
-
-  // For annotate routes, render within kernel provider (shares kernel with main colab)
-  if (isAnnotateRoute) {
-    return (
-      <KernelProvider>
-        <AnnotatePage backTo="/colab" />
-      </KernelProvider>
-    );
-  }
-
-  // For main colab routes, render with kernel provider
+  // Keep one shared kernel provider mounted for all /colab routes so
+  // navigating to training and back preserves the running kernel.
   return (
     <KernelProvider>
-      <ColabPageContent />
+      {isTrainingRoute ? (
+        <Routes>
+          <Route path="training" element={<TrainingPage />} />
+          <Route path="training/:sessionId" element={<TrainingPage />} />
+        </Routes>
+      ) : isAnnotateRoute ? (
+        <AnnotatePage backTo="/colab" />
+      ) : (
+        <ColabPageContent />
+      )}
     </KernelProvider>
   );
 };
