@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useLocation, Link } from 'react-router-dom';
-import { Box, CircularProgress, Typography, Alert } from '@mui/material';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip } from '@mui/material';
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
@@ -9,12 +9,11 @@ import FloatingBanners, { useBanners } from '../components/annotate/FloatingBann
 import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
 import { useColabKernel } from '../components/colab/useColabKernel';
+import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult } from '../components/annotate/hooks/useHyphaService';
-import Button from '@mui/material/Button';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
 import VectorSource from 'ol/source/Vector';
@@ -23,8 +22,13 @@ import Static from 'ol/source/ImageStatic';
 import Feature from 'ol/Feature';
 import { Polygon as OlPolygon } from 'ol/geom';
 
-const AnnotatePage: React.FC = () => {
+interface AnnotatePageProps {
+  backTo?: string;
+}
+
+const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const serviceConfig = useMemo<AnnotationServiceConfig | null>(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -52,6 +56,11 @@ const AnnotatePage: React.FC = () => {
     return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}`;
   }, [sessionId]);
 
+  const backTarget = useMemo(() => {
+    if (sessionId) return `/colab/${sessionId}`;
+    return backTo || '/colab';
+  }, [sessionId, backTo]);
+
   const { service, loading: serviceLoading, error: serviceError } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
@@ -75,7 +84,16 @@ const AnnotatePage: React.FC = () => {
   }, [activeCellposeModel, cellposeConfig.model, setCellposeConfig]);
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
-  const { isReady: kernelReady, kernelStatus, executeCode } = useColabKernel();
+  
+  // Always call both hooks unconditionally (required by React Rules of Hooks)
+  // Use shared kernel if available (when called from Colab), otherwise use local kernel
+  const sharedKernel = useSharedKernelIfAvailable();
+  const localKernel = useColabKernel();
+  
+  const kernel = sharedKernel || localKernel;
+  const kernelReady = kernel.isReady;
+  const executeCode = kernel.executeCode;
+  
   const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
 
   // Install scikit-image in the kernel once it's ready
@@ -539,14 +557,40 @@ print("CLAHE_RESULT:" + result_b64)
         className="flex items-center justify-between px-4 h-10 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
         style={{ position: 'relative', zIndex: 1000 }}
       >
-        <Link to="/" className="flex items-center group">
-          <img
-            src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
-            alt="BioImage.IO"
-            className="h-7 group-hover:scale-105 transition-transform duration-300"
-          />
-        </Link>
-        <LoginButton />
+        <div className="flex items-center gap-2 z-10">
+          {sessionUrl && (
+            <Tooltip title="Open this session in Colab">
+              <MuiButton
+                size="small"
+                onClick={() => navigate(backTarget)}
+                sx={{
+                  minWidth: 'auto',
+                  padding: '4px 8px',
+                  color: '#1976d2',
+                  '&:hover': {
+                    backgroundColor: 'rgba(25, 118, 210, 0.08)'
+                  }
+                }}
+              >
+                View session
+              </MuiButton>
+            </Tooltip>
+          )}
+        </div>
+
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <Link to="/" className="flex items-center group">
+            <img
+              src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
+              alt="BioImage.IO"
+              className="h-7 group-hover:scale-105 transition-transform duration-300"
+            />
+          </Link>
+        </div>
+
+        <div className="z-10">
+          <LoginButton />
+        </div>
       </div>
 
       {/* Main annotation area */}
@@ -562,7 +606,6 @@ print("CLAHE_RESULT:" + result_b64)
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
         onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
-        sessionUrl={sessionUrl}
         imageName={(originalImageUrl || imageUrl)?.split('/').pop()}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
@@ -610,22 +653,6 @@ print("CLAHE_RESULT:" + result_b64)
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
               </Typography>
-              {sessionUrl && (
-                <Button
-                  variant="contained"
-                  startIcon={<OpenInNewIcon />}
-                  onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
-                  sx={{
-                    borderRadius: 2,
-                    textTransform: 'none',
-                    px: 3,
-                    py: 1,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  }}
-                >
-                  View Session
-                </Button>
-              )}
             </Box>
           </Box>
         )}

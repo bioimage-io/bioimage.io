@@ -653,7 +653,7 @@ print("Service registered successfully", end='')
         await uploadFilesToArtifact(fullServiceId);
       }
 
-      // Generate annotation URL pointing to our own #/annotate page
+      // Generate annotation URL pointing to our own #/colab/annotate page
       const annotateParams = new URLSearchParams({
         server_url: serverUrl,
         image_provider_id: fullServiceId,
@@ -663,7 +663,7 @@ print("Service registered successfully", end='')
         annotateParams.set('session_id', targetArtifactId);
       }
       const baseUrl = window.location.origin + window.location.pathname;
-      const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
+      const annotatorUrl = `${baseUrl}#/colab/annotate?${annotateParams.toString()}`;
 
       console.log('Annotation URL:', annotatorUrl);
       console.log('Selected Label:', finalLabel);

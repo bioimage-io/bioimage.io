@@ -288,11 +288,14 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
         </Grid>
       </DialogContent>
       <DialogActions>
-        {showReset && (
-          <Button onClick={handleReset} color="inherit" sx={{ mr: 'auto' }}>
-            Reset to Defaults
-          </Button>
-        )}
+        <Button
+          onClick={handleReset}
+          color="inherit"
+          sx={{ mr: 'auto' }}
+          disabled={!showReset}
+        >
+          Reset to Default
+        </Button>
         <Button onClick={onClose} color="inherit">
           Cancel
         </Button>

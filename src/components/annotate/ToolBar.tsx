@@ -4,7 +4,6 @@ import {
   Tooltip,
   Paper,
   Divider,
-  Badge,
   Box,
   SvgIcon,
 } from '@mui/material';
@@ -132,9 +131,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   color="secondary"
                   disabled={isRunningCellpose}
                 >
-                  <Badge variant="dot" color="warning" invisible={!hasCustomCellposeConfig}>
-                    <LassoAIIcon />
-                  </Badge>
+                  <LassoAIIcon />
                 </IconButton>
               </span>
             </Tooltip>

@@ -383,11 +383,9 @@ const ShareModal: React.FC<ShareModalProps> = ({
           </button>
           <a
             href={annotationURL}
-            target="_blank"
-            rel="noopener noreferrer"
             className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
           >
-            Open in New Tab
+            Open Annotation UI
           </a>
         </div>
       </div>

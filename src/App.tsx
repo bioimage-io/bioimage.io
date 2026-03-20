@@ -21,16 +21,15 @@ import BioEngineHome from './components/bioengine/BioEngineHome';
 import BioEngineWorker from './components/bioengine/BioEngineWorker';
 import ColabPage from './components/colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
-import AnnotatePage from './pages/AnnotatePage';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
-  return pathname.startsWith('/edit/') || pathname === '/upload' || pathname === '/annotate';
+  return pathname.startsWith('/edit/') || pathname === '/upload' || pathname.startsWith('/colab/annotate');
 };
 
 // Hide the full navbar on the annotate page (it has its own compact header)
 const shouldHideNavbar = (pathname: string): boolean => {
-  return pathname === '/annotate';
+  return pathname.startsWith('/colab/annotate');
 };
 
 const TrainingRedirect: React.FC = () => {
@@ -106,7 +105,6 @@ const AppContent: React.FC = () => {
           <Route path="/colab/*" element={<ColabPage />} />
           <Route path="/training" element={<TrainingRedirect />} />
           <Route path="/training/:sessionId" element={<TrainingRedirect />} />
-          <Route path="/annotate" element={<AnnotatePage />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}

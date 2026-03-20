@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Routes, Route } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
-import { useColabKernel } from './useColabKernel';
+import { KernelProvider, useSharedKernel } from './KernelContext';
 import ColabGuide from './ColabGuide';
 import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
@@ -9,19 +9,22 @@ import DeleteArtifactModal from './DeleteArtifactModal';
 import TrainingModal from './TrainingModal';
 import ImageViewer from './ImageViewer';
 import TrainingPage from '../../pages/TrainingPage';
+import AnnotatePage from '../../pages/AnnotatePage';
 
-const ColabPage: React.FC = () => {
+const ColabPageContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
   // Parse sessionId from path: /colab/bioimage-io/cold-badger-tick-roughly -> bioimage-io/cold-badger-tick-roughly
   const isTrainingRoute = location.pathname.startsWith('/colab/training');
-  const sessionId = !isTrainingRoute && location.pathname.startsWith('/colab/')
+  const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
+  const sessionId = !isTrainingRoute && !isAnnotateRoute && location.pathname.startsWith('/colab/')
     ? location.pathname.slice('/colab/'.length) || undefined
     : undefined;
 
   const { user, server, artifactManager } = useHyphaStore();
-  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide } = useColabKernel();
+  // Use shared kernel context instead of creating a new one
+  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide } = useSharedKernel();
 
   // File system state
   const [imageFolderHandle, setImageFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -224,7 +227,7 @@ print("Service registered successfully", end='')
 
           const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
 
-          // Generate annotation URL pointing to our own #/annotate page
+          // Generate annotation URL pointing to our own #/colab/annotate page
           const annotateParams = new URLSearchParams({
             server_url: serverUrl,
             image_provider_id: fullServiceId,
@@ -234,7 +237,7 @@ print("Service registered successfully", end='')
             annotateParams.set('session_id', fullArtifactId);
           }
           const baseUrl = window.location.origin + window.location.pathname;
-          const annotatorUrl = `${baseUrl}#/annotate?${annotateParams.toString()}`;
+          const annotatorUrl = `${baseUrl}#/colab/annotate?${annotateParams.toString()}`;
 
           // Update state
           setAnnotationURL(annotatorUrl);
@@ -862,6 +865,34 @@ print("Service registered successfully", end='')
         )}
       </div>
     </div>
+  );
+};
+
+// Wrapper component that handles routing and kernel provider
+const ColabPage: React.FC = () => {
+  const location = useLocation();
+  const isTrainingRoute = location.pathname.startsWith('/colab/training');
+  const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
+
+  // For training routes, render without kernel provider (training doesn't need Python)
+  if (isTrainingRoute) {
+    return <TrainingPage />;
+  }
+
+  // For annotate routes, render within kernel provider (shares kernel with main colab)
+  if (isAnnotateRoute) {
+    return (
+      <KernelProvider>
+        <AnnotatePage backTo="/colab" />
+      </KernelProvider>
+    );
+  }
+
+  // For main colab routes, render with kernel provider
+  return (
+    <KernelProvider>
+      <ColabPageContent />
+    </KernelProvider>
   );
 };
 
