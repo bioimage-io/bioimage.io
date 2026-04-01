@@ -109,6 +109,7 @@ const ArtifactDetails = () => {
     tested_at: number;
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
+  const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -741,56 +742,68 @@ const ArtifactDetails = () => {
               <>
                 {!showModelRunner && (
                   <>
-                  <Button
-                    disabled={!bioengineStatus}
-                    onClick={() => {
-                      if (bioengineStatus?.status === 'passed') {
-                        handleRunModel();
-                      } else if (bioengineStatus) {
-                        setIsBioengineErrorDialogOpen(true);
-                      }
-                    }}
-                    variant="outlined"
-                    size="medium"
-                    startIcon={bioengineStatus ? (
-                      <Tooltip 
-                        title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
-                        arrow
-                      >
-                        <Box component="span" sx={{ display: 'flex' }}>
-                          {bioengineStatus.status === 'passed' ? 
-                            <CheckCircleIcon sx={{ fontSize: 20 }} /> : 
-                            <CancelIcon sx={{ fontSize: 20 }} />
-                          }
-                        </Box>
-                      </Tooltip>
-                    ) : undefined}
-                    sx={{
-                      borderRadius: '12px',
-                      backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
-                      backdropFilter: 'blur(8px)',
-                      border: `2px solid ${bioengineStatus?.status === 'passed' ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
-                      color: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
-                      fontWeight: 500,
-                      px: 4,
-                      py: 1.5,
-                      fontSize: '0.95rem',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
-                        borderColor: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
-                        color: bioengineStatus?.status === 'passed' ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
-                        transform: 'translateY(-2px) scale(1.02)',
-                        boxShadow: `0 8px 25px ${bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
-                      },
-                      '&.Mui-disabled': {
-                        borderColor: 'rgba(0, 0, 0, 0.12)',
-                        color: 'rgba(0, 0, 0, 0.26)'
-                      }
-                    }}
+                  <Tooltip
+                    title={!isLoggedIn ? "Please log in to test run models" : ""}
+                    arrow
+                    open={!isLoggedIn && isTestButtonHovered && !bioengineStatus}
                   >
-                    Test Run Model
-                  </Button>
+                    <div
+                      onMouseEnter={() => setIsTestButtonHovered(true)}
+                      onMouseLeave={() => setIsTestButtonHovered(false)}
+                      data-highlight-login={!isLoggedIn && isTestButtonHovered ? 'true' : 'false'}
+                    >
+                      <Button
+                        disabled={!bioengineStatus || !isLoggedIn}
+                        onClick={() => {
+                          if (bioengineStatus?.status === 'passed') {
+                            handleRunModel();
+                          } else if (bioengineStatus) {
+                            setIsBioengineErrorDialogOpen(true);
+                          }
+                        }}
+                        variant="outlined"
+                        size="medium"
+                        startIcon={bioengineStatus ? (
+                          <Tooltip 
+                            title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
+                            arrow
+                          >
+                            <Box component="span" sx={{ display: 'flex' }}>
+                              {bioengineStatus.status === 'passed' ? 
+                                <CheckCircleIcon sx={{ fontSize: 20 }} /> : 
+                                <CancelIcon sx={{ fontSize: 20 }} />
+                              }
+                            </Box>
+                          </Tooltip>
+                        ) : undefined}
+                        sx={{
+                          borderRadius: '12px',
+                          backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
+                          backdropFilter: 'blur(8px)',
+                          border: `2px solid ${bioengineStatus?.status === 'passed' ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
+                          color: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
+                          fontWeight: 500,
+                          px: 4,
+                          py: 1.5,
+                          fontSize: '0.95rem',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                            borderColor: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
+                            color: bioengineStatus?.status === 'passed' ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
+                            transform: 'translateY(-2px) scale(1.02)',
+                            boxShadow: `0 8px 25px ${bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
+                          },
+                          '&.Mui-disabled': {
+                            borderColor: 'rgba(0, 0, 0, 0.12)',
+                            color: 'rgba(0, 0, 0, 0.26)'
+                          }
+                        }}
+                      >
+                        Test Run Model
+                      </Button>
+                    </div>
+                  </Tooltip>
                   </>
                 )}
                 {/* Test Report Popover */}

@@ -40,10 +40,12 @@ const getSavedToken = () => {
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isHighlighted, setIsHighlighted] = useState(false);
   const { client, user, connect, setUser, server, isConnecting, isConnected, logout } = useHyphaStore();
   const navigate = useNavigate();
   const location = useLocation(); // Get location
   const autoLoginAttemptedRef = useRef(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Add click outside handler to close dropdown
   useEffect(() => {
@@ -56,6 +58,31 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Monitor for test button highlight state
+  useEffect(() => {
+    const checkHighlight = () => {
+      const highlightElement = document.querySelector('[data-highlight-login="true"]');
+      setIsHighlighted(!!highlightElement);
+    };
+
+    // Check on mount
+    checkHighlight();
+
+    // Listen for changes to detect when test button is hovered
+    const observer = new MutationObserver(() => {
+      checkHighlight();
+    });
+
+    // Start observing the entire document for attribute changes
+    observer.observe(document.body, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ['data-highlight-login']
+    });
+
+    return () => observer.disconnect();
   }, []);
 
   // Add logout handler
@@ -272,9 +299,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
         </div>
       ) : (
         <button 
+          ref={buttonRef}
           onClick={handleLogin} 
           disabled={isLoggingIn}
-          className="text-gray-700 hover:text-gray-900 px-4 py-2 rounded-md hover:bg-gray-50 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`text-gray-700 hover:text-gray-900 px-4 py-2 rounded-md hover:bg-gray-50 flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 ${
+            isHighlighted 
+              ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50 text-blue-700 hover:text-blue-800 scale-105 shadow-lg' 
+              : ''
+          }`}
+          title={isHighlighted ? "Log in to test run models" : ""}
         >
           {isLoggingIn ? (
             <>
