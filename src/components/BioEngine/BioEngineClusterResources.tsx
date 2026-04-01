@@ -191,10 +191,10 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
               <span className="text-sm font-semibold text-gray-900">{formatTimeInfo(rayCluster.start_time).uptime}</span>
             </div>
           )}
-          {/* Worker Nodes */}
+          {/* Nodes */}
           {rayCluster.nodes && Object.keys(rayCluster.nodes).length > 0 && (
             <div>
-              <span className="text-xs font-medium text-gray-500 block">Worker Nodes</span>
+              <span className="text-xs font-medium text-gray-500 block">Nodes</span>
               <span className="text-sm font-semibold text-gray-900">{Object.keys(rayCluster.nodes).length}</span>
             </div>
           )}
@@ -315,7 +315,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                 </svg>
                 <span className="font-medium text-gray-700">
-                  Worker Nodes ({Object.keys(rayCluster.nodes).length})
+                  Nodes ({Object.keys(rayCluster.nodes).length})
                 </span>
               </div>
               <svg
@@ -328,16 +328,28 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
               </svg>
             </button>
 
-            {nodesExpanded && (
+            {nodesExpanded && (() => {
+              let workerNodeNumber = 0;
+              const sortedNodes = Object.entries(rayCluster.nodes).sort(([, a], [, b]) => {
+                if (a.head === b.head) {
+                  return 0;
+                }
+                return a.head ? -1 : 1;
+              });
+
+              return (
               <div className="mt-4 space-y-3 animate-slideUp">
-                {Object.entries(rayCluster.nodes).map(([nodeId, node], index) => (
+                {sortedNodes.map(([nodeId, node]) => {
+                  const nodeLabel = node.head ? 'Head Node' : `Worker Node ${++workerNodeNumber}`;
+
+                  return (
                   <div key={nodeId} className="bg-white border border-gray-200 rounded-xl p-4">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       <div className="lg:col-span-1">
                         <div className="flex items-center mb-3">
                           <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
                           <span className="font-medium text-gray-800">
-                            {node.head ? 'Head Node' : 'Worker Node'} {node.head ? '' : index + 1}
+                            {nodeLabel}
                           </span>
                         </div>
                         <div className="space-y-2 text-sm">
@@ -434,9 +446,11 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
