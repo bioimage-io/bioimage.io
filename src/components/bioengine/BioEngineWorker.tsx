@@ -41,36 +41,58 @@ type ServiceStatus = {
   client_id?: string;
   admin_users?: string[];
   is_ready?: boolean;
-  ray_cluster: {
-    head_address: string;
-    start_time: number | "N/A";
+  cluster?: {
+    total_cpu: number;
+    used_cpu: number;
+    total_gpu: number;
+    used_gpu: number;
+  };
+  nodes?: Record<string, {
+    node_ip?: string | null;
+    head: boolean;
+    total_cpu: number;
+    used_cpu: number;
+    total_gpu: number;
+    used_gpu: number;
+    total_gpu_memory: number | string;  // in bytes or "NA"
+    used_gpu_memory: number | string;   // in bytes or "NA"
+    total_memory: number;
+    used_memory: number;
+    total_object_store_memory: number;
+    used_object_store_memory: number;
+    accelerator_type?: string | null;
+    slurm_job_id?: string | null;
+  }>;
+  ray_cluster?: {
+    head_address?: string;
+    start_time?: number | "N/A";
     mode?: string;  // Legacy, now use worker_mode at top level
-    cluster: {
-      total_gpu: number;
-      available_gpu: number;
-      total_cpu: number;
-      available_cpu: number;
-      total_memory: number;
-      available_memory: number;
-      total_object_store_memory: number;
-      available_object_store_memory: number;
-      pending_resources: {
+    cluster?: {
+      total_gpu?: number;
+      available_gpu?: number;
+      total_cpu?: number;
+      available_cpu?: number;
+      total_memory?: number;
+      available_memory?: number;
+      total_object_store_memory?: number;
+      available_object_store_memory?: number;
+      pending_resources?: {
         actors: any[];
         jobs: any[];
         tasks: any[];
         total: number;
       };
     };
-    nodes: Record<string, {
-      node_ip: string;
-      total_cpu: number;
-      available_cpu: number;
-      total_gpu: number;
-      available_gpu: number;
-      total_memory: number;
-      available_memory: number;
-      total_object_store_memory: number;
-      available_object_store_memory: number;
+    nodes?: Record<string, {
+      node_ip?: string;
+      total_cpu?: number;
+      available_cpu?: number;
+      total_gpu?: number;
+      available_gpu?: number;
+      total_memory?: number;
+      available_memory?: number;
+      total_object_store_memory?: number;
+      available_object_store_memory?: number;
       accelerator_type?: string;
       slurm_job_id?: string;
     }>;
@@ -955,13 +977,8 @@ const BioEngineWorker: React.FC = () => {
                     </span>
                   </div>
                 )}
-                {/* Use service_uptime if available, otherwise calculate from start_time */}
-                {status?.service_uptime !== undefined ? (
-                  <div>
-                    <span className="text-xs font-medium text-gray-500 block">Uptime</span>
-                    <span className="text-sm font-semibold text-gray-900">{formatUptime(status.service_uptime)}</span>
-                  </div>
-                ) : status?.service_start_time && (
+                {/* Calculate uptime from service_start_time for live updates */}
+                {status?.service_start_time && (
                   <div>
                     <span className="text-xs font-medium text-gray-500 block">Uptime</span>
                     <span className="text-sm font-semibold text-gray-900">

@@ -17,6 +17,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
   const [disableGpu, setDisableGpu] = useState<boolean>(false);
   const [maxOngoingRequests, setMaxOngoingRequests] = useState<number | ''>(10);
   const [autoRedeploy, setAutoRedeploy] = useState<boolean>(false);
+  const [debug, setDebug] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
@@ -30,6 +31,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
        setDisableGpu(false);
        setMaxOngoingRequests(10);
        setAutoRedeploy(false);
+       setDebug(false);
        setError(null);
        setShowAdvanced(false);
     }
@@ -59,7 +61,8 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
             hypha_token: hyphaToken || null,
             disable_gpu: disableGpu,
             max_ongoing_requests: maxOngoingRequests !== '' ? maxOngoingRequests : null,
-            auto_redeploy: autoRedeploy
+            auto_redeploy: autoRedeploy,
+            debug: debug
         });
         onClose();
     } catch (err) {
@@ -209,6 +212,16 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
                       className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
                     <span className="text-sm font-medium text-gray-700">Auto Redeploy</span>
+                  </label>
+
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={debug} 
+                      onChange={(e) => setDebug(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Debug Mode</span>
                   </label>
                 </div>
               </>

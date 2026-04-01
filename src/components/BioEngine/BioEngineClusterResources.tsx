@@ -1,37 +1,48 @@
 import React, { useState } from 'react';
 
 interface ClusterData {
-  head_address: string;
-  start_time: number | "N/A";
+  head_address?: string;
+  start_time?: number | "N/A";
   mode?: string;
-  cluster: {
-    total_gpu: number;
-    available_gpu: number;
-    total_cpu: number;
-    available_cpu: number;
-    total_memory: number;
-    available_memory: number;
-    total_object_store_memory: number;
-    available_object_store_memory: number;
-    pending_resources: {
+  cluster?: {
+    total_gpu?: number;
+    available_gpu?: number;
+    used_gpu?: number;
+    total_cpu?: number;
+    available_cpu?: number;
+    used_cpu?: number;
+    total_memory?: number;
+    available_memory?: number;
+    used_memory?: number;
+    total_object_store_memory?: number;
+    available_object_store_memory?: number;
+    used_object_store_memory?: number;
+    pending_resources?: {
       actors: any[];
       jobs: any[];
       tasks: any[];
       total: number;
     };
   };
-  nodes: Record<string, {
-    node_ip: string;
-    total_cpu: number;
-    available_cpu: number;
-    total_gpu: number;
-    available_gpu: number;
-    total_memory: number;
-    available_memory: number;
-    total_object_store_memory: number;
-    available_object_store_memory: number;
-    accelerator_type?: string;
-    slurm_job_id?: string;
+  nodes?: Record<string, {
+    node_ip?: string | null;
+    head?: boolean;
+    total_cpu?: number;
+    available_cpu?: number;
+    used_cpu?: number;
+    total_gpu?: number;
+    available_gpu?: number;
+    used_gpu?: number;
+    total_gpu_memory?: number | string;
+    used_gpu_memory?: number | string;
+    total_memory?: number;
+    available_memory?: number;
+    used_memory?: number;
+    total_object_store_memory?: number;
+    available_object_store_memory?: number;
+    used_object_store_memory?: number;
+    accelerator_type?: string | null;
+    slurm_job_id?: string | null;
   }>;
 }
 
@@ -46,7 +57,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
   const [nodesExpanded, setNodesExpanded] = useState(false);
   const [pendingExpanded, setPendingExpanded] = useState(false);
 
-  if (!rayCluster?.cluster) return null;
+  if (!rayCluster?.cluster && !rayCluster?.nodes) return null;
 
   const formatBytes = (bytes: number) => {
     return (bytes / 1024 / 1024 / 1024).toFixed(1);
@@ -61,9 +72,10 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     return parseFloat(value.toFixed(2)).toString();
   };
 
-  const ResourceBar: React.FC<{ available: number; total: number; color: string; unit?: string }> = ({ available, total, color, unit = "" }) => {
-    const used = total - available;
-    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+  const ResourceBar: React.FC<{ available?: number; total: number; used?: number; color: string; unit?: string }> = ({ available, total, used, color, unit = "" }) => {
+    // Support both old API (available) and new API (used)
+    const usedValue = used !== undefined ? used : (available !== undefined ? total - available : 0);
+    const displayUsed = unit === "GB" ? formatBytes(usedValue) : formatNumber(usedValue);
     const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     if (total === 0) {
@@ -83,7 +95,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
         <div className="flex-1 bg-gray-200 rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all duration-300 ${color}`}
-            style={{ width: `${(used / total) * 100}%` }}
+            style={{ width: `${(usedValue / total) * 100}%` }}
           ></div>
         </div>
       </div>
@@ -106,15 +118,17 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
 
   const ResourceCard: React.FC<{
     title: string;
-    available: number;
+    available?: number;
+    used?: number;
     total: number;
     color: string;
     bgColor: string;
     unit?: string;
-  }> = ({ title, available, total, color, bgColor, unit = "" }) => {
-    const used = total - available;
-    const percentage = total > 0 ? Math.round((used / total) * 100) : 0;
-    const displayUsed = unit === "GB" ? formatBytes(used) : formatNumber(used);
+  }> = ({ title, available, used, total, color, bgColor, unit = "" }) => {
+    // Support both old API (available) and new API (used)
+    const usedValue = used !== undefined ? used : (available !== undefined ? total - available : 0);
+    const percentage = total > 0 ? Math.round((usedValue / total) * 100) : 0;
+    const displayUsed = unit === "GB" ? formatBytes(usedValue) : formatNumber(usedValue);
     const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     return (
@@ -190,8 +204,9 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           {/* CPU Usage */}
           <ResourceCard
             title="CPU Cores"
-            available={rayCluster.cluster.available_cpu}
-            total={rayCluster.cluster.total_cpu}
+            available={rayCluster.cluster?.available_cpu}
+            used={rayCluster.cluster?.used_cpu}
+            total={rayCluster.cluster?.total_cpu || 0}
             color="bg-blue-600"
             bgColor="bg-gradient-to-br from-blue-50 to-blue-100"
           />
@@ -199,8 +214,9 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           {/* GPU Usage */}
           <ResourceCard
             title="GPU Cards"
-            available={rayCluster.cluster.available_gpu}
-            total={rayCluster.cluster.total_gpu}
+            available={rayCluster.cluster?.available_gpu}
+            used={rayCluster.cluster?.used_gpu}
+            total={rayCluster.cluster?.total_gpu || 0}
             color="bg-purple-600"
             bgColor="bg-gradient-to-br from-purple-50 to-purple-100"
           />
@@ -208,8 +224,9 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           {/* Memory Usage */}
           <ResourceCard
             title="Memory"
-            available={rayCluster.cluster.available_memory}
-            total={rayCluster.cluster.total_memory}
+            available={rayCluster.cluster?.available_memory}
+            used={rayCluster.cluster?.used_memory}
+            total={rayCluster.cluster?.total_memory || 0}
             color="bg-orange-600"
             bgColor="bg-gradient-to-br from-orange-50 to-orange-100"
             unit="GB"
@@ -218,8 +235,9 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           {/* Object Store Memory Usage */}
           <ResourceCard
             title="Object Store"
-            available={rayCluster.cluster.available_object_store_memory}
-            total={rayCluster.cluster.total_object_store_memory}
+            available={rayCluster.cluster?.available_object_store_memory}
+            used={rayCluster.cluster?.used_object_store_memory}
+            total={rayCluster.cluster?.total_object_store_memory || 0}
             color="bg-teal-600"
             bgColor="bg-gradient-to-br from-teal-50 to-teal-100"
             unit="GB"
@@ -227,7 +245,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
         </div>
 
         {/* Expandable Pending Resources Section */}
-        {rayCluster.cluster.pending_resources && (
+        {rayCluster.cluster?.pending_resources && (
           <div className="border-t border-gray-200 pt-6 mb-6">
             <button
               onClick={() => setPendingExpanded(!pendingExpanded)}
@@ -319,7 +337,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                         <div className="flex items-center mb-3">
                           <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
                           <span className="font-medium text-gray-800">
-                            Node {index + 1}
+                            {node.head ? 'Head Node' : 'Worker Node'} {node.head ? '' : index + 1}
                           </span>
                         </div>
                         <div className="space-y-2 text-sm">
@@ -329,10 +347,12 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                               {nodeId}
                             </span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">IP Address:</span>
-                            <span className="text-gray-900 font-mono">{node.node_ip}</span>
-                          </div>
+                          {node.node_ip && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">IP Address:</span>
+                              <span className="text-gray-900 font-mono">{node.node_ip}</span>
+                            </div>
+                          )}
                           {node.accelerator_type && (
                             <div className="flex justify-between">
                               <span className="text-gray-600">Accelerator Type:</span>
@@ -354,7 +374,8 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                             <span className="text-gray-600 text-xs">CPU Cores</span>
                             <ResourceBar
                               available={node.available_cpu}
-                              total={node.total_cpu}
+                              used={node.used_cpu}
+                              total={node.total_cpu || 0}
                               color="bg-blue-600"
                             />
                           </div>
@@ -362,15 +383,39 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                             <span className="text-gray-600 text-xs">GPU Cards</span>
                             <ResourceBar
                               available={node.available_gpu}
-                              total={node.total_gpu}
+                              used={node.used_gpu}
+                              total={node.total_gpu || 0}
                               color="bg-purple-600"
                             />
                           </div>
+                          {(node.total_gpu_memory !== undefined && node.total_gpu_memory !== null) && (
+                            <div>
+                              <span className="text-gray-600 text-xs">GPU Memory</span>
+                              {typeof node.total_gpu_memory === 'number' && typeof node.used_gpu_memory === 'number' ? (
+                                <>
+                                  <ResourceBar
+                                    used={node.used_gpu_memory}
+                                    total={node.total_gpu_memory}
+                                    color="bg-indigo-600"
+                                    unit="GB"
+                                  />
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    {formatBytes(node.used_gpu_memory)} / {formatBytes(node.total_gpu_memory)} GB
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-gray-600 mt-1">
+                                  {node.used_gpu_memory || 'NA'} / {node.total_gpu_memory || 'NA'}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div>
                             <span className="text-gray-600 text-xs">Memory</span>
                             <ResourceBar
                               available={node.available_memory}
-                              total={node.total_memory}
+                              used={node.used_memory}
+                              total={node.total_memory || 0}
                               color="bg-orange-600"
                               unit="GB"
                             />
@@ -379,7 +424,8 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                             <span className="text-gray-600 text-xs">Object Store</span>
                             <ResourceBar
                               available={node.available_object_store_memory}
-                              total={node.total_object_store_memory}
+                              used={node.used_object_store_memory}
+                              total={node.total_object_store_memory || 0}
                               color="bg-teal-600"
                               unit="GB"
                             />
