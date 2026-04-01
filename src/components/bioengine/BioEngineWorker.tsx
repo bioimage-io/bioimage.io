@@ -36,6 +36,7 @@ const styles = `
 type ServiceStatus = {
   service_start_time: number;
   service_uptime?: number;
+  bioengine_version?: string;
   worker_mode?: string;
   workspace?: string;
   client_id?: string;
@@ -929,63 +930,69 @@ const BioEngineWorker: React.FC = () => {
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Service ID from URL */}
-                {serviceId && (
-                  <div className="md:col-span-2">
-                    <span className="text-xs font-medium text-gray-500 block">Service ID</span>
-                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceId}</span>
-                  </div>
-                )}
-                {/* Use new workspace and client_id fields if available */}
-                {status?.workspace && (
-                  <div>
-                    <span className="text-xs font-medium text-gray-500 block">Workspace</span>
-                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.workspace}</span>
-                  </div>
-                )}
-                {status?.client_id && (
-                  <div>
-                    <span className="text-xs font-medium text-gray-500 block">Client ID</span>
-                    <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.client_id}</span>
-                  </div>
-                )}
-                {/* Fallback to parsing service ID if new fields not available */}
-                {!status?.workspace && serviceId && (() => {
-                  const { workspace, clientId, serviceName } = getCompleteServiceInfo(serviceId, status?.bioengine_apps?.service_id);
-                  return (
-                    <>
-                      <div>
-                        <span className="text-xs font-medium text-gray-500 block">Workspace</span>
-                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{workspace}</span>
-                      </div>
-                      <div>
-                        <span className="text-xs font-medium text-gray-500 block">Client ID</span>
-                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{clientId}</span>
-                      </div>
-                      <div>
-                        <span className="text-xs font-medium text-gray-500 block">Service Name</span>
-                        <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceName}</span>
-                      </div>
-                    </>
-                  );
-                })()}
-                {status?.service_start_time && (
-                  <div>
-                    <span className="text-xs font-medium text-gray-500 block">Start Time</span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {formatTimeInfo(status.service_start_time).formattedTime}
-                    </span>
-                  </div>
-                )}
-                {/* Calculate uptime from service_start_time for live updates */}
-                {status?.service_start_time && (
-                  <div>
-                    <span className="text-xs font-medium text-gray-500 block">Uptime</span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {formatTimeInfo(status.service_start_time).uptime}
-                    </span>
-                  </div>
-                )}
+                <div className="space-y-4">
+                  {/* Service ID from URL */}
+                  {serviceId && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 block">Service ID</span>
+                      <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceId}</span>
+                    </div>
+                  )}
+
+                  {/* Workspace and Client ID (fallback to parsed service info when needed) */}
+                  {(() => {
+                    const parsed = serviceId
+                      ? getCompleteServiceInfo(serviceId, status?.bioengine_apps?.service_id)
+                      : null;
+                    const workspace = status?.workspace || parsed?.workspace;
+                    const clientId = status?.client_id || parsed?.clientId;
+
+                    return (
+                      <>
+                        {workspace && (
+                          <div>
+                            <span className="text-xs font-medium text-gray-500 block">Workspace</span>
+                            <span className="text-sm font-semibold text-gray-900 font-mono break-all">{workspace}</span>
+                          </div>
+                        )}
+                        {clientId && (
+                          <div>
+                            <span className="text-xs font-medium text-gray-500 block">Client ID</span>
+                            <span className="text-sm font-semibold text-gray-900 font-mono break-all">{clientId}</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <div className="space-y-4">
+                  {status?.service_start_time && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 block">Start Time</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {formatTimeInfo(status.service_start_time).formattedTime}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Calculate uptime from service_start_time for live updates */}
+                  {status?.service_start_time && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 block">Uptime</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {formatTimeInfo(status.service_start_time).uptime}
+                      </span>
+                    </div>
+                  )}
+
+                  {status?.bioengine_version && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 block">BioEngine Version</span>
+                      <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.bioengine_version}</span>
+                    </div>
+                  )}
+                </div>
                 {/* Admin users */}
                 {status?.admin_users && status.admin_users.length > 0 && (
                   <div className="md:col-span-2">
@@ -1102,6 +1109,7 @@ const BioEngineWorker: React.FC = () => {
             onDeploy={executeDeployment}
             artifactId={pendingDeployment.artifactId}
             initialMode={pendingDeployment.mode}
+            bioengineApps={status?.bioengine_apps}
           />
         )}
       </div>

@@ -6,9 +6,10 @@ interface DeploymentConfigModalProps {
   onDeploy: (config: any) => void;
   artifactId: string;
   initialMode: string | null; // 'cpu' or 'gpu'
+  bioengineApps?: Record<string, any>; // All bioengine apps keyed by application ID
 }
 
-const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, onClose, onDeploy, artifactId, initialMode }) => {
+const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, onClose, onDeploy, artifactId, initialMode, bioengineApps }) => {
   const [version, setVersion] = useState<string>('');
   const [applicationId, setApplicationId] = useState<string>('');
   const [kwargs, setKwargs] = useState<string>('{}');
@@ -20,6 +21,16 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
   const [debug, setDebug] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+
+  // Check if app is recovered and should show warning
+  // For testing: either set REACT_APP_TEST_RECOVERED_APP=true in .env, or 
+  // set localStorage.setItem('test_recovered_app', 'true') in browser console
+  const testMode = process.env.REACT_APP_TEST_RECOVERED_APP === 'true' || 
+                   typeof window !== 'undefined' && localStorage.getItem('test_recovered_app') === 'true';
+  
+  // Look up the app by its applicationId to check if it's recovered
+  const appData = applicationId && bioengineApps ? bioengineApps[applicationId] : null;
+  const showRecoveredAppWarning = applicationId && (testMode || appData?.recovered_app === true);
 
   useEffect(() => {
     if (isOpen) {
@@ -86,6 +97,23 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
               {error}
+            </div>
+          )}
+
+          {showRecoveredAppWarning && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm mb-4">
+              <div className="font-semibold mb-2">⚠️ Recovered Application Warning</div>
+              <p className="mb-2">This application was recovered from the Ray cluster after the BioEngine worker restarted and lost its secret environment variables and Hypha token.</p>
+              <ul className="list-disc list-inside mb-2 space-y-1">
+                <li>Secret environment variables (starting with underscore) will be lost when updating</li>
+                <li>The Hypha token stored for this app will be lost</li>
+              </ul>
+              <p className="mb-2"><strong>To ensure they are available in the updated application:</strong></p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>All environment variables must be provided again in the JSON field below</li>
+                <li>The Hypha token must be entered again if needed</li>
+                <li>Changing the Environment Variables (JSON) will overwrite all existing env vars</li>
+              </ul>
             </div>
           )}
 
