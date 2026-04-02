@@ -179,7 +179,7 @@ const BioEngineGuide: React.FC = () => {
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
-    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.6.10';
+    const imageToUse = customImage || 'ghcr.io/aicell-lab/bioengine-worker:0.6.11';
 
     // Build volume mounts
     let volumeMounts = '';
@@ -1079,7 +1079,7 @@ Please help me troubleshoot this BioEngine Worker setup. Provide step-by-step gu
                   type="text"
                   value={customImage}
                   onChange={(e) => setCustomImage(e.target.value)}
-                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.6.10"
+                  placeholder="ghcr.io/aicell-lab/bioengine-worker:0.6.11"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Custom container image to use. Leave empty for default bioengine-worker image</p>
@@ -1184,7 +1184,7 @@ spec:
     spec:
       containers:
       - name: bioengine-worker
-        image: ghcr.io/aicell-lab/bioengine-worker:0.6.10
+        image: ghcr.io/aicell-lab/bioengine-worker:0.6.11
         args:
         - "python"
         - "-m"
@@ -1242,7 +1242,7 @@ spec:
     spec:
       containers:
       - name: bioengine-worker
-        image: ghcr.io/aicell-lab/bioengine-worker:0.6.10
+        image: ghcr.io/aicell-lab/bioengine-worker:0.6.11
         args:
         - "python"
         - "-m"
