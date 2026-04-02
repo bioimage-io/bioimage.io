@@ -112,6 +112,7 @@ type DeploymentType = {
   deployment_name: string;
   artifact_id: string;
   start_time: number;
+  last_updated_at?: number;
   status: string;
   available_methods?: string[];
   replica_states?: Record<string, number>;
@@ -325,6 +326,7 @@ const BioEngineWorker: React.FC = () => {
                 deployment_name: app.deployment_name || appId,
                 status: app.status || 'UNKNOWN',
                 start_time: app.start_time,
+                last_updated_at: app.last_updated_at,
                 service_ids: serviceIds,
                 available_methods: app.available_methods || app.methods,
                 replica_states: app.replica_states,

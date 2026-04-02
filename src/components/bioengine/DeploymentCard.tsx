@@ -9,6 +9,7 @@ interface DeploymentCardProps {
     deployment_name: string;
     status: string;
     start_time?: number;
+    last_updated_at?: number;
     available_methods?: string[];
     replica_states?: Record<string, number>;
     resources?: {
@@ -110,10 +111,12 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </div>
           </div>
 
-          <p className="text-sm text-gray-500">{deployment.artifact_id}</p>
           {deployment.description && (
             <p className="text-sm text-gray-600 mt-2">{deployment.description}</p>
           )}
+          <p className="text-sm text-gray-500 mt-2">
+            <span className="font-medium">Artifact ID:</span> {deployment.artifact_id}
+          </p>
         </div>
 
         <div className={`transition-opacity duration-200 ${isHovered || isUndeploying || deployment.status === "DELETING" ? 'opacity-100' : 'opacity-0'}`}>
@@ -154,6 +157,11 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               <p className="text-sm text-gray-600">
                 <span className="font-medium">Uptime:</span> {formatTimeInfo(deployment.start_time).uptime}
               </p>
+              {deployment.last_updated_at && (
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Last Update:</span> {formatTimeInfo(deployment.last_updated_at).formattedTime}
+                </p>
+              )}
             </div>
           )}
 

@@ -167,7 +167,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
         </div>
 
         {/* Cluster Information */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
           {/* Mode */}
           {(workerMode || rayCluster.mode) && (
             <div>
@@ -177,25 +177,11 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           )}
           {/* Head Address */}
           {rayCluster.head_address && (
-            <div>
+            <div className="md:col-span-3">
               <span className="text-xs font-medium text-gray-500 block">Head Address</span>
               <span className="text-sm font-mono text-gray-900 truncate block" title={rayCluster.head_address}>
                 {rayCluster.head_address}
               </span>
-            </div>
-          )}
-          {/* Cluster Uptime */}
-          {rayCluster.start_time && rayCluster.start_time !== "N/A" && typeof rayCluster.start_time === 'number' && (
-            <div>
-              <span className="text-xs font-medium text-gray-500 block">Cluster Uptime</span>
-              <span className="text-sm font-semibold text-gray-900">{formatTimeInfo(rayCluster.start_time).uptime}</span>
-            </div>
-          )}
-          {/* Nodes */}
-          {rayCluster.nodes && Object.keys(rayCluster.nodes).length > 0 && (
-            <div>
-              <span className="text-xs font-medium text-gray-500 block">Nodes</span>
-              <span className="text-sm font-semibold text-gray-900">{Object.keys(rayCluster.nodes).length}</span>
             </div>
           )}
         </div>
