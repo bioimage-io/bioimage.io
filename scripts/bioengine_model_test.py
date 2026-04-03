@@ -119,7 +119,6 @@ async def test_bmz_models(
                 file=sys.stderr,
             )
 
-    total_collection_score = total_passed
     total_execution_time = time.time() - start_time
 
     # Print summary
@@ -139,9 +138,6 @@ async def test_bmz_models(
     print(
         f"Total models with status failed: {total_failed}/{len(model_ids)} ({perc_failed:.2f}%)"
     )
-    print(
-        f"Total collection score: {total_collection_score} (out of {len(model_ids)})"
-    )
     print(f"Total execution time: {formatted_time} (hh:mm:ss)")
     print(f"Saved model test reports to: {output_dir}")
 
@@ -157,8 +153,7 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
 
     Outputs (printed to stdout):
         TOTAL_MODELS, PASSED, VALID_FORMAT, FAILED,
-        PASSED_RATE, VALID_FORMAT_RATE, FAILED_RATE,
-        TOTAL_SCORE, AVERAGE_SCORE
+        PASSED_RATE, VALID_FORMAT_RATE, FAILED_RATE
     """
     if not reports_dir.exists():
         print("TOTAL_MODELS=0")
@@ -199,10 +194,6 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     )
     failed_rate = round((failed / total_models) * 100, 1) if total_models > 0 else 0
 
-    # Calculate average score
-    total_score = passed
-    average_score = round(total_score / total_models, 2) if total_models > 0 else 0
-
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
     print(f"PASSED={passed}")
@@ -211,8 +202,6 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     print(f"PASSED_RATE={passed_rate}")
     print(f"VALID_FORMAT_RATE={valid_format_rate}")
     print(f"FAILED_RATE={failed_rate}")
-    print(f"TOTAL_SCORE={total_score}")
-    print(f"AVERAGE_SCORE={average_score}")
 
 
 def clear_existing_test_reports(reports_dir: Path) -> None:
