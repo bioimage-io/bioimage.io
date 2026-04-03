@@ -42,11 +42,11 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
 
   // Helper function to get reports array from both old and new format
   const getReports = (): TestReport[] | null => {
-    const testReports = artifact.manifest.test_reports;
-    if (!testReports) return null;
+    const testSummary = artifact.manifest.test_summary;
+    if (!testSummary) return null;
     
     // Handle both old array format and new object format
-    const reports = Array.isArray(testReports) ? testReports : testReports.reports;
+    const reports = Array.isArray(testSummary) ? testSummary : testSummary.reports;
     return reports || null;
   };
 
@@ -88,7 +88,7 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
         setRawErrorContent(null);
         setDetailedTestReport(null);
         
-        const testReportUrl = resolveHyphaUrl('test_reports.json', artifact.id, true);
+        const testReportUrl = resolveHyphaUrl('test_report.json', artifact.id, true);
         const response = await fetch(testReportUrl);
         const responseText = await response.text();
         

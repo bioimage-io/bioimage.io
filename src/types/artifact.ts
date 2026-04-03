@@ -90,7 +90,7 @@ export interface ArtifactInfo {
     documentation?: string;
     authors?: Author[];
     cite?: Citation[];
-    test_reports?: TestReports | TestReport[];
+    test_summary?: TestReports | TestReport[];
     links?: {
       url: string;
       icon?: string;

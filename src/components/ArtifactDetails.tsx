@@ -268,14 +268,14 @@ const ArtifactDetails = () => {
         return;
       }
 
-      const testReports = selectedResource?.manifest?.test_reports;
-      if (!testReports) {
+      const testSummary = selectedResource?.manifest?.test_summary;
+      if (!testSummary) {
         setTestReportData(null);
         return;
       }
 
       try {
-        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
+        const testReportUrl = resolveHyphaUrl('test_report.json', selectedResource.id, true);
         const response = await fetch(testReportUrl);
         const testReportJson = await response.json();
         
@@ -292,7 +292,7 @@ const ArtifactDetails = () => {
 
     fetchCompatibilityData();
     fetchTestReport();
-  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_reports, version, latestVersion]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_summary, version, latestVersion]);
 
   // Fetch BioEngine inference status
   useEffect(() => {
@@ -339,7 +339,7 @@ const ArtifactDetails = () => {
         setRawErrorContent(null);
         setDetailedTestReport(null);
         
-        const testReportUrl = resolveHyphaUrl('test_reports.json', selectedResource.id, true);
+        const testReportUrl = resolveHyphaUrl('test_report.json', selectedResource.id, true);
         const response = await fetch(testReportUrl);
         const responseText = await response.text();
         
@@ -378,9 +378,9 @@ const ArtifactDetails = () => {
 
   // Helper to get test report status for the embedded button icon
   const getTestReportStatus = () => {
-    const testReports = selectedResource?.manifest?.test_reports;
-    if (!testReports) return null;
-    const reports = Array.isArray(testReports) ? testReports : (testReports as any)?.reports;
+    const testSummary = selectedResource?.manifest?.test_summary;
+    if (!testSummary) return null;
+    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
     if (!reports || reports.length === 0) return null;
     const passedCount = reports.filter((r: TestReport) => r.status === 'passed').length;
     if (passedCount === reports.length) return 'all-passed';
@@ -389,9 +389,9 @@ const ArtifactDetails = () => {
   };
 
   const getTestReports = (): TestReport[] | null => {
-    const testReports = selectedResource?.manifest?.test_reports;
-    if (!testReports) return null;
-    const reports = Array.isArray(testReports) ? testReports : (testReports as any)?.reports;
+    const testSummary = selectedResource?.manifest?.test_summary;
+    if (!testSummary) return null;
+    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
     return reports || null;
   };
 
@@ -1401,7 +1401,7 @@ const ArtifactDetails = () => {
                           {allEntries.map((entry, index) => {
                             if (entry.type === 'bioengine') {
                               // Render bioengine entry
-                              const reports = selectedResource?.manifest?.test_reports;
+                              const reports = selectedResource?.manifest?.test_summary;
                               const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
                               
                               // Extract bioimageio.core version from env
