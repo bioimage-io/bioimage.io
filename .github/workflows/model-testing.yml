@@ -43,7 +43,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install hypha-rpc numpy httpx pydantic
 
-    - name: Create test results directory
+    - name: Create test reports directory
       run: mkdir -p bioimageio_test_reports
 
     - name: Run BioImage.IO model tests
@@ -68,8 +68,8 @@ jobs:
           ARGS="$ARGS --dry-run"
         fi
 
-        echo "Running: python -u bioimageio_test_reports.py $ARGS"
-        python -u bioimageio_test_reports.py $ARGS
+        echo "Running: python -u bioengine_model_test.py $ARGS"
+        python -u bioengine_model_test.py $ARGS
         EXIT_CODE=$?
 
         if [ $EXIT_CODE -ne 0 ]; then
@@ -77,22 +77,22 @@ jobs:
           exit $EXIT_CODE
         fi
 
-    - name: Upload test results as artifact
+    - name: Upload test reports as artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: bioimageio-test-results-${{ github.run_number }}
+        name: bioimageio-test-reports-${{ github.run_number }}
         path: bioimageio_test_reports/
         retention-days: 30
 
     - name: Generate summary report
       if: always()
       run: |
-        echo "# BioImage.IO Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "# BioImage.IO Test Reports Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
         cd scripts
-        ANALYSIS_OUTPUT=$(python -u bioimageio_test_reports.py --analyze-results)
+        ANALYSIS_OUTPUT=$(python -u bioengine_model_test.py --analyze-reports)
         echo "$ANALYSIS_OUTPUT"
 
         eval "$ANALYSIS_OUTPUT"
@@ -103,9 +103,9 @@ jobs:
 
           echo "| Test Type | Passed | Total | Rate |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|-------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| RDF Validation | $PASSED_RDF | $TOTAL_MODELS | ${RDF_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Model Test Run | $PASSED_INFERENCE | $TOTAL_MODELS | ${MODEL_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Reproduce Outputs | $PASSED_REPRODUCE | $TOTAL_MODELS | ${REPRODUCE_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Valid Format | $VALID_FORMAT | $TOTAL_MODELS | ${VALID_FORMAT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "## Performance Metrics" >> $GITHUB_STEP_SUMMARY
@@ -120,11 +120,11 @@ jobs:
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Scoring System" >> $GITHUB_STEP_SUMMARY
-          echo "- Each model gets 1 point for each test that passes (max 3 points per model)" >> $GITHUB_STEP_SUMMARY
-          echo "- Collection score: 3 points per model that passes all tests" >> $GITHUB_STEP_SUMMARY
-          echo "- Perfect score would be: $(($TOTAL_MODELS * 3)) points" >> $GITHUB_STEP_SUMMARY
+          echo "- Each model gets 1 point only when overall status is 'passed'" >> $GITHUB_STEP_SUMMARY
+          echo "- Collection score is the number of models with status 'passed'" >> $GITHUB_STEP_SUMMARY
+          echo "- Perfect score would be: $TOTAL_MODELS points" >> $GITHUB_STEP_SUMMARY
         else
-          echo "No test results found." >> $GITHUB_STEP_SUMMARY
+          echo "No test reports found." >> $GITHUB_STEP_SUMMARY
         fi
 
     - name: Comment on failure
