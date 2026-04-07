@@ -28,9 +28,19 @@ interface ModelTesterProps {
   isDisabled?: boolean;
   className?: string;
   skipCache?: boolean;
+  publishTestReport?: boolean;
+  onTestComplete?: () => void | Promise<void>;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, isStaged, isDisabled, skipCache=false, className = '' }) => {
+const ModelTester: React.FC<ModelTesterProps> = ({
+  artifactId,
+  isStaged,
+  isDisabled,
+  skipCache = false,
+  publishTestReport = false,
+  onTestComplete,
+  className = '',
+}) => {
   const { server, isLoggedIn } = useHyphaStore();
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,14 +115,28 @@ const ModelTester: React.FC<ModelTesterProps> = ({ artifactId, isStaged, isDisab
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, publish_test_report: ${publishTestReport}`);
       const startTime = performance.now();
-      const result = await runner.test({model_id:modelId, stage: isStaged, skip_cache: skipCache, _rkwargs: true});
+      const result = await runner.test({
+        model_id: modelId,
+        stage: isStaged,
+        skip_cache: skipCache,
+        publish_test_report: publishTestReport,
+        _rkwargs: true,
+      });
       const endTime = performance.now();
       const executionTime = (endTime - startTime) / 1000; // Convert to seconds
       console.log(`Test execution time: ${executionTime.toFixed(2)}s`);
       console.log("Test result:", result);
       setTestResult(result);
+
+      if (onTestComplete) {
+        try {
+          await onTestComplete();
+        } catch (refreshErr) {
+          console.error('Post-test refresh failed:', refreshErr);
+        }
+      }
     } catch (err) {
       console.error('Test run failed:', err);
       setTestResult({

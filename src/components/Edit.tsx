@@ -233,6 +233,8 @@ const Edit: React.FC = () => {
     fileName: string;
     resolve: (value: boolean) => void;
   } | null>(null);
+  const [publishTestReport, setPublishTestReport] = useState<boolean>(false);
+  const [skipCacheForTest, setSkipCacheForTest] = useState<boolean>(false);
 
   useEffect(() => {
     setEditVersion(version);
@@ -2305,12 +2307,40 @@ const Edit: React.FC = () => {
 
         {/* Test Model button */}
         {artifactType === 'model' && artifactId && (
-          <div className="w-full sm:w-auto">
+          <div className="w-full sm:w-auto flex flex-wrap items-center gap-3">
+            <label
+              title="If checked, publish test_report.json to the model artifact after testing."
+              className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={publishTestReport}
+                onChange={(e) => setPublishTestReport(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Publish test result
+            </label>
+            <label
+              title="If checked, bypass cache and force a full model package re-download before testing."
+              className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={skipCacheForTest}
+                onChange={(e) => setSkipCacheForTest(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Skip cache
+            </label>
             <ModelTester
               artifactId={artifactId}
               isStaged={isStaged}
               isDisabled={!server}
-              skipCache={true}
+              skipCache={skipCacheForTest}
+              publishTestReport={publishTestReport}
+              onTestComplete={async () => {
+                await loadArtifactFiles();
+              }}
               className="w-full sm:w-auto"
             />
           </div>
