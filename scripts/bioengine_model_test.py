@@ -16,6 +16,7 @@ async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
     publish_test_report: bool = True,
     reports_dir: Optional[Path] = None,
+    skip_cache: bool = False,
 ) -> None:
     """Test BioImage.IO models and generate test reports.
 
@@ -26,6 +27,7 @@ async def test_bmz_models(
         model_ids: List of model IDs to test. If None, fetches all models.
         publish_test_report: Whether model_runner.test should publish test_report.json.
         reports_dir: Directory where per-model JSON test reports are written.
+        skip_cache: Whether to skip cache during model testing.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
@@ -74,6 +76,7 @@ async def test_bmz_models(
                 model_runner.test(
                     model_id=model_id,
                     stage=False,
+                    skip_cache=skip_cache,
                     publish_test_report=publish_test_report,
                 ),
                 timeout=300,  # 5 minutes timeout
@@ -258,6 +261,11 @@ def main():
         action="store_true",
         help="Clear existing JSON files in reports_dir before running tests",
     )
+    parser.add_argument(
+        "--skip-cache",
+        action="store_true",
+        help="Skip cache during model testing",
+    )
 
     args = parser.parse_args()
 
@@ -283,6 +291,7 @@ def main():
                 model_ids=args.model_ids,
                 publish_test_report=args.publish_test_report,
                 reports_dir=reports_dir,
+                skip_cache=args.skip_cache,
             )
         )
 
