@@ -26,6 +26,7 @@ interface DeploymentCardProps {
   isUndeploying?: boolean;
   onUndeploy: (applicationId: string) => void;  // Changed: uses application_id
   formatTimeInfo?: (timestamp: number) => { formattedTime: string; uptime: string };
+  onStatusClick?: (applicationId: string) => void;
 }
 
 const DeploymentCard: React.FC<DeploymentCardProps> = ({
@@ -33,7 +34,8 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   serviceId,
   isUndeploying = false,
   onUndeploy,
-  formatTimeInfo
+  formatTimeInfo,
+  onStatusClick
 }) => {
   const [mcpCopied, setMcpCopied] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
@@ -99,12 +101,20 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </h4>
 
             <div className="flex items-center ml-3">
-              <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${deployment.status === "HEALTHY" || deployment.status === "RUNNING"
-                ? "bg-green-100 text-green-700 border border-green-200"
-                : "bg-gray-100 text-gray-700 border border-gray-200"
-                }`}>
+              <button
+                type="button"
+                onClick={() => onStatusClick?.(deployment.application_id || deployment.artifact_id)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shadow-sm transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${deployment.status === "HEALTHY" || deployment.status === "RUNNING"
+                  ? "bg-green-100 text-green-800 border-green-300 hover:bg-green-200 hover:border-green-400"
+                  : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 hover:border-gray-400"
+                  }`}
+                title="Click to view deployment status, logs, and replica details"
+              >
                 {deployment.status}
-              </span>
+                <svg className="w-3 h-3 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
               {deployment.status === "UPDATING" && (
                 <div className="ml-2 w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
               )}

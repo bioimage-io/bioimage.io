@@ -26,6 +26,11 @@ interface BioEngineAppsProps {
   setUndeploymentError?: (error: string | null) => void;
   formatTimeInfo?: (timestamp: number) => { formattedTime: string, uptime: string };
   server?: any;
+  fetchApplicationStatus?: (params: {
+    application_ids?: string[];
+    logs_tail?: number;
+    n_previous_replica?: number;
+  }) => Promise<any>;
 }
 
 const BioEngineApps: React.FC<BioEngineAppsProps> = ({
@@ -48,7 +53,8 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   setDeploymentError,
   setUndeploymentError,
   formatTimeInfo,
-  server
+  server,
+  fetchApplicationStatus
 }) => {
   const { server: hyphaServer, isLoggedIn } = useHyphaStore();
   const activeServer = server || hyphaServer;
@@ -64,6 +70,7 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
           formatTimeInfo={formatTimeInfo}
           undeploymentError={undeploymentError}
           setUndeploymentError={setUndeploymentError}
+          fetchApplicationStatus={fetchApplicationStatus}
         />
       )}
 

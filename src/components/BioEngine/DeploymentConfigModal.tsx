@@ -7,9 +7,18 @@ interface DeploymentConfigModalProps {
   artifactId: string;
   initialMode: string | null; // 'cpu' or 'gpu'
   bioengineApps?: Record<string, any>; // All bioengine apps keyed by application ID
+  initialApplicationId?: string;
 }
 
-const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, onClose, onDeploy, artifactId, initialMode, bioengineApps }) => {
+const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
+  isOpen,
+  onClose,
+  onDeploy,
+  artifactId,
+  initialMode,
+  bioengineApps,
+  initialApplicationId
+}) => {
   const [version, setVersion] = useState<string>('');
   const [applicationId, setApplicationId] = useState<string>('');
   const [kwargs, setKwargs] = useState<string>('{}');
@@ -32,10 +41,16 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
   const appData = applicationId && bioengineApps ? bioengineApps[applicationId] : null;
   const showRecoveredAppWarning = applicationId && (testMode || appData?.recovered_app === true);
 
+  const applicationIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+  const hasApplicationId = applicationId.trim().length > 0;
+  const isApplicationIdValid = !hasApplicationId || applicationIdPattern.test(applicationId);
+  const selectedApp = hasApplicationId && bioengineApps ? bioengineApps[applicationId.trim()] : null;
+  const isUpdateTarget = Boolean(selectedApp && typeof selectedApp === 'object' && ['RUNNING', 'HEALTHY'].includes(selectedApp.status));
+
   useEffect(() => {
     if (isOpen) {
        setVersion('');
-       setApplicationId('');
+       setApplicationId(initialApplicationId || '');
        setKwargs('{}');
        setEnvVars('{}');
        setHyphaToken('');
@@ -46,12 +61,17 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
        setError(null);
        setShowAdvanced(false);
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, initialApplicationId]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isApplicationIdValid) {
+      setError('Application ID contains invalid characters. Allowed: letters, numbers, underscore (_), and hyphen (-).');
+      return;
+    }
+
     try {
         let parsedKwargs = null;
         if (kwargs && kwargs.trim() !== '') {
@@ -85,7 +105,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col">
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
-          <h3 className="text-xl font-semibold text-gray-800">Deploy Application</h3>
+          <h3 className="text-xl font-semibold text-gray-800">{isUpdateTarget ? 'Update Application' : 'Deploy Application'}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -135,8 +155,22 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
                 value={applicationId} 
                 onChange={(e) => setApplicationId(e.target.value)}
                 placeholder="Auto-generated"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
+                  isApplicationIdValid ? 'border-gray-300' : 'border-red-300 bg-red-50'
+                }`}
               />
+              {!isApplicationIdValid && (
+                <p className="text-xs text-red-600 mt-1">
+                  Invalid Application ID. Allowed characters: letters, numbers, underscore (_), and hyphen (-).
+                </p>
+              )}
+              {isApplicationIdValid && hasApplicationId && (
+                <p className="text-xs text-gray-600 mt-1">
+                  {isUpdateTarget
+                    ? 'This ID matches a currently running app. Submitting will update that deployment instance.'
+                    : 'This ID is currently unused. Submitting will create a new deployment instance with this ID.'}
+                </p>
+              )}
             </div>
 
             <div className="md:col-span-2">
@@ -266,9 +300,10 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({ isOpen, o
             </button>
             <button
               type="submit"
+              disabled={!isApplicationIdValid}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
-              Deploy
+              {isUpdateTarget ? 'Update' : 'Deploy'}
             </button>
           </div>
         </form>

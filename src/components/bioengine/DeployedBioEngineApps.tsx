@@ -1,5 +1,6 @@
 import React from 'react';
 import DeploymentCard from './DeploymentCard';
+import AppDeploymentsStatusDialog from './AppDeploymentsStatusDialog';
 
 interface DeployedBioEngineAppsProps {
   status?: any;
@@ -8,6 +9,11 @@ interface DeployedBioEngineAppsProps {
   formatTimeInfo?: (timestamp: number) => { formattedTime: string; uptime: string };
   undeploymentError?: string | null;
   setUndeploymentError?: (error: string | null) => void;
+  fetchApplicationStatus?: (params: {
+    application_ids?: string[];
+    logs_tail?: number;
+    n_previous_replica?: number;
+  }) => Promise<any>;
 }
 
 const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
@@ -16,9 +22,11 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
   onUndeployArtifact,
   formatTimeInfo,
   undeploymentError,
-  setUndeploymentError
+  setUndeploymentError,
+  fetchApplicationStatus
 }) => {
   const [copySuccess, setCopySuccess] = React.useState(false);
+  const [selectedAppId, setSelectedAppId] = React.useState<string | null>(null);
 
   const deployments = Object.entries(status?.bioengine_apps || {})
     .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
@@ -138,10 +146,21 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
               isUndeploying={undeployingArtifactId === (deployment.application_id || deployment.artifact_id)}
               onUndeploy={onUndeployArtifact}
               formatTimeInfo={formatTimeInfo}
+              onStatusClick={(applicationId) => setSelectedAppId(applicationId)}
             />
           ))}
         </div>
       ) : null}
+
+      {selectedAppId && fetchApplicationStatus && (
+        <AppDeploymentsStatusDialog
+          isOpen={!!selectedAppId}
+          onClose={() => setSelectedAppId(null)}
+          applicationId={selectedAppId}
+          initialStatus={status?.bioengine_apps?.[selectedAppId]}
+          fetchApplicationStatus={fetchApplicationStatus}
+        />
+      )}
 
       <div className="border-t border-gray-200 my-6"></div>
     </div>

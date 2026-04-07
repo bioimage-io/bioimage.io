@@ -167,7 +167,7 @@ const BioEngineWorker: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [workerMcpCopied, setWorkerMcpCopied] = useState(false);
   const [showDeployConfig, setShowDeployConfig] = useState(false);
-  const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null} | null>(null);
+  const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string} | null>(null);
 
   // Update current time every second for live uptime calculation
   useEffect(() => {
@@ -497,7 +497,19 @@ const BioEngineWorker: React.FC = () => {
 
   const handleDeployArtifact = (artifactId: string, mode: string | null = null) => {
      const deployMode = mode || artifactModes[artifactId] || null;
-     setPendingDeployment({ artifactId, mode: deployMode });
+      const currentDeployments = status?.bioengine_apps || {};
+      const deployedEntry = Object.entries(currentDeployments).find(([key, value]) => {
+      if (key === 'service_id' || key === 'note') return false;
+      if (!value || typeof value !== 'object') return false;
+      return (value as any).artifact_id === artifactId;
+      });
+
+      const existingApplicationId = deployedEntry ? deployedEntry[0] : undefined;
+      setPendingDeployment({
+      artifactId,
+      mode: deployMode,
+      applicationId: existingApplicationId,
+      });
      setShowDeployConfig(true);
   };
 
@@ -510,13 +522,25 @@ const BioEngineWorker: React.FC = () => {
 
   // Helper functions for deployment state
   const isArtifactDeployed = (artifactId: string): boolean => {
-    return !!(status?.bioengine_apps && artifactId in status.bioengine_apps);
+    if (!status?.bioengine_apps) return false;
+    return Object.entries(status.bioengine_apps).some(([key, value]) => {
+      if (key === 'service_id' || key === 'note') return false;
+      if (!value || typeof value !== 'object') return false;
+      return (value as any).artifact_id === artifactId;
+    });
   };
 
   const getDeploymentStatus = (artifactId: string): string | null => {
-    if (!status?.bioengine_apps || !(artifactId in status.bioengine_apps)) return null;
-    const deployment = status.bioengine_apps[artifactId];
-    return typeof deployment === 'object' && deployment !== null ? deployment.status : null;
+    if (!status?.bioengine_apps) return null;
+    const deploymentEntry = Object.entries(status.bioengine_apps).find(([key, value]) => {
+      if (key === 'service_id' || key === 'note') return false;
+      if (!value || typeof value !== 'object') return false;
+      return (value as any).artifact_id === artifactId;
+    });
+
+    if (!deploymentEntry) return null;
+    const deployment = deploymentEntry[1] as any;
+    return deployment?.status || null;
   };
 
   const isDeployButtonDisabled = (artifactId: string): boolean => {
@@ -758,6 +782,35 @@ const BioEngineWorker: React.FC = () => {
   const handleArtifactUpdated = () => {
     // Refresh status when artifacts are updated to sync manifest cache
     fetchStatus(false);
+  };
+
+  const fetchApplicationStatus = async (params: {
+    application_ids?: string[];
+    logs_tail?: number;
+    n_previous_replica?: number;
+  }) => {
+    if (!serviceId || !isLoggedIn) {
+      throw new Error('Service unavailable or user not logged in');
+    }
+
+    const bioengineWorker = await server.getService(serviceId, { mode: 'last' });
+    const result = await bioengineWorker.get_application_status({
+      ...params,
+      _rkwargs: true,
+    });
+
+    if (params.application_ids && params.application_ids.length === 1) {
+      return result;
+    }
+
+    if (result && typeof result === 'object' && params.application_ids && params.application_ids.length > 0) {
+      const firstId = params.application_ids[0];
+      if (firstId && result[firstId]) {
+        return result[firstId];
+      }
+    }
+
+    return result;
   };
 
   // Helper function to get worker service info URL
@@ -1099,6 +1152,7 @@ const BioEngineWorker: React.FC = () => {
           setUndeploymentError={setUndeploymentError}
           formatTimeInfo={formatTimeInfo}
           server={server}
+          fetchApplicationStatus={fetchApplicationStatus}
         />
 
         {pendingDeployment && (
@@ -1112,6 +1166,7 @@ const BioEngineWorker: React.FC = () => {
             artifactId={pendingDeployment.artifactId}
             initialMode={pendingDeployment.mode}
             bioengineApps={status?.bioengine_apps}
+            initialApplicationId={pendingDeployment.applicationId}
           />
         )}
       </div>

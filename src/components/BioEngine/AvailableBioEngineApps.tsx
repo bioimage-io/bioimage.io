@@ -13,6 +13,7 @@ type ArtifactType = {
   manifest?: {
     id_emoji?: string;
     name?: string;
+    version?: string;
     description?: string;
     documentation?: string | { url?: string; text?: string };
     tutorial?: string | { url?: string; text?: string };
@@ -25,6 +26,8 @@ type ArtifactType = {
   defaultMode?: string;
   isLoading?: boolean;
   loadError?: string;
+  version?: string;
+  lastFileModified?: string;
 };
 
 interface AvailableBioEngineAppsProps {
@@ -185,6 +188,41 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
             if (artifactData) {
               art.manifest = artifactData.manifest;
+              art.version = artifactData.manifest?.version || 'N/A';
+
+              try {
+                const fileList = await artifactManager.list_files({
+                  artifact_id: art.id,
+                  _rkwargs: true
+                });
+
+                const timestamps = (fileList || [])
+                  .filter((f: any) => f && f.type === 'file' && typeof f.last_modified !== 'undefined' && f.last_modified !== null)
+                  .map((f: any) => {
+                    let value: number;
+
+                    if (typeof f.last_modified === 'number') {
+                      // artifactManager.list_files returns Unix timestamps in seconds.
+                      value = f.last_modified * 1000;
+                    } else {
+                      const numeric = Number(f.last_modified);
+                      if (Number.isFinite(numeric)) {
+                        value = numeric * 1000;
+                      } else {
+                        value = Date.parse(f.last_modified);
+                      }
+                    }
+
+                    return Number.isFinite(value) ? value : null;
+                  })
+                  .filter((v: number | null): v is number => v !== null);
+
+                if (timestamps.length > 0) {
+                  art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
+                }
+              } catch (fileErr) {
+                console.warn(`Failed to fetch file metadata for ${art.id}:`, fileErr);
+              }
 
               const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
               console.log(`${art.id} supported modes:`, supportedModes, `Default: ${defaultMode}`);
