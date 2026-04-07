@@ -29,22 +29,17 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
     summary_path = Path(summary_file)
     if not summary_path.exists():
         print("TOTAL_MODELS=0")
-        print("TESTED_MODELS=0")
-        print("SKIPPED=0")
         print("PASSED=0")
         print("FAILED=0")
         print("TIMEOUT=0")
         print("PASSED_RATE=0.00")
         print("FAILED_RATE=0.00")
         print("TIMEOUT_RATE=0.00")
-        print("SKIPPED_RATE=0.00")
         return
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     total_models = int(summary.get("total_models", 0))
-    tested_models = int(summary.get("tested_models", 0))
-    skipped = int(summary.get("skipped", 0))
     passed = int(summary.get("passed", 0))
     failed = int(summary.get("failed", 0))
     timeout = int(summary.get("timeout", 0))
@@ -55,15 +50,12 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
         return f"{(value / total_models) * 100:.2f}"
 
     print(f"TOTAL_MODELS={total_models}")
-    print(f"TESTED_MODELS={tested_models}")
-    print(f"SKIPPED={skipped}")
     print(f"PASSED={passed}")
     print(f"FAILED={failed}")
     print(f"TIMEOUT={timeout}")
     print(f"PASSED_RATE={rate(passed)}")
     print(f"FAILED_RATE={rate(failed)}")
     print(f"TIMEOUT_RATE={rate(timeout)}")
-    print(f"SKIPPED_RATE={rate(skipped)}")
 
 
 async def fetch_previous_results(
@@ -162,6 +154,7 @@ async def check_bmz_model_inference(
     # Iterate over models and test inference
     results = {}
     skipped_models = 0
+    timeout_models = 0
     for model_id in model_ids:
         model_start_time = time.time()
 
@@ -198,6 +191,7 @@ async def check_bmz_model_inference(
             print(f"-> Model '{model_id}' inference timed out after 2 minutes")
             status = "timeout"
             message = "Test timed out after 2 minutes"
+            timeout_models += 1
 
         except Exception as e:
             print(f"-> Model '{model_id}' inference failed with error: {str(e)}")
@@ -217,11 +211,12 @@ async def check_bmz_model_inference(
 
     summary = {
         "total_models": len(model_ids),
-        "tested_models": len(results),
         "skipped": skipped_models,
-        "passed": sum(1 for result in results.values() if result["status"] == "passed"),
-        "failed": sum(1 for result in results.values() if result["status"] == "failed"),
-        "timeout": sum(1 for result in results.values() if result["status"] == "timeout"),
+        "passed": sum(1 for result in results.values() if result["status"] == "passed")
+        + skipped_models,
+        "failed": sum(1 for result in results.values() if result["status"] == "failed")
+        + timeout_models,
+        "timeout": timeout_models,
         "execution_time_seconds": round(execution_time, 2),
     }
     save_inference_summary(summary_file, summary)

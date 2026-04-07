@@ -92,7 +92,6 @@ jobs:
 
         if [ "$TOTAL_MODELS" -gt 0 ]; then
           echo "**Total models in scope:** $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
-          echo "**Models tested this run:** $TESTED_MODELS" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "| Inference Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
@@ -100,7 +99,9 @@ jobs:
           echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Timeout | $TIMEOUT | $TOTAL_MODELS | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skipped | $SKIPPED | $TOTAL_MODELS | ${SKIPPED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Passed includes skipped models that were already previously passed." >> $GITHUB_STEP_SUMMARY
+          echo "Timeouts are included in the failed count." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Inference check completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         else
