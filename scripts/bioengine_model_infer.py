@@ -4,6 +4,7 @@ import json
 import os
 import time
 from io import BytesIO
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx
@@ -15,6 +16,54 @@ from hypha_rpc.utils import ObjectProxy
 SERVER_URL = "https://hypha.aicell.io"
 WORKSPACE = "bioimage-io"
 COLLECTION = "bioimage.io"
+DEFAULT_INFERENCE_SUMMARY_PATH = "../bioimageio_test_reports/inference_summary.json"
+
+
+def save_inference_summary(summary_file: str, summary: Dict[str, int | float]) -> None:
+    summary_path = Path(summary_file)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+
+def print_inference_summary_for_ci(summary_file: str) -> None:
+    summary_path = Path(summary_file)
+    if not summary_path.exists():
+        print("TOTAL_MODELS=0")
+        print("TESTED_MODELS=0")
+        print("SKIPPED=0")
+        print("PASSED=0")
+        print("FAILED=0")
+        print("TIMEOUT=0")
+        print("PASSED_RATE=0.00")
+        print("FAILED_RATE=0.00")
+        print("TIMEOUT_RATE=0.00")
+        print("SKIPPED_RATE=0.00")
+        return
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    total_models = int(summary.get("total_models", 0))
+    tested_models = int(summary.get("tested_models", 0))
+    skipped = int(summary.get("skipped", 0))
+    passed = int(summary.get("passed", 0))
+    failed = int(summary.get("failed", 0))
+    timeout = int(summary.get("timeout", 0))
+
+    def rate(value: int) -> str:
+        if total_models == 0:
+            return "0.00"
+        return f"{(value / total_models) * 100:.2f}"
+
+    print(f"TOTAL_MODELS={total_models}")
+    print(f"TESTED_MODELS={tested_models}")
+    print(f"SKIPPED={skipped}")
+    print(f"PASSED={passed}")
+    print(f"FAILED={failed}")
+    print(f"TIMEOUT={timeout}")
+    print(f"PASSED_RATE={rate(passed)}")
+    print(f"FAILED_RATE={rate(failed)}")
+    print(f"TIMEOUT_RATE={rate(timeout)}")
+    print(f"SKIPPED_RATE={rate(skipped)}")
 
 
 async def fetch_previous_results(
@@ -80,6 +129,7 @@ async def update_collection(
 async def check_bmz_model_inference(
     model_ids: Optional[List[str]] = None,
     dry_run: bool = False,
+    summary_file: str = DEFAULT_INFERENCE_SUMMARY_PATH,
 ) -> None:
     """Test BioImage.IO model and generate test report.
 
@@ -111,6 +161,7 @@ async def check_bmz_model_inference(
 
     # Iterate over models and test inference
     results = {}
+    skipped_models = 0
     for model_id in model_ids:
         model_start_time = time.time()
 
@@ -126,6 +177,7 @@ async def check_bmz_model_inference(
                 print(
                     f"-> Model '{model_id}' has not changed since last test, skipping inference"
                 )
+                skipped_models += 1
                 continue
 
             image = await fetch_sample_image(artifact_manager, model_id)
@@ -158,9 +210,21 @@ async def check_bmz_model_inference(
             "tested_at": model_start_time,
         }
 
+    execution_time = time.time() - start_time
     print("\n============ All Models Tested ============\n")
-    print(f"Total execution time: {time.time() - start_time:.2f} seconds\n")
+    print(f"Total execution time: {execution_time:.2f} seconds\n")
     print(json.dumps(results, indent=2))
+
+    summary = {
+        "total_models": len(model_ids),
+        "tested_models": len(results),
+        "skipped": skipped_models,
+        "passed": sum(1 for result in results.values() if result["status"] == "passed"),
+        "failed": sum(1 for result in results.values() if result["status"] == "failed"),
+        "timeout": sum(1 for result in results.values() if result["status"] == "timeout"),
+        "execution_time_seconds": round(execution_time, 2),
+    }
+    save_inference_summary(summary_file, summary)
 
     # Update artifact with test results
     if not dry_run:
@@ -185,12 +249,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Run tests but don't update any artifacts",
     )
+    parser.add_argument(
+        "--summary-file",
+        default=DEFAULT_INFERENCE_SUMMARY_PATH,
+        help="Path to save/read inference summary for CI",
+    )
+    parser.add_argument(
+        "--analyze-results",
+        action="store_true",
+        help="Print shell variables derived from inference summary report",
+    )
 
     args = parser.parse_args()
+
+    if args.analyze_results:
+        print_inference_summary_for_ci(args.summary_file)
+        raise SystemExit(0)
 
     asyncio.run(
         check_bmz_model_inference(
             model_ids=args.model_ids,
             dry_run=args.dry_run,
+            summary_file=args.summary_file,
         )
     )

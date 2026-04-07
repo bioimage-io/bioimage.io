@@ -44,6 +44,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install hypha-rpc numpy httpx pyyaml
 
+    - name: Create test reports directory
+      run: mkdir -p bioimageio_test_reports
+
     - name: Run BioImage.IO model inference checks
       env:
         HYPHA_TOKEN: ${{ secrets.HYPHA_TOKEN }}
@@ -73,4 +76,33 @@ jobs:
         if [ $EXIT_CODE -ne 0 ]; then
           echo "❌ Model inference checks failed with exit code $EXIT_CODE"
           exit $EXIT_CODE
+        fi
+
+    - name: Generate inference summary report
+      if: always()
+      run: |
+        echo "# BioImage.IO Inference Check Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        cd scripts
+        ANALYSIS_OUTPUT=$(python -u bioengine_model_infer.py --analyze-results)
+        echo "$ANALYSIS_OUTPUT"
+
+        eval "$ANALYSIS_OUTPUT"
+
+        if [ "$TOTAL_MODELS" -gt 0 ]; then
+          echo "**Total models in scope:** $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+          echo "**Models tested this run:** $TESTED_MODELS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Inference Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------------|-------|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timeout | $TIMEOUT | $TOTAL_MODELS | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped | $SKIPPED | $TOTAL_MODELS | ${SKIPPED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Inference check completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "No inference summary report found." >> $GITHUB_STEP_SUMMARY
         fi
