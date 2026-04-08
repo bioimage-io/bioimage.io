@@ -62,8 +62,13 @@ async def test_bmz_models(
     total_passed = 0
     total_valid_format = 0
     total_failed = 0
+    total_timeout = 0
+    total_error = 0
 
-    output_dir = reports_dir or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
+    output_dir = (
+        reports_dir
+        or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Test each model
@@ -84,6 +89,7 @@ async def test_bmz_models(
 
             model_execution_time = time.time() - model_start_time
             print(f"Model '{model_id}' tested in {model_execution_time:.2f} seconds")
+
         except asyncio.TimeoutError:
             model_execution_time = time.time() - model_start_time
             print(
@@ -91,26 +97,32 @@ async def test_bmz_models(
             )
             test_report = {
                 "id": model_id,
-                "status": "failed",
-                "details": [{"errors": [{"msg": "Test timed out after 5 minutes"}]}]
+                "status": "service-timeout",
+                "details": [{"errors": [{"msg": "Test timed out after 5 minutes"}]}],
             }
         except Exception:
             error_traceback = traceback.format_exc()
             test_report = {
                 "id": model_id,
-                "status": "failed",
-                "details": [{"errors": [{"msg": error_traceback}]}]
+                "status": "service-error",
+                "details": [{"errors": [{"msg": error_traceback}]}],
             }
             model_execution_time = time.time() - model_start_time
             print(f"Model '{model_id}' failed after {model_execution_time:.2f} seconds")
 
-        model_status = test_report.get("status", "failed")
-        if model_status == "passed":
+        if "status" not in test_report:
+            test_report["status"] = "failed"
+        status = test_report["status"]
+        if status == "passed":
             total_passed += 1
-        elif model_status == "valid-format":
+        elif status == "valid-format":
             total_valid_format += 1
-        else:
+        elif status == "failed":
             total_failed += 1
+        elif status == "service-timeout":
+            total_timeout += 1
+        elif status == "service-error":
+            total_error += 1
 
         output_file = output_dir / f"{model_id}.json"
         try:
@@ -126,10 +138,10 @@ async def test_bmz_models(
 
     # Print summary
     perc_passed = (total_passed / len(model_ids)) * 100 if model_ids else 0
-    perc_valid_format = (
-        (total_valid_format / len(model_ids)) * 100 if model_ids else 0
-    )
+    perc_valid_format = (total_valid_format / len(model_ids)) * 100 if model_ids else 0
     perc_failed = (total_failed / len(model_ids)) * 100 if model_ids else 0
+    perc_timeout = (total_timeout / len(model_ids)) * 100 if model_ids else 0
+    perc_error = (total_error / len(model_ids)) * 100 if model_ids else 0
     formatted_time = time.strftime("%H:%M:%S", time.gmtime(total_execution_time))
 
     print(
@@ -140,6 +152,12 @@ async def test_bmz_models(
     )
     print(
         f"Total models with status failed: {total_failed}/{len(model_ids)} ({perc_failed:.2f}%)"
+    )
+    print(
+        f"Total models with execution timeout: {total_timeout}/{len(model_ids)} ({perc_timeout:.2f}%)"
+    )
+    print(
+        f"Total models with execution error: {total_error}/{len(model_ids)} ({perc_error:.2f}%)"
     )
     print(f"Total execution time: {formatted_time} (hh:mm:ss)")
     print(f"Saved model test reports to: {output_dir}")
@@ -155,8 +173,8 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
         reports_dir: Path to directory containing test report JSON files.
 
     Outputs (printed to stdout):
-        TOTAL_MODELS, PASSED, VALID_FORMAT, FAILED,
-        PASSED_RATE, VALID_FORMAT_RATE, FAILED_RATE
+        TOTAL_MODELS, PASSED, VALID_FORMAT, FAILED, TIMEOUT, ERROR,
+        PASSED_RATE, VALID_FORMAT_RATE, FAILED_RATE, TIMEOUT_RATE, ERROR_RATE
     """
     if not reports_dir.exists():
         print("TOTAL_MODELS=0")
@@ -173,6 +191,8 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     passed = 0
     valid_format = 0
     failed = 0
+    timeout = 0
+    error = 0
 
     for json_file in json_files:
         try:
@@ -184,8 +204,12 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
                 passed += 1
             elif status == "valid-format":
                 valid_format += 1
-            else:
+            elif status == "failed":
                 failed += 1
+            elif status == "service-timeout":
+                timeout += 1
+            elif status == "service-error":
+                error += 1
 
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
@@ -196,15 +220,21 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
         round((valid_format / total_models) * 100, 1) if total_models > 0 else 0
     )
     failed_rate = round((failed / total_models) * 100, 1) if total_models > 0 else 0
+    timeout_rate = round((timeout / total_models) * 100, 1) if total_models > 0 else 0
+    error_rate = round((error / total_models) * 100, 1) if total_models > 0 else 0
 
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
     print(f"PASSED={passed}")
     print(f"VALID_FORMAT={valid_format}")
     print(f"FAILED={failed}")
+    print(f"TIMEOUT={timeout}")
+    print(f"ERROR={error}")
     print(f"PASSED_RATE={passed_rate}")
     print(f"VALID_FORMAT_RATE={valid_format_rate}")
     print(f"FAILED_RATE={failed_rate}")
+    print(f"TIMEOUT_RATE={timeout_rate}")
+    print(f"ERROR_RATE={error_rate}")
 
 
 def clear_existing_test_reports(reports_dir: Path) -> None:

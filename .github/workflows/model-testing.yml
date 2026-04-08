@@ -111,11 +111,15 @@ jobs:
           echo "**Total models tested:** $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "| Test Type | Passed | Total | Rate |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|-------|-------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Valid Format | $VALID_FORMAT | $TOTAL_MODELS | ${VALID_FORMAT_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Timeout | $TIMEOUT | $TOTAL_MODELS | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Error | $ERROR | $TOTAL_MODELS | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Failed excludes service-timeout and service-error." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Test completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         else
