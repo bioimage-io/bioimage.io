@@ -40,6 +40,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
 }) => {
   const [mcpCopied, setMcpCopied] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
+  const isAppRunning = deployment.status === "RUNNING";
 
   // Helper function to format bytes to GB
   const formatMemoryToGB = (bytes: number): string => {
@@ -175,17 +176,21 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               )}
               {deployment.static_site_url && (
                 <div className="mt-2">
-                  <a
-                    href={deployment.static_site_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 transition-colors cursor-pointer"
+                  <button
+                    type="button"
+                    onClick={() => window.open(deployment.static_site_url!, "_blank", "noopener,noreferrer")}
+                    disabled={!isAppRunning}
+                    className={`inline-flex items-center px-3 py-1.5 rounded text-xs font-medium border transition-colors ${isAppRunning
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 cursor-pointer"
+                      : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                      }`}
+                    title={isAppRunning ? "Open app in a new tab" : "App must be RUNNING to open"}
                   >
                     <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H10a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5m-9-4.5L21 3m0 0v6m0-6h-6" />
                     </svg>
                     Open App
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
