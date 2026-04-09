@@ -35,13 +35,19 @@ export interface AllAnnotatedResult {
   message: string;
 }
 
+export interface NoImagesResult {
+  status: 'no_images';
+  message: string;
+}
+
 export interface ImageResult {
   url: string;
+  name: string;
   cellpose_model?: string;
 }
 
 export interface AnnotationDataService {
-  getImage: () => Promise<ImageResult | AllAnnotatedResult>;
+  getImage: () => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
   getSaveUrls: (imageName: string) => Promise<SaveUrls>;
   saveAnnotation: (filename: string, geojson: object, dimensions: [number, number]) => Promise<void>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
@@ -246,15 +252,23 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         const wrappedService: AnnotationDataService = {
           getImage: async () => {
             const result = await dataService.get_image();
-            // Service returns a dict with status:"all_annotated" when done
-            if (result && typeof result === 'object' && (result as any).status === 'all_annotated') {
-              console.log('[useHyphaService] All images annotated:', result);
-              return result as AllAnnotatedResult;
+            // Service returns a dict with status field for terminal states
+            if (result && typeof result === 'object') {
+              const status = (result as any).status;
+              if (status === 'all_annotated') {
+                console.log('[useHyphaService] All images annotated:', result);
+                return result as AllAnnotatedResult;
+              }
+              if (status === 'no_images') {
+                console.log('[useHyphaService] No images available:', result);
+                return result as NoImagesResult;
+              }
             }
             // Older versions or different implementations might still return a string
             if (typeof result === 'string') {
               console.log('[useHyphaService] Image URL:', result);
-              return { url: result } as ImageResult;
+              const name = result.split('/').pop()?.split('?')[0] || 'image.png';
+              return { url: result, name } as ImageResult;
             }
             console.log('[useHyphaService] Image Info:', result);
             return result as ImageResult;

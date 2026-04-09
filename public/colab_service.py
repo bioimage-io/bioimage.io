@@ -173,124 +173,146 @@ async def _get_annotated_stems(
 
 
 async def get_image(
-    server_url: str, artifact_manager: ObjectProxy, artifact_id: str,
-    images_path: Path, label: str, state: dict = None, context: dict = None,
+    server_url: str,
+    artifact_manager: ObjectProxy,
+    artifact_id: str,
+    images_path: Path,
+    label: str,
+    state: dict = None,
+    context: dict = None,
 ) -> dict:
-    """Get a random *unannotated* image and return its info.
+    """Get a random unannotated image and return its presigned artifact URL.
 
-    Prioritises images that do not yet have a mask for the current label.
-    Returns a dict with `url` normally, or a dict with `status: "all_annotated"`
-    when every image has been annotated.
+    Builds a unified image pool from both the local mounted folder and the
+    remote artifact (deduped by stem).  Filters out images that already have
+    an annotation mask for *label*.  If the pool is empty, returns an
+    all_annotated status dict.  Otherwise samples a random image, uploads it
+    to the artifact if it only exists locally, then returns a presigned
+    download URL via artifact_manager.get_file() so the annotation UI loads
+    the image directly from the artifact — no binary data is sent over the
+    WebSocket.
     """
     console.log(f"\n🔵 get_image called")
     console.log(f"   images_path: {images_path}")
 
-    # --- Collect the set of already-annotated stems ---
-    annotated_stems = await _get_annotated_stems(artifact_manager, artifact_id, label)
-
-    # Check if we should use local folder or remote artifact
     use_local_folder = images_path and images_path.exists() and images_path.is_dir()
     console.log(f"   use_local_folder: {use_local_folder}")
 
+    # ── 1. Build unified image registry: stem → {name, local_path} ──────────
+    # Registry keys are stems so local and remote entries for the same image
+    # are naturally deduplicated.
+    image_registry = {}  # stem: {"name": "stem.png", "local_path": Path|None}
+
     if use_local_folder:
-        # Local folder mode: read from /mnt and upload to artifact
-        console.log(f"Using local folder: {images_path}")
-        filenames = list_image_files(images_path)
-        if not filenames:
-            raise ValueError(f"No images found with supported types in {images_path}")
+        local_files = list_image_files(images_path)
+        for f in local_files:
+            image_registry[f.stem] = {"name": f.stem + ".png", "local_path": f}
+        console.log(f"   Local folder: {len(local_files)} images")
 
-        # Filter to unannotated images
-        unannotated = [f for f in filenames if f.stem not in annotated_stems]
-        console.log(f"  {len(unannotated)} unannotated / {len(filenames)} total images")
+    try:
+        remote_files = await artifact_manager.list_files(
+            artifact_id, dir_path="input_images", stage=True
+        )
+        for rf in (remote_files or []):
+            stem = Path(rf["name"]).stem
+            if stem not in image_registry:
+                image_registry[stem] = {"name": rf["name"], "local_path": None}
+        console.log(f"   Artifact: {len(remote_files or [])} images")
+    except Exception as e:
+        console.log(f"   Could not list artifact images: {e}")
 
-        if not unannotated:
-            console.log(f"  All {len(filenames)} images annotated for label '{label}'")
-            return {
-                "status": "all_annotated",
-                "total": len(filenames),
-                "annotated": len(filenames),
-                "label": label,
-                "message": f"All {len(filenames)} images have been annotated for label '{label}'. Start a new annotation label to continue.",
-            }
+    total = len(image_registry)
+    console.log(f"   Total unique images: {total}")
 
-        r = np.random.randint(len(unannotated))
-        image_path = unannotated[r]
-        console.log(f"  Selected image: {image_path.name} (index {r} of {len(unannotated)})")
+    if total == 0:
+        console.log(f"   No images found - returning no_images status")
+        return {
+            "status": "no_images",
+            "message": (
+                "No images found. Add images to the local folder or upload them to the artifact first."
+            ),
+        }
 
-        # Read image from local folder
-        image = read_image(image_path)
+    # ── 2. Filter out already-annotated images ───────────────────────────────
+    annotated_stems = await _get_annotated_stems(artifact_manager, artifact_id, label)
+    unannotated = {
+        stem: info
+        for stem, info in image_registry.items()
+        if stem not in annotated_stems
+    }
+    console.log(f"   {len(unannotated)} unannotated / {total} total")
 
-        console.log(f"  Image shape: {image.shape}, dtype: {image.dtype}")
+    # ── 3. All done? ─────────────────────────────────────────────────────────
+    if not unannotated:
+        console.log(f"   All {total} images annotated for label '{label}'")
+        return {
+            "status": "all_annotated",
+            "total": total,
+            "annotated": total,
+            "label": label,
+            "message": (
+                f"All {total} images have been annotated for label '{label}'. "
+                "Start a new annotation label to continue."
+            ),
+        }
 
-        # Convert to PNG with explicit RGB mode
-        pil_image = Image.fromarray(image, mode='RGB')
-        img_byte_arr = io.BytesIO()
-        pil_image.save(img_byte_arr, format="PNG")
-        img_bytes = img_byte_arr.getvalue()
+    # ── 4. Sample a random unannotated image ─────────────────────────────────
+    stems_list = list(unannotated.keys())
+    chosen_stem = stems_list[np.random.randint(len(stems_list))]
+    chosen = unannotated[chosen_stem]
+    image_name = chosen["name"]
+    local_path = chosen["local_path"]
+    console.log(f"   Selected: {image_name} (local={local_path is not None})")
 
-        image_name = image_path.stem + ".png"
-
-        # Upload to artifact if not already there
+    # ── 5. Upload local file to artifact if not already there ─────────────────
+    if local_path is not None:
         try:
-            existing_images = await artifact_manager.list_files(
+            existing = await artifact_manager.list_files(
                 artifact_id, dir_path="input_images", stage=True
             )
-            image_exists = any(f["name"] == image_name for f in existing_images)
+            already_uploaded = any(
+                Path(f["name"]).stem == chosen_stem for f in (existing or [])
+            )
         except Exception:
-            image_exists = False
+            already_uploaded = False
 
-        if not image_exists:
-            console.log(f"Uploading image {image_name} to artifact...")
+        if not already_uploaded:
+            console.log(f"   Uploading {image_name} to artifact...")
+            image = read_image(local_path)
+            pil_image = Image.fromarray(image, mode='RGB')
+            buf = io.BytesIO()
+            pil_image.save(buf, format="PNG")
             upload_url = await artifact_manager.put_file(
                 artifact_id, file_path=f"input_images/{image_name}"
             )
-            await pyodide.http.pyfetch(upload_url, method="PUT", body=img_bytes)
-            console.log(f"✓ Image {image_name} uploaded to artifact")
-    else:
-        # Remote mode: get random image from artifact's input_images/
-        console.log(f"Using artifact images (no local folder)")
-        try:
-            remote_files = await artifact_manager.list_files(
-                artifact_id, dir_path="input_images", stage=True
-            )
-            if not remote_files:
-                raise ValueError(f"No images found in artifact {artifact_id}/input_images")
+            await pyodide.http.pyfetch(upload_url, method="PUT", body=buf.getvalue())
+            console.log(f"   ✓ Uploaded {image_name}")
+        else:
+            console.log(f"   {image_name} already in artifact, skipping upload")
 
-            # Filter to unannotated images
-            unannotated = [
-                f for f in remote_files
-                if Path(f["name"]).stem not in annotated_stems
-            ]
-            console.log(f"  {len(unannotated)} unannotated / {len(remote_files)} total images")
+    # ── 6. Get presigned download URL from artifact ───────────────────────────
+    try:
+        image_url = await artifact_manager.get_file(
+            artifact_id,
+            file_path=f"input_images/{image_name}",
+            stage=True,
+            _rkwargs=True,
+        )
+        console.log(f"   Presigned URL obtained")
+    except Exception as e:
+        # Fall back to direct Hypha artifact HTTP URL
+        console.log(f"   get_file failed ({e}), falling back to direct URL")
+        artifact_alias = artifact_id.split("/")[-1]
+        image_url = (
+            f"{server_url}/{WORKSPACE}/artifacts/{artifact_alias}"
+            f"/files/input_images/{image_name}"
+        )
 
-            if not unannotated:
-                console.log(f"  All {len(remote_files)} images annotated for label '{label}'")
-                return {
-                    "status": "all_annotated",
-                    "total": len(remote_files),
-                    "annotated": len(remote_files),
-                    "label": label,
-                    "message": f"All {len(remote_files)} images have been annotated for label '{label}'. Start a new annotation label to continue.",
-                }
-
-            # Pick a random unannotated image
-            r = np.random.randint(len(unannotated))
-            image_name = unannotated[r]["name"]
-            console.log(f"Selected remote image: {image_name}")
-        except Exception as e:
-            console.log(f"Error accessing artifact images: {e}")
-            raise ValueError(f"Cannot access images from artifact {artifact_id}/input_images: {e}")
-
-    artifact_alias = artifact_id.split("/")[-1]
-    image_url = (
-        f"{server_url}/{WORKSPACE}/artifacts/{artifact_alias}/files/input_images/{image_name}"
-    )
-
-    console.log(f"🔵 get_image returned url: {image_url}")
-
+    console.log(f"🔵 get_image returning: {image_name}")
     return {
         "url": image_url,
-        "cellpose_model": state.get("cellpose_model") if state else None
+        "name": image_name,
+        "cellpose_model": state.get("cellpose_model") if state else None,
     }
 
 
@@ -703,12 +725,10 @@ async def register_service(
     console.log(f"use_local_folder: {use_local_folder}")
 
     if use_local_folder:
-        # Local folder mode: check for images in /mnt
+        # Local folder mode: log available images (not required at registration time)
         console.log(f"Using local folder: {images_path}")
         image_files = list_image_files(images_path)
-        if not image_files:
-            await _disconnect_hypha_client()
-            raise ValueError(f"No images found with supported types in {images_path}")
+        console.log(f"Found {len(image_files)} local images (images can also be uploaded later)")
     else:
         # Remote mode: check for images in artifact
         console.log(f"Local folder not found, checking artifact for images...")

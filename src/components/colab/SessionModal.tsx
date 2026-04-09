@@ -999,19 +999,35 @@ print("Service registered successfully", end='')
         </div>
       )}
 
-      <button
-        onClick={handleStartSession}
-        disabled={
-          !label ||
-          !sessionDescription ||
+      {(() => {
+        const missingFields: string[] = [];
+        if (!sessionName) missingFields.push('session name');
+        if (!sessionDescription) missingFields.push('description');
+        if (!label) missingFields.push('annotation label');
+        const sourceIncomplete =
           (dataSourceType === 'local' && !localFolderHandle) ||
           (dataSourceType === 'upload' && selectedFiles.length === 0) ||
-          (dataSourceType === 'resume' && !resumeArtifactId)
-        }
-        className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all"
-      >
-        Start Annotation Session
-      </button>
+          (dataSourceType === 'resume' && !resumeArtifactId);
+        const isDisabled = missingFields.length > 0 || sourceIncomplete;
+        const tooltipMsg = missingFields.length > 0
+          ? `Please fill in: ${missingFields.join(', ')}`
+          : sourceIncomplete
+            ? dataSourceType === 'local' ? 'Please select a local folder'
+            : dataSourceType === 'upload' ? 'Please select files to upload'
+            : 'Please select a session to resume'
+          : '';
+        return (
+          <div title={tooltipMsg} className="w-full">
+            <button
+              onClick={handleStartSession}
+              disabled={isDisabled}
+              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all"
+            >
+              Start Annotation Session
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 

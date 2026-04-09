@@ -299,14 +299,15 @@ print("Service registered successfully", end='')
     }
   };
 
-  // Load and merge images from artifact and local folder
+  // Load and merge images from artifact and local folder, deduplicating by stem
   const loadAllImages = async () => {
     if (!dataArtifactId && !imageFolderHandle) return;
-    
-    setIsLoadingImages(true);
-    const allFiles = new Set<string>();
 
-    // 1. Fetch cloud images if we have an artifact ID
+    setIsLoadingImages(true);
+    // Map from stem -> filename; artifact files take precedence over local files
+    const filesByStem = new Map<string, string>();
+
+    // 1. Fetch cloud images if we have an artifact ID (added first so they win dedup)
     if (dataArtifactId && artifactManager) {
       try {
         console.log('Loading images from artifact...');
@@ -316,21 +317,27 @@ print("Service registered successfully", end='')
           _rkwargs: true
         });
         const imageNames = files.map((f: any) => f.name);
-        imageNames.forEach((name: string) => allFiles.add(name));
+        imageNames.forEach((name: string) => {
+          const stem = name.slice(0, name.lastIndexOf('.') !== -1 ? name.lastIndexOf('.') : name.length);
+          filesByStem.set(stem, name);
+        });
         console.log(`Loaded ${imageNames.length} images from artifact`);
       } catch (error) {
         console.log('No cloud images or failed to fetch:', error);
       }
     }
 
-    // 2. Fetch local images if we have a folder handle
+    // 2. Fetch local images if we have a folder handle; skip stems already in artifact
     if (imageFolderHandle && supportedFileTypes.length > 0) {
       try {
         for await (const entry of (imageFolderHandle as any).values()) {
           if (entry.kind === 'file') {
             const fileType = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
             if (supportedFileTypes.includes(fileType)) {
-              allFiles.add(entry.name);
+              const stem = entry.name.slice(0, entry.name.lastIndexOf('.'));
+              if (!filesByStem.has(stem)) {
+                filesByStem.set(stem, entry.name);
+              }
             }
           }
         }
@@ -339,7 +346,7 @@ print("Service registered successfully", end='')
       }
     }
 
-    setImageList(Array.from(allFiles).sort());
+    setImageList(Array.from(filesByStem.values()).sort());
     setIsLoadingImages(false);
   };
 
@@ -479,11 +486,15 @@ print("Service registered successfully", end='')
 
       console.log(`Upload result: ${result.success}/${result.total} succeeded, ${result.failed} failed`);
 
-      if (result.failed > 0) {
+      if (result.total === 0) {
+        alert('No local images found to upload. Please mount a local folder first.');
+      } else if (result.failed > 0) {
         console.error('Upload errors:', result.errors);
-        alert(`Upload completed with ${result.failed} failure(s). Check console for details.`);
+        alert(`Upload completed with errors: ${result.success}/${result.total} succeeded, ${result.failed} failed. Check console for details.`);
       } else {
-        console.log('All images uploaded successfully. Session converted to cloud mode.');
+        alert(`Successfully uploaded ${result.success} image(s) to cloud.`);
+        // Refresh image list to show newly uploaded cloud images
+        await loadAllImages();
       }
 
       // Update data source type to 'upload'
