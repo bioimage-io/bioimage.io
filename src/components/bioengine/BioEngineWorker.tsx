@@ -116,6 +116,7 @@ type DeploymentType = {
   status: string;
   available_methods?: string[];
   replica_states?: Record<string, number>;
+  static_site_url?: string | null;
   manifest?: {
     id_emoji?: string;
     name?: string;
@@ -330,6 +331,7 @@ const BioEngineWorker: React.FC = () => {
                 service_ids: serviceIds,
                 available_methods: app.available_methods || app.methods,
                 replica_states: app.replica_states,
+                static_site_url: app.static_site_url,
                 resources: app.resources
               };
             }

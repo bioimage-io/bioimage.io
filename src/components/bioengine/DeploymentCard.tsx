@@ -10,6 +10,7 @@ interface DeploymentCardProps {
     status: string;
     start_time?: number;
     last_updated_at?: number;
+    static_site_url?: string | null;
     available_methods?: string[];
     replica_states?: Record<string, number>;
     resources?: {
@@ -171,6 +172,21 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                 <p className="text-sm text-gray-600">
                   <span className="font-medium">Last Update:</span> {formatTimeInfo(deployment.last_updated_at).formattedTime}
                 </p>
+              )}
+              {deployment.static_site_url && (
+                <div className="mt-2">
+                  <a
+                    href={deployment.static_site_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H10a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5m-9-4.5L21 3m0 0v6m0-6h-6" />
+                    </svg>
+                    Open App
+                  </a>
+                </div>
               )}
             </div>
           )}
