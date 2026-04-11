@@ -200,7 +200,7 @@ async def check_bmz_model_inference(
 
         results[model_id] = {
             "status": status,
-            "message": message,
+            "message": message[:20] if message else None,
             "tested_at": model_start_time,
         }
 
