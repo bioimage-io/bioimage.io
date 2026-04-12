@@ -9,6 +9,7 @@ interface TrainingModalProps {
   artifactManager?: any;
   cellposeModel?: string;
   onCellposeModelChange?: (model: string) => void;
+  splitInfo?: { applied: boolean; trainImages: string[]; testImages: string[] } | null;
 }
 
 interface ExistingModel {
@@ -26,6 +27,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   server,
   cellposeModel = 'Base',
   onCellposeModelChange,
+  splitInfo,
 }) => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'choose' | 'new' | 'existing'>('choose');
@@ -89,21 +91,18 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
     try {
       if (server) {
         const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
-        const models = await cellposeService.list_models_by_dataset(
-          dataArtifactId,
-          {
-            collection: 'bioimage-io/colab-annotations',
-            _rkwargs: true
-          }
-        );
+        const sessions = await cellposeService.list_training_sessions({
+          dataset_artifact_ids: [dataArtifactId],
+          _rkwargs: true
+        });
 
-        setExistingModels(models || []);
-        console.log(`Loaded ${models?.length || 0} existing models for dataset`);
+        setExistingModels(sessions || []);
+        console.log(`Loaded ${sessions?.length || 0} training sessions for dataset`);
       }
     } catch (err) {
-      console.error('Error loading existing models:', err);
+      console.error('Error loading training sessions:', err);
       setExistingModels([]);
-      setError(`Failed to load existing models: ${toErrorMessage(err)}`);
+      setError(`Failed to load training sessions: ${toErrorMessage(err)}`);
     } finally {
       setIsLoadingModels(false);
     }
@@ -147,10 +146,12 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
       const maskFolder = label ? `masks_${label}` : 'annotations';
 
+      const hasTestSplit = splitInfo?.applied && splitInfo.testImages.length > 0;
+
       const trainingParams: any = {
         artifact: String(dataArtifactId),
         model: String(selectedModel),
-        train_images: 'input_images/*.png',
+        train_images: 'train_images/*.png',
         train_annotations: `${maskFolder}/*.png`,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
@@ -160,13 +161,17 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         _rkwargs: true,
       };
 
-      // Add optional test data parameters
-      if (testImages.trim()) {
-        trainingParams.test_images = testImages.trim();
-        trainingParams.test_annotations = testAnnotations.trim() || `${maskFolder}/*.png`;
+      // Auto-set test data from split info; fall back to manual input
+      const resolvedTestImages = hasTestSplit ? 'test_images/*.png' : testImages.trim();
+      const resolvedTestAnnotations = hasTestSplit
+        ? `${maskFolder}/*.png`
+        : (testAnnotations.trim() || `${maskFolder}/*.png`);
+
+      if (resolvedTestImages) {
+        trainingParams.test_images = resolvedTestImages;
+        trainingParams.test_annotations = resolvedTestAnnotations;
       }
 
-      // Add validation interval
       if (validationInterval > 0) {
         trainingParams.validation_interval = validationInterval;
       }
@@ -463,60 +468,25 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                 </div>
               </div>
 
-              {/* Advanced Settings */}
-              <details className="border border-gray-200 rounded-lg">
-                <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50 select-none">
-                  Validation & Advanced Settings
-                </summary>
-                <div className="px-4 pb-4 space-y-4 pt-2">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Validation Interval (epochs)
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={validationInterval}
-                      onChange={(e) => setValidationInterval(parseInt(e.target.value) || 1)}
-                      min="1"
-                      max="1000"
-                      disabled={isStarting}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Run validation every N epochs. Requires test data below.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Test Images Path (optional)
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={testImages}
-                      onChange={(e) => setTestImages(e.target.value)}
-                      placeholder="e.g., input_images/*.png (same as training data)"
-                      disabled={isStarting}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Provide test images to enable per-epoch validation metrics and final AP evaluation.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Test Annotations Path (optional)
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={testAnnotations}
-                      onChange={(e) => setTestAnnotations(e.target.value)}
-                      placeholder="e.g., masks_cells/*.png (auto-matched if empty)"
-                      disabled={isStarting}
-                    />
-                  </div>
-                </div>
-              </details>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Validation Interval (epochs)
+                </label>
+                <input
+                  type="number"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value={validationInterval}
+                  onChange={(e) => setValidationInterval(parseInt(e.target.value) || 1)}
+                  min="1"
+                  max="1000"
+                  disabled={isStarting}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Run validation every N epochs.{splitInfo?.applied && splitInfo.testImages.length > 0
+                    ? ' Test images from the data split will be used automatically.'
+                    : ' Requires a test/train data split.'}
+                </p>
+              </div>
 
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-amber-700 text-sm">

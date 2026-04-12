@@ -7,7 +7,7 @@ import SessionModal from './SessionModal';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
 import TrainingModal from './TrainingModal';
-import ImageViewer from './ImageViewer';
+import ImageViewer, { SplitInfo } from './ImageViewer';
 import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
 
@@ -24,10 +24,9 @@ const ColabPageContent: React.FC = () => {
 
   const { user, server, artifactManager } = useHyphaStore();
   // Use shared kernel context instead of creating a new one
-  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide } = useSharedKernel();
+  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide, imageFolderHandle, setImageFolderHandle } = useSharedKernel();
 
   // File system state
-  const [imageFolderHandle, setImageFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [imageList, setImageList] = useState<string[]>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [annotationsFolderHandle, setAnnotationsFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -46,7 +45,8 @@ const ColabPageContent: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [cellposeModel, setCellposeModel] = useState('Base');
+  const [cellposeModel, setCellposeModel] = useState('cpsam');
+  const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
 
   const handleCellposeModelChange = (model: string) => {
     setCellposeModel(model);
@@ -130,7 +130,7 @@ except Exception as e:
           console.log('Installing Python packages...');
           const installCode = `
 import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'tifffile==2024.7.24'])
 print("Packages installed", end='')
 `;
 
@@ -179,8 +179,24 @@ print("Packages installed", end='')
             ? sessionId
             : `${server.config.workspace}/${sessionId}`;
           const artifact = await artifactManager.read({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
-          const labels = artifact.manifest?.labels || [];
-          const sessionLabel = labels[0] || 'cells';
+
+          // Derive label from folder structure (masks_{label}/ dirs), fall back to manifest
+          let sessionLabel = '';
+          try {
+            const files = await artifactManager.list_files({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
+            for (const f of (files || [])) {
+              const name: string = f?.name || '';
+              if (name.startsWith('masks_') && name.length > 'masks_'.length) {
+                sessionLabel = name.substring('masks_'.length);
+                break;
+              }
+            }
+          } catch (e) {
+            console.warn('Could not derive label from folder structure:', e);
+          }
+          if (!sessionLabel) {
+            sessionLabel = 'cells';
+          }
 
           let sessionName = artifact.manifest?.name || 'Annotation Session';
           if (sessionName.startsWith('Annotation Session ')) {
@@ -200,7 +216,7 @@ service_info = await register_service(
     token="${token}",
     name="${sessionName}",
     description="Resumed session",
-    artifact_id="${fullArtifactId}",
+    artifact_alias="${fullArtifactId}",
     images_path=None,
     label="${sessionLabel}",
     client_id="${clientId}",
@@ -254,16 +270,27 @@ print("Service registered successfully", end='')
         } catch (err: any) {
           console.error('Failed to auto-load session:', err);
           setIsRunning(false);
-          
-          if (err.message && err.message.includes('does not exist')) {
-            alert('This session no longer exists or has been deleted.');
+
+          const msg: string = err?.message || '';
+          if (
+            msg.includes('does not exist') ||
+            msg.includes('not found') ||
+            msg.includes('404') ||
+            msg.includes('Cannot read')
+          ) {
+            // Artifact may not exist yet (lazy creation — no images uploaded yet)
+            // or it was genuinely deleted.
+            alert(
+              'This session has not been initialized yet or no longer exists.\n\n' +
+              'If you just started a new local session, images are uploaded on demand ' +
+              'when you open the annotation view from the Colab page.'
+            );
             navigate('/colab', { replace: true });
           } else {
-            alert('Failed to load session: ' + err.message);
+            alert('Failed to load session: ' + msg);
+            // Fallback: show modal for manual configuration
+            setShowSessionModal(true);
           }
-          
-          // Fallback: show modal for manual configuration
-          setShowSessionModal(true);
         }
       };
 
@@ -306,24 +333,33 @@ print("Service registered successfully", end='')
     setIsLoadingImages(true);
     // Map from stem -> filename; artifact files take precedence over local files
     const filesByStem = new Map<string, string>();
+    // Track which images are in train/test splits
+    const trainImages: string[] = [];
+    const testImages: string[] = [];
 
     // 1. Fetch cloud images if we have an artifact ID (added first so they win dedup)
     if (dataArtifactId && artifactManager) {
-      try {
-        console.log('Loading images from artifact...');
-        const files = await artifactManager.list_files({
-          artifact_id: dataArtifactId,
-          dir_path: 'input_images',
-          _rkwargs: true
-        });
-        const imageNames = files.map((f: any) => f.name);
-        imageNames.forEach((name: string) => {
-          const stem = name.slice(0, name.lastIndexOf('.') !== -1 ? name.lastIndexOf('.') : name.length);
-          filesByStem.set(stem, name);
-        });
-        console.log(`Loaded ${imageNames.length} images from artifact`);
-      } catch (error) {
-        console.log('No cloud images or failed to fetch:', error);
+      // Fetch from all three possible folders
+      for (const folder of ['train_images', 'test_images']) {
+        try {
+          const files = await artifactManager.list_files({
+            artifact_id: dataArtifactId,
+            dir_path: folder,
+            _rkwargs: true
+          });
+          const imageNames: string[] = files.map((f: any) => f.name);
+          imageNames.forEach((name: string) => {
+            const stem = name.slice(0, name.lastIndexOf('.') !== -1 ? name.lastIndexOf('.') : name.length);
+            filesByStem.set(stem, name);
+            if (folder === 'train_images') trainImages.push(name);
+            if (folder === 'test_images') testImages.push(name);
+          });
+          if (imageNames.length > 0) {
+            console.log(`Loaded ${imageNames.length} images from ${folder}`);
+          }
+        } catch (error) {
+          // Folder may not exist yet — silently skip
+        }
       }
     }
 
@@ -347,12 +383,113 @@ print("Service registered successfully", end='')
     }
 
     setImageList(Array.from(filesByStem.values()).sort());
+
+    // Restore splitInfo if we found images in train/test folders
+    if (trainImages.length > 0 || testImages.length > 0) {
+      setSplitInfo({ applied: true, trainImages, testImages });
+    }
+
     setIsLoadingImages(false);
   };
 
   useEffect(() => {
     loadAllImages();
   }, [dataArtifactId, imageFolderHandle, artifactManager, supportedFileTypes]);
+
+  // Apply train/test split: move cloud images to the correct folder
+  const handleApplySplit = async (train: string[], test: string[]) => {
+    if (!dataArtifactId || !artifactManager || !server) {
+      throw new Error('Artifact manager not available');
+    }
+
+    // Snapshot both folders once to build a currentFolder map
+    const currentFolder = new Map<string, 'train_images' | 'test_images'>();
+    for (const folder of ['train_images', 'test_images'] as const) {
+      try {
+        const files = await artifactManager.list_files({
+          artifact_id: dataArtifactId,
+          dir_path: folder,
+          _rkwargs: true
+        });
+        for (const f of (files || [])) {
+          currentFolder.set(f.name, folder);
+        }
+      } catch {
+        // folder may not exist yet
+      }
+    }
+
+    const moveImage = async (imageName: string, targetFolder: 'train_images' | 'test_images') => {
+      const sourceFolder = currentFolder.get(imageName);
+      if (!sourceFolder) {
+        // Not yet in the artifact (local-only), nothing to move
+        return;
+      }
+      if (sourceFolder === targetFolder) {
+        return; // Already in correct folder
+      }
+
+      // Download from source
+      const downloadUrl = await artifactManager.get_file({
+        artifact_id: dataArtifactId,
+        file_path: `${sourceFolder}/${imageName}`,
+        _rkwargs: true
+      });
+      const response = await fetch(downloadUrl);
+      if (!response.ok) throw new Error(`Failed to download ${imageName}`);
+      const blob = await response.blob();
+
+      // Upload to target
+      const uploadUrl = await artifactManager.put_file({
+        artifact_id: dataArtifactId,
+        file_path: `${targetFolder}/${imageName}`,
+        _rkwargs: true
+      });
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        body: blob,
+        headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+      });
+
+      // Delete from source
+      await artifactManager.remove_file({
+        artifact_id: dataArtifactId,
+        file_path: `${sourceFolder}/${imageName}`,
+        _rkwargs: true
+      });
+    };
+
+    // Move all images to their target folder
+    const errors: string[] = [];
+    for (const name of train) {
+      try {
+        await moveImage(name, 'train_images');
+      } catch (e) {
+        console.error(`[handleApplySplit] Failed to move ${name} to train_images:`, e);
+        errors.push(`train/${name}: ${(e as Error).message}`);
+      }
+    }
+    for (const name of test) {
+      try {
+        await moveImage(name, 'test_images');
+      } catch (e) {
+        console.error(`[handleApplySplit] Failed to move ${name} to test_images:`, e);
+        errors.push(`test/${name}: ${(e as Error).message}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      const msg = `Some images could not be moved:\n${errors.join('\n')}`;
+      console.error('[handleApplySplit]', msg);
+      throw new Error(msg);
+    }
+
+    // Update splitInfo state
+    setSplitInfo({ applied: true, trainImages: train, testImages: test });
+
+    // Refresh image list
+    await loadAllImages();
+  };
 
   // Cleanup refresh interval on unmount
   useEffect(() => {
@@ -392,45 +529,48 @@ print("Service registered successfully", end='')
         });
         const fileNames = files.map((f: any) => f.name).sort();
         setAnnotationsList(fileNames);
-      } catch (error) {
-        console.error('Error refreshing remote annotations:', error);
+      } catch (error: any) {
+        const msg = (error?.message || String(error)).toLowerCase();
+        if (!msg.includes('does not exist') && !msg.includes('not found') && !msg.includes('keyerror')) {
+          console.error('Error refreshing remote annotations:', error);
+        }
       } finally {
         setIsLoadingAnnotations(false);
       }
     }
   };
 
-  // Poll for remote annotations
+  // Poll for remote annotations every 10s, but only after the artifact is confirmed to exist
+  const artifactConfirmedRef = useRef(false);
+  useEffect(() => {
+    // Reset confirmation whenever the artifact ID changes
+    artifactConfirmedRef.current = false;
+  }, [dataArtifactId]);
+
   useEffect(() => {
     if (!dataArtifactId || !artifactManager) return;
 
-    const fetchRemoteAnnotations = async () => {
-      try {
-        const dirPath = label ? `masks_${label}` : "annotations";
-        const files = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: dirPath,
-            _rkwargs: true
-        });
-        const fileNames = files.map((f: any) => f.name).sort();
-        setAnnotationsList(fileNames);
-      } catch (error) {
-        console.error('Error fetching remote annotations:', error);
+    const poll = async () => {
+      if (!artifactConfirmedRef.current) {
+        // Probe: try to read the artifact — once it exists, enable polling
+        try {
+          await artifactManager.read({ artifact_id: dataArtifactId, stage: true, _rkwargs: true });
+          artifactConfirmedRef.current = true;
+        } catch {
+          return; // artifact not yet created (lazy) — skip this tick silently
+        }
       }
+      await updateAnnotations();
     };
 
-    // Initial fetch
-    fetchRemoteAnnotations();
-
-    // Set up interval
-    const intervalId = setInterval(fetchRemoteAnnotations, 2000);
+    const intervalId = setInterval(poll, 10000);
     (window as any).__colabRefreshInterval = intervalId;
 
     return () => {
       clearInterval(intervalId);
       (window as any).__colabRefreshInterval = null;
     };
-  }, [dataArtifactId, artifactManager, label]);
+  }, [dataArtifactId, artifactManager, label, annotationsFolderHandle]);
 
   const createAnnotationSession = () => {
     if (!user?.email) {
@@ -482,12 +622,13 @@ print("Service registered successfully", end='')
       const dataService = await server.getService(serviceId);
 
       // Call the service function to upload all local images
-      const result = await dataService.upload_local_images_to_artifact();
+      const result = await dataService.upload_all_images();
 
       console.log(`Upload result: ${result.success}/${result.total} succeeded, ${result.failed} failed`);
 
       if (result.total === 0) {
-        alert('No local images found to upload. Please mount a local folder first.');
+        const reason = result.errors?.length ? result.errors[0] : 'No local folder mounted';
+        alert(`No local images found to upload. ${reason}. Check the browser console for details.`);
       } else if (result.failed > 0) {
         console.error('Upload errors:', result.errors);
         alert(`Upload completed with errors: ${result.success}/${result.total} succeeded, ${result.failed} failed. Check console for details.`);
@@ -730,6 +871,9 @@ print("Service registered successfully", end='')
               executeCode={executeCode}
               annotationURL={annotationURL}
               server={server}
+              cellposeModel={cellposeModel}
+              splitInfo={splitInfo}
+              onApplySplit={handleApplySplit}
               onDelete={() => setShowDeleteModal(true)}
               onUploadAll={handleUploadAll}
               onRefresh={async () => {
@@ -823,7 +967,10 @@ print("Service registered successfully", end='')
           setDataSourceType={setDataSourceType}
           setImageFolderHandle={setImageFolderHandle}
           onSessionCreated={(artifactId) => {
-            // Update URL to reflect the created session
+            // Reset stale lists so the new session loads fresh
+            setImageList([]);
+            setAnnotationsList([]);
+            setSplitInfo(null);
             navigate(`/colab/${artifactId}`, { replace: true });
           }}
           server={server}
@@ -865,6 +1012,7 @@ print("Service registered successfully", end='')
           artifactManager={artifactManager}
           cellposeModel={cellposeModel}
           onCellposeModelChange={handleCellposeModelChange}
+          splitInfo={splitInfo}
         />
       )}
 

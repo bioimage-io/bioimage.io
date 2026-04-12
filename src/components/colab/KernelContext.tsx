@@ -21,6 +21,9 @@ interface KernelContextType {
   syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   writeFilesToPyodide: ((files: File[], targetPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   kernelManager: any;
+  /** Persisted across navigation — the locally mounted folder handle for the active session. */
+  imageFolderHandle: FileSystemDirectoryHandle | null;
+  setImageFolderHandle: (handle: FileSystemDirectoryHandle | null) => void;
 }
 
 const KernelContext = createContext<KernelContextType | undefined>(undefined);
@@ -39,6 +42,8 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
   const currentKernelIdRef = useRef<string | null>(null);
   const currentKernelRef = useRef<any>(null);
   const isInitializingRef = useRef(false);
+  const nativefsRef = useRef<any>(null);
+  const [imageFolderHandle, setImageFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
 
   // Function to dynamically load web-python-kernel module
   const loadWebPythonKernel = useCallback(async () => {
@@ -326,10 +331,35 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
     }
   }, []);
 
-  // Stub implementations for file system operations (can be extended)
   const mountDirectory = useCallback(async (mountPoint: string, dirHandle: FileSystemDirectoryHandle): Promise<boolean> => {
-    console.log(`[Kernel Context] Mount directory requested for ${mountPoint}`);
-    return true;
+    const kernel = currentKernelRef.current;
+    const manager = kernelManagerRef.current?.manager;
+    const kernelId = currentKernelIdRef.current;
+
+    if (!kernel || !dirHandle) {
+      console.error('[Kernel Context] Cannot mount: no kernel or directory handle');
+      return false;
+    }
+
+    try {
+      console.log(`[Kernel Context] Mounting directory to ${mountPoint}...`);
+      let nativefs;
+      if (kernel.kernel && typeof kernel.kernel.mountFS === 'function') {
+        nativefs = await kernel.kernel.mountFS(mountPoint, dirHandle, 'read');
+      } else if (typeof kernel.mountFS === 'function') {
+        nativefs = await kernel.mountFS(mountPoint, dirHandle, 'read');
+      } else if (manager && typeof manager.mountFS === 'function') {
+        nativefs = await manager.mountFS(kernelId, mountPoint, dirHandle, 'read');
+      } else {
+        throw new Error('mountFS not found on kernel or manager');
+      }
+      nativefsRef.current = nativefs;
+      console.log(`[Kernel Context] Successfully mounted directory to ${mountPoint}`);
+      return true;
+    } catch (error) {
+      console.error('[Kernel Context] Error mounting directory:', error);
+      return false;
+    }
   }, []);
 
   const syncFileSystem = useCallback(async (mountPath: string) => {
@@ -351,7 +381,9 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
     mountDirectory,
     syncFileSystem,
     writeFilesToPyodide,
-    kernelManager: kernelManagerRef.current
+    kernelManager: kernelManagerRef.current,
+    imageFolderHandle,
+    setImageFolderHandle,
   };
 
   return (

@@ -49,7 +49,6 @@ export interface ImageResult {
 export interface AnnotationDataService {
   getImage: () => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
   getSaveUrls: (imageName: string) => Promise<SaveUrls>;
-  saveAnnotation: (filename: string, geojson: object, dimensions: [number, number]) => Promise<void>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
 }
 
@@ -277,10 +276,6 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.log('[useHyphaService] Getting save URLs for:', imageName);
             const urls = await dataService.get_save_urls(imageName);
             return urls as SaveUrls;
-          },
-          saveAnnotation: async (filename, geojson, dimensions) => {
-            console.log('[useHyphaService] Saving annotation:', { filename, dimensions });
-            await dataService.save_annotation(filename, geojson, dimensions);
           },
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             if (!cellposeService) {

@@ -29,7 +29,7 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
         try {
             images = await artifactManager.list_files({
                 artifact_id: dataArtifactId,
-                dir_path: "input_images",
+                dir_path: "train_images",
                 _rkwargs: true
             });
         } catch (e) {

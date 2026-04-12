@@ -116,12 +116,12 @@ const ShareModal: React.FC<ShareModalProps> = ({
   label,
   dataArtifactId,
   setShowShareModal,
-  cellposeModel = 'Base',
+  cellposeModel = 'cpsam',
   onCellposeModelChange,
   server,
   artifactManager,
 }) => {
-  const baseModel = { id: 'Base', name: 'Base (Cellpose-SAM)', group: 'Default' };
+  const baseModel = { id: 'cpsam', name: 'Base (Cellpose-SAM)', group: 'Default' };
   const [showInstructions, setShowInstructions] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ id: string; name: string; group: string }[]>([baseModel]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
