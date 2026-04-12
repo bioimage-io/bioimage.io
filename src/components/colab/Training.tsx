@@ -550,17 +550,17 @@ const Training: React.FC<TrainingProps> = ({
       console.log('Exporting model from session:', sessionId);
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
-      const exportParams: any = { _rkwargs: true };
+      const exportParams: any = {
+        session_id: sessionId,
+        authors: normalizedAuthors,
+        uploader: { name: 'N/A', email: uploaderEmail },
+        _rkwargs: true,
+      };
       if (modelName.trim()) {
         exportParams.model_name = modelName.trim();
       }
-      exportParams.authors = normalizedAuthors;
-      exportParams.uploader = {
-        name: 'N/A',
-        email: uploaderEmail,
-      };
 
-      const result = await cellposeService.export_model(sessionId, exportParams);
+      const result = await cellposeService.export_model(exportParams);
 
       const artifactId = result.artifact_id || result;
       setExportedArtifactId(artifactId);

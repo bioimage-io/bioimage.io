@@ -96,8 +96,18 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
           _rkwargs: true
         });
 
-        setExistingModels(sessions || []);
-        console.log(`Loaded ${sessions?.length || 0} training sessions for dataset`);
+        // API returns a dict keyed by session_id, convert to ExistingModel[]
+        const sessionDict: Record<string, any> = sessions || {};
+        const modelList: ExistingModel[] = Object.entries(sessionDict).map(([id, v]: [string, any]) => ({
+          id,
+          session_id: id,
+          name: v?.model_name || id,
+          created_at: v?.start_time ?? 0,
+          url: v?.artifact_id || '',
+        }));
+
+        setExistingModels(modelList);
+        console.log(`Loaded ${modelList.length} training sessions for dataset`);
       }
     } catch (err) {
       console.error('Error loading training sessions:', err);
