@@ -393,7 +393,7 @@ print("Service registered successfully", end='')
   };
 
   useEffect(() => {
-    loadAllImages();
+    Promise.all([loadAllImages(), updateAnnotations()]);
   }, [dataArtifactId, imageFolderHandle, artifactManager, supportedFileTypes]);
 
   // Apply train/test split: move cloud images to the correct folder
