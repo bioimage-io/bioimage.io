@@ -160,7 +160,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             <TextField
               fullWidth
               size="small"
-              value={config.model || 'cpsam'}
+              value={(config.model === 'cpsam' || !config.model) ? 'Base (Cellpose-SAM)' : config.model}
               disabled
               slotProps={{
                 input: {

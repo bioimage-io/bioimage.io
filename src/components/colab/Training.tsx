@@ -447,7 +447,7 @@ const Training: React.FC<TrainingProps> = ({
       const trainingParams: any = {
         artifact: String(artifactToUse),
         model: String(modelParam),
-        train_images: 'input_images/*.png',
+        train_images: 'train_images/*.png',
         train_annotations: `${maskFolder}/*.png`,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
@@ -550,17 +550,17 @@ const Training: React.FC<TrainingProps> = ({
       console.log('Exporting model from session:', sessionId);
       const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
 
-      const exportParams: any = { _rkwargs: true };
+      const exportParams: any = {
+        session_id: sessionId,
+        authors: normalizedAuthors,
+        uploader: { name: 'N/A', email: uploaderEmail },
+        _rkwargs: true,
+      };
       if (modelName.trim()) {
         exportParams.model_name = modelName.trim();
       }
-      exportParams.authors = normalizedAuthors;
-      exportParams.uploader = {
-        name: 'N/A',
-        email: uploaderEmail,
-      };
 
-      const result = await cellposeService.export_model(sessionId, exportParams);
+      const result = await cellposeService.export_model(exportParams);
 
       const artifactId = result.artifact_id || result;
       setExportedArtifactId(artifactId);
@@ -647,7 +647,7 @@ const Training: React.FC<TrainingProps> = ({
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={testImages}
             onChange={(e) => setTestImages(e.target.value)}
-            placeholder="e.g., input_images/*.png (same as training data)"
+            placeholder="e.g., test_images/*.png"
             disabled={disabled}
           />
           <p className="text-xs text-gray-500 mt-1">
@@ -897,16 +897,16 @@ const Training: React.FC<TrainingProps> = ({
                           // Support both object maps and file arrays in manifest.files.
                           if (Array.isArray(files)) {
                             const count = files.filter((f: any) => {
-                              if (typeof f === 'string') return f.startsWith('input_images/');
-                              if (f && typeof f.path === 'string') return f.path.startsWith('input_images/');
-                              if (f && typeof f.name === 'string') return f.name.startsWith('input_images/');
+                              if (typeof f === 'string') return f.startsWith('train_images/') || f.startsWith('test_images/');
+                              if (f && typeof f.path === 'string') return f.path.startsWith('train_images/') || f.path.startsWith('test_images/');
+                              if (f && typeof f.name === 'string') return f.name.startsWith('train_images/') || f.name.startsWith('test_images/');
                               return false;
                             }).length;
                             if (count > 0) return count;
                           }
 
                           if (files && typeof files === 'object') {
-                            const count = Object.keys(files).filter((f: string) => f.startsWith('input_images/')).length;
+                            const count = Object.keys(files).filter((f: string) => f.startsWith('train_images/') || f.startsWith('test_images/')).length;
                             if (count > 0) return count;
                           }
 

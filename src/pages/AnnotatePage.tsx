@@ -12,7 +12,7 @@ import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult } from '../components/annotate/hooks/useHyphaService';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
@@ -127,6 +127,7 @@ print('CLAHE packages ready')
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [currentImageName, setCurrentImageName] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -149,12 +150,14 @@ print('CLAHE packages ready')
   }, []);
 
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
+  const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
   const loadNewImage = useCallback(async (showBanner = true) => {
     if (!service) return;
     setIsLoadingImage(true);
     setError(null);
     setAllAnnotatedInfo(null);
+    setNoImagesInfo(null);
     setIsCLAHEActive(false);
     setOriginalImageUrl(null);
     console.log('[AnnotatePage] Loading new image...');
@@ -162,22 +165,33 @@ print('CLAHE packages ready')
     try {
       const result = await service.getImage();
 
-      // Check if all images are annotated
-      if (result && typeof result === 'object' && 'status' in result && result.status === 'all_annotated') {
-        console.log('[AnnotatePage] All images annotated:', result);
-        setAllAnnotatedInfo(result as AllAnnotatedResult);
-        setHasLoadedOnce(true);
-        return;
+      // Check for terminal status responses
+      if (result && typeof result === 'object' && 'status' in result) {
+        if (result.status === 'all_annotated') {
+          console.log('[AnnotatePage] All images annotated:', result);
+          setAllAnnotatedInfo(result as AllAnnotatedResult);
+          setHasLoadedOnce(true);
+          return;
+        }
+        if (result.status === 'no_images') {
+          console.log('[AnnotatePage] No images available:', result);
+          setNoImagesInfo(result as NoImagesResult);
+          setHasLoadedOnce(true);
+          return;
+        }
       }
 
-      const imageResult = result as { url: string; cellpose_model?: string };
+      const imageResult = result as { url: string; name: string; cellpose_model?: string };
       const url = imageResult.url;
-      
+      const imageName = imageResult.name || url.split('/').pop()?.split('?')[0] || 'image.png';
+
       if (imageResult.cellpose_model) {
         setDynamicCellposeModel(imageResult.cellpose_model);
       }
-      
-      console.log('[AnnotatePage] Got image URL:', url);
+
+      console.log('[AnnotatePage] Got image URL for:', imageName);
+      setCurrentImageName(imageName);
+
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.src = url;
@@ -283,8 +297,7 @@ print('CLAHE packages ready')
     setIsSaving(true);
     const saveBannerId = addBanner('Saving annotation...', 'loading', 0);
     try {
-      const sourceUrl = originalImageUrl || imageUrl;
-      const imageName = sourceUrl?.split('/').pop() || 'annotation.png';
+      const imageName = currentImageName || imageUrl?.split('/').pop()?.split('?')[0] || 'annotation.png';
 
       if (service) {
         const saveUrls = await service.getSaveUrls(imageName);
@@ -606,14 +619,14 @@ print("CLAHE_RESULT:" + result_b64)
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
         onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
-        imageName={(originalImageUrl || imageUrl)?.split('/').pop()}
+        imageName={currentImageName || undefined}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
         hasCustomCellposeConfig={hasCustomCellposeConfig}
       />
       <Box sx={{ flex: 1, position: 'relative' }}>
-        {imageUrl && !allAnnotatedInfo && (
+        {imageUrl && !allAnnotatedInfo && !noImagesInfo && (
           <AnnotationViewer
             imageUrl={imageUrl}
             imageWidth={imageWidth}
@@ -653,6 +666,41 @@ print("CLAHE_RESULT:" + result_b64)
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
               </Typography>
+            </Box>
+          </Box>
+        )}
+
+        {noImagesInfo && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(0,0,0,0.03)',
+              zIndex: 1100,
+            }}
+          >
+            <Box
+              sx={{
+                textAlign: 'center',
+                p: 5,
+                maxWidth: 480,
+                bgcolor: 'white',
+                borderRadius: 3,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+              }}
+            >
+              <Typography variant="h5" fontWeight={600} gutterBottom>
+                No Images Available
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                {noImagesInfo.message}
+              </Typography>
+              <MuiButton variant="outlined" onClick={() => loadNewImage()}>
+                Retry
+              </MuiButton>
             </Box>
           </Box>
         )}

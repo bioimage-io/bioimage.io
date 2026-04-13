@@ -175,10 +175,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
             try {
               labels = await fetchLabelsFromArtifactFolders(initialResumeArtifactId);
             } catch (e) {
-              console.warn('Falling back to manifest labels for initial resume artifact', e);
-            }
-            if (labels.length === 0) {
-              labels = artifact.manifest?.labels || [];
+              console.warn('Could not derive labels from artifact folders', e);
             }
             if (labels.length > 0) {
               setAvailableLabels(labels);
@@ -339,12 +336,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
         labels = await fetchLabelsFromArtifactFolders(artifactId);
         console.log('✅ Labels from folders:', labels);
       } catch (folderError) {
-        console.warn('Failed to derive labels from artifact folders, falling back to manifest labels', folderError);
-      }
-      if (labels.length === 0) {
-        console.log('⚠️ No folder-based labels found, checking manifest...');
-        labels = latestArtifact.manifest?.labels || [];
-        console.log('📋 Manifest labels:', labels);
+        console.warn('Could not derive labels from artifact folders', folderError);
       }
       console.log('🏷️ Final available labels:', labels);
       setAvailableLabels(labels);
@@ -373,9 +365,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
           labels = await fetchLabelsFromArtifactFolders(artifactId);
         } catch (folderError) {
           console.warn('Fallback: Failed to derive labels from artifact folders', folderError);
-        }
-        if (labels.length === 0) {
-          labels = fallbackArtifact.manifest?.labels || [];
         }
         setAvailableLabels(labels);
         if (labels.length > 0) setLabel(labels[0]);
@@ -484,47 +473,44 @@ const SessionModal: React.FC<SessionModalProps> = ({
         throw new Error('Authentication token missing. Please log in again.');
       }
       const serverUrl = server.config.publicBaseUrl;
+      const ARTIFACT_WORKSPACE = 'bioimage-io';
       let targetArtifactId = '';
+      let artifactAlias = '';
       let shouldMountLocal = false;
+
+      // Generate a unique short alias in bioimage-io workspace
+      const generateUniqueAlias = async (): Promise<string> => {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const ts = Date.now().toString(36);
+          const rand = Math.random().toString(36).slice(2, 6);
+          const alias = `annotation-${ts}-${rand}`;
+          try {
+            await artifactManager.read({ artifact_id: `${ARTIFACT_WORKSPACE}/${alias}`, stage: true, _rkwargs: true });
+            // exists — try again
+            console.warn(`Alias ${alias} already exists, retrying...`);
+          } catch {
+            return alias; // doesn't exist — use it
+          }
+        }
+        throw new Error('Could not generate a unique session alias after 5 attempts');
+      };
 
       // Handle different data source types
       if (dataSourceType === 'local') {
-        console.log('Creating artifact for lazy upload (local folder)...');
-        const manifest = {
-          name: `Annotation Session ${sessionName}`,
-          description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
-          owner: { id: user.id, email: user.email }
-        };
-
-        const artifact = await artifactManager.create({
-          parent_id: "bioimage-io/colab-annotations",
-          manifest,
-          type: "dataset",
-          stage: true,
-          _rkwargs: true
-        });
-        targetArtifactId = artifact.id;
+        console.log('Generating unique alias for new local session...');
+        artifactAlias = await generateUniqueAlias();
+        targetArtifactId = `${ARTIFACT_WORKSPACE}/${artifactAlias}`;
         shouldMountLocal = true;
 
       } else if (dataSourceType === 'upload') {
-        console.log('Creating artifact for eager upload...');
-        const manifest = {
-          name: `Annotation Session ${sessionName}`,
-          description: sessionDescription ? `${sessionDescription} (Owner: ${user.email})` : `(Owner: ${user.email})`,
-          owner: { id: user.id, email: user.email }
-        };
-
-        const artifact = await artifactManager.create({
-          parent_id: "bioimage-io/colab-annotations",
-          manifest,
-          type: "dataset",
-          stage: true,
-          _rkwargs: true
-        });
-        targetArtifactId = artifact.id;
+        console.log('Generating unique alias for new upload session...');
+        artifactAlias = await generateUniqueAlias();
+        targetArtifactId = `${ARTIFACT_WORKSPACE}/${artifactAlias}`;
 
       } else if (dataSourceType === 'resume') {
         console.log('Resuming existing session...');
+        // resumeArtifactId is the full artifact ID like "bioimage-io/annotation-xxx"
+        artifactAlias = resumeArtifactId; // Python service strips workspace prefix
         targetArtifactId = resumeArtifactId;
 
         // User can always mount local folder if requested, regardless of existing cloud images
@@ -535,7 +521,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       console.log('Installing Python packages...');
       const installCode = `
 import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'kaibu-utils==0.1.14', 'tifffile==2024.7.24'])
+await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'tifffile==2024.7.24'])
 print("Packages installed", end='')
 `;
 
@@ -585,8 +571,8 @@ print("Packages installed", end='')
 
         await executeCode(`
 from pathlib import Path
-files = list_image_files(Path("/mnt"))
-print(f"Found {len(files)} images", end='')
+supported, unsupported = list_image_files(Path("/mnt"))
+print(f"Found {len(supported)} images", end='')
 `, {
           onOutput: (output: any) => {
             if (output.type === 'error') {
@@ -617,12 +603,14 @@ service_info = await register_service(
     token="${token}",
     name="${sessionName}",
     description="${sessionDescription}",
-    artifact_id="${targetArtifactId}",
+    artifact_alias="${artifactAlias}",
     images_path=${imagesPath},
     label="${finalLabel}",
     client_id="${clientId}",
     service_id="${serviceId}",
-    cellpose_model="${cellposeModel || ''}"
+    cellpose_model="${cellposeModel || ''}",
+    user_id="${user?.id || ''}",
+    user_email="${user?.email || ''}"
 )
 print("Service registered successfully", end='')
 `;
@@ -674,10 +662,8 @@ print("Service registered successfully", end='')
       setSessionLabel(finalLabel);
       setParentSessionName(sessionName);
       setParentDataSourceType(dataSourceType);
-      // Only set image folder handle if we actually mounted a local folder
-      if (shouldMountLocal && localFolderHandle) {
-        setImageFolderHandle(localFolderHandle);
-      }
+      // Always update the folder handle — clear it unless we actually mounted one
+      setImageFolderHandle(shouldMountLocal && localFolderHandle ? localFolderHandle : null);
 
       console.log('✓ Session started successfully!');
       console.log('  Data Artifact ID:', targetArtifactId);
@@ -854,7 +840,7 @@ print("Service registered successfully", end='')
                     const shortId = artifact.id.split('/').pop() || artifact.id;
                     return (
                       <option key={artifact.id} value={artifact.id}>
-                        {shortId} - {displayName} ({artifact.manifest?.labels?.join(', ') || 'no labels'})
+                        {shortId} - {displayName}
                       </option>
                     );
                   })}
@@ -999,19 +985,45 @@ print("Service registered successfully", end='')
         </div>
       )}
 
-      <button
-        onClick={handleStartSession}
-        disabled={
-          !label ||
-          !sessionDescription ||
+      {(() => {
+        const missingFields: string[] = [];
+        if (!sessionName) missingFields.push('session name');
+        if (!sessionDescription) missingFields.push('description');
+        if (!label) missingFields.push('annotation label');
+        const sourceIncomplete =
           (dataSourceType === 'local' && !localFolderHandle) ||
           (dataSourceType === 'upload' && selectedFiles.length === 0) ||
-          (dataSourceType === 'resume' && !resumeArtifactId)
-        }
-        className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all"
-      >
-        Start Annotation Session
-      </button>
+          (dataSourceType === 'resume' && !resumeArtifactId);
+        const isDisabled = missingFields.length > 0 || sourceIncomplete;
+        const tooltipMsg = missingFields.length > 0
+          ? `Please fill in: ${missingFields.join(', ')}`
+          : sourceIncomplete
+            ? dataSourceType === 'local' ? 'Please select a local folder'
+            : dataSourceType === 'upload' ? 'Please select files to upload'
+            : 'Please select a session to resume'
+          : '';
+        return (
+          <div className="w-full relative group/startbtn">
+            <button
+              onClick={handleStartSession}
+              disabled={isDisabled}
+              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all"
+            >
+              Start Annotation Session
+            </button>
+            {isDisabled && tooltipMsg && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/startbtn:opacity-100 transition-opacity duration-0 pointer-events-none z-50 flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" strokeWidth="2"/>
+                </svg>
+                {tooltipMsg}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 

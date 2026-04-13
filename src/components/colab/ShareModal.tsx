@@ -116,12 +116,12 @@ const ShareModal: React.FC<ShareModalProps> = ({
   label,
   dataArtifactId,
   setShowShareModal,
-  cellposeModel = 'Base',
+  cellposeModel = 'cpsam',
   onCellposeModelChange,
   server,
   artifactManager,
 }) => {
-  const baseModel = { id: 'Base', name: 'Base (Cellpose-SAM)', group: 'Default' };
+  const baseModel = { id: 'cpsam', name: 'Base (Cellpose-SAM)', group: 'Default' };
   const [showInstructions, setShowInstructions] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ id: string; name: string; group: string }[]>([baseModel]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -138,34 +138,26 @@ const ShareModal: React.FC<ShareModalProps> = ({
       const fetchedModels: { id: string; name: string; group: string }[] = [];
       
       try {
-        // 1. Fetch dataset-specific models, including active/in-progress training sessions.
+        // 1. Fetch dataset-specific training sessions.
         if (server && dataArtifactId) {
           try {
             const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
-            const datasetModels = await cellposeService.list_models_by_dataset(
-              dataArtifactId,
-              {
-                collection: 'bioimage-io/colab-annotations',
-                _rkwargs: true
-              }
-            );
+            const sessionsDict = await cellposeService.list_training_sessions({
+              dataset_artifact_ids: [dataArtifactId],
+              _rkwargs: true
+            });
 
-            if (mounted && datasetModels) {
-              datasetModels.forEach((m: any) => {
-                const modelId = m?.id || m?.session_id;
-                if (!modelId) return;
-
-                const statusText = String(m?.status || m?.status_type || '').toLowerCase();
+            if (mounted && sessionsDict) {
+              Object.entries(sessionsDict).forEach(([sessionId, m]: [string, any]) => {
+                const statusText = String(m?.status_type || '').toLowerCase();
                 const isInProgress =
-                  statusText.includes('progress') ||
                   statusText.includes('running') ||
-                  statusText.includes('training') ||
-                  statusText.includes('queued') ||
-                  statusText.includes('started');
+                  statusText.includes('preparing') ||
+                  statusText.includes('queued');
 
                 fetchedModels.push({
-                  id: modelId,
-                  name: m?.name || modelId,
+                  id: sessionId,
+                  name: m?.model_name || sessionId,
                   group: isInProgress ? 'In-Progress Training Sessions' : 'Models for this Dataset'
                 });
               });

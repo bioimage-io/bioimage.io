@@ -36,6 +36,7 @@ export const useColabKernel = (): KernelManager => {
   const currentKernelIdRef = useRef<string | null>(null);
   const currentKernelRef = useRef<any>(null);
   const isInitializingRef = useRef(false);
+  const nativefsRef = useRef<any>(null);
 
   // Function to dynamically load web-python-kernel module
   const loadWebPythonKernel = useCallback(async () => {
@@ -382,6 +383,8 @@ export const useColabKernel = (): KernelManager => {
       } else {
         throw new Error('mountFS function not found on kernel or manager');
       }
+      // Keep a reference to prevent garbage collection from unmounting the filesystem
+      nativefsRef.current = nativefs;
 
       console.log(`[Colab Kernel] Successfully mounted directory to ${mountPoint}`);
 
