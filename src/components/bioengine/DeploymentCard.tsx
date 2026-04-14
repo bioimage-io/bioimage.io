@@ -7,6 +7,7 @@ interface DeploymentCardProps {
     display_name?: string;
     description?: string;
     deployment_name: string;
+    version?: string;
     status: string;
     start_time?: number;
     last_updated_at?: number;
@@ -101,6 +102,12 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             <h4 className="text-lg font-semibold">
               {deployment.display_name || deployment.artifact_id.split('/').pop()}
             </h4>
+
+            {deployment.version && (
+              <span className="ml-2 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                v{deployment.version}
+              </span>
+            )}
 
             <div className="flex items-center ml-3">
               <button
