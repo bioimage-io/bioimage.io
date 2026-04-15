@@ -1,0 +1,162 @@
+# Annotated example: UNet2D nucleus segmentation model
+# Copy this as a starting template and fill in your values.
+# Remove comments before running bioimageio test.
+
+%YAML 1.2
+---
+
+# ---- IDENTITY ----
+format_version: 0.5.4     # Always 0.5.4 (current stable)
+type: model                # Always "model" for ML models
+
+name: UNet 2D Nuclei Broad              # 5-128 chars, human-readable, specific
+description: >                          # Max 1024 chars
+  A 2D U-Net trained on the 2018 Data Science Bowl nuclei broad dataset.
+  Takes single-channel fluorescence microscopy images and outputs
+  per-pixel nucleus probability maps.
+
+license: MIT               # SPDX identifier
+
+timestamp: '2024-01-15T10:00:00+00:00'  # ISO 8601, optional
+
+# ---- PEOPLE ----
+authors:
+  - name: Constantin Pape
+    github_user: constantinpape
+    orcid: 0000-0001-6562-7187
+    affiliation: EMBL Heidelberg
+  - name: Fynn Beuttenmueller
+    github_user: fynnbe
+    orcid: 0000-0002-8567-6389
+    affiliation: EMBL Heidelberg
+
+maintainers:               # Who handles issues / updates
+  - name: Constantin Pape
+    github_user: constantinpape
+
+# ---- REFERENCES ----
+cite:
+  - text: "Ronneberger et al. U-Net: Convolutional Networks for Biomedical Image Segmentation. MICCAI 2015."
+    doi: 10.1007/978-3-319-24574-4_28
+  - text: "2018 Data Science Bowl"
+    url: https://www.kaggle.com/c/data-science-bowl-2018
+
+git_repo: https://github.com/bioimage-io/spec-bioimage-io
+
+# ---- DISCOVERY ----
+tags:
+  - unet2d
+  - pytorch
+  - nucleus
+  - segmentation
+  - fluorescence
+  - 2D
+  - dsb2018
+
+covers:
+  - cover0.png             # PNG/JPG, 2:1 or 1:1 aspect, <500KB
+
+documentation: README.md   # Must end in .md; include a "# Validation" section
+
+# ---- TENSORS ----
+inputs:
+  - id: raw
+    description: "Raw fluorescence microscopy input image"
+    axes:
+      - type: batch
+        size: 1            # Process one image at a time
+      - type: channel
+        channel_names:     # One name per channel
+          - raw_intensity
+      - type: space
+        id: y              # Spatial axis IDs must be unique across ALL tensors
+        size: 512
+      - type: space
+        id: x              # Note: use x0/y0 if needed to disambiguate across tensors
+        size: 512
+    test_tensor:
+      source: test_input.npy
+      sha256: 92768a2e0f2643c80b57afa5494019a5aafe5b0d92fe36ae740763adf3594a57
+    sample_tensor:         # optional: used for website visualization
+      source: test_input.png
+      sha256: 8771f558305dd89f4a85fe659e8ef5e116c94d64e668dc23b9282fda3fe9cce8
+    preprocessing:
+      - id: ensure_dtype
+        kwargs:
+          dtype: float32   # Model expects float32
+      - id: zero_mean_unit_variance
+        kwargs:
+          axes:            # Normalize per-image, not per-batch
+            - y
+            - x
+      - id: ensure_dtype
+        kwargs:
+          dtype: float32   # Ensure after normalization
+
+outputs:
+  - id: probability
+    description: "Per-pixel nucleus probability [0, 1]"
+    axes:
+      - type: batch        # No size needed for batch axis on output
+      - type: channel
+        channel_names:
+          - probability
+      - type: space
+        id: y_out          # Use different ID from input y to avoid collision
+        size:
+          tensor_id: raw   # Output same height as input
+          axis_id: y
+        halo: 32           # 32px border is unreliable due to UNet artifacts; crop when tiling
+      - type: space
+        id: x_out
+        size:
+          tensor_id: raw
+          axis_id: x
+        halo: 32
+    test_tensor:
+      source: test_output.npy
+      sha256: 39925fb38bc74530902e44bf8e43a8bd0a9e3675aab758d89f47dc66cb9818ed
+    sample_tensor:
+      source: test_output.png
+      sha256: 7bce8b53bcd0a12487a61f953aafe0f3700652848980d1083964c5bcb9555eec
+    data:
+      range: [0.0, 1.0]   # Valid output range after sigmoid
+    postprocessing:
+      - id: sigmoid        # Raw logits → probabilities
+      - id: ensure_dtype
+        kwargs:
+          dtype: float32
+
+# ---- WEIGHTS ----
+weights:
+  pytorch_state_dict:                  # NO 'parent' field — this is the root format
+    source: weights.pt
+    sha256: e4d3885bccbe41cbf6c1d825f3cd2b707c7021ead5593156007e407a16b27cf2
+    pytorch_version: "1.5.1"
+    architecture:
+      source: unet2d.py                # Python file containing the model class
+      callable: UNet2d                 # Class name to instantiate
+      sha256: d00721e7d00f55222e8cbf90019dd85ce9df0ae42fd46a07f0e6ea45729b310d
+      kwargs:                          # Passed to MyModel(**kwargs)
+        input_channels: 1
+        output_channels: 1
+    dependencies:
+      source: environment.yaml         # Optional: conda environment file
+      sha256: 129d589d2ec801398719b1a6d1bf20ea36b3632f14ccb56a24700df7d719fd10
+
+  torchscript:                         # Additional format; MUST have 'parent'
+    source: weights_torchscript.pt
+    sha256: a4b0659a1b48454588b12179855ad0a0c9b69ccaa89b8bb06e6271e8f60b02fe
+    parent: pytorch_state_dict         # References the canonical weights above
+    pytorch_version: "2.0.0"
+    comment: "Converted with bioimageio.core"
+
+  onnx:                                # Another additional format
+    source: weights.onnx
+    sha256: 85f5ac80fa977fea3562ef97c8c5950288be2c4f4cdb5d994807df97008ce088
+    parent: pytorch_state_dict
+    opset_version: 17
+
+# ---- TRAINING DATA (optional) ----
+training_data:
+  id: ilastik/covid_if_training_data/1  # Reference to a dataset artifact in the Zoo

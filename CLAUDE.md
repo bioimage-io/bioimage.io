@@ -2,13 +2,25 @@
 
 ## Project Goal
 
-Build a **collaborative, interactive bioimage annotation platform** with integrated Cellpose-SAM model fine-tuning. The platform allows bioimage researchers to:
+**BioImage Model Zoo** (<https://bioimage.io>) is a community-driven, fully open platform for sharing, discovering, testing, and deploying deep learning models for bioimage analysis. The platform makes models truly **FAIR** — Findable, Accessible, Interoperable, and Reproducible — across frameworks, operating systems, and software ecosystems.
 
-1. **Annotate images collaboratively** — mount local folders or upload images to cloud, share annotation sessions with teammates via URL, and collect segmentation masks in real time.
-2. **AI-assisted annotation** — use Cellpose (and fine-tuned variants) to auto-segment cells/nuclei, then correct predictions interactively with drawing tools.
-3. **Fine-tune Cellpose-SAM** — trigger model training directly from the UI using annotated data stored in Hypha Artifacts, and deploy trained models back into the annotation workflow.
+### Core Mission
 
-The system runs **entirely in the browser** (Python via Pyodide/WebAssembly, image visualization via OpenLayers) backed by **Hypha Cloud** for service registration, artifact storage, and RPC coordination.
+1. **Model repository** — Host pre-trained DL models (segmentation, restoration, classification, etc.) with standardized metadata (RDF/YAML), DOIs, memorable nicknames, and full provenance (training data, notebooks, authors).
+2. **Cross-tool interoperability** — A single model format (bioimageio spec) runs across ilastik, deepImageJ, QuPath, StarDist, ImJoy, ZeroCostDL4Mic, CSBDeep, Icy, and more — without per-tool re-integration.
+3. **In-browser testing via BioEngine** — Users can evaluate any model on their own images directly on the website; the BioEngine serves GPU inference from cloud infrastructure (de.NBI / Kubernetes + Triton).
+4. **Community contribution pipeline** — Model submission through Zenodo or the web upload form; automatic CI quality assurance; manual curator review; community partner collections via GitHub.
+5. **FAIR developer tooling** — Python (`bioimageio.core`) and Java libraries let developers programmatically load, run, export, and re-upload models in only a few lines of code.
+
+### Active Feature: Collaborative Annotation & Fine-Tuning
+
+The current in-browser application layer extends the platform with:
+
+- **Collaborative annotation** — mount local folders or upload images to cloud, share annotation sessions with teammates via URL, collect segmentation masks in real time.
+- **AI-assisted annotation** — Cellpose / Cellpose-SAM auto-segmentation with interactive correction tools.
+- **Fine-tune Cellpose-SAM** — trigger training from the UI using annotated data stored in Hypha Artifacts, then deploy trained models back into the annotation workflow.
+
+This layer runs **entirely in the browser** (Python via Pyodide/WebAssembly, image visualization via OpenLayers) backed by **Hypha Cloud** for service registration, artifact storage, and RPC coordination.
 
 ---
 
@@ -141,6 +153,28 @@ The annotation URL encodes this ID so the annotator (`AnnotatePage`) can connect
 
 ---
 
+## Related Repositories
+
+| Repo | Path | Language |
+|---|---|---|
+| spec-bioimage-io | `../spec-bioimage-io` | Python |
+| core-bioimage-io-python | `../core-bioimage-io-python` | Python |
+| bioengine-worker | `../bioengine-worker` | Python |
+
+### `../spec-bioimage-io`
+
+Defines the **official YAML format specification** for all bioimage.io resources (models, datasets, notebooks, applications). Every resource is described by a Resource Description File (RDF) validated against this spec. The repo provides the schema, documentation, and a Python library (`bioimageio.spec`) used by both the website and tooling to parse, validate, and build compliant resource descriptions. Any change to the model metadata format originates here.
+
+### `../core-bioimage-io-python`
+
+The **core Python runtime library** (`bioimageio.core`) for loading and executing bioimage.io models. Implements standardized pre/post-processing pipelines, weight format conversion (PyTorch, TensorFlow, ONNX, TorchScript, Keras), dataset statistics computation, and CLI tools for testing resource descriptions. This is what community partner tools and custom scripts use to run inference on Zoo models in a few lines of code.
+
+### `../bioengine-worker`
+
+The **distributed AI inference backend** that powers the BioEngine — the in-browser model testing service on bioimage.io. Built on Ray and Ray Serve for auto-scaling GPU inference across cloud/HPC nodes. Exposes model serving via Hypha RPC, supports dataset streaming with access control, and manages custom application deployment. This is the server-side counterpart to the BioEngine frontend that lets users test models on the website.
+
+---
+
 ## Development Rules
 
 1. **Read before modifying.** Always read the relevant source files before proposing changes.
@@ -153,6 +187,33 @@ The annotation URL encodes this ID so the annotator (`AnnotatePage`) can connect
 8. **Error surfacing.** Errors from Hypha calls must be surfaced via `FloatingBanners` (annotate) or inline UI feedback (colab), not silently swallowed.
 9. **Session hygiene.** Do not leave dangling Hypha services registered. Clean up on component unmount or session delete.
 10. **Model outputs are async.** Cellpose inference can be slow; always show a loading banner and disable conflicting tools during inference.
+
+---
+
+## Agent Skill: `bioimageio-models`
+
+Located at `public/skills/bioimageio-models/` — served at `https://bioimage.io/skills/bioimageio-models/SKILL.md`.
+
+This skill enables any AI agent (Claude Code, Gemini CLI, etc.) to guide a researcher through the full model contribution pipeline — no BioImage.IO expertise required:
+
+1. **Gather info** — iteratively asks the user for model files, tensor specs, metadata
+2. **Build package** — generates `bioimageio.yaml`, computes SHA256 hashes, creates test tensors
+3. **Static validate** — runs `bioimageio.spec` parser
+4. **Dynamic test** — runs `bioimageio test` via `bioimageio.core`
+5. **Submit** — uploads to Hypha artifact manager under `bioimage-io/bioimage.io`
+6. **Remote validate** — optionally triggers BioEngine runner
+
+| File | Purpose |
+|------|---------|
+| `SKILL.md` | Main instructions (loaded by the agent) |
+| `references/model-spec-reference.md` | Full YAML field reference |
+| `references/example-rdf.yaml` | Annotated real example |
+| `references/submission-guide.md` | Hypha API submission walkthrough |
+| `scripts/compute_sha256.py` | SHA256 hash utility |
+| `scripts/generate_test_tensors.py` | Generate test_input/output .npy |
+| `scripts/validate_package.sh` | One-shot static + dynamic validation |
+
+The Upload page (`src/components/Upload.tsx`) displays this skill URL in a banner so contributors know they can use it.
 
 ---
 
