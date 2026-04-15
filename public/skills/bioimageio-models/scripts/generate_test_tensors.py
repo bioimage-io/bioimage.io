@@ -124,9 +124,13 @@ def save_cover_image(input_arr: np.ndarray, output_arr: np.ndarray, out_dir: Pat
 
     cover_path = out_dir / "cover0.png"
     plt.tight_layout()
-    plt.savefig(cover_path, dpi=100, bbox_inches="tight")
+    plt.savefig(cover_path, dpi=72, bbox_inches="tight")
     plt.close()
-    print(f"  Cover image saved: {cover_path}")
+    cover_size = cover_path.stat().st_size
+    if cover_size > 500 * 1024:
+        print(f"  WARNING: Cover image is {cover_size // 1024}KB — exceeds 500KB Zoo limit. Reduce dpi or figure size.")
+    else:
+        print(f"  Cover image saved: {cover_path} ({cover_size // 1024}KB)")
 
 
 def main():

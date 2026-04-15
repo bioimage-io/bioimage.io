@@ -108,7 +108,7 @@ Each tensor descriptor has:
 ```yaml
 inputs:
   - id: raw                       # unique ID (no spaces, used in axis refs)
-    description: "raw fluorescence input"   # optional but helpful
+    description: "raw fluorescence input"   # optional but helpful — MAX 128 characters!
     axes:                         # list of axis descriptors
       - type: batch
         size: 1                   # set to 1 for single images

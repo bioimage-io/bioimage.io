@@ -32,7 +32,12 @@ def main():
         paths = [target]
         base = target.parent
     elif target.is_dir():
-        paths = sorted(p for p in target.rglob("*") if p.is_file())
+        paths = sorted(
+            p for p in target.rglob("*")
+            if p.is_file()
+            and "__pycache__" not in p.parts
+            and p.suffix not in (".pyc", ".pyo")
+        )
         base = target
     else:
         print(f"Error: {target} does not exist")

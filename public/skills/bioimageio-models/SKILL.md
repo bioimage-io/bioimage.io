@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.2"
+  version: "1.3"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -37,7 +37,7 @@ Required:
 [ ] Input tensor: shape, dtype, axes, channel names, expected value range
 [ ] Output tensor: shape, dtype, axes, channel names, value range
 [ ] Preprocessing — zero_mean_unit_variance / scale_range / none
-[ ] Postprocessing — sigmoid / softmax / none
+[ ] Postprocessing — sigmoid or none (note: `softmax` is NOT supported — embed it in `forward()` instead)
 [ ] Representative test input image (any format; will be converted to .npy)
 [ ] Model name — specific, human-readable (e.g. "cFOS Segmentation 2D UNet - Mouse Hippocampus")
 [ ] Description — 2-4 sentences: what it does, modality, organism/tissue, training data
@@ -114,7 +114,11 @@ mkdir -p model_package
      --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
    ```
 5. Write `model_package/bioimageio.yaml` — see [references/model-spec-reference.md](references/model-spec-reference.md)
-6. Write `model_package/README.md` — include: description, intended use, validation, citation
+6. Write `model_package/README.md` — must contain these sections:
+   - `## Description` — what the model does, modality, organism
+   - `## Intended Use` — what tasks it is suitable for, known limitations
+   - `## Validation` (exact heading, required by `bioimageio test`) — mention test results
+   - `## Citation` — reference the paper
 
 Full field reference and annotated example:
 - [references/model-spec-reference.md](references/model-spec-reference.md)
@@ -144,12 +148,14 @@ Fix errors and retry. Common issues:
 
 ## Phase 4 — Dynamic Testing
 
+> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+**. If you are on Python 3.8 or 3.9, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, the latest versions work: `pip install "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"`.
+
 ```bash
-pip install -q bioimageio.core
+pip install -q "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"
 bioimageio test model_package/bioimageio.yaml
 ```
 
-Or with conda:
+Or with conda (handles Python version automatically):
 ```bash
 conda create -n bioimageio -c conda-forge bioimageio.core -y
 conda run -n bioimageio bioimageio test model_package/bioimageio.yaml
@@ -159,6 +165,7 @@ Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.
 Fix shape/dtype/preprocessing errors and rerun.
 
 Common dynamic test failures:
+- `__init__() got an unexpected keyword argument 'ignore_cleanup_errors'` — Python 3.8/3.9 with `bioimageio.core >= 0.8`. Use the pinned versions above or upgrade to Python 3.10+.
 - `torch.load(weights_only=True) failed` — weights contain numpy/metadata; extract pure state dict:
   ```python
   checkpoint = torch.load('original.pth', weights_only=False)

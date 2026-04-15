@@ -74,6 +74,56 @@ class CfosSmpUnet(smp.Unet):
         return F.softmax(super().forward(x), dim=1)
 ```
 
+## UNet Brain MRI FLAIR Abnormality Segmentation — 2026-04-16
+
+- **Source**: https://github.com/mateuszbuda/brain-segmentation-pytorch (PyTorch Hub: `mateuszbuda/brain-segmentation-pytorch`)
+- **Artifact ID**: Not yet submitted (validated through Phase 4)
+- **Weight format**: `pytorch_state_dict` (UNet with BN, ~30MB)
+- **Framework version**: PyTorch 1.10+
+- **Input shape**: `[1, 3, 256, 256]` (B, C, H, W) — 3-channel brain MRI (pre-T1, FLAIR, post-T1), values in `[0, 1]`
+- **Output shape**: `[1, 1, 256, 256]` — probability map in `[0, 1]` (sigmoid embedded in `forward()`)
+
+### Key challenges
+
+1. **`bioimageio.core >= 0.8` crashes on Python 3.8** — `TemporaryDirectory(ignore_cleanup_errors=True)` requires Python 3.10+. Fix: downgrade to `bioimageio.core==0.6.9 bioimageio.spec==0.5.3.2`, or upgrade to Python 3.10+.
+
+2. **bioimageio.spec + bioimageio.core version conflict** — `pip install bioimageio.spec bioimageio.core` installs incompatible latest versions. Always install with pinned versions: `pip install "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"`.
+
+3. **Tensor `description` has 128-char limit** — top-level `description` allows 1024 chars, but `inputs[].description` is limited to 128. Long descriptions cause a validation error.
+
+4. **`# Validation` heading required in README.md** — the validator checks for this exact heading. Without it, `bioimageio test` prints a warning.
+
+5. **PyTorch Hub model includes sigmoid in `forward()`** — the output is already probabilities in `[0, 1]`. No postprocessing needed.
+
+### What worked
+
+- Loading weights via `torch.hub.load('mateuszbuda/brain-segmentation-pytorch', 'unet', pretrained=True)` then saving the state dict: `torch.save(model.state_dict(), 'weights.pt')`
+- Input and output axes can reuse the same `id` (e.g., both use `id: y` and `id: x`) — global uniqueness is NOT required
+- Output axis size references (`tensor_id: raw, axis_id: y`) work even when input and output share the same axis IDs
+
+### bioimageio.yaml snippet (non-obvious axis pattern)
+
+Output axes that reference input axes, using the SAME axis IDs (no need for `y_out`/`x_out`):
+
+```yaml
+outputs:
+  - id: probability
+    axes:
+      - type: batch
+      - type: channel
+        channel_names: [abnormality_probability]
+      - type: space
+        id: y
+        size:
+          tensor_id: raw
+          axis_id: y
+      - type: space
+        id: x
+        size:
+          tensor_id: raw
+          axis_id: x
+```
+
 <!-- Template for new entries:
 
 ## [Model Name] — [YYYY-MM-DD]
