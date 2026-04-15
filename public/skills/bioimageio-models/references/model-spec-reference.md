@@ -191,11 +191,18 @@ Applied to output tensors after inference:
 | Operation | kwargs |
 |-----------|--------|
 | `sigmoid` | none |
-| `softmax` | `axes: [c]` |
 | `scale_linear` | `gain`, `offset` |
 | `ensure_dtype` | `dtype: float32` |
 | `binarize` | `threshold: 0.5` |
 | `clip` | `min`, `max` |
+| `zero_mean_unit_variance` | `axes` |
+| `scale_range` | `axes`, `min_percentile`, `max_percentile` |
+| `scale_mean_variance` | `axes` |
+
+> **Note:** `softmax` is NOT a valid postprocessing operation in `bioimageio.spec` 0.5.x.
+> For multi-class models that need softmax, embed it inside the model's `forward()` method
+> so the output tensor is already a probability map. This keeps the model self-contained
+> and compatible with all runtimes.
 
 ---
 
@@ -222,6 +229,13 @@ weights:
 ```
 
 **Rule:** `pytorch_state_dict` must NOT have a `parent` field — it is the root format.
+
+**Rule:** The weights file must contain ONLY the state dict (`OrderedDict` of tensors), not a nested dict with extra metadata (e.g., normalization stats). `bioimageio.core` loads with `torch.load(weights_only=True)` which blocks numpy or other non-tensor objects. If your original `.pth` file contains extra metadata, extract just the state dict:
+
+```python
+data = torch.load('original.pth', weights_only=False)
+torch.save(data['model'], 'weights.pt')  # save only the state dict
+```
 
 ### ONNX (for cross-platform)
 
