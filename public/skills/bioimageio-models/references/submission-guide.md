@@ -8,7 +8,7 @@ How to upload a validated model package to the BioImage Model Zoo using the Hyph
 
 - A validated model package directory (passed `bioimageio test`)
 - A Hypha token (user gets this from https://hypha.aicell.io after signing in)
-- Python with `hypha-rpc` installed: `pip install -q hypha-rpc`
+- Python with required packages: `pip install -q hypha-rpc httpx pyyaml`
 
 **Never hardcode or log the user's token.** Ask for it at runtime; use it once.
 

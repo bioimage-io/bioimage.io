@@ -68,10 +68,18 @@ def run_pytorch(model_path: str, arch_path: str, class_name: str,
     ModelClass = getattr(mod, class_name)
     model = ModelClass(**kwargs)
 
-    # Load weights
-    state = torch.load(model_path, map_location="cpu")
-    if isinstance(state, dict) and "model_state_dict" in state:
-        state = state["model_state_dict"]
+    # Load weights — use weights_only=False for flexibility during test tensor generation.
+    # NOTE: The final weights file submitted to the Zoo MUST be a pure state dict
+    # (no numpy arrays, custom classes, or nested dicts with metadata).
+    # If torch.load(weights_only=True) fails at submission time, extract the state dict first:
+    #   checkpoint = torch.load('original.pth', weights_only=False)
+    #   torch.save(checkpoint['model'], 'weights.pt')
+    state = torch.load(model_path, map_location="cpu", weights_only=False)
+    # Handle common checkpoint formats with nested state dicts
+    for key in ("model_state_dict", "model", "state_dict", "net"):
+        if isinstance(state, dict) and key in state and not isinstance(state[key], torch.Tensor):
+            state = state[key]
+            break
     model.load_state_dict(state)
     model.eval()
 
@@ -134,8 +142,12 @@ def main():
                         help="Input shape as B,C,H,W (default: 1,1,256,256)")
     parser.add_argument("--random-input", action="store_true",
                         help="Generate a random input tensor")
-    parser.add_argument("--normalize", action="store_true", default=True,
-                        help="Apply zero_mean_unit_variance normalization before inference")
+    # Default: normalize is enabled. Use --skip-normalize to disable.
+    normalize_group = parser.add_mutually_exclusive_group()
+    normalize_group.add_argument("--normalize", dest="normalize", action="store_true", default=True,
+                                 help="Apply zero_mean_unit_variance normalization before inference (default)")
+    normalize_group.add_argument("--skip-normalize", dest="normalize", action="store_false",
+                                 help="Skip normalization (use when input is already normalized)")
     parser.add_argument("--output", default=".", help="Output directory")
     args = parser.parse_args()
 

@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.1"
+  version: "1.2"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -83,6 +83,8 @@ curl -L "https://zenodo.org/records/RECORD_ID/files/FILENAME" -o FILENAME
 
 ## Phase 2 — Build the Package
 
+> **Note:** Run the commands in this phase from the **`bioimage.io` repository root** (the directory that contains the `public/skills/` folder). If the skill was loaded from a URL rather than the local repo, download the scripts directory first or adjust paths accordingly.
+
 ```bash
 mkdir -p model_package
 ```
@@ -91,13 +93,25 @@ mkdir -p model_package
 2. Copy architecture `.py` file (if pytorch_state_dict)
 3. Compute SHA256 for all files:
    ```bash
-   python skills/bioimageio-models/scripts/compute_sha256.py model_package/
+   python public/skills/bioimageio-models/scripts/compute_sha256.py model_package/
    ```
 4. Generate test tensors if not provided:
    ```bash
-   python skills/bioimageio-models/scripts/generate_test_tensors.py \
+   # Basic usage (random input):
+   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
      --model model_package/weights.pt --arch model_package/model.py \
      --class MyModel --input-shape "1,1,256,256" --output model_package/
+
+   # If model constructor takes arguments (e.g. in_channels, depth):
+   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
+     --model model_package/weights.pt --arch model_package/model.py \
+     --class UNet2D --kwargs '{"in_channels": 1, "out_channels": 1, "depth": 4}' \
+     --input-shape "1,1,256,256" --output model_package/
+
+   # Skip normalization (for pre-normalized data):
+   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
+     --model model_package/weights.pt --arch model_package/model.py \
+     --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
    ```
 5. Write `model_package/bioimageio.yaml` — see [references/model-spec-reference.md](references/model-spec-reference.md)
 6. Write `model_package/README.md` — include: description, intended use, validation, citation
@@ -120,10 +134,11 @@ print('✓ Static validation passed:', type(desc).__name__)
 ```
 
 Fix errors and retry. Common issues:
-- Missing `sha256` for a referenced file
+- Missing `sha256` for a referenced file — run `compute_sha256.py` and update the YAML
 - Wrong `format_version` — use `0.5.4`
-- Duplicate axis IDs across tensors
+- Duplicate axis `id` values **within** a single tensor (same IDs across input/output tensors is fine)
 - `pytorch_state_dict` must NOT have a `parent` field
+- `softmax` is NOT a valid postprocessing operation — embed it inside the model's `forward()`
 
 ---
 
@@ -142,6 +157,15 @@ conda run -n bioimageio bioimageio test model_package/bioimageio.yaml
 
 Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.  
 Fix shape/dtype/preprocessing errors and rerun.
+
+Common dynamic test failures:
+- `torch.load(weights_only=True) failed` — weights contain numpy/metadata; extract pure state dict:
+  ```python
+  checkpoint = torch.load('original.pth', weights_only=False)
+  torch.save(checkpoint['model'], 'weights.pt')  # or checkpoint['state_dict'], etc.
+  ```
+- `test output does not match` — regenerate `test_output.npy` by running the model on `test_input.npy`
+- `shape mismatch` — check that `test_input.npy` shape matches the `axes` spec exactly
 
 ---
 
@@ -164,15 +188,17 @@ import asyncio
 from hypha_rpc import connect_to_server
 
 async def trigger_bioengine_test(artifact_id: str, token: str):
-    server = await connect_to_server(
-        server_url="https://hypha.aicell.io",
-        token=token,
-    )
-    # Get the BioEngine runner service
-    runner = await server.get_service("bioimage-io/bioengine-runner")
-    result = await runner.test_model(artifact_id=artifact_id)
-    print("BioEngine test result:", result)
-    return result
+    # IMPORTANT: connect_to_server requires a config dict, not keyword arguments
+    async with connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": token,
+        "method_timeout": 120,
+    }) as server:
+        # Get the BioEngine runner service
+        runner = await server.get_service("bioimage-io/bioengine-runner")
+        result = await runner.test_model(artifact_id=artifact_id)
+        print("BioEngine test result:", result)
+        return result
 
 asyncio.run(trigger_bioengine_test("bioimage-io/YOUR-ARTIFACT-ID", token="YOUR_TOKEN"))
 ```

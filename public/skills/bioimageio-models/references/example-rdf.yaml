@@ -72,7 +72,7 @@ inputs:
         id: y              # Spatial axis IDs must be unique across ALL tensors
         size: 512
       - type: space
-        id: x              # Note: use x0/y0 if needed to disambiguate across tensors
+        id: x              # For outputs with collision risk, use x_out/y_out or x0/y0
         size: 512
     test_tensor:
       source: test_input.npy
@@ -102,7 +102,7 @@ outputs:
         channel_names:
           - probability
       - type: space
-        id: y_out          # Use different ID from input y to avoid collision
+        id: y_out          # Different ID from input y makes references clearer (not strictly required)
         size:
           tensor_id: raw   # Output same height as input
           axis_id: y

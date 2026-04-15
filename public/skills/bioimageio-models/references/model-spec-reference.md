@@ -336,7 +336,7 @@ Or use the helper script: `scripts/compute_sha256.py model_package/`
 | Error | Fix |
 |-------|-----|
 | `sha256 mismatch for ...` | Recompute SHA256 and update in YAML |
-| `axis id 'x' not unique` | Axis `id` values must be unique across ALL tensors (inputs + outputs) |
+| `axis id 'x' not unique` | Axis `id` values must be unique **within** each tensor (not globally across tensors) |
 | `pytorch_state_dict cannot have parent` | Remove `parent` from `pytorch_state_dict` block |
 | `format_version not supported` | Change to `"0.5.4"` |
 | `channel_names length != axis size` | Ensure `channel_names` list length matches number of channels |
