@@ -197,11 +197,14 @@ print(info["manifest"]["name"], info["id"])
 
 ## After Submission
 
-1. The artifact is in **staging mode** — not publicly visible
-2. Curators review: metadata quality, license, test results
-3. They may request changes via email
-4. Once approved, model appears on https://bioimage.io
-5. It gets a **DOI** (via Zenodo) and a memorable **nickname** (e.g., `happy-whale`)
+After uploading, follow these steps (covered in SKILL.md Phase 6):
+
+1. **Run BioEngine remote test** — `bioimage-io/model-runner` service, `stage=True`
+2. **Fix failures** — re-upload changed files via `am.edit()` + `am.put_file()`, then retest
+3. **Request review** — `am.edit(version="stage", manifest={...status: "request-review"})`
+4. Curators review: metadata quality, license, BioEngine test results
+5. If `revision` status: fix, retest, request review again
+6. Once `accepted`: curator commits and publishes → model appears on https://bioimage.io with a DOI
 
 **Typical review time:** 1–5 business days.
 

@@ -183,36 +183,145 @@ Common dynamic test failures:
 See [references/submission-guide.md](references/submission-guide.md) for the full script.
 
 1. Ask the user for their Hypha token (from https://hypha.aicell.io — sign in with GitHub/Google)
-2. Run the submission script from the reference guide
-3. Share the staging URL with the user
+2. Run the submission script from the reference guide — it uploads the package and creates a staged artifact
+3. Note the returned `artifact_id` (e.g. `bioimage-io/affable-shark`) — you need it for Phase 6
 
 ---
 
-## Phase 6 — Remote Validation (Optional but Recommended)
+## Phase 6 — Remote Test, Fix, and Request Review
 
-After submission, the BioEngine can validate the model on managed cloud infrastructure:
+This phase is **mandatory**. After uploading, run the BioEngine test on the staged model, fix any
+failures, then submit for curator review. Do not skip review — without it, the model stays invisible.
+
+### Step 6a — Run BioEngine remote test on the staged artifact
+
+The BioEngine test runs the model on managed GPU infrastructure and compares outputs to the
+test tensors you provided. Use the `bioimage-io/model-runner` service with `stage=True`:
 
 ```python
 import asyncio
+import json
 from hypha_rpc import connect_to_server
 
-async def trigger_bioengine_test(artifact_id: str, token: str):
-    # IMPORTANT: connect_to_server requires a config dict, not keyword arguments
+async def run_bioengine_test(artifact_id: str, token: str):
+    """
+    artifact_id: e.g. "bioimage-io/affable-shark"
+    stage=True tells the runner to load from staging (not the public collection)
+    """
+    async with connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": token,
+        "method_timeout": 300,   # tests can take several minutes
+    }) as server:
+        runner = await server.get_service(
+            "bioimage-io/model-runner",
+            {"mode": "select:min:get_load"},
+        )
+        # model_id is the short alias only (no "bioimage-io/" prefix)
+        model_id = artifact_id.split("/")[-1]
+        test_report = await asyncio.wait_for(
+            runner.test(
+                model_id=model_id,
+                stage=True,              # load from staging, not published collection
+                skip_cache=True,
+                publish_test_report=False,  # don't write back to artifact yet
+            ),
+            timeout=300,
+        )
+        print("Status:", test_report.get("status"))
+        print(json.dumps(test_report, indent=2))
+        return test_report
+
+report = asyncio.run(run_bioengine_test("bioimage-io/affable-shark", token="YOUR_TOKEN"))
+```
+
+**Test report statuses:**
+- `passed` — all outputs matched; proceed to Step 6b
+- `valid-format` — YAML valid but inference not confirmed; check details
+- `failed` — output mismatch or runtime error; see Step 6a-fix
+- `service-timeout` — took > 5 min; retry once, then contact maintainers
+- `service-error` — BioEngine infrastructure error; retry once
+
+### Step 6a-fix — Fixing remote test failures
+
+If the remote test fails, update the staged artifact (no need to re-create it):
+
+```python
+import asyncio, yaml, hashlib, httpx
+from pathlib import Path
+from hypha_rpc import connect_to_server
+
+async def reupload_files(artifact_id: str, token: str, package_dir: str):
+    package = Path(package_dir)
     async with connect_to_server({
         "server_url": "https://hypha.aicell.io",
         "token": token,
         "method_timeout": 120,
     }) as server:
-        # Get the BioEngine runner service
-        runner = await server.get_service("bioimage-io/bioengine-runner")
-        result = await runner.test_model(artifact_id=artifact_id)
-        print("BioEngine test result:", result)
-        return result
+        am = await server.get_service("public/artifact-manager")
 
-asyncio.run(trigger_bioengine_test("bioimage-io/YOUR-ARTIFACT-ID", token="YOUR_TOKEN"))
+        # Update manifest if bioimageio.yaml changed
+        with open(package / "bioimageio.yaml") as f:
+            manifest = yaml.safe_load(f)
+        await am.edit(
+            artifact_id=artifact_id,
+            manifest=manifest,
+            stage=True,
+        )
+
+        # Re-upload changed files
+        async with httpx.AsyncClient(timeout=300) as client:
+            for file_path in package.rglob("*"):
+                if not file_path.is_file() or "__pycache__" in file_path.parts:
+                    continue
+                rel = str(file_path.relative_to(package))
+                put_url = await am.put_file(artifact_id=artifact_id, file_path=rel)
+                with open(file_path, "rb") as fobj:
+                    await client.put(put_url, content=fobj.read(), headers={"Content-Type": ""})
+                print(f"  ✓ re-uploaded {rel}")
+
+asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/"))
 ```
 
-If the remote test fails, fix and resubmit following the resubmission steps in [references/submission-guide.md](references/submission-guide.md).
+After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `valid-format`.
+
+### Step 6b — Request curator review
+
+Once the BioEngine test passes, set `status: "request-review"` in the staged manifest.
+This makes the model visible to curators in the review queue:
+
+```python
+import asyncio, yaml
+from hypha_rpc import connect_to_server
+
+async def request_review(artifact_id: str, token: str, package_dir: str):
+    with open(f"{package_dir}/bioimageio.yaml") as f:
+        manifest = yaml.safe_load(f)
+
+    async with connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": token,
+        "method_timeout": 120,
+    }) as server:
+        am = await server.get_service("public/artifact-manager")
+        await am.edit(
+            artifact_id=artifact_id,
+            version="stage",
+            manifest={**manifest, "status": "request-review"},
+        )
+        print(f"Review requested for {artifact_id}")
+        print(f"Track status: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
+
+asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/"))
+```
+
+**What happens next (curator side):**
+- Curators see the model in their review queue
+- They may set status to `in-review`, `revision` (needs fixes), or `accepted`
+- If `revision`: fix issues, re-upload, re-run BioEngine test, then call `request_review` again
+- Once `accepted`, the curator commits and publishes (gets a DOI via Zenodo)
+
+**Typical review time:** 1–5 business days.
 
 ---
 
