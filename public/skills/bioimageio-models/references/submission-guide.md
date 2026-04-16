@@ -66,8 +66,13 @@ async def submit_model(package_dir: str, token: str):
         am = await server.get_service("public/artifact-manager")
 
         # --- Step 1: Create staged artifact ---
+        # alias pattern is type-specific (matches Upload.tsx logic):
+        #   model       → "{animal_adjective}-{animal}"   e.g. "affable-shark"
+        #   dataset     → "{fruit_adjective}-{fruit}"     e.g. "sweet-apple"
+        #   application → "{object_adjective}-{object}"   e.g. "shiny-hammer"
         artifact = await am.create(
             parent_id=PARENT_ID,
+            alias="{animal_adjective}-{animal}",   # generates a memorable 2-word animal name
             type="model",
             manifest=manifest,
             stage=True,         # Staged = not publicly visible yet; goes to curator review
@@ -148,12 +153,13 @@ Parent:       bioimage-io/bioimage.io   (the Zoo collection)
 ```python
 artifact = await am.create(
     parent_id="bioimage-io/bioimage.io",
+    alias="{animal_adjective}-{animal}",  # model alias pattern — yields e.g. "affable-shark"
     type="model",
     manifest={...},     # Your bioimageio.yaml content as a dict
     stage=True,         # ALWAYS True for new submissions
     overwrite=False,
 )
-# Returns: { "id": "bioimage-io/abc-xyz-123", "alias": "...", ... }
+# Returns: { "id": "bioimage-io/affable-shark", "alias": "affable-shark", ... }
 ```
 
 ### `am.put_file(...)` — Get presigned upload URL
