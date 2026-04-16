@@ -227,6 +227,78 @@ put_url = await am.put_file(artifact_id=existing_artifact_id, file_path="bioimag
 # ... HTTP PUT the updated file
 ```
 
+Then re-run the BioEngine test (Phase 6a) and request review again (Phase 6b).
+
+---
+
+## Withdrawing or Deleting a Staged Model
+
+Use these operations when the user wants to pull back a submission or remove it entirely.
+
+### Withdraw from review (go back to draft)
+
+Removes the `status: "request-review"` from the manifest so curators no longer see it.
+The artifact remains in staging and can be edited and re-submitted.
+
+```python
+import asyncio, yaml
+from hypha_rpc import connect_to_server
+
+async def withdraw(artifact_id: str, token: str, package_dir: str):
+    with open(f"{package_dir}/bioimageio.yaml") as f:
+        manifest = yaml.safe_load(f)
+    manifest.pop("status", None)   # remove status field entirely
+
+    async with connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": token,
+        "method_timeout": 120,
+    }) as server:
+        am = await server.get_service("public/artifact-manager")
+        await am.edit(
+            artifact_id=artifact_id,
+            version="stage",
+            manifest=manifest,
+        )
+        print(f"Withdrawn from review. Artifact is now a draft again: {artifact_id}")
+
+asyncio.run(withdraw("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/"))
+```
+
+### Delete a staged artifact entirely
+
+Permanently removes the staged artifact and all its files. Only possible while still in staging
+(before curator approval). **This is irreversible.**
+
+```python
+import asyncio
+from hypha_rpc import connect_to_server
+
+async def delete_staged(artifact_id: str, token: str):
+    async with connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": token,
+        "method_timeout": 120,
+    }) as server:
+        am = await server.get_service("public/artifact-manager")
+        # discard() removes all staged changes (files + manifest edits)
+        await am.discard(artifact_id=artifact_id)
+        print(f"Staged artifact discarded: {artifact_id}")
+        # If you also want to delete the artifact record itself:
+        # await am.delete(artifact_id=artifact_id, delete_files=True)
+
+asyncio.run(delete_staged("bioimage-io/affable-shark", token="YOUR_TOKEN"))
+```
+
+**Artifact status lifecycle:**
+```
+(created) → draft → request-review → in-review → accepted → published
+                         ↑                              ↓
+                     withdraw()                    revision → (fix & re-submit)
+                         ↓
+                    discard() / delete()
+```
+
 ---
 
 ## Reporting Issues
