@@ -79,7 +79,7 @@ weights:
 | `outputs` | YES | list | At least one output tensor descriptor |
 | `weights` | YES | dict | At least one weights format |
 | `documentation` | recommended | string | Path to `README.md` (must end in `.md`) |
-| `covers` | recommended | list | Cover image paths (PNG/JPG, <500KB, 2:1 aspect) |
+| `covers` | recommended | list | Cover image paths — plain strings like `["cover.png"]` (PNG/JPG, <500KB, 2:1 aspect). Do NOT use `source:`/`sha256:` dicts here — those are only for `test_tensor`. |
 | `tags` | recommended | list | See tags section below |
 | `cite` | recommended | list | Citations with `doi` or `url` |
 | `git_repo` | optional | string | URL to source repository |
@@ -147,7 +147,7 @@ inputs:
 
 ### Dynamic Output Shape
 
-If output shape depends on input shape:
+If output shape equals input shape (e.g., semantic segmentation, denoising):
 ```yaml
 outputs:
   - id: probability
@@ -168,6 +168,19 @@ outputs:
           axis_id: x
         halo: 32
 ```
+
+> **Important:** `SizeReference` only supports `tensor_id`, `axis_id`, and `offset` (integer).
+> There is **no `scale` field** — you cannot express "output = input/2" via a reference.
+> For models where the output is a fixed fraction of the input (e.g., StarDist with `grid=(2,2)`
+> producing 128×128 output from 256×256 input), use **fixed sizes** in the output axes instead:
+> ```yaml
+> outputs:
+>   - id: probability
+>     axes:
+>       - type: space
+>         id: y
+>         size: 128    # fixed — equal to expected_input_size / grid_factor
+> ```
 
 ---
 
@@ -245,8 +258,19 @@ weights:
     source: weights.onnx
     sha256: <hash>
     opset_version: 17
-    parent: pytorch_state_dict      # required: what format this was converted from
+    # parent: pytorch_state_dict   # Only include if pytorch_state_dict is ALSO in this package.
+                                   # For ONNX-only packages, omit 'parent' entirely.
 ```
+
+> **ONNX export note (PyTorch >= 2.9):** The default `torch.onnx.export` now uses the
+> dynamo-based exporter, which produces **two files** (a small `.onnx` proto + a large
+> `.onnx.data` external weights file). `bioimageio.core` cannot load split ONNX models.
+> Use `dynamo=False` to get a single self-contained file:
+> ```python
+> torch.onnx.export(model, dummy, 'weights.onnx', opset_version=17,
+>                   input_names=['raw'], output_names=['out'], dynamo=False)
+> ```
+> Also install `onnxscript` and `onnx` before exporting: `pip install onnxscript onnx`
 
 ### TorchScript
 

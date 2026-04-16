@@ -124,6 +124,151 @@ outputs:
           axis_id: x
 ```
 
+## UNet Brain MRI FLAIR Abnormality Segmentation (ONNX) — 2026-04-16
+
+- **Source**: https://github.com/mateuszbuda/brain-segmentation-pytorch (PyTorch Hub)
+- **Artifact ID**: `bioimage-io/nitrous-diagnosis-intend-furiously` (staging)
+- **Weight format**: `onnx` (opset 17, single-file, ~31 MB)
+- **Framework version**: ONNX opset 17; onnxruntime CPU
+- **Input shape**: `[1, 3, 256, 256]` (B, C, H, W) — pre-T1, FLAIR, post-T1 channels, values in [0,1]
+- **Output shape**: `[1, 1, 256, 256]` — sigmoid probability in [0,1]
+
+### Key challenges
+
+1. **PyTorch 2.10 `torch.onnx.export` defaults to the dynamo-based exporter**, which creates two files: a tiny `weights.onnx` proto and a large `weights.onnx.data` external weights file. bioimageio.core cannot load a split ONNX model. Fix: pass `dynamo=False` explicitly:
+   ```python
+   torch.onnx.export(model, dummy, 'weights.onnx', opset_version=17,
+                     input_names=['raw'], output_names=['probability'], dynamo=False)
+   ```
+
+2. **`onnxscript` module is not installed by default with PyTorch 2.10** — even the legacy (non-dynamo) path fails with `ModuleNotFoundError: No module named 'onnxscript'`. Fix: `pip install onnxscript onnx` before exporting.
+
+3. **ONNX-only format: no `parent` field required** — the spec reference shows `parent: pytorch_state_dict` for ONNX, but that is only needed when ONNX is a secondary format alongside pytorch_state_dict. When ONNX is the sole format, omit `parent` entirely. Static validation (`bioimageio.spec`) passes without it.
+
+4. **Dynamo-based exporter ignores `opset_version`** — it exported as opset 18 despite `opset_version=17`. The legacy exporter (`dynamo=False`) respects the requested opset.
+
+5. **`bioimageio test` prints format_version `0.5.9` even though YAML says `0.5.4`** — the installed `bioimageio.spec 0.5.9.1` auto-upgrades the format description during load. This is expected behavior, not an error.
+
+### What worked
+
+- `dynamo=False` in `torch.onnx.export` for a clean single-file ONNX
+- No `parent` field in the `onnx` weights block (ONNX-only package)
+- Output axes reference input axes with the same IDs (`y`, `x`) — no need for `y_out`/`x_out`
+- No preprocessing needed beyond `ensure_dtype: float32` — model expects [0,1] input
+- No postprocessing needed — sigmoid is embedded inside the UNet `forward()`
+- `bioimageio test` passed on first attempt with exact output match (max difference 0.00)
+
+### Issues found (for future filing)
+
+- **bioimageio-models skill `references/model-spec-reference.md`**: ONNX section shows `parent: pytorch_state_dict` without clarifying it is only needed for secondary formats. An ONNX-only package must omit `parent`.
+- **torch.onnx**: Default exporter in PyTorch >=2.9 produces split external data files; legacy exporter (`dynamo=False`) is needed for single-file export. The skill should document this.
+
+### bioimageio.yaml snippet (ONNX-only, no parent)
+
+```yaml
+weights:
+  onnx:
+    source: weights.onnx
+    sha256: a84d8d7ff0a23b2942799f831392fd133cacfb356860afa6cb8141294ff3bd2e
+    opset_version: 17
+    # No 'parent' field — ONNX is the sole format in this package
+```
+
+## StarDist 2D Versatile Fluorescence (Keras HDF5) — 2026-04-16
+
+- **Source**: https://github.com/stardist/stardist-models/releases/download/v0.1/python_2D_versatile_fluo.zip
+- **Artifact ID**: `bioimage-io/complacent-lemur-suspended-promptly` (staging)
+- **Weight format**: `keras_hdf5` (full model + weights saved via `model.save()`, TF 2.21)
+- **Framework version**: TensorFlow 2.21.0 / Keras 3.14.0
+- **Input shape**: `[1, 256, 256, 1]` (B, Y, X, C) — channels-last Keras convention, grayscale fluorescence
+- **Output shapes**: `[1, 128, 128, 1]` nucleus probability map + `[1, 128, 128, 32]` star-convex radial distances
+
+### Key challenges
+
+1. **StarDist weights file (`weights_best.h5`) only contains layer weights, not the model architecture** — it cannot be loaded with `keras.models.load_model()` directly. Fix: load via the `stardist` Python package (which reconstructs the architecture from `config.json`), then call `model.keras_model.save(path)` to produce a self-contained H5 file with embedded architecture:
+   ```python
+   from stardist.models import StarDist2D
+   model = StarDist2D(None, name='2D_versatile_fluo', basedir='models/')
+   model.keras_model.save('stardist_2D_versatile_fluo.h5')
+   ```
+
+2. **Output spatial resolution is half the input** — StarDist uses `grid=(2,2)` which downsamples output by 2× in each axis. Input `(1, 256, 256, 1)` → outputs `(1, 128, 128, 1)` and `(1, 128, 128, 32)`. The bioimageio spec's `SizeReference` has NO `scale` field in spec 0.5.9, so you cannot express "output = input/2" as a reference. Fix: use **fixed sizes** (`size: 128`) in the output axes.
+
+3. **`covers` must be a plain list of string paths, NOT a list of dicts** — the skill's example showed `source:`/`sha256:` fields under covers (following test_tensor syntax), but the covers field only accepts string paths. Fix:
+   ```yaml
+   covers:
+     - cover.png    # correct: just the filename
+   ```
+
+4. **`SizeReference` does not accept `scale` or `offset` fields in spec 0.5.9** — unlike the skill's "Dynamic Output Shape" example which showed `scale: 0.5`, this causes validation failure. Only `tensor_id`, `axis_id`, and `offset` (integer) are valid fields. The `scale` field does not exist.
+
+5. **`scikit-image` build error when installing stardist after tensorflow** — a pip conflict can break the existing `scikit-image` install. Fix: `pip install scikit-image --upgrade` after installing stardist.
+
+6. **Multi-output Keras models work fine with bioimageio.core** — the keras_hdf5 backend handles models with multiple output tensors (e.g., `(prob, dist)` tuple) without any special configuration. Just declare multiple `outputs:` entries in the YAML.
+
+### What worked
+
+- Loading via `stardist` library then saving the full Keras model to a new H5 file
+- Fixed output sizes (`size: 128`) instead of trying to use a scaled SizeReference
+- Channels-last axis order `BYXC` declared correctly in inputs/outputs
+- Static validation (`bioimageio.spec 0.5.9.1`): passed on 2nd attempt after fixing covers + SizeReference
+- Dynamic test (`bioimageio test`): passed on first attempt — both outputs matched expected values
+
+### Skill/spec issues found
+
+- **Skill `references/model-spec-reference.md`**: "Dynamic Output Shape" example shows `SizeReference` with `offset` and implies `scale` exists, but `scale` is not a valid field in spec 0.5.9. Needs clarification that scaled output sizes must use fixed sizes or a different approach.
+- **Skill Phase 2**: `covers` section example in skill could mention that covers are plain string paths (not dicts like test_tensor). Confusing when test_tensor uses `source:` + `sha256:` structure but covers does not.
+- **bioimageio.spec**: `SizeReference` missing a `scale` field means models with non-unity stride (like StarDist grid=2) cannot express "output shape = input/2" dynamically. This is a real spec limitation.
+
+### bioimageio.yaml snippet (keras_hdf5 multi-output, fixed output sizes)
+
+```yaml
+inputs:
+  - id: raw
+    axes:
+      - type: batch
+        size: 1
+      - type: space
+        id: y
+        size: 256
+      - type: space
+        id: x
+        size: 256
+      - type: channel
+        channel_names: [fluorescence]
+
+outputs:
+  - id: probability
+    axes:
+      - type: batch
+      - type: space
+        id: y
+        size: 128    # = input_size / 2 (grid=2), fixed not referenced
+      - type: space
+        id: x
+        size: 128
+      - type: channel
+        channel_names: [nucleus_probability]
+
+  - id: distances
+    axes:
+      - type: batch
+      - type: space
+        id: y
+        size: 128
+      - type: space
+        id: x
+        size: 128
+      - type: channel
+        channel_names: [dist_0, dist_1, ..., dist_31]  # 32 entries
+
+weights:
+  keras_hdf5:
+    source: stardist_2D_versatile_fluo.h5
+    sha256: 20624163d41dcdf2542dd30da21267e716507b50d3fdb3f0c31d5da178086b62
+    tensorflow_version: "2.21.0"
+```
+
 <!-- Template for new entries:
 
 ## [Model Name] — [YYYY-MM-DD]

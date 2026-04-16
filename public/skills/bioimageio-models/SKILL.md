@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.3"
+  version: "1.4"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -143,6 +143,8 @@ Fix errors and retry. Common issues:
 - Duplicate axis `id` values **within** a single tensor (same IDs across input/output tensors is fine)
 - `pytorch_state_dict` must NOT have a `parent` field
 - `softmax` is NOT a valid postprocessing operation — embed it inside the model's `forward()`
+- `covers` must be a plain list of string paths: `["cover.png"]` — do NOT use `source:`/`sha256:` dicts (those are only for `test_tensor`)
+- `SizeReference` has NO `scale` field — cannot express "output = input/2". For models with stride/grid > 1 (e.g., StarDist grid=2), use fixed output sizes instead of a reference
 
 ---
 
