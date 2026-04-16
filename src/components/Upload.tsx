@@ -1389,52 +1389,34 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             </p>
           </div>
           {/* AI-assisted upload banner */}
-          <div className="mx-6 mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-            <div className="flex items-start gap-3">
-              <span className="text-2xl shrink-0">✨</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-blue-900">
-                  Recommended: Let an AI agent package and submit your model
-                </p>
-                <p className="mt-1 text-sm text-blue-800">
-                  Building a valid <code className="bg-blue-100 px-1 rounded text-xs">bioimageio.yaml</code> by hand is complex.
-                  Instead, copy this skill URL into <strong>Claude Code</strong>, <strong>Gemini CLI</strong>, or any AI agent.
-                  It will ask you questions, package your model, validate it, and submit — all automatically.
-                </p>
-                <div className="mt-3 rounded bg-white border border-blue-200 p-3">
-                  <p className="text-xs text-blue-700 font-medium mb-1">1. Open your AI agent and paste this URL:</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 rounded bg-gray-50 border border-gray-200 px-2 py-1 text-xs font-mono text-gray-800 break-all">
-                      https://bioimage.io/skills/bioimageio-models/SKILL.md
-                    </code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText('https://bioimage.io/skills/bioimageio-models/SKILL.md');
-                      }}
-                      className="shrink-0 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <p className="text-xs text-blue-700 font-medium mt-2 mb-1">2. Or paste this prompt directly:</p>
-                  <div className="flex items-start gap-2">
-                    <code className="flex-1 rounded bg-gray-50 border border-gray-200 px-2 py-1 text-xs font-mono text-gray-800 break-all leading-relaxed">
-                      Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
-                    </code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText('Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.');
-                      }}
-                      className="shrink-0 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 mt-0.5"
-                    >
-                      Copy
-                    </button>
+          <div className="mx-6 mb-6">
+            <div className="max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl shrink-0">✨</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-blue-900">
+                    Recommended: Use an AI agent to package and submit your model
+                  </p>
+                  <p className="mt-1 text-sm text-blue-800">
+                    Copy the prompt below and paste it into <strong>Claude Code</strong>, <strong>Gemini CLI</strong>, or any AI agent.
+                    It will guide you through packaging, validation, and submission automatically.
+                  </p>
+                  <div className="mt-3 rounded bg-white border border-blue-200 p-3">
+                    <div className="flex items-start gap-2">
+                      <code className="flex-1 rounded bg-gray-50 border border-gray-200 px-2 py-1 text-xs font-mono text-gray-800 break-all leading-relaxed">
+                        Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
+                      </code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText('Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.');
+                        }}
+                        className="shrink-0 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 mt-0.5"
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-blue-600">
-                  Works with Claude Code, Gemini CLI, GitHub Copilot, and any agent with web access.
-                  Or upload manually below.
-                </p>
               </div>
             </div>
           </div>
