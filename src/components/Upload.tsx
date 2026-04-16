@@ -1391,33 +1391,23 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           {/* AI-assisted upload banner */}
           <div className="mx-6 mb-6">
             <div className="max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl shrink-0">✨</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-blue-900">
-                    Recommended: Use an AI agent to package and submit your model
-                  </p>
-                  <p className="mt-1 text-sm text-blue-800">
-                    Copy the prompt below and paste it into <strong>Claude Code</strong>, <strong>Gemini CLI</strong>, or any AI agent.
-                    It will guide you through packaging, validation, and submission automatically.
-                  </p>
-                  <div className="mt-3 rounded bg-white border border-blue-200 p-3">
-                    <div className="flex items-start gap-2">
-                      <code className="flex-1 rounded bg-gray-50 border border-gray-200 px-2 py-1 text-xs font-mono text-gray-800 break-all leading-relaxed">
-                        Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText('Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.');
-                        }}
-                        className="shrink-0 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 mt-0.5"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-blue-900">
+                  <span className="font-semibold">Use an AI agent to submit your model.</span>{' '}
+                  Copy the following to your agent:
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText('Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.');
+                  }}
+                  className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Copy prompt
+                </button>
               </div>
+              <code className="mt-2 block rounded bg-white border border-blue-200 px-3 py-2 text-xs font-mono text-gray-700 break-all">
+                Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
+              </code>
             </div>
           </div>
         </div>
