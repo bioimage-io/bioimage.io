@@ -156,6 +156,7 @@ const extractNounFromId = (id: string): string => {
 
 const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
@@ -1390,24 +1391,31 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           </div>
           {/* AI-assisted upload banner */}
           <div className="mx-6 mb-6">
-            <div className="max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-sm text-blue-900">
-                  <span className="font-semibold">Use an AI agent to submit your model.</span>{' '}
-                  Copy the following to your agent:
-                </p>
+            <div className="max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
+              <p className="text-sm font-semibold text-blue-900">Submit your model with an AI agent</p>
+              <p className="text-sm text-blue-800">
+                We provide a ready-to-use skill that guides any AI coding agent through packaging,
+                validation, and submission — no manual YAML required. Works with{' '}
+                <strong>Claude Code</strong>, <strong>Gemini CLI</strong>,{' '}
+                <strong>GitHub Copilot</strong>, <strong>OpenAI Codex</strong>, and other agents
+                with web access.
+              </p>
+              <p className="text-xs text-blue-700">Copy the prompt below and paste it into your agent to get started:</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded bg-white border border-blue-200 px-3 py-2 text-xs font-mono text-gray-700 break-all">
+                  Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
+                </code>
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText('Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.');
+                    setPromptCopied(true);
+                    setTimeout(() => setPromptCopied(false), 2000);
                   }}
-                  className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                  className="shrink-0 rounded px-3 py-1.5 text-xs font-medium text-white transition-colors bg-blue-600 hover:bg-blue-700"
                 >
-                  Copy prompt
+                  {promptCopied ? '✓ Copied' : 'Copy'}
                 </button>
               </div>
-              <code className="mt-2 block rounded bg-white border border-blue-200 px-3 py-2 text-xs font-mono text-gray-700 break-all">
-                Read https://bioimage.io/skills/bioimageio-models/SKILL.md and help me submit my model to the BioImage Model Zoo.
-              </code>
             </div>
           </div>
         </div>
