@@ -113,7 +113,7 @@ mkdir -p model_package
      --model model_package/weights.pt --arch model_package/model.py \
      --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
    ```
-5. Write `model_package/bioimageio.yaml` — see [references/model-spec-reference.md](references/model-spec-reference.md)
+5. Write `model_package/bioimageio.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
 6. Write `model_package/README.md` — must contain these sections:
    - `## Description` — what the model does, modality, organism
    - `## Intended Use` — what tasks it is suitable for, known limitations
@@ -121,8 +121,8 @@ mkdir -p model_package
    - `## Citation` — reference the paper
 
 Full field reference and annotated example:
-- [references/model-spec-reference.md](references/model-spec-reference.md)
-- [references/example-rdf.yaml](references/example-rdf.yaml)
+- [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
+- [references/example-rdf.yaml](https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml)
 
 ---
 
@@ -150,7 +150,7 @@ Fix errors and retry. Common issues:
 
 ## Phase 4 — Dynamic Testing
 
-> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+**. If you are on Python 3.8 or 3.9, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, the latest versions work: `pip install "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"`.
+> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, `bioimageio.core==0.9.0` works on Python 3.8/3.9 without downgrading. On Python 3.8/3.9 with `pytorch_state_dict`, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, the latest versions work for all formats: `pip install "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"`.
 
 ```bash
 pip install -q "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"
@@ -180,7 +180,7 @@ Common dynamic test failures:
 
 ## Phase 5 — Submit to the Zoo
 
-See [references/submission-guide.md](references/submission-guide.md) for the full script.
+See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) for the full script.
 
 1. Ask the user for their Hypha token (from https://hypha.aicell.io — sign in with GitHub/Google)
 2. Run the submission script from the reference guide — it uploads the package and creates a staged artifact
@@ -306,7 +306,7 @@ async def request_review(artifact_id: str, token: str, package_dir: str):
         am = await server.get_service("public/artifact-manager")
         await am.edit(
             artifact_id=artifact_id,
-            version="stage",
+            stage=True,          # use stage=True, NOT version="stage" (causes PermissionError)
             manifest={**manifest, "status": "request-review"},
         )
         print(f"Review requested for {artifact_id}")
@@ -446,7 +446,7 @@ EOF
 ## If Stuck (after 3 retries at any phase)
 
 1. Summarize the exact error and what you tried
-2. Check [references/success-examples.md](references/success-examples.md) for similar cases
+2. Check [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) for similar cases
 3. Tell the user the specific manual step needed
 4. File a GitHub issue (Phase 7) with the error details
 5. Share a pre-filled issue URL with the user so they can provide more context
@@ -457,10 +457,10 @@ EOF
 
 | File | When to Read |
 |------|-------------|
-| [references/model-spec-reference.md](references/model-spec-reference.md) | Writing `bioimageio.yaml` — all fields explained |
-| [references/example-rdf.yaml](references/example-rdf.yaml) | Annotated example to copy from |
-| [references/submission-guide.md](references/submission-guide.md) | Hypha API calls for submission |
-| [references/success-examples.md](references/success-examples.md) | Real worked examples from past submissions |
-| [scripts/compute_sha256.py](scripts/compute_sha256.py) | SHA256 hash utility |
-| [scripts/generate_test_tensors.py](scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
-| [scripts/validate_package.sh](scripts/validate_package.sh) | One-shot validation runner |
+| [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `bioimageio.yaml` — all fields explained |
+| [references/example-rdf.yaml](https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml) | Annotated example to copy from |
+| [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) | Hypha API calls for submission |
+| [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) | Real worked examples from past submissions |
+| [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility |
+| [scripts/generate_test_tensors.py](https://bioimage.io/skills/bioimageio-models/scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
+| [scripts/validate_package.sh](https://bioimage.io/skills/bioimageio-models/scripts/validate_package.sh) | One-shot validation runner |
