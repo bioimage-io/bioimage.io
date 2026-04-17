@@ -1390,8 +1390,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             </p>
           </div>
           {/* AI-assisted upload banner */}
-          <div className="mx-6 mb-6">
-            <div className="max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
+          <div className="mx-6 mb-6 flex justify-center">
+            <div className="w-full max-w-2xl rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
               <p className="text-sm font-semibold text-blue-900">Submit your model with an AI agent</p>
               <p className="text-sm text-blue-800">
                 We provide a ready-to-use skill that guides any AI coding agent through packaging,
