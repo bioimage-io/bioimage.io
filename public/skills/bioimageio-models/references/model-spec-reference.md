@@ -280,8 +280,15 @@ weights:
     source: weights.pt
     sha256: <hash>
     pytorch_version: "2.0.0"
-    parent: pytorch_state_dict
+    parent: pytorch_state_dict   # Only include if pytorch_state_dict is ALSO in this package.
+                                 # For TorchScript-only packages, omit 'parent' entirely.
 ```
+
+> **TorchScript packaging note:** TorchScript embeds the computation graph in the `.pt` file.
+> Unlike `pytorch_state_dict`, you do NOT need a separate architecture `.py` file or an
+> `architecture:` subkey in the weights block. Just export the model with
+> `torch.jit.script(model).save("weights.pt")` and reference it above.
+> `bioimageio.core==0.9.0` works on Python 3.8/3.9 for TorchScript (no downgrade needed).
 
 ### TensorFlow SavedModel
 

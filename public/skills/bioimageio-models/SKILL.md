@@ -1,17 +1,17 @@
 ---
 name: bioimageio-models
-description: Packages, validates, and submits deep learning models to the BioImage Model Zoo (bioimage.io). Use when a user wants to contribute a trained model to the BioImage Model Zoo, convert model weights to the bioimageio format, create a bioimageio.yaml manifest, validate a model package, or upload a model to bioimage.io.
+description: Packages, validates, and submits deep learning models to the BioImage Model Zoo (bioimage.io). Use when a user wants to contribute a trained model to the BioImage Model Zoo, convert model weights to the bioimageio format, create a rdf.yaml manifest, validate a model package, or upload a model to bioimage.io.
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.6"
+  version: "1.7"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
 
 You are an expert assistant helping a researcher contribute their trained deep learning model to the **BioImage Model Zoo** (https://bioimage.io). The Zoo hosts standardized, FAIR AI models for microscopy image analysis, deployed across tools like ilastik, deepImageJ, QuPath, Fiji, and napari.
 
-Your job: gather information, build a valid `bioimageio.yaml` package, validate it, submit it, and **report any issues you encounter along the way** so the Zoo infrastructure keeps improving.
+Your job: gather information, build a valid `rdf.yaml` package, validate it, submit it, and **report any issues you encounter along the way** so the Zoo infrastructure keeps improving.
 
 ## Full Process Overview
 
@@ -90,7 +90,7 @@ mkdir -p model_package
 ```
 
 1. Copy/download weight file(s) into `model_package/`
-2. Copy architecture `.py` file (if pytorch_state_dict)
+2. Copy architecture `.py` file (if pytorch_state_dict) — **see architecture rules below**
 3. Compute SHA256 for all files:
    ```bash
    python public/skills/bioimageio-models/scripts/compute_sha256.py model_package/
@@ -113,12 +113,53 @@ mkdir -p model_package
      --model model_package/weights.pt --arch model_package/model.py \
      --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
    ```
-5. Write `model_package/bioimageio.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
+5. Write `model_package/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
 6. Write `model_package/README.md` — must contain these sections:
    - `## Description` — what the model does, modality, organism
    - `## Intended Use` — what tasks it is suitable for, known limitations
    - `## Validation` (exact heading, required by `bioimageio test`) — mention test results
    - `## Citation` — reference the paper
+
+### Architecture file rules (pytorch_state_dict only)
+
+The BioEngine model runner has a **fixed set of pre-installed packages** — there is no custom conda
+environment support. Your architecture `.py` must work with only these:
+
+```
+torch==2.5.1          torchvision==0.20.1   numpy==1.26.4
+tensorflow==2.16.1    bioimageio.core==0.10.0  onnxruntime==1.20.1
+careamics==0.0.16     cellpose==3.1.1.2     xarray==2025.1.2
+```
+
+**Rules:**
+- **No custom library imports** — do not `import cellpose`, `import stardist`, `import monai`, or any package not in the list above. If the original model used such a library, rewrite the architecture class using only `torch` + `torch.nn`.
+- **Self-contained** — the `.py` file must define the full model class with all layers inline. No relative imports, no local helper modules.
+- **No `conda_env` field in `rdf.yaml`** — omit it entirely. Adding a custom conda environment will prevent the BioEngine from running the model.
+- **Minimal imports** — only `import torch`, `import torch.nn as nn`, `import numpy as np` at the top. Nothing else unless it's in the fixed list.
+- **Constructor must accept plain Python types** — `int`, `float`, `bool`, `str`. No custom config objects.
+
+**Bad (will fail on BioEngine):**
+```python
+from cellpose.models import CellposeModel   # ❌ custom lib
+from my_project.blocks import ResBlock      # ❌ local import
+```
+
+**Good:**
+```python
+import torch
+import torch.nn as nn
+
+class UNet(nn.Module):
+    def __init__(self, in_channels=1, out_channels=1):
+        super().__init__()
+        self.enc = nn.Conv2d(in_channels, 64, 3, padding=1)
+        self.dec = nn.Conv2d(64, out_channels, 1)
+    def forward(self, x):
+        return self.dec(torch.relu(self.enc(x)))
+```
+
+If the original architecture is too complex to rewrite portably, consider exporting to **TorchScript**
+or **ONNX** instead — those formats embed the architecture in the weight file and need no `.py` at all.
 
 Full field reference and annotated example:
 - [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
@@ -132,7 +173,7 @@ Full field reference and annotated example:
 pip install -q bioimageio.spec
 python -c "
 from bioimageio.spec import load_description
-desc = load_description('model_package/bioimageio.yaml')
+desc = load_description('model_package/rdf.yaml')
 print('✓ Static validation passed:', type(desc).__name__)
 "
 ```
@@ -154,13 +195,13 @@ Fix errors and retry. Common issues:
 
 ```bash
 pip install -q "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"
-bioimageio test model_package/bioimageio.yaml
+bioimageio test model_package/rdf.yaml
 ```
 
 Or with conda (handles Python version automatically):
 ```bash
 conda create -n bioimageio -c conda-forge bioimageio.core -y
-conda run -n bioimageio bioimageio test model_package/bioimageio.yaml
+conda run -n bioimageio bioimageio test model_package/rdf.yaml
 ```
 
 Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.  
@@ -182,7 +223,18 @@ Common dynamic test failures:
 
 See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) for the full script.
 
-1. Ask the user for their Hypha token (from https://hypha.aicell.io — sign in with GitHub/Google)
+1. **Get a Hypha token** — run the login helper (it opens a browser and saves the token to `.env`):
+   ```bash
+   pip install -q hypha-rpc
+   python https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py
+   # or if running from the local repo:
+   python public/skills/bioimageio-models/scripts/hypha_login.py
+   ```
+   Then load it:
+   ```bash
+   export HYPHA_TOKEN=$(grep HYPHA_TOKEN .env | cut -d= -f2)
+   ```
+   If `HYPHA_TOKEN` is already set in the environment, skip this step.
 2. Run the submission script from the reference guide — it uploads the package and creates a staged artifact
 3. Note the returned `artifact_id` (e.g. `bioimage-io/affable-shark`) — you need it for Phase 6
 
@@ -260,8 +312,8 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
     }) as server:
         am = await server.get_service("public/artifact-manager")
 
-        # Update manifest if bioimageio.yaml changed
-        with open(package / "bioimageio.yaml") as f:
+        # Update manifest if rdf.yaml changed
+        with open(package / "rdf.yaml") as f:
             manifest = yaml.safe_load(f)
         await am.edit(
             artifact_id=artifact_id,
@@ -295,7 +347,7 @@ import asyncio, yaml
 from hypha_rpc import connect_to_server
 
 async def request_review(artifact_id: str, token: str, package_dir: str):
-    with open(f"{package_dir}/bioimageio.yaml") as f:
+    with open(f"{package_dir}/rdf.yaml") as f:
         manifest = yaml.safe_load(f)
 
     async with connect_to_server({
@@ -343,7 +395,7 @@ gh issue create \
 [Describe exactly what was confusing or broken]
 
 ## Steps to reproduce
-[Paste the bioimageio.yaml section or the error message]
+[Paste the rdf.yaml section or the error message]
 
 ## Expected behavior
 [What should have happened instead]
@@ -375,7 +427,7 @@ gh issue create \
 [format_version, weight format, preprocessing steps]
 
 ## Reproduction
-[Minimal bioimageio.yaml that reproduces the issue]
+[Minimal rdf.yaml that reproduces the issue]
 EOF
 )"
 ```
@@ -434,7 +486,7 @@ cat >> skills/bioimageio-models/references/success-examples.md <<'EOF'
 - **Weight format**: [pytorch_state_dict / onnx / tensorflow_saved_model_bundle]
 - **Key challenge**: [What was the hardest part]
 - **What worked**: [The approach that solved it]
-- **bioimageio.yaml snippet** (if notable):
+- **rdf.yaml snippet** (if notable):
 ```yaml
 [paste relevant section]
 ```
@@ -457,10 +509,11 @@ EOF
 
 | File | When to Read |
 |------|-------------|
-| [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `bioimageio.yaml` — all fields explained |
+| [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `rdf.yaml` — all fields explained |
 | [references/example-rdf.yaml](https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml) | Annotated example to copy from |
 | [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) | Hypha API calls for submission |
 | [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) | Real worked examples from past submissions |
+| [scripts/hypha_login.py](https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py) | Log in to Hypha and save token to `.env` |
 | [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility |
 | [scripts/generate_test_tensors.py](https://bioimage.io/skills/bioimageio-models/scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
 | [scripts/validate_package.sh](https://bioimage.io/skills/bioimageio-models/scripts/validate_package.sh) | One-shot validation runner |

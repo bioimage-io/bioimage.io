@@ -6,7 +6,7 @@ Usage:
     python compute_sha256.py <directory>
     python compute_sha256.py model_package/
 
-Outputs a mapping of relative_path -> sha256 hash, ready to paste into bioimageio.yaml
+Outputs a mapping of relative_path -> sha256 hash, ready to paste into rdf.yaml
 """
 import hashlib
 import sys
@@ -43,7 +43,7 @@ def main():
         print(f"Error: {target} does not exist")
         sys.exit(1)
 
-    print("# SHA256 hashes — paste into bioimageio.yaml\n")
+    print("# SHA256 hashes — paste into rdf.yaml\n")
     for p in paths:
         rel = p.relative_to(base)
         digest = sha256_file(p)

@@ -45,9 +45,9 @@ def compute_sha256(path: Path) -> str:
 
 async def submit_model(package_dir: str, token: str):
     package = Path(package_dir).resolve()
-    rdf_path = package / "bioimageio.yaml"
+    rdf_path = package / "rdf.yaml"
     if not rdf_path.exists():
-        raise FileNotFoundError(f"bioimageio.yaml not found in {package}")
+        raise FileNotFoundError(f"rdf.yaml not found in {package}")
 
     # Load manifest
     import yaml  # pip install pyyaml
@@ -155,7 +155,7 @@ artifact = await am.create(
     parent_id="bioimage-io/bioimage.io",
     alias="{animal_adjective}-{animal}",  # model alias pattern — yields e.g. "affable-shark"
     type="model",
-    manifest={...},     # Your bioimageio.yaml content as a dict
+    manifest={...},     # Your rdf.yaml content as a dict
     stage=True,         # ALWAYS True for new submissions
     overwrite=False,
 )
@@ -223,7 +223,7 @@ await am.edit(
 )
 
 # Re-upload changed files
-put_url = await am.put_file(artifact_id=existing_artifact_id, file_path="bioimageio.yaml")
+put_url = await am.put_file(artifact_id=existing_artifact_id, file_path="rdf.yaml")
 # ... HTTP PUT the updated file
 ```
 
@@ -245,7 +245,7 @@ import asyncio, yaml
 from hypha_rpc import connect_to_server
 
 async def withdraw(artifact_id: str, token: str, package_dir: str):
-    with open(f"{package_dir}/bioimageio.yaml") as f:
+    with open(f"{package_dir}/rdf.yaml") as f:
         manifest = yaml.safe_load(f)
     manifest.pop("status", None)   # remove status field entirely
 
@@ -307,7 +307,7 @@ If submission or validation fails with an error that can't be fixed:
 
 1. Open an issue at: https://github.com/bioimage-io/spec-bioimage-io/issues
 2. Include:
-   - The `bioimageio.yaml` content (or the error section)
+   - The `rdf.yaml` content (or the error section)
    - The full error from `bioimageio test`
    - Python version and `bioimageio.spec` / `bioimageio.core` versions
    - The model framework and weight format

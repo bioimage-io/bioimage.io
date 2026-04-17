@@ -3,7 +3,7 @@
 Generate test_input.npy and test_output.npy for a model package.
 
 Runs the model on a provided image (or a synthetic random input) and saves
-the results as .npy files required by bioimageio.yaml.
+the results as .npy files required by rdf.yaml.
 
 Usage:
     # From an image file
@@ -211,7 +211,7 @@ def main():
                 h.update(chunk)
         return h.hexdigest()
 
-    print(f"\nAdd to bioimageio.yaml:")
+    print(f"\nAdd to rdf.yaml:")
     print(f"  test_input.npy  sha256: {sha256(input_path)}")
     print(f"  test_output.npy sha256: {sha256(output_path)}")
 

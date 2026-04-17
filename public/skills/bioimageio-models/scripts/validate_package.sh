@@ -8,7 +8,7 @@
 set -e
 
 PACKAGE_DIR="${1:-.}"
-RDF="$PACKAGE_DIR/bioimageio.yaml"
+RDF="$PACKAGE_DIR/rdf.yaml"
 
 if [ ! -f "$RDF" ]; then
   echo "Error: $RDF not found"

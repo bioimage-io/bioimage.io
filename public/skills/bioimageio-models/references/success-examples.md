@@ -51,7 +51,7 @@ Real-world submissions made using this skill. Each entry documents the model, th
 - **bioimage-io/core-bioimage-io-python**: `weights_only=True` blocks loading for `.pth` files with numpy metadata — error message could be clearer ("save a pure state dict")
 - **bioimage-io/spec-bioimage-io**: `softmax` documented as postprocessing but not accepted — either add it or clarify workaround
 
-### bioimageio.yaml snippet (non-obvious pattern)
+### rdf.yaml snippet (non-obvious pattern)
 
 The preprocessing uses training dataset statistics embedded as `scale_linear` kwargs:
 
@@ -101,7 +101,7 @@ class CfosSmpUnet(smp.Unet):
 - Input and output axes can reuse the same `id` (e.g., both use `id: y` and `id: x`) — global uniqueness is NOT required
 - Output axis size references (`tensor_id: raw, axis_id: y`) work even when input and output share the same axis IDs
 
-### bioimageio.yaml snippet (non-obvious axis pattern)
+### rdf.yaml snippet (non-obvious axis pattern)
 
 Output axes that reference input axes, using the SAME axis IDs (no need for `y_out`/`x_out`):
 
@@ -163,7 +163,7 @@ outputs:
 - **bioimageio-models skill `references/model-spec-reference.md`**: ONNX section shows `parent: pytorch_state_dict` without clarifying it is only needed for secondary formats. An ONNX-only package must omit `parent`.
 - **torch.onnx**: Default exporter in PyTorch >=2.9 produces split external data files; legacy exporter (`dynamo=False`) is needed for single-file export. The skill should document this.
 
-### bioimageio.yaml snippet (ONNX-only, no parent)
+### rdf.yaml snippet (ONNX-only, no parent)
 
 ```yaml
 weights:
@@ -220,7 +220,7 @@ weights:
 - **Skill Phase 2**: `covers` section example in skill could mention that covers are plain string paths (not dicts like test_tensor). Confusing when test_tensor uses `source:` + `sha256:` structure but covers does not.
 - **bioimageio.spec**: `SizeReference` missing a `scale` field means models with non-unity stride (like StarDist grid=2) cannot express "output shape = input/2" dynamically. This is a real spec limitation.
 
-### bioimageio.yaml snippet (keras_hdf5 multi-output, fixed output sizes)
+### rdf.yaml snippet (keras_hdf5 multi-output, fixed output sizes)
 
 ```yaml
 inputs:
@@ -269,6 +269,55 @@ weights:
     tensorflow_version: "2.21.0"
 ```
 
+## DnCNN Blind Gaussian Denoiser (TorchScript) — 2026-04-16
+
+- **Source**: https://github.com/cszn/KAIR (MIT License)
+- **Artifact ID**: `bioimage-io/tough-lion` (staging)
+- **Weight format**: `torchscript` (first TorchScript submission)
+- **Framework version**: PyTorch 1.13.1
+- **Input shape**: `[1, 1, 256, 256]` (B, C, H, W) — normalized grayscale fluorescence, float32 in [0,1]
+- **Output shape**: `[1, 1, 256, 256]` — denoised image, float32 in [0,1]
+
+### Key challenges
+
+1. **KAIR weights URL**: `raw.githubusercontent.com` path returned 404. Use the GitHub **releases** URL:
+   ```bash
+   curl -L "https://github.com/cszn/KAIR/releases/download/v1.0/dncnn_gray_blind.pth" -o weights.pth
+   ```
+
+2. **Architecture has 20 layers (not 17)** — the KAIR blind variant uses 20 Conv layers and no BatchNorm. Must inspect the state dict to reconstruct the architecture before defining the class. Keys pattern: `model.0.weight` through `model.38.weight` (step=2, odd indices = non-parametric ReLUs).
+
+3. **TorchScript needs NO architecture file** — unlike `pytorch_state_dict`, the TorchScript format embeds the computation graph. No `.py` file is needed in the package; the `weights.torchscript` YAML block has no `architecture:` subkey.
+
+4. **BioEngine Ray cluster outage** — the remote test hung for 35+ minutes because the local Ray cluster had crashed the day before. The `runner.get_load()` returned `0.1` even though the cluster was dead (misleading). Local `bioimageio test` confirmed the model was correct.
+
+5. **Review request: `stage=True` not `version="stage"`** — the SKILL.md Phase 6b code uses `version="stage"` which causes a PermissionError. Correct call:
+   ```python
+   await am.edit(artifact_id=artifact_id, stage=True, manifest={**manifest, "status": "request-review"})
+   ```
+
+6. **`bioimageio test` not in PATH on some systems** — use `python3 -m bioimageio.core test` instead.
+
+### What worked
+
+- `bioimageio.core==0.9.0` on **Python 3.8** for TorchScript — the `ignore_cleanup_errors` issue only affects the `pytorch_state_dict` code path. No patch needed for TorchScript.
+- Wrapping DnCNN to output denoised image directly (`x − predicted_noise`) makes the output immediately interpretable.
+- Static + dynamic validation both passed on first attempt.
+- Model denoising performance validated: MSE reduced 114× on synthetic test.
+
+### rdf.yaml snippet (TorchScript — no architecture field)
+
+```yaml
+weights:
+  torchscript:
+    source: weights.pt
+    sha256: c1bc1ade186a645dc58291df87232f3827ab69ece6f85f12c3441cb2c44c6e66
+    pytorch_version: "1.13.1"
+    # NO architecture: field — TorchScript embeds the computation graph
+```
+
+---
+
 <!-- Template for new entries:
 
 ## [Model Name] — [YYYY-MM-DD]
@@ -280,7 +329,7 @@ weights:
 - **Key challenge**: [The hardest part of packaging this model]
 - **What worked**: [The specific approach/fix that solved it]
 - **Issues filed**: [Links to any GitHub issues opened during the process]
-- **bioimageio.yaml snippet** (if a non-obvious pattern was needed):
+- **rdf.yaml snippet** (if a non-obvious pattern was needed):
 ```yaml
 [paste relevant section here]
 ```
