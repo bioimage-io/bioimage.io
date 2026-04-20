@@ -1,7 +1,7 @@
 # BioEngine CLI Reference — runner commands
 
 CLI source: `/data/wei/workspace/bioengine-paper/bioengine_cli/runner.py`  
-Install: `pip install bioengine`  
+Install: `pip install "bioengine @ git+https://github.com/aicell-lab/bioengine-worker.git"`  
 Entry point: `bioengine runner <command>`
 
 ## Command summary

@@ -319,7 +319,7 @@ subprocess.run(["bioengine", "apps", "upload", "./bioengine_apps/cellpose-finetu
                 "--worker", "bioimage-io/bioengine-worker"])
 
 # Deploy with bioimage-io workspace token
-result = await worker.run_application(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/cellpose-finetuning",
     application_id="cellpose-finetuning",
     hypha_token=os.environ["BIOIMAGE_IO_TOKEN"],  # bioimage-io workspace token from .env

@@ -3,7 +3,7 @@ name: bioengine
 description: Builds, deploys, and manages BioEngine applications on Ray Serve/Hypha, and calls any pre-deployed BioEngine service (model runner, Cellpose fine-tuning, cell image search). Use as the single entry point for any BioEngine task: building new apps, deploying to a worker, calling service methods, or checking cluster resources. Load app subskills in apps/ when working with a specific deployed service.
 license: MIT
 metadata:
-  cli-package: bioengine[cli] (pip install "bioengine[cli]")
+  cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine-worker.git")
   app-skills:
     - apps/model-runner/model-runner.md
     - apps/cellpose-finetuning.md
@@ -125,7 +125,7 @@ class MyDeployment:
 ## Deploy workflow
 
 ```bash
-pip install "bioengine[cli]"
+pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine-worker.git"
 export HYPHA_TOKEN=<your-token>
 export BIOENGINE_WORKER_SERVICE_ID=bioimage-io/bioengine-worker
 ```
