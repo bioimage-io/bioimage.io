@@ -14,7 +14,7 @@
 Install the CLI once:
 
 ```bash
-pip install -e skills/bioengine/bioengine_cli/
+pip install "bioengine[cli]"
 ```
 
 **Default server**: `https://hypha.aicell.io`  

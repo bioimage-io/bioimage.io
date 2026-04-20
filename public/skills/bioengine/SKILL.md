@@ -3,7 +3,7 @@ name: bioengine
 description: Builds, deploys, and manages BioEngine applications on Ray Serve/Hypha, and calls any pre-deployed BioEngine service (model runner, Cellpose fine-tuning, cell image search). Use as the single entry point for any BioEngine task: building new apps, deploying to a worker, calling service methods, or checking cluster resources. Load app subskills in apps/ when working with a specific deployed service.
 license: MIT
 metadata:
-  cli-package: bioengine (pip install -e skills/bioengine/bioengine_cli/)
+  cli-package: bioengine[cli] (pip install "bioengine[cli]")
   app-skills:
     - apps/model-runner/model-runner.md
     - apps/cellpose-finetuning.md
@@ -125,7 +125,7 @@ class MyDeployment:
 ## Deploy workflow
 
 ```bash
-pip install -e skills/bioengine/bioengine_cli/
+pip install "bioengine[cli]"
 export HYPHA_TOKEN=<your-token>
 export BIOENGINE_WORKER_SERVICE_ID=bioimage-io/bioengine-worker
 ```
@@ -181,7 +181,7 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 | numpy array over RPC error | Call `.tolist()` before returning |
 | Long cold start on first request | `min_replicas: 1`; preload model in `async_init()` |
 | Blocking inference stalls event loop | `await asyncio.get_event_loop().run_in_executor(None, fn)` |
-| `Multiple services found` error | Use `connect_service()` from `bioengine_cli.utils` |
+| `Multiple services found` error | Use `connect_service()` from `bioengine.cli.utils` |
 | App UNHEALTHY — `HYPHA_TOKEN` missing | Use `--hypha-token $HYPHA_TOKEN`, not `--env HYPHA_TOKEN=...` |
 | Composition param name mismatch | `runtime_a:RuntimeA` must match `__init__` param name `runtime_a` |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |

@@ -1,2 +1,0 @@
-[console_scripts]
-bioengine = bioengine_cli.cli:main
