@@ -147,6 +147,7 @@ result = await svc.infer(
 | `min_train_masks` | int | 5 | Skip images with fewer than N annotated instances (use 1 for small datasets) |
 | `n_samples` | int | None | Cap training images per epoch |
 | `enable_clahe` | bool | False | Apply CLAHE preprocessing (required for brightfield/phase-contrast) |
+| `rescale` | bool | False | Rescale images during training so cells are ~30 px average diameter. Use when cells are outside the 7.5–120 px range Cellpose-SAM was trained on. |
 
 ## get_training_status return fields
 
@@ -182,7 +183,7 @@ result = await svc.infer(
 | `input_arrays` | list | — | List of numpy arrays (2D grayscale or 3D HWC) |
 | `artifact` | str | None | Alternative: artifact ID + `image_paths` for server-side loading |
 | `image_paths` | list[str] | None | Paths within artifact to load server-side |
-| `diameter` | float | None | Cell diameter in pixels (None = auto-detect) |
+| `diameter` | float | None | Cell diameter in pixels. When set, image is rescaled so cells are ~30 px before inference. Cellpose-SAM was trained on 7.5–120 px cells — set `diameter` for cells outside this range. `None` = auto-detect. |
 | `flow_threshold` | float | 0.4 | Flow error threshold |
 | `cellprob_threshold` | float | 0.0 | Cell probability threshold (-1.0 to 1.0; use -1.0 for low-contrast) |
 | `enable_clahe` | bool | False | Apply CLAHE before inference (must match training setting) |
@@ -203,6 +204,14 @@ Returns a list of `{"input_path": str, "output": np.ndarray}` dicts.
 Returns `{"artifact_id": "...", "model_name": "...", "status": "exported", "url": "https://..."}`.
 
 ## Known behaviours and pitfalls
+
+### Cell diameter range — Cellpose-SAM was trained on 7.5–120 px cells
+
+Cellpose-SAM performs well on cells with diameters between **7.5 and 120 px**. Performance degrades significantly outside this range. When you provide a `diameter` value during inference (or use `rescale=True` during training), the image is rescaled so that cells are at an average diameter of **30 px** before the model sees it.
+
+- Cells **larger than ~120 px**: always pass `diameter` to trigger downscaling.
+- Cells **smaller than ~7.5 px**: upscaling via `diameter` may help but is less reliable.
+- Fine-tuning with `rescale=True`: matches the model's training distribution (30 px average).
 
 ### Inference image size limit — resize large images before calling infer
 The `infer()` RPC call times out silently when the input image is too large. **Always resize images so the longest side is ≤ 320 pixels before passing to `infer()`**. Images up to ~384px on the longest side sometimes work but are unreliable (observed timeouts at 384×360 on large fluorescence volumes). Use 320 as a safe upper bound.
