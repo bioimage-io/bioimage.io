@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: bioengine
+Version: 0.1.0
+Summary: BioEngine CLI — deploy, manage, and call BioEngine AI model services from the command line
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: click>=8.1
+Requires-Dist: hypha-rpc>=0.21.11
+Requires-Dist: httpx>=0.28
+Requires-Dist: numpy>=1.24
+Requires-Dist: tifffile>=2023.1.1
+Requires-Dist: Pillow>=10.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: rich>=13.0

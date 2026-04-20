@@ -1,0 +1,112 @@
+# Common search keywords for bioimage.io models
+# Use these when calling search_models to find relevant models
+
+# --- By Task ---
+segmentation:
+  - segmentation
+  - instance-segmentation
+  - semantic-segmentation
+
+detection:
+  - detection
+  - stardist
+  - object-detection
+
+denoising:
+  - denoising
+  - noise-removal
+
+restoration:
+  - restoration
+  - image-restoration
+  - enhancement
+
+super_resolution:
+  - super-resolution
+  - upscaling
+
+# --- By Target Structure ---
+nuclei:
+  - nuclei
+  - nucleus
+  
+cells:
+  - cell
+  - cells
+
+membranes:
+  - membrane
+  - cell-membrane
+  - boundary
+
+mitochondria:
+  - mitochondria
+  - organelle
+
+neurons:
+  - neuron
+  - neural
+  - axon
+
+plant:
+  - plant
+  - plant-tissue
+  - root
+
+tissue:
+  - tissue
+  - whole-slide
+  - wsi
+
+# --- By Imaging Modality ---
+fluorescence:
+  - fluorescence-light-microscopy
+  - fluorescence
+  - confocal
+
+electron_microscopy:
+  - electron-microscopy
+  - em
+  - cryo-em
+
+phase_contrast:
+  - phase-contrast
+  - brightfield
+
+histopathology:
+  - histopathology
+  - h-and-e
+  - pathology
+
+# --- By Dimensionality ---
+2d:
+  - 2d
+3d:
+  - 3d
+  - volumetric
+
+# --- By Architecture ---
+unet:
+  - unet
+  - u-net
+stardist:
+  - stardist
+cellpose:
+  - cellpose
+transformer:
+  - transformer
+  - vit
+  - attention
+
+# --- Combination Examples ---
+# For "segment nuclei in fluorescence images":
+#   keywords: ["nuclei", "segmentation", "fluorescence"]
+#
+# For "denoise electron microscopy images":
+#   keywords: ["denoising", "electron-microscopy"]
+#
+# For "detect cells in phase contrast":
+#   keywords: ["detection", "cell", "phase-contrast"]
+#
+# For "segment plant cells in confocal images":
+#   keywords: ["segmentation", "cell", "confocal"]

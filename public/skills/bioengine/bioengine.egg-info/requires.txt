@@ -1,0 +1,8 @@
+click>=8.1
+hypha-rpc>=0.21.11
+httpx>=0.28
+numpy>=1.24
+tifffile>=2023.1.1
+Pillow>=10.0
+pyyaml>=6.0
+rich>=13.0
