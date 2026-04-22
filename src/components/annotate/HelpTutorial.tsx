@@ -54,6 +54,9 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
     const el = document.querySelector(selector) as HTMLElement | null;
     if (!el) return;
 
+    // Scroll element into view so it's visible in the (possibly scrollable) sidebar
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
     const prev = el.style.boxShadow;
     const prevZ = el.style.zIndex;
     const prevPos = el.style.position;

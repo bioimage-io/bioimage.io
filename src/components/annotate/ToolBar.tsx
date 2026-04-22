@@ -3,7 +3,6 @@ import {
   IconButton,
   Tooltip,
   Box,
-  SvgIcon,
   Typography,
   Divider,
   ButtonBase,
@@ -16,6 +15,8 @@ import NearMeIcon from '@mui/icons-material/NearMe';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import AutoFixOffIcon from '@mui/icons-material/AutoFixOff';
 import BrushIcon from '@mui/icons-material/Brush';
+import PolylineIcon from '@mui/icons-material/Polyline';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SaveIcon from '@mui/icons-material/Save';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -30,22 +31,6 @@ import { useAnnotationStore, AnnotationTool } from '../../store/annotationStore'
 
 const EXPANDED_KEY = 'bioimage-toolbar-expanded';
 
-const LassoIcon: React.FC = () => (
-  <SvgIcon viewBox="0 0 24 24">
-    <path d="M11 4C6.6 4 3 6.7 3 10c0 2.2 1.4 4.1 3.5 5.3V17c0 .8.5 1.5 1.2 1.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <ellipse cx="11" cy="10" rx="7.5" ry="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-  </SvgIcon>
-);
-
-const LassoAIIcon: React.FC = () => (
-  <SvgIcon viewBox="0 0 24 24">
-    <path d="M11 4C6.6 4 3 6.7 3 10c0 2.2 1.4 4.1 3.5 5.3V17c0 .8.5 1.5 1.2 1.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <ellipse cx="11" cy="10" rx="7.5" ry="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    <path d="M20 3l.7 1.3L22 5l-1.3.7L20 7l-.7-1.3L18 5l1.3-.7z" fill="currentColor" />
-    <path d="M21 11l.5.9.9.5-.9.5-.5.9-.5-.9-.9-.5.9-.5z" fill="currentColor" />
-    <path d="M16.5 1.5l.4.7.7.4-.7.4-.4.7-.4-.7-.7-.4.7-.4z" fill="currentColor" />
-  </SvgIcon>
-);
 
 interface ToolDef {
   id: AnnotationTool;
@@ -58,7 +43,7 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
   { id: 'move',     name: 'Move',        shortcut: 'M', description: 'Pan and navigate the image',                              icon: <OpenWithIcon fontSize="small" /> },
   { id: 'select',   name: 'Select',      shortcut: 'S', description: 'Click a mask to select it; Shift for multi, Del to delete', icon: <NearMeIcon fontSize="small" /> },
-  { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <LassoIcon /> },
+  { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <PolylineIcon fontSize="small" /> },
   { id: 'cutter',   name: 'Cut Mask',    shortcut: 'C', description: 'Draw a line across an existing mask to split it',          icon: <ContentCutIcon fontSize="small" /> },
   { id: 'eraser',   name: 'Eraser',      shortcut: 'E', description: 'Paint to remove areas from an existing mask',              icon: <AutoFixOffIcon fontSize="small" /> },
   { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <BrushIcon fontSize="small" /> },
@@ -108,7 +93,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const [isExpanded, setIsExpanded] = React.useState(() => {
-    try { return localStorage.getItem(EXPANDED_KEY) === 'true'; } catch { return false; }
+    try { return localStorage.getItem(EXPANDED_KEY) !== 'false'; } catch { return true; }
   });
 
   const toggleExpanded = () => {
@@ -143,15 +128,28 @@ const ToolBar: React.FC<ToolBarProps> = ({
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         py: 1, px: 0.5, gap: 0.5,
         width: 52, flexShrink: 0,
-        background: 'rgba(255,255,255,0.14)',
-        backdropFilter: 'blur(8px)',
-        borderRight: '1px solid rgba(255,255,255,0.22)',
+        background: 'rgba(255,255,255,0.20)',
+        backdropFilter: 'blur(6px)',
+        borderRight: '1px solid rgba(255,255,255,0.28)',
       }}>
-        {/* Expand toggle */}
+        {/* Expand toggle — prominent tab */}
         <Tooltip title="Expand toolbar" placement="right">
-          <IconButton size="small" onClick={toggleExpanded} sx={{ ...collapsedBtnSx(), mb: 0.25 }}>
-            <ChevronRightIcon fontSize="small" />
-          </IconButton>
+          <Box
+            onClick={toggleExpanded}
+            sx={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              width: '100%', py: 0.5, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
+              bgcolor: 'rgba(255,255,255,0.85)',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+              '&:hover': { bgcolor: 'white' },
+              transition: 'background 0.15s',
+            }}
+          >
+            <ChevronRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            <Typography sx={{ fontSize: '0.48rem', color: 'text.disabled', lineHeight: 1, mt: 0.1, letterSpacing: 0.2 }}>
+              expand
+            </Typography>
+          </Box>
         </Tooltip>
 
         {/* Drawing tools */}
@@ -184,7 +182,18 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       '&:hover': { bgcolor: 'rgba(156,39,176,0.22)' },
                     }}
                   >
-                    <LassoAIIcon />
+                    <AutoAwesomeIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
+            {/* Save sits right after Expand Mask */}
+            {tool.id === 'expander' && (
+              <Tooltip title="Save Annotation" placement="right">
+                <span>
+                  <IconButton size="small" data-tool="save" onClick={onSave} disabled={isSaving}
+                    sx={{ ...collapsedBtnSx(), color: 'success.main' }}>
+                    <SaveIcon fontSize="small" />
                   </IconButton>
                 </span>
               </Tooltip>
@@ -245,15 +254,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Tooltip>
         {fileInput}
 
-        <Tooltip title="Save Annotation" placement="right">
-          <span>
-            <IconButton size="small" data-tool="save" onClick={onSave} disabled={isSaving}
-              sx={{ ...collapsedBtnSx(), color: 'success.main' }}>
-              <SaveIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-
         {sessionUrl && (
           <Tooltip title="View Session in Colab" placement="right">
             <IconButton size="small" data-tool="session"
@@ -305,20 +305,28 @@ const ToolBar: React.FC<ToolBarProps> = ({
       boxShadow: '2px 0 10px rgba(0,0,0,0.07)',
       overflowY: 'auto', overflowX: 'hidden',
     }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5, mb: 0.25 }}>
-        <Typography variant="caption" sx={{
-          fontWeight: 700, color: 'text.disabled',
-          textTransform: 'uppercase', letterSpacing: 1, fontSize: '0.58rem', flex: 1,
-        }}>
-          Annotation Tools
-        </Typography>
-        <Tooltip title="Collapse toolbar" placement="right">
-          <IconButton size="small" onClick={toggleExpanded}>
-            <ChevronLeftIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
+      {/* Header with prominent collapse button */}
+      <Tooltip title="Collapse toolbar" placement="right">
+        <Box
+          onClick={toggleExpanded}
+          sx={{
+            display: 'flex', alignItems: 'center', px: 1, py: 0.6, mb: 0.25,
+            borderRadius: 1.5, cursor: 'pointer',
+            bgcolor: 'rgba(0,0,0,0.04)',
+            border: '1px solid rgba(0,0,0,0.07)',
+            '&:hover': { bgcolor: 'rgba(0,0,0,0.08)' },
+            transition: 'background 0.15s',
+          }}
+        >
+          <Typography variant="caption" sx={{
+            fontWeight: 700, color: 'text.disabled',
+            textTransform: 'uppercase', letterSpacing: 1, fontSize: '0.58rem', flex: 1,
+          }}>
+            Annotation Tools
+          </Typography>
+          <ChevronLeftIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+        </Box>
+      </Tooltip>
 
       {/* Drawing tools */}
       {TOOLS.map((tool) => {
@@ -350,7 +358,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 color="secondary"
                 size="small"
                 fullWidth
-                startIcon={<LassoAIIcon />}
+                startIcon={<AutoAwesomeIcon fontSize="small" />}
                 onClick={onOpenCellposeConfig}
                 disabled={isRunningCellpose}
                 data-tool="cellpose"
@@ -369,11 +377,59 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 </Box>
               </Button>
             )}
+
+            {/* Save — prominently after Expand Mask */}
+            {tool.id === 'expander' && (
+              <Button
+                variant="contained"
+                color="success"
+                size="small"
+                fullWidth
+                startIcon={<SaveIcon />}
+                onClick={onSave}
+                disabled={isSaving}
+                data-tool="save"
+                sx={{ textTransform: 'none', borderRadius: 1.5, justifyContent: 'flex-start', px: 1.25, py: 0.7, my: 0.25 }}
+              >
+                <Box sx={{ textAlign: 'left', ml: 0.25 }}>
+                  <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
+                    {isSaving ? 'Saving…' : 'Save Annotation'}
+                  </Typography>
+                  <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
+                    Upload masks to cloud storage
+                  </Typography>
+                </Box>
+              </Button>
+            )}
           </React.Fragment>
         );
       })}
 
       <Divider sx={{ my: 0.5 }} />
+
+      {/* View utilities */}
+      <ButtonBase onClick={onResetView} data-tool="fit" sx={rowSx()}>
+        <CenterFocusStrongIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+        <Box>
+          <Typography variant="caption" fontWeight={600} display="block">Fit to Image</Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+            Reset the view to show the full image
+          </Typography>
+        </Box>
+      </ButtonBase>
+
+      <ButtonBase onClick={onToggleCLAHE} data-tool="clahe"
+        sx={{ ...rowSx(isCLAHEActive), '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.10)' : 'rgba(0,0,0,0.04)' } }}>
+        <ContrastIcon fontSize="small" sx={{ color: isCLAHEActive ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+        <Box>
+          <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : 'text.primary'} display="block">
+            {isCLAHEActive ? 'Restore Original' : 'Enhance Contrast'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+            CLAHE contrast enhancement
+          </Typography>
+        </Box>
+      </ButtonBase>
 
       {/* Undo */}
       <ButtonBase onClick={onUndo} disabled={!canUndo} data-tool="undo" sx={rowSx()}>
@@ -403,30 +459,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Divider sx={{ my: 0.5 }} />
 
-      {/* View utilities */}
-      <ButtonBase onClick={onResetView} data-tool="fit" sx={rowSx()}>
-        <CenterFocusStrongIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
-        <Box>
-          <Typography variant="caption" fontWeight={600} display="block">Fit to Image</Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-            Reset the view to show the full image
-          </Typography>
-        </Box>
-      </ButtonBase>
-
-      <ButtonBase onClick={onToggleCLAHE} data-tool="clahe"
-        sx={{ ...rowSx(isCLAHEActive), '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.10)' : 'rgba(0,0,0,0.04)' } }}>
-        <ContrastIcon fontSize="small" sx={{ color: isCLAHEActive ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0 }} />
-        <Box>
-          <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : 'text.primary'} display="block">
-            {isCLAHEActive ? 'Restore Original' : 'Enhance Contrast'}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-            CLAHE contrast enhancement
-          </Typography>
-        </Box>
-      </ButtonBase>
-
       <ButtonBase onClick={onOpenMaskFilter} data-tool="filter" sx={rowSx()}>
         <FilterListIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
         <Box>
@@ -436,8 +468,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
           </Typography>
         </Box>
       </ButtonBase>
-
-      <Divider sx={{ my: 0.5 }} />
 
       {/* File */}
       <ButtonBase onClick={() => fileInputRef.current?.click()} data-tool="upload" sx={rowSx()}>
@@ -464,28 +494,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <Box sx={{ flex: 1 }} />
       <Divider sx={{ my: 0.5 }} />
 
-      {/* Save — prominent green CTA */}
-      <Button
-        variant="contained"
-        color="success"
-        size="small"
-        fullWidth
-        startIcon={<SaveIcon />}
-        onClick={onSave}
-        disabled={isSaving}
-        data-tool="save"
-        sx={{ textTransform: 'none', borderRadius: 1.5, justifyContent: 'flex-start', px: 1.25, py: 0.7 }}
-      >
-        <Box sx={{ textAlign: 'left', ml: 0.25 }}>
-          <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
-            {isSaving ? 'Saving…' : 'Save Annotation'}
-          </Typography>
-          <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
-            Upload masks to cloud storage
-          </Typography>
-        </Box>
-      </Button>
-
       {sessionUrl && (
         <Button
           variant="outlined"
@@ -495,14 +503,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
           startIcon={<OpenInNewIcon fontSize="small" />}
           onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
           data-tool="session"
-          sx={{ textTransform: 'none', borderRadius: 1.5, mt: 0.5, justifyContent: 'flex-start', px: 1.25 }}
+          sx={{ textTransform: 'none', borderRadius: 1.5, mb: 0.5, justifyContent: 'flex-start', px: 1.25 }}
         >
           <Typography variant="caption" fontWeight={600}>View Session</Typography>
         </Button>
       )}
 
       <ButtonBase onClick={onHelp} data-tool="help"
-        sx={{ ...rowSx(), mt: 0.5, '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}>
+        sx={{ ...rowSx(), '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}>
         <HelpOutlineIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
         <Typography variant="caption" fontWeight={600}>Help & Tutorial</Typography>
       </ButtonBase>
