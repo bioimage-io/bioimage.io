@@ -375,7 +375,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               }
 
               let polygons = maskToPolygons(maskData, w, h);
-              polygons = filterByArea(polygons, p.min_mask_area);
+              // Scale min_mask_area to mask space (area shrinks by scale²) so threshold
+              // is applied consistently regardless of downsampling factor.
+              const areaScale = (scaledW / width) * (scaledH / height);
+              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
               // Scale polygon coordinates back to original image dimensions if downsampled
               const scaleX = width / scaledW;
               const scaleY = height / scaledH;
@@ -395,7 +398,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             if (Array.isArray(maskResult)) {
               const flat = maskResult.flat();
               let polygons = maskToPolygons(flat, scaledW, scaledH);
-              polygons = filterByArea(polygons, p.min_mask_area);
+              const areaScale = (scaledW / width) * (scaledH / height);
+              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
               const scaleX = width / scaledW;
               const scaleY = height / scaledH;
               if (scaleX !== 1 || scaleY !== 1) {
