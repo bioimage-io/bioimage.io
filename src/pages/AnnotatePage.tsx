@@ -66,7 +66,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     return backTo || '/colab';
   }, [sessionId, serviceConfig?.label, backTo]);
 
-  const { service, loading: serviceLoading, error: serviceError } = useHyphaService(serviceConfig);
+  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
@@ -724,6 +724,7 @@ print("CLAHE_RESULT:" + result_b64)
         onUploadGeoJSON={handleUploadGeoJSON}
         imageName={currentImageName || undefined}
         cellposeModel={activeCellposeModel}
+        cellposeAvailable={cellposeAvailable}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}

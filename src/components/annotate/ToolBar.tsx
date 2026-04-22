@@ -73,6 +73,7 @@ export interface ToolBarProps {
   sessionUrl?: string | null;
   imageName?: string;
   cellposeModel?: string;
+  cellposeAvailable?: boolean;
   isSaving: boolean;
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
@@ -82,7 +83,7 @@ export interface ToolBarProps {
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
   onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
-  sessionUrl, imageName, cellposeModel,
+  sessionUrl, imageName, cellposeModel, cellposeAvailable = false,
   isSaving, isRunningCellpose, isCLAHEActive,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
@@ -155,18 +156,21 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
             {/* AI Segmentation sits right after Draw Mask */}
             {tool.id === 'polygon' && (
-              <Tooltip title={`AI Segmentation — ${modelLabel}`} placement="right">
+              <Tooltip
+                title={cellposeAvailable ? `AI Segmentation — ${modelLabel}` : 'AI Segmentation unavailable — cellpose service is offline'}
+                placement="right"
+              >
                 <span>
                   <IconButton
                     size="small"
                     data-tool="cellpose"
                     onClick={onOpenCellposeConfig}
-                    disabled={isRunningCellpose}
+                    disabled={isRunningCellpose || !cellposeAvailable}
                     sx={{
                       ...collapsedBtnSx(),
-                      bgcolor: 'rgba(156,39,176,0.12)',
-                      color: 'secondary.main',
-                      '&:hover': { bgcolor: 'rgba(156,39,176,0.22)' },
+                      bgcolor: cellposeAvailable ? 'rgba(156,39,176,0.12)' : undefined,
+                      color: cellposeAvailable ? 'secondary.main' : undefined,
+                      '&:hover': { bgcolor: cellposeAvailable ? 'rgba(156,39,176,0.22)' : undefined },
                     }}
                   >
                     <AutoAwesomeIcon fontSize="small" />
@@ -340,29 +344,37 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
             {/* AI Segmentation — prominently after Draw Mask */}
             {tool.id === 'polygon' && (
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                fullWidth
-                startIcon={<AutoAwesomeIcon fontSize="small" />}
-                onClick={onOpenCellposeConfig}
-                disabled={isRunningCellpose}
-                data-tool="cellpose"
-                sx={{
-                  textTransform: 'none', borderRadius: 1.5,
-                  justifyContent: 'flex-start', px: 1.25, py: 0.7, my: 0.25,
-                }}
+              <Tooltip
+                title={cellposeAvailable ? '' : 'Cellpose service is currently offline'}
+                placement="right"
+                disableHoverListener={cellposeAvailable}
               >
-                <Box sx={{ textAlign: 'left', ml: 0.25 }}>
-                  <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
-                    AI Pre-Segmentation
-                  </Typography>
-                  <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
-                    {modelLabel}
-                  </Typography>
-                </Box>
-              </Button>
+                <span style={{ width: '100%' }}>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    size="small"
+                    fullWidth
+                    startIcon={<AutoAwesomeIcon fontSize="small" />}
+                    onClick={onOpenCellposeConfig}
+                    disabled={isRunningCellpose || !cellposeAvailable}
+                    data-tool="cellpose"
+                    sx={{
+                      textTransform: 'none', borderRadius: 1.5,
+                      justifyContent: 'flex-start', px: 1.25, py: 0.7, my: 0.25,
+                    }}
+                  >
+                    <Box sx={{ textAlign: 'left', ml: 0.25 }}>
+                      <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
+                        AI Pre-Segmentation
+                      </Typography>
+                      <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
+                        {cellposeAvailable ? modelLabel : 'Service offline'}
+                      </Typography>
+                    </Box>
+                  </Button>
+                </span>
+              </Tooltip>
             )}
 
             {/* Save — prominently after Expand Mask */}

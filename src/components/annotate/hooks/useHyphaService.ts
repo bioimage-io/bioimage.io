@@ -220,10 +220,12 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   service: AnnotationDataService | null;
   loading: boolean;
   error: string | null;
+  cellposeAvailable: boolean;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cellposeAvailable, setCellposeAvailable] = useState(false);
   const serverRef = useRef<any>(null);
 
   useEffect(() => {
@@ -254,13 +256,16 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         if (cancelled) return;
         console.log('[useHyphaService] Got data service:', dataService);
 
-        // Get cellpose service
+        // Get cellpose service — use mode:"random" for load-balanced selection
+        // across multiple registered workers with the same service id
         let cellposeService: any = null;
         try {
-          cellposeService = await server.getService('bioimage-io/cellpose-finetuning');
+          cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
           console.log('[useHyphaService] Got cellpose service');
+          if (!cancelled) setCellposeAvailable(true);
         } catch (err) {
           console.warn('[useHyphaService] Cellpose service not available:', err);
+          if (!cancelled) setCellposeAvailable(false);
         }
 
         const wrappedService: AnnotationDataService = {
@@ -448,5 +453,5 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
     };
   }, [config?.serverUrl, config?.imageProviderId]);
 
-  return { service, loading, error };
+  return { service, loading, error, cellposeAvailable };
 }
