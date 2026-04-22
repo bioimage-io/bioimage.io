@@ -54,19 +54,33 @@ export interface AnnotationDataService {
 }
 
 /** Extract image pixel data as a Uint8Array in CHW RGB format (3, H, W) for cellpose */
-function getImagePixelsCHW(imageUrl: string, width: number, height: number): Promise<Uint8Array> {
+/** Max pixel dimension sent to Cellpose-SAM. Larger images are downsampled to this size.
+ *  256 gives ~30-60s inference on HPA fluorescence images with 10-20 cells detected.
+ *  512 gives 5-15 min for the same images (too slow for interactive use). */
+const CELLPOSE_MAX_DIM = 256;
+
+function getImagePixelsCHW(
+  imageUrl: string,
+  width: number,
+  height: number,
+): Promise<{ chw: Uint8Array; scaledW: number; scaledH: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
+      // Downsample if either dimension exceeds CELLPOSE_MAX_DIM
+      const scale = Math.min(1, CELLPOSE_MAX_DIM / Math.max(width, height));
+      const scaledW = Math.round(width * scale);
+      const scaledH = Math.round(height * scale);
+
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = scaledW;
+      canvas.height = scaledH;
       const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, width, height);
-      const imageData = ctx.getImageData(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, scaledW, scaledH);
+      const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
       const rgba = imageData.data;
-      const numPixels = width * height;
+      const numPixels = scaledW * scaledH;
       // Convert RGBA (HWC interleaved) to CHW planar: [R plane, G plane, B plane]
       const chw = new Uint8Array(numPixels * 3);
       for (let i = 0; i < numPixels; i++) {
@@ -74,7 +88,7 @@ function getImagePixelsCHW(imageUrl: string, width: number, height: number): Pro
         chw[numPixels + i] = rgba[i * 4 + 1];    // G plane
         chw[numPixels * 2 + i] = rgba[i * 4 + 2]; // B plane
       }
-      resolve(chw);
+      resolve({ chw, scaledW, scaledH });
     };
     img.onerror = () => reject(new Error('Failed to load image for pixel extraction'));
     img.src = imageUrl;
@@ -285,16 +299,17 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             const p = params || {};
             console.log('[useHyphaService] Running cellpose inference with params:', p);
 
-            // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format)
-            const chw = await getImagePixelsCHW(imageUrl, width, height);
-            console.log('[useHyphaService] Image pixels extracted: CHW shape [3, %d, %d]', height, width);
+            // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format).
+            // Images are downsampled to CELLPOSE_MAX_DIM to keep inference fast.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            console.log('[useHyphaService] Image pixels extracted: CHW shape [3, %d, %d] (display: %dx%d)', scaledH, scaledW, width, height);
 
             // Create ndarray-like object for hypha-rpc
             // _rvalue MUST be Uint8Array (not ArrayBuffer) so msgpack serializes it as binary
             const inputArray = {
               _rtype: 'ndarray',
               _rvalue: chw,
-              _rshape: [3, height, width],
+              _rshape: [3, scaledH, scaledW],
               _rdtype: 'uint8',
             };
 
@@ -361,15 +376,36 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
               let polygons = maskToPolygons(maskData, w, h);
               polygons = filterByArea(polygons, p.min_mask_area);
-              console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons');
+              // Scale polygon coordinates back to original image dimensions if downsampled
+              const scaleX = width / scaledW;
+              const scaleY = height / scaledH;
+              if (scaleX !== 1 || scaleY !== 1) {
+                polygons = polygons.map((poly) => ({
+                  ...poly,
+                  coordinates: poly.coordinates.map((ring) =>
+                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
+                  ),
+                }));
+              }
+              console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
               return polygons;
             }
 
             // If it's already an array
             if (Array.isArray(maskResult)) {
               const flat = maskResult.flat();
-              let polygons = maskToPolygons(flat, width, height);
+              let polygons = maskToPolygons(flat, scaledW, scaledH);
               polygons = filterByArea(polygons, p.min_mask_area);
+              const scaleX = width / scaledW;
+              const scaleY = height / scaledH;
+              if (scaleX !== 1 || scaleY !== 1) {
+                polygons = polygons.map((poly) => ({
+                  ...poly,
+                  coordinates: poly.coordinates.map((ring) =>
+                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
+                  ),
+                }));
+              }
               console.log('[useHyphaService] Converted flat array mask to', polygons.length, 'polygons');
               return polygons;
             }
