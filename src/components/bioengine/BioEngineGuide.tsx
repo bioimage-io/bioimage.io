@@ -17,6 +17,8 @@ const BioEngineGuide: React.FC = () => {
   const [gpus, setGpus] = useState(0);
   const [memory, setMemory] = useState(10);
   const [copied, setCopied] = useState(false);
+  const [copiedStep1, setCopiedStep1] = useState(false);
+  const [copiedStep2, setCopiedStep2] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -47,7 +49,7 @@ const BioEngineGuide: React.FC = () => {
   // Kubernetes-specific options
   const [hasPvc, setHasPvc] = useState(false);
   const [rayWorkspaceDir, setRayWorkspaceDir] = useState('');
-  const [k8sNamespace, setK8sNamespace] = useState('bioengine');
+  const [k8sNamespace, setK8sNamespace] = useState('');
   const [showRayWorkspaceDirDialog, setShowRayWorkspaceDirDialog] = useState(false);
   const [k8sSecretCopied, setK8sSecretCopied] = useState(false);
   const [k8sYamlCopied, setK8sYamlCopied] = useState(false);
@@ -120,7 +122,7 @@ const BioEngineGuide: React.FC = () => {
     if (containerRuntime !== 'apptainer' && containerRuntime !== 'singularity') return '';
     let baseWorkspace = workspaceDir;
     if (!baseWorkspace) {
-      baseWorkspace = os === 'windows' ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine') : '$HOME/.bioengine';
+      baseWorkspace = os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine';
     }
     const normalized = baseWorkspace.endsWith('/') || baseWorkspace.endsWith('\\')
       ? baseWorkspace.slice(0, -1) : baseWorkspace;
@@ -156,7 +158,7 @@ const BioEngineGuide: React.FC = () => {
       if (servePort && servePort !== '8000') args.push(`--serve-port ${servePort}`);
     }
 
-    if (workspace) args.push(`--workspace ${workspace}`);
+    if (workspace) args.push(`--workspace "${workspace}"`);
     if (serverUrl) args.push(`--server-url ${serverUrl}`);
     if (token) args.push(`--token ${token}`);
     if (adminUsers) {
@@ -174,8 +176,12 @@ const BioEngineGuide: React.FC = () => {
 
     if (mode === 'slurm') {
       if (workspaceDir) args.push(`--workspace-dir ${workspaceDir}`);
-      const slurmArgs = args.join(' ');
-      return `bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)${slurmArgs ? ` ${slurmArgs}` : ''}`;
+      const nl = ' \\\n  ';
+      const parts = [
+        'bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)',
+        ...args,
+      ];
+      return parts.join(nl);
     }
 
     const platform = getPlatform();
@@ -187,35 +193,58 @@ const BioEngineGuide: React.FC = () => {
     const gpuEnvFlag = (gpuIndices && gpus > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
       ? `-e CUDA_VISIBLE_DEVICES=${gpuIndices} ` : '';
 
+    // Linux/macOS: $HOME is safe inside -v flags (unlike ~ which doesn't expand in quoted strings)
+    const hostPath = workspaceDir || '$HOME/.bioengine';
+
     const mounts: string[] = [];
-    if (workspaceDir) {
-      mounts.push(containerRuntime === 'apptainer' || containerRuntime === 'singularity'
-        ? `--bind ${workspaceDir}:/.bioengine` : `-v ${workspaceDir}:/.bioengine`);
+    if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
+      mounts.push(`--bind ${hostPath}:/.bioengine`);
+    } else if (os === 'windows') {
+      const winPath = workspaceDir || '%USERPROFILE%\\.bioengine';
+      mounts.push(`-v ${winPath}:/.bioengine`);
     } else {
-      const hostPath = os === 'windows'
-        ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine')
-        : '$HOME/.bioengine';
-      mounts.push(containerRuntime === 'apptainer' || containerRuntime === 'singularity'
-        ? `--bind ${hostPath}:/.bioengine` : `-v ${hostPath}:/.bioengine`);
+      mounts.push(`-v ${hostPath}:/.bioengine`);
     }
     const volumeMounts = mounts.join(' ');
 
     let createDirCmd = '';
-    const wsPath = workspaceDir || (os === 'windows' ? (runAsRoot ? 'C:\\.bioengine' : '%USERPROFILE%\\.bioengine') : '$HOME/.bioengine');
     if (os === 'windows') {
-      createDirCmd = `cmd /c "mkdir "${wsPath}" 2>nul || echo Directory already exists"`;
+      const winPath = workspaceDir || '%USERPROFILE%\\.bioengine';
+      createDirCmd = `cmd /c "mkdir "${winPath}" 2>nul || echo Directory already exists"`;
     } else {
-      createDirCmd = `mkdir -p ${wsPath}`;
+      createDirCmd = `mkdir -p ${hostPath}`;
     }
 
+    const nl = ' \\\n  ';
     let dockerCmd = '';
     if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
       const cacheEnv = getContainerCacheDir() ? `${containerRuntime.toUpperCase()}_CACHEDIR=${getContainerCacheDir()} ` : '';
-      dockerCmd = `${cacheEnv}${containerRuntime} exec ${gpuFlag}${volumeMounts} docker://${imageToUse} python -m bioengine.worker ${argsString}`;
+      const parts = [
+        `${cacheEnv}${containerRuntime} exec`,
+        ...(gpuFlag ? [gpuFlag.trim()] : []),
+        volumeMounts,
+        `docker://${imageToUse}`,
+        'python -m bioengine.worker',
+        ...args.map(a => a.trim()),
+      ].filter(Boolean);
+      dockerCmd = parts.join(nl);
     } else if (os === 'windows') {
-      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
+      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
     } else {
-      dockerCmd = `${containerRuntime} run ${gpuFlag}${platformFlag}-it --rm ${shmFlag}${userFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}`;
+      const parts = [
+        `${containerRuntime} run`,
+        ...(gpuFlag ? [gpuFlag.trim()] : []),
+        ...(platformFlag ? [platformFlag.trim()] : []),
+        '--rm',
+        ...(shmFlag ? [shmFlag.trim()] : []),
+        ...(userFlag ? [userFlag.trim()] : []),
+        ...(gpuEnvFlag ? [gpuEnvFlag.trim()] : []),
+        volumeMounts,
+        imageToUse,
+        'python -m bioengine.worker',
+        ...args.map(a => a.trim()),
+      ].filter(Boolean);
+      dockerCmd = parts.join(nl);
     }
 
     return { createDirCmd, dockerCmd };
@@ -240,44 +269,63 @@ const BioEngineGuide: React.FC = () => {
   };
 
   const getTroubleshootingPrompt = () => {
-    const currentCommand = getCommand();
+    const isK8s = mode === 'external-cluster';
+    const currentCommand = isK8s ? null : getCommand();
     const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
+
     let commandText = '';
-    if (typeof currentCommand === 'string') {
-      commandText = currentCommand;
-    } else {
-      commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
+    if (currentCommand) {
+      if (typeof currentCommand === 'string') {
+        commandText = currentCommand;
+      } else {
+        commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
+      }
+      // Redact token from command
+      if (token) commandText = commandText.replace(token, '<my-token>');
     }
 
-    return `# BioEngine Worker Troubleshooting Assistant
+    let setupSection: string;
+    if (isK8s) {
+      const k8sLines = [
+        `- **Ray Cluster Address**: ${rayAddress || '<not set>'}`,
+        `- **Kubernetes Namespace**: ${k8sNamespace || 'bioengine'}`,
+        `- **Ray Workspace Directory**: ${rayWorkspaceDir || '<not set>'}`,
+        `- **PVC available**: ${hasPvc ? 'yes (bioengine-pvc)' : 'no'}`,
+        workspace && `- **Hypha Workspace**: ${workspace}`,
+        serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
+        adminUsers && `- **Admin Users**: ${adminUsers}`,
+        customImage && `- **Custom Image**: ${customImage}`,
+      ].filter(Boolean).join('\n');
+      const yaml = getKubernetesWorkerYaml().replace(token, '<my-token>');
+      setupSection = `### My Kubernetes Setup\n${k8sLines}\n\n### Deployment YAML\n\`\`\`yaml\n${yaml}\n\`\`\``;
+    } else {
+      const lines = [
+        `- **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}`,
+        `- **Container Runtime**: ${containerName}`,
+        `- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local)' : 'SLURM (HPC cluster)'}`,
+        mode === 'single-machine' && `- **CPUs**: ${cpus}`,
+        mode === 'single-machine' && `- **GPUs**: ${gpus}${gpus > 0 && gpuIndices ? ` (indices: ${gpuIndices})` : ''}`,
+        mode === 'single-machine' && `- **Memory**: ${memory > 0 ? `${memory} GB` : 'auto-detect'}`,
+        workspace && `- **Hypha Workspace**: ${workspace}`,
+        serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
+        adminUsers && `- **Admin Users**: ${adminUsers}`,
+        workspaceDir && `- **BioEngine Workspace Directory**: ${workspaceDir}`,
+        customImage && `- **Custom Image**: ${customImage}`,
+      ].filter(Boolean).join('\n');
+      setupSection = `### My Setup\n${lines}\n\n### Generated Command\n\`\`\`bash\n${commandText}\n\`\`\``;
+    }
 
-## Context & Background
+    return `# BioEngine Worker Troubleshooting
 
-I'm trying to set up a **BioEngine Worker** (v0.7.1) for bioimage analysis. BioEngine is part of the AI4Life project and provides cloud-powered AI tools for bioimage analysis.
+I'm trying to set up a **BioEngine Worker**. BioEngine is part of the AI4Life project and provides cloud-powered AI tools for bioimage analysis.
 
-### My Current Setup
-- **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}
-- **Container Runtime**: ${containerName}
-- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local)' : mode === 'slurm' ? 'SLURM (HPC cluster)' : 'Connect to existing Ray cluster'}
-${mode === 'single-machine' ? `- **CPUs**: ${cpus}\n- **GPUs**: ${gpus}${gpus > 0 && gpuIndices ? ` (indices: ${gpuIndices})` : ''}\n- **Memory**: ${memory > 0 ? `${memory} GB` : 'auto-detect'}` : ''}
-${mode === 'external-cluster' && rayAddress ? `- **Ray Address**: ${rayAddress}` : ''}
+The source code and documentation are available at: https://github.com/aicell-lab/bioengine-worker
+${isK8s ? `Deployment is on **Kubernetes** using KubeRay (external-cluster mode). The worker connects to an existing Ray cluster and registers itself as a Hypha service.` : `Deployment mode: **${mode === 'single-machine' ? 'Single Machine' : 'SLURM HPC cluster'}**.`}
+${setupSection}
 
-### Advanced Configuration
-${workspace ? `- **Workspace**: ${workspace}` : ''}
-${serverUrl ? `- **Server URL**: ${serverUrl}` : ''}
-${token ? `- **Token**: [CONFIGURED]` : ''}
-${adminUsers ? `- **Admin Users**: ${adminUsers}` : '- **Admin Users**: Default (logged-in user)'}
-${workspaceDir ? `- **BioEngine Workspace Directory**: ${workspaceDir}` : ''}
-${customImage ? `- **Custom Image**: ${customImage}` : ''}
+## My Issue
 
-### Generated Command
-\`\`\`bash
-${commandText}
-\`\`\`
-
-## My Question
-
-[Please describe your specific issue or error here]`;
+[Paste your error message or describe your problem here]`;
   };
 
   const copyTroubleshootingPrompt = async () => {
@@ -291,13 +339,13 @@ ${commandText}
   };
 
   const getK8sSecretCommand = () => {
-    const ns = k8sNamespace || 'hypha';
+    const ns = k8sNamespace || 'bioengine';
     const tokenValue = token || '<your-admin-token>';
-    return `kubectl create secret generic bioengine-secrets \\\n  --from-literal=HYPHA_TOKEN=${tokenValue} \\\n  -n ${ns}`;
+    return `kubectl create secret generic bioengine-secrets \\\n  --from-literal=HYPHA_TOKEN=${tokenValue} \\\n  --dry-run=client -o yaml \\\n  | kubectl apply -f - -n ${ns}`;
   };
 
   const getK8sApplyCommand = () => {
-    const ns = k8sNamespace || 'hypha';
+    const ns = k8sNamespace || 'bioengine';
     return `kubectl apply -f bioengine-deployment.yaml -n ${ns}`;
   };
 
@@ -305,7 +353,7 @@ ${commandText}
     const serverUrlVal = serverUrl || 'https://hypha.aicell.io';
     const workspaceVal = workspace || '<your-hypha-workspace>';
     const rayAddr = rayAddress || 'ray://raycluster-kuberay-head-svc.ray-cluster.svc.cluster.local';
-    const ns = k8sNamespace || 'hypha';
+    const ns = k8sNamespace || 'bioengine';
 
     const arg = (flag: string, value: string) => `\n        - "${flag}"\n        - "${value}"`;
 
@@ -463,7 +511,7 @@ spec:
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 { value: 'single-machine', label: '💻 Desktop/Workstation', desc: 'Run locally on your computer or workstation using Docker. Perfect for development or small-scale analysis.', badge: 'Easy Setup', color: 'blue', disabled: false },
-                { value: 'slurm', label: '🖥️ HPC Cluster', desc: 'Deploy on a high-performance computing cluster with SLURM job scheduler. Ideal for large-scale workloads.', badge: 'Coming Soon', color: 'purple', disabled: true },
+                { value: 'slurm', label: '🖥️ HPC Cluster', desc: 'Deploy on a high-performance computing cluster with SLURM job scheduler. Ideal for large-scale workloads.', badge: 'SLURM', color: 'purple', disabled: false },
                 { value: 'external-cluster', label: '☸️ Kubernetes Cluster', desc: 'Deploy on Kubernetes with KubeRay. Connect BioEngine to an existing Ray cluster for cloud-native deployment.', badge: 'Cloud Native', color: 'orange', disabled: false },
               ].map(({ value, label, desc, badge, color, disabled }) => (
                 <div
@@ -585,7 +633,7 @@ spec:
                       type="text"
                       value={k8sNamespace}
                       onChange={(e) => setK8sNamespace(e.target.value)}
-                      placeholder="hypha"
+                      placeholder="bioengine"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">Namespace to deploy the BioEngine worker pod into</p>
@@ -770,7 +818,9 @@ spec:
                   <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
                     <pre className="text-green-400 text-xs font-mono whitespace-pre">{getK8sSecretCommand()}</pre>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">Replace <code className="bg-gray-100 px-1 rounded">&lt;your-admin-token&gt;</code> with your Hypha token (use Advanced Options → Authentication Token above to generate one).</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Creates or updates the secret. To list secrets: <code className="bg-gray-100 px-1 rounded">kubectl get secrets -n {k8sNamespace || 'bioengine'}</code>. To delete: <code className="bg-gray-100 px-1 rounded">kubectl delete secret bioengine-secrets -n {k8sNamespace || 'bioengine'}</code>.
+                  </p>
                 </div>
 
                 {/* Step 2: deployment YAML */}
@@ -815,7 +865,21 @@ spec:
                   <div className="bg-gray-900 rounded-lg p-3">
                     <pre className="text-green-400 text-xs font-mono whitespace-pre">{getK8sApplyCommand()}</pre>
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    List deployments and status: <code className="bg-gray-100 px-1 rounded">kubectl get deployments -n {k8sNamespace || 'bioengine'}</code>. Check pod logs: <code className="bg-gray-100 px-1 rounded">kubectl logs -l app=bioengine-worker -n {k8sNamespace || 'bioengine'}</code>. Delete deployment: <code className="bg-gray-100 px-1 rounded">kubectl delete deployment bioengine-worker -n {k8sNamespace || 'bioengine'}</code>.
+                  </p>
                 </div>
+              </div>
+
+              {/* K8s troubleshooting */}
+              <div className="flex justify-center pt-2 border-t border-gray-200">
+                <button onClick={() => setShowTroubleshooting(true)}
+                  className="flex items-center px-4 py-2 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Need Help? Get AI Troubleshooting Prompt
+                </button>
               </div>
             </div>
           )}
@@ -823,6 +887,32 @@ spec:
           {/* ── Single-machine and SLURM settings ── */}
           {mode !== 'external-cluster' && (
             <div className="space-y-4">
+
+              {/* Container runtime requirement */}
+              {mode === 'single-machine' && (
+                <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+                  <p className="text-sm font-semibold text-orange-800 mb-1">Container runtime required</p>
+                  <p className="text-sm text-orange-700">
+                    BioEngine runs inside a container. Install one of the supported runtimes: <strong>Docker</strong> (most common), <strong>Podman</strong> (rootless alternative), <strong>Apptainer</strong> (HPC, Singularity successor), or <strong>Singularity</strong>. The latest image is ~1.1 GB and will be pulled automatically on first run.
+                  </p>
+                </div>
+              )}
+
+              {/* Workspace directory info */}
+              {mode === 'single-machine' && (
+                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <div className="flex items-start">
+                    <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-sm text-blue-800">
+                      <span className="font-medium">BioEngine Workspace Directory: </span>
+                      <code className="bg-blue-100 px-1 rounded">{workspaceDir || (os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine')}</code>
+                      <span className="text-blue-700 text-xs block mt-1">This directory is created on the host and mounted into the container. It stores apps, logs, and temporary files. Change it in Advanced Options below.</span>
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Authentication Required warning when no token */}
               {!token && (
@@ -847,6 +937,21 @@ spec:
                           </>
                         )}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SLURM info */}
+              {mode === 'slurm' && (
+                <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+                  <div className="flex items-start">
+                    <svg className="w-5 h-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="text-sm text-purple-800">
+                      <p className="font-semibold mb-1">HPC Cluster Setup</p>
+                      <p className="text-purple-700">The startup script runs BioEngine via SLURM and may require manual adjustments for your cluster environment. Please report issues and feedback on <a href="https://github.com/aicell-lab/bioengine-worker/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-purple-900">GitHub</a>.</p>
                     </div>
                   </div>
                 </div>
@@ -965,10 +1070,10 @@ spec:
                     <label className="block text-sm font-medium text-gray-700 mb-1">BioEngine Workspace Directory</label>
                     <input type="text" value={workspaceDir}
                       onChange={(e) => setWorkspaceDir(e.target.value)}
-                      placeholder={os === 'windows' ? '%USERPROFILE%\\.bioengine' : '~/.bioengine'}
+                      placeholder={os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine'}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">
-                      Directory for BioEngine apps, logs and ray cluster temporary files. Defaults to ~/.bioengine.
+                      Directory for BioEngine apps, logs and ray cluster temporary files. Defaults to {os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine'}.
                     </p>
                   </div>
 
@@ -1120,12 +1225,10 @@ spec:
           )}
 
           {/* ── Generated command ── */}
-          {mode !== 'external-cluster' && (
+          {mode === 'slurm' && (
             <div className="bg-gray-900 rounded-xl p-4 relative">
               <div className="flex justify-between items-start mb-2">
-                <h4 className="text-sm font-medium text-gray-300">
-                  {mode === 'slurm' ? 'SLURM Cluster Command:' : os === 'windows' ? 'PowerShell/Command Prompt Command:' : 'Terminal Command:'}
-                </h4>
+                <h4 className="text-sm font-medium text-gray-300">SLURM Cluster Command:</h4>
                 <button onClick={copyToClipboard}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg flex items-center">
                   {copied ? (
@@ -1136,14 +1239,76 @@ spec:
                 </button>
               </div>
               <code className="text-green-400 text-sm font-mono break-all whitespace-pre-wrap">
-                {(() => {
-                  const command = getCommand();
-                  if (typeof command === 'string') return command;
-                  const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-                  const text = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
-                  return text;
-                })()}
+                {(() => { const command = getCommand(); return typeof command === 'string' ? command : ''; })()}
               </code>
+            </div>
+          )}
+
+          {mode === 'single-machine' && (
+            <div className="space-y-3">
+              {/* Step 1: Create directories */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">1. Create directories</p>
+                  <button
+                    onClick={async () => {
+                      const command = getCommand();
+                      if (typeof command !== 'string') {
+                        try { await navigator.clipboard.writeText(command.createDirCmd); setCopiedStep1(true); setTimeout(() => setCopiedStep1(false), 2000); } catch (_) {}
+                      }
+                    }}
+                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {copiedStep1 ? (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    ) : (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    )}
+                  </button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
+                    {(() => { const command = getCommand(); return typeof command !== 'string' ? command.createDirCmd : ''; })()}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Step 2: Run container */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">2. Run {containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1)} container</p>
+                  <button
+                    onClick={async () => {
+                      const command = getCommand();
+                      if (typeof command !== 'string') {
+                        try { await navigator.clipboard.writeText(command.dockerCmd); setCopiedStep2(true); setTimeout(() => setCopiedStep2(false), 2000); } catch (_) {}
+                      }
+                    }}
+                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {copiedStep2 ? (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    ) : (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    )}
+                  </button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
+                    {(() => { const command = getCommand(); return typeof command !== 'string' ? command.dockerCmd : ''; })()}
+                  </pre>
+                </div>
+                {(containerRuntime === 'docker' || containerRuntime === 'podman') && os !== 'windows' && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Detach without stopping: <code className="bg-gray-100 px-1 rounded">Ctrl+P, Ctrl+Q</code>. List running containers: <code className="bg-gray-100 px-1 rounded">{containerRuntime} ps</code>. Stop the worker: <code className="bg-gray-100 px-1 rounded">{containerRuntime} stop $(${containerRuntime} ps -q --filter ancestor={DEFAULT_IMAGE})</code>.
+                  </p>
+                )}
+                {(containerRuntime === 'apptainer' || containerRuntime === 'singularity') && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Run in background by prepending <code className="bg-gray-100 px-1 rounded">nohup ... &</code> or using a <code className="bg-gray-100 px-1 rounded">screen</code>/<code className="bg-gray-100 px-1 rounded">tmux</code> session. Stop the worker by sending <code className="bg-gray-100 px-1 rounded">Ctrl+C</code> or killing the process.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -1174,36 +1339,6 @@ spec:
             </div>
           )}
 
-          {/* ── Prerequisites ── */}
-          {mode !== 'external-cluster' && (
-            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="flex items-start">
-                <svg className="w-5 h-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="text-sm text-blue-800">
-                  <p className="font-medium mb-1">Prerequisites:</p>
-                  <ul className="list-disc list-inside space-y-1 text-blue-700">
-                    {mode === 'slurm' ? (
-                      <>
-                        <li>SLURM cluster access with sbatch/squeue/scancel</li>
-                        <li>Singularity/Apptainer on compute nodes</li>
-                        <li>Network access from compute nodes to pull container images</li>
-                        <li>Shared filesystem accessible from all nodes</li>
-                      </>
-                    ) : (
-                      <>
-                        <li>{containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1)} installed and running</li>
-                        {gpus > 0 && <li>NVIDIA {containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : 'drivers'} for GPU support</li>}
-                      </>
-                    )}
-                    <li>A BioEngine data directory will be created at <code className="bg-blue-100 px-1 rounded">~/.bioengine</code> (or custom path) and mounted into the container</li>
-                    <li>After starting, connect using the service ID printed in the terminal</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ── Troubleshooting ── */}
           {mode !== 'external-cluster' && (
@@ -1286,7 +1421,7 @@ spec:
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-800">AI Troubleshooting Assistant</h3>
-                  <p className="text-sm text-gray-600">Copy this prompt to ChatGPT, Claude, Gemini, or your favorite LLM</p>
+                  <p className="text-sm text-gray-600">Copy this prompt to Claude, Gemini, or ChatGPT</p>
                 </div>
               </div>
               <button onClick={() => setShowTroubleshooting(false)}
