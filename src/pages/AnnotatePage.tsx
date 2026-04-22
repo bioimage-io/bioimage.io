@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip } from '@mui/material';
 import LoginButton from '../components/LoginButton';
@@ -18,6 +18,7 @@ import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../
 import { useAnnotationStore } from '../store/annotationStore';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
+import OlMap from 'ol/Map';
 import Static from 'ol/source/ImageStatic';
 import Feature from 'ol/Feature';
 import { Polygon as OlPolygon } from 'ol/geom';
@@ -53,13 +54,17 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
 
   const sessionUrl = useMemo(() => {
     if (!sessionId) return null;
-    return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}`;
-  }, [sessionId]);
+    const labelParam = serviceConfig?.label ? `?label=${encodeURIComponent(serviceConfig.label)}` : '';
+    return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}${labelParam}`;
+  }, [sessionId, serviceConfig?.label]);
 
   const backTarget = useMemo(() => {
-    if (sessionId) return `/colab/${sessionId}`;
+    if (sessionId) {
+      const labelParam = serviceConfig?.label ? `?label=${encodeURIComponent(serviceConfig.label)}` : '';
+      return `/colab/${sessionId}${labelParam}`;
+    }
     return backTo || '/colab';
-  }, [sessionId, backTo]);
+  }, [sessionId, serviceConfig?.label, backTo]);
 
   const { service, loading: serviceLoading, error: serviceError } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
@@ -71,6 +76,18 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
+    onMeasureDiameter: (currentConfig, onMeasured) => {
+      setCellposeConfig(currentConfig);
+      measureCallbackRef.current = (px: number) => {
+        setCellposeConfig((prev: CellposeConfig) => ({ ...prev, diameter: Math.round(px) }));
+        openCellposeConfig();
+        onMeasured(px);
+      };
+      setMeasurePhase('first');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    },
   });
   
   // Use either the dynamically loaded model or the one from the URL (for backward compatibility)
@@ -131,11 +148,31 @@ print('CLAHE packages ready')
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // Auto-open tutorial on first visit
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem('bioimage-annotation-tutorial-seen');
+      if (!seen) {
+        setHelpOpen(true);
+        localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
+      }
+    } catch { /* ignore */ }
+  }, []);
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
+  const [getOlMap, setGetOlMap] = useState<(() => OlMap | null) | undefined>(undefined);
+
+  // Diameter measurement state
+  type MeasurePhase = 'idle' | 'first' | 'second';
+  const [measurePhase, setMeasurePhase] = useState<MeasurePhase>('idle');
+  const [measurePt1, setMeasurePt1] = useState<[number, number] | null>(null);
+  const [measureScreenPt1, setMeasureScreenPt1] = useState<[number, number] | null>(null);
+  const [measureScreenMouse, setMeasureScreenMouse] = useState<[number, number] | null>(null);
+  const measureCallbackRef = useRef<((px: number) => void) | null>(null);
 
   const handleResetViewReady = useCallback((fn: () => void) => {
     setResetView(() => fn);
@@ -147,6 +184,10 @@ print('CLAHE packages ready')
 
   const handleImageLayerReady = useCallback((fn: () => ImageLayer<Static> | null) => {
     setGetImageLayer(() => fn);
+  }, []);
+
+  const handleMapReady = useCallback((fn: () => OlMap | null) => {
+    setGetOlMap(() => fn);
   }, []);
 
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
@@ -518,6 +559,53 @@ print("CLAHE_RESULT:" + result_b64)
     }
   }, [getVectorSource, pushUndo]);
 
+  // Escape to cancel diameter measurement and reopen dialog
+  useEffect(() => {
+    if (measurePhase === 'idle') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMeasurePhase('idle');
+        setMeasurePt1(null);
+        setMeasureScreenPt1(null);
+        setMeasureScreenMouse(null);
+        measureCallbackRef.current = null;
+        openCellposeConfig();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [measurePhase, openCellposeConfig]);
+
+  const handleMeasureMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (measurePhase === 'idle') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMeasureScreenMouse([e.clientX - rect.left, e.clientY - rect.top]);
+  }, [measurePhase]);
+
+  const handleMeasureClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const map = getOlMap?.();
+    if (!map) return;
+    const coord = map.getEventCoordinate(e.nativeEvent);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const screenPos: [number, number] = [e.clientX - rect.left, e.clientY - rect.top];
+
+    if (measurePhase === 'first') {
+      setMeasurePt1([coord[0], coord[1]]);
+      setMeasureScreenPt1(screenPos);
+      setMeasurePhase('second');
+    } else if (measurePhase === 'second' && measurePt1) {
+      const dx = coord[0] - measurePt1[0];
+      const dy = coord[1] - measurePt1[1];
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      measureCallbackRef.current?.(dist);
+      measureCallbackRef.current = null;
+      setMeasurePhase('idle');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    }
+  }, [measurePhase, measurePt1, getOlMap]);
+
   const handleUploadGeoJSON = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -592,7 +680,7 @@ print("CLAHE_RESULT:" + result_b64)
           )}
         </div>
 
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
           <Link to="/" className="flex items-center group">
             <img
               src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
@@ -600,6 +688,11 @@ print("CLAHE_RESULT:" + result_b64)
               className="h-7 group-hover:scale-105 transition-transform duration-300"
             />
           </Link>
+          {serviceConfig?.label && (
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide">
+              {serviceConfig.label}
+            </span>
+          )}
         </div>
 
         <div className="z-10">
@@ -621,6 +714,7 @@ print("CLAHE_RESULT:" + result_b64)
         onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
         imageName={currentImageName || undefined}
+        cellposeModel={activeCellposeModel}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
@@ -635,7 +729,49 @@ print("CLAHE_RESULT:" + result_b64)
             onResetViewReady={handleResetViewReady}
             onVectorSourceReady={handleVectorSourceReady}
             onImageLayerReady={handleImageLayerReady}
+            onMapReady={handleMapReady}
           />
+        )}
+
+        {/* Diameter measurement overlay */}
+        {measurePhase !== 'idle' && (
+          <Box
+            sx={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'crosshair' }}
+            onClick={handleMeasureClick}
+            onMouseMove={handleMeasureMouseMove}
+          >
+            {/* Instruction banner */}
+            <Box sx={{
+              position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+              bgcolor: 'rgba(0,0,0,0.78)', color: '#fff',
+              px: 3, py: 1.25, borderRadius: 2,
+              fontSize: '0.875rem', pointerEvents: 'none', zIndex: 10,
+              display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap',
+            }}>
+              {measurePhase === 'first'
+                ? 'Click one edge of a representative cell'
+                : 'Click the opposite edge to complete measurement'}
+              <Box component="span" sx={{ fontSize: '0.75rem', opacity: 0.65 }}>Esc to cancel</Box>
+            </Box>
+
+            {/* SVG ruler line */}
+            {measureScreenPt1 && measureScreenMouse && (
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                <line
+                  x1={measureScreenPt1[0]} y1={measureScreenPt1[1]}
+                  x2={measureScreenMouse[0]} y2={measureScreenMouse[1]}
+                  stroke="rgba(255,220,0,0.9)" strokeWidth={2} strokeDasharray="6,3"
+                />
+                <circle cx={measureScreenPt1[0]} cy={measureScreenPt1[1]} r={5} fill="rgba(255,220,0,0.9)" />
+                <circle cx={measureScreenMouse[0]} cy={measureScreenMouse[1]} r={4} fill="rgba(255,220,0,0.75)" />
+              </svg>
+            )}
+            {measureScreenPt1 && !measureScreenMouse && (
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                <circle cx={measureScreenPt1[0]} cy={measureScreenPt1[1]} r={5} fill="rgba(255,220,0,0.9)" />
+              </svg>
+            )}
+          </Box>
         )}
 
         {allAnnotatedInfo && (

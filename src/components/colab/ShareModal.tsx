@@ -127,7 +127,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   const sessionURL = dataArtifactId
-    ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}`
+    ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}?label=${encodeURIComponent(label)}`
     : null;
 
   useEffect(() => {

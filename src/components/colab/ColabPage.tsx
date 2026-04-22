@@ -21,6 +21,8 @@ const ColabPageContent: React.FC = () => {
   const sessionId = !isTrainingRoute && !isAnnotateRoute && location.pathname.startsWith('/colab/')
     ? location.pathname.slice('/colab/'.length) || undefined
     : undefined;
+  // Label may be encoded in the URL search params (e.g. ?label=Cell)
+  const urlLabel = new URLSearchParams(location.search).get('label') || '';
 
   const { user, server, artifactManager } = useHyphaStore();
   // Use shared kernel context instead of creating a new one
@@ -180,19 +182,22 @@ print("Packages installed", end='')
             : `${server.config.workspace}/${sessionId}`;
           const artifact = await artifactManager.read({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
 
-          // Derive label from folder structure (masks_{label}/ dirs), fall back to manifest
-          let sessionLabel = '';
-          try {
-            const files = await artifactManager.list_files({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
-            for (const f of (files || [])) {
-              const name: string = f?.name || '';
-              if (name.startsWith('masks_') && name.length > 'masks_'.length) {
-                sessionLabel = name.substring('masks_'.length);
-                break;
+          // Derive label: URL param takes precedence (exact), then folder structure, then default
+          // f.name may be a full path like "masks_Cell/img.png" or just a dir "masks_Cell"
+          let sessionLabel = urlLabel;
+          if (!sessionLabel) {
+            try {
+              const files = await artifactManager.list_files({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
+              for (const f of (files || [])) {
+                const topDir = (f?.name as string || '').split('/')[0];
+                if (topDir.startsWith('masks_') && topDir.length > 'masks_'.length) {
+                  sessionLabel = topDir.substring('masks_'.length);
+                  break;
+                }
               }
+            } catch (e) {
+              console.warn('Could not derive label from folder structure:', e);
             }
-          } catch (e) {
-            console.warn('Could not derive label from folder structure:', e);
           }
           if (!sessionLabel) {
             sessionLabel = 'cells';
@@ -262,8 +267,8 @@ print("Service registered successfully", end='')
           setSessionName(sessionName);
           setDataSourceType('resume');
 
-          // Update URL to reflect the loaded session with full artifact ID
-          navigate(`/colab/${fullArtifactId}`, { replace: true });
+          // Update URL to reflect the loaded session with full artifact ID and label
+          navigate(`/colab/${fullArtifactId}?label=${encodeURIComponent(sessionLabel)}`, { replace: true });
 
           console.log('✓ Session loaded from URL successfully!');
           setIsRunning(false);
@@ -971,7 +976,7 @@ print("Service registered successfully", end='')
             setImageList([]);
             setAnnotationsList([]);
             setSplitInfo(null);
-            navigate(`/colab/${artifactId}`, { replace: true });
+            navigate(`/colab/${artifactId}?label=${encodeURIComponent(label)}`, { replace: true });
           }}
           server={server}
           user={user}

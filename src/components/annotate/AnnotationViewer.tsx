@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Box } from '@mui/material';
 import 'ol/ol.css';
+import Map from 'ol/Map';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
 import { useAnnotationMap } from './hooks/useAnnotationMap';
@@ -13,6 +14,7 @@ interface AnnotationViewerProps {
   onResetViewReady?: (resetView: () => void) => void;
   onVectorSourceReady?: (getVectorSource: () => VectorSource | null) => void;
   onImageLayerReady?: (getImageLayer: () => ImageLayer | null) => void;
+  onMapReady?: (getMap: () => Map | null) => void;
 }
 
 const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
@@ -22,6 +24,7 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   onResetViewReady,
   onVectorSourceReady,
   onImageLayerReady,
+  onMapReady,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { map, vectorSource, imageLayerRef } = useAnnotationMap(
@@ -31,6 +34,11 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
     imageHeight,
   );
   useDrawInteraction(map, vectorSource);
+
+  // Expose map getter to parent (for coordinate conversion, e.g. diameter measurement)
+  useEffect(() => {
+    onMapReady?.(() => map.current);
+  }, [map, onMapReady]);
 
   // Expose vectorSource getter to parent
   useEffect(() => {
