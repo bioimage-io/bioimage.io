@@ -319,7 +319,12 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rkwargs: true,
             };
             if (p.model) inferArgs.model = p.model;
-            if (p.diameter != null && p.diameter > 0) inferArgs.diameter = p.diameter;
+            if (p.diameter != null && p.diameter > 0) {
+              // Diameter is measured in display-space pixels. Scale it to the
+              // downsampled image so Cellpose rescales the image correctly.
+              const diameterScale = scaledW / width;
+              inferArgs.diameter = p.diameter * diameterScale;
+            }
             if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
             if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
             if (p.niter != null && p.niter > 0) inferArgs.niter = p.niter;
