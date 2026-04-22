@@ -255,7 +255,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {fileInput}
 
         {sessionUrl && (
-          <Tooltip title="View Session in Colab" placement="right">
+          <Tooltip title="Session overview — view all images, annotation progress & training" placement="right">
             <IconButton size="small" data-tool="session"
               onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
               sx={{ ...collapsedBtnSx(), color: 'info.main' }}>
@@ -496,16 +496,26 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       {sessionUrl && (
         <Button
-          variant="outlined"
-          color="info"
+          variant="contained"
           size="small"
           fullWidth
           startIcon={<OpenInNewIcon fontSize="small" />}
           onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
           data-tool="session"
-          sx={{ textTransform: 'none', borderRadius: 1.5, mb: 0.5, justifyContent: 'flex-start', px: 1.25 }}
+          sx={{
+            textTransform: 'none', borderRadius: 1.5, mb: 0.5,
+            justifyContent: 'flex-start', px: 1.25, py: 0.65,
+            bgcolor: '#0288d1', '&:hover': { bgcolor: '#0277bd' },
+          }}
         >
-          <Typography variant="caption" fontWeight={600}>View Session</Typography>
+          <Box sx={{ textAlign: 'left', ml: 0.25 }}>
+            <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
+              Session Overview
+            </Typography>
+            <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.88, lineHeight: 1.2 }}>
+              Images, progress &amp; training
+            </Typography>
+          </Box>
         </Button>
       )}
 

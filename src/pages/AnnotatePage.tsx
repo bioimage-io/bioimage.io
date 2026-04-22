@@ -661,20 +661,29 @@ print("CLAHE_RESULT:" + result_b64)
       >
         <div className="flex items-center gap-2 z-10">
           {sessionUrl && (
-            <Tooltip title="Open this session in Colab">
+            <Tooltip title="Go back to the Colab session — view all images, annotation progress, and training">
               <MuiButton
                 size="small"
+                variant="outlined"
+                startIcon={<span style={{ fontSize: 14, lineHeight: 1 }}>←</span>}
                 onClick={() => navigate(backTarget)}
                 sx={{
                   minWidth: 'auto',
-                  padding: '4px 8px',
+                  padding: '3px 10px',
                   color: '#1976d2',
+                  borderColor: 'rgba(25,118,210,0.45)',
+                  bgcolor: 'rgba(255,255,255,0.7)',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  borderRadius: 2,
                   '&:hover': {
-                    backgroundColor: 'rgba(25, 118, 210, 0.08)'
+                    bgcolor: 'rgba(25,118,210,0.08)',
+                    borderColor: '#1976d2',
                   }
                 }}
               >
-                View session
+                Session overview
               </MuiButton>
             </Tooltip>
           )}
