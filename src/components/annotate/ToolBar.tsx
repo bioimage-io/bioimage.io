@@ -132,24 +132,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
         backdropFilter: 'blur(6px)',
         borderRight: '1px solid rgba(255,255,255,0.28)',
       }}>
-        {/* Expand toggle — prominent tab */}
+        {/* Expand toggle */}
         <Tooltip title="Expand toolbar" placement="right">
-          <Box
-            onClick={toggleExpanded}
-            sx={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              width: '100%', py: 0.5, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
-              bgcolor: 'rgba(255,255,255,0.85)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-              '&:hover': { bgcolor: 'white' },
-              transition: 'background 0.15s',
-            }}
-          >
-            <ChevronRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-            <Typography sx={{ fontSize: '0.48rem', color: 'text.disabled', lineHeight: 1, mt: 0.1, letterSpacing: 0.2 }}>
-              expand
-            </Typography>
-          </Box>
+          <IconButton size="small" onClick={toggleExpanded} sx={{ ...collapsedBtnSx(), mb: 0.25 }}>
+            <ChevronRightIcon fontSize="small" />
+          </IconButton>
         </Tooltip>
 
         {/* Drawing tools */}

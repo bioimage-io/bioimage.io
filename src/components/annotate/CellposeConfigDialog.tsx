@@ -15,6 +15,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import StraightenIcon from '@mui/icons-material/Straighten';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 export interface CellposeConfig {
   model: string;
@@ -31,7 +32,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
-  min_mask_area: 100,
+  min_mask_area: 0,
 };
 
 const STORAGE_KEY = 'cellpose-config';
@@ -66,6 +67,13 @@ function configDiffersFromDefault(config: CellposeConfig): boolean {
     config.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area
   );
 }
+
+/** Small inline info icon with tooltip — replaces paragraph help text */
+const InfoTip: React.FC<{ text: string }> = ({ text }) => (
+  <Tooltip title={text} placement="top" arrow>
+    <InfoOutlinedIcon sx={{ fontSize: '0.95rem', color: 'text.disabled', ml: 0.5, cursor: 'help', verticalAlign: 'middle' }} />
+  </Tooltip>
+);
 
 interface CellposeConfigDialogProps {
   open: boolean;
@@ -109,11 +117,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
   const handleMeasure = () => {
     if (!onMeasureDiameter) return;
-    // Save current state before closing, then start measurement
-    onApply(config);  // persist state to parent before dialog closes
-    onMeasureDiameter(config, (px) => {
-      // Parent will update config and reopen dialog
-    });
+    onApply(config);
+    onMeasureDiameter(config, (_px) => {});
   };
 
   const isBaseModel = !config.model || config.model === 'cpsam';
@@ -147,7 +152,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           {isBaseModel && (
             <Grid item xs={12}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
+                  <InfoTip text="Cellpose rescales the image so cells appear ~30 px before segmentation (scale = 30 ÷ diameter). Leave empty to run at original scale — works best when cells are already ~30 px. Set this if cells are significantly larger or smaller than 30 px." />
+                </Box>
                 {onMeasureDiameter && (
                   <Tooltip title="Measure a representative cell in the image to set the diameter automatically">
                     <Button
@@ -166,7 +174,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 fullWidth
                 size="small"
                 type="number"
-                placeholder="Auto-estimate"
+                placeholder="No rescaling (original scale)"
                 value={config.diameter === null ? '' : config.diameter}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -181,25 +189,20 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 slotProps={{ input: { inputProps: { min: 0 }, endAdornment: <InputAdornment position="end">px</InputAdornment> } }}
               />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.4 }}>
-                Cellpose rescales the image so cells appear ~30 px before segmentation.
-                Set this to your typical cell diameter in the original image.
-                Leave empty to auto-estimate (slower and less reliable).{' '}
-                <Typography component="span" variant="caption" color="info.main">
-                  Tip: cells below ~120 px rarely need a manual value.
-                </Typography>
-              </Typography>
             </Grid>
           )}
 
           {/* ── Flow Threshold ── */}
           <Grid item xs={12}>
-            <Typography variant="body2" fontWeight={500} gutterBottom>
-              Flow Threshold
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
+              <Typography variant="body2" fontWeight={500}>
+                Flow Threshold
+              </Typography>
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                 {config.flow_threshold.toFixed(1)}
               </Typography>
-            </Typography>
+              <InfoTip text="Controls how strictly Cellpose checks that predicted flows are consistent with a valid cell shape. Higher → more masks accepted, including irregular shapes. Lower → only well-formed, round-ish masks kept. Decrease if you see too many oddly-shaped detections." />
+            </Box>
             <Box sx={{ px: 0.5 }}>
               <Slider
                 value={config.flow_threshold}
@@ -209,22 +212,19 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 size="small"
               />
             </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
-              Controls how strict the shape of accepted masks is.{' '}
-              <strong>Higher</strong> → more masks accepted, including irregular shapes.{' '}
-              <strong>Lower</strong> → only well-formed masks kept.
-              Decrease if you see too many oddly-shaped detections.
-            </Typography>
           </Grid>
 
           {/* ── Cell Probability Threshold ── */}
           <Grid item xs={12}>
-            <Typography variant="body2" fontWeight={500} gutterBottom>
-              Cell Probability Threshold
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
+              <Typography variant="body2" fontWeight={500}>
+                Cell Probability Threshold
+              </Typography>
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                 {config.cellprob_threshold.toFixed(1)}
               </Typography>
-            </Typography>
+              <InfoTip text="Minimum confidence score for a pixel to be considered part of a cell. Decrease → detect more cells, including faint or dim ones. Increase → only high-confidence detections are kept." />
+            </Box>
             <Box sx={{ px: 0.5 }}>
               <Slider
                 value={config.cellprob_threshold}
@@ -234,18 +234,16 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 size="small"
               />
             </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
-              Sets the minimum confidence to call a pixel a cell.{' '}
-              <strong>Decrease</strong> → detect more cells, including faint ones.{' '}
-              <strong>Increase</strong> → only high-confidence detections.
-            </Typography>
           </Grid>
 
           {/* ── Niter + Min Mask Area (side by side) ── */}
           <Grid item xs={6}>
-            <Typography variant="body2" fontWeight={500} gutterBottom>Iterations (niter)</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body2" fontWeight={500}>Iterations (niter)</Typography>
+              <InfoTip text="Number of flow dynamics iterations. Leave empty for the default (200). Increase to ~250 for complex or concave cell shapes where the default may fragment masks." />
+            </Box>
             <TextField
-              fullWidth size="small" type="number" placeholder="Auto"
+              fullWidth size="small" type="number" placeholder="Default (200)"
               value={config.niter === null ? '' : config.niter}
               onChange={(e) => {
                 const val = e.target.value;
@@ -258,13 +256,13 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               }}
               slotProps={{ input: { inputProps: { min: 0 } } }}
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.3 }}>
-              Flow dynamics iterations. Leave empty for auto. Use ~250 for complex shapes.
-            </Typography>
           </Grid>
 
           <Grid item xs={6}>
-            <Typography variant="body2" fontWeight={500} gutterBottom>Min Mask Area (px²)</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
+              <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
+            </Box>
             <TextField
               fullWidth size="small" type="number"
               value={config.min_mask_area}
@@ -274,9 +272,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               }}
               slotProps={{ input: { inputProps: { min: 0 } } }}
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.3 }}>
-              Masks smaller than this area are discarded. Useful to remove spurious small detections.
-            </Typography>
           </Grid>
 
         </Grid>
@@ -330,7 +325,6 @@ export function useCellposeConfig(opts?: {
     setDialogOpen(false);
   }, []);
 
-  // onMeasureDiameter: save config state, close dialog, let parent handle measurement
   const handleMeasureDiameter = useCallback((currentConfig: CellposeConfig, onMeasured: (px: number) => void) => {
     setConfig(currentConfig);
     saveConfig(currentConfig);
