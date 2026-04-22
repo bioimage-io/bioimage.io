@@ -25,6 +25,7 @@ export interface CellposeParams {
   cellprob_threshold?: number;
   niter?: number | null;
   min_mask_area?: number;
+  enable_clahe?: boolean;
 }
 
 export interface AllAnnotatedResult {
@@ -307,6 +308,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
             if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
             if (p.niter != null && p.niter > 0) inferArgs.niter = p.niter;
+            if (p.enable_clahe) inferArgs.enable_clahe = true;
 
             // Call cellpose infer
             const result = await cellposeService.infer(inferArgs);

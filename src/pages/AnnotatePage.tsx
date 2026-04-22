@@ -233,6 +233,7 @@ print('CLAHE packages ready')
         cellprob_threshold: cfg.cellprob_threshold,
         niter: cfg.niter,
         min_mask_area: cfg.min_mask_area,
+        enable_clahe: isCLAHEActive || undefined,
       });
 
       removeBanner(bannerId);

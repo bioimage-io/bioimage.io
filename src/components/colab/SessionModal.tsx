@@ -52,7 +52,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   // Common state
   const [sessionName, setSessionName] = useState('');
   const [sessionDescription, setSessionDescription] = useState('');
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState('object');
   const [newLabelValue, setNewLabelValue] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -435,11 +435,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
     }
     if (!/^[a-zA-Z0-9._-]+$/.test(finalLabel)) {
       setError('Label must contain only letters, numbers, dots, underscores, or hyphens.');
-      return;
-    }
-
-    if (dataSourceType !== 'resume' && !sessionDescription) {
-      setError('Please provide a description for your session.');
       return;
     }
 
@@ -948,7 +943,7 @@ print("Service registered successfully", end='')
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
+              Description <span className="text-gray-400 font-normal">(optional)</span>
             </label>
             <textarea
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
@@ -988,7 +983,6 @@ print("Service registered successfully", end='')
       {(() => {
         const missingFields: string[] = [];
         if (!sessionName) missingFields.push('session name');
-        if (!sessionDescription) missingFields.push('description');
         if (!label) missingFields.push('annotation label');
         const sourceIncomplete =
           (dataSourceType === 'local' && !localFolderHandle) ||

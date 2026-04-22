@@ -28,7 +28,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   model: 'cpsam',
   diameter: null,
   flow_threshold: 0.4,
-  cellprob_threshold: 0.0,
+  cellprob_threshold: -1.0,
   niter: null,
   min_mask_area: 100,
 };
