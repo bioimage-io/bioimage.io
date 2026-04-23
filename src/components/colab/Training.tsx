@@ -104,6 +104,10 @@ const Training: React.FC<TrainingProps> = ({
   // New state for stop training
   const [isStopping, setIsStopping] = useState(false);
 
+  // New state for delete session
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   // New state for chart tab
   const [activeChartTab, setActiveChartTab] = useState<'loss' | 'metrics'>('loss');
 
@@ -211,6 +215,14 @@ const Training: React.FC<TrainingProps> = ({
         if (status.status_type === 'completed') {
           setIsTraining(false);
           console.log('Training completed');
+          // Persist the completed session ID as the selected model for this artifact+label
+          const artifactForKey = status.dataset_artifact_id || storedArtifactId;
+          const labelForKey = storedLabel || label;
+          if (artifactForKey && labelForKey && sessionId) {
+            const storageKey = `colab-model:${artifactForKey}:${labelForKey}`;
+            localStorage.setItem(storageKey, sessionId);
+            console.log(`Saved trained model session ${sessionId} to localStorage key ${storageKey}`);
+          }
         } else if (status.status_type === 'failed') {
           setIsTraining(false);
           setError(status.message);
@@ -454,6 +466,7 @@ const Training: React.FC<TrainingProps> = ({
         weight_decay: Number(weightDecay),
         n_samples: null,
         min_train_masks: 1,
+        label: labelToUse || null,
         _rkwargs: true,
       };
 
@@ -591,6 +604,29 @@ const Training: React.FC<TrainingProps> = ({
     }
   };
 
+  const handleDeleteSession = async () => {
+    if (!sessionId || !server) return;
+
+    setIsDeleting(true);
+    setShowDeleteConfirm(false);
+    try {
+      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'last' });
+      await cellposeService.delete_training_session(sessionId);
+      console.log('Training session deleted:', sessionId);
+      // Navigate back after deletion
+      if (storedArtifactId) {
+        navigate(`/colab/${storedArtifactId}`);
+      } else {
+        navigate('/colab');
+      }
+    } catch (error) {
+      console.error('Error deleting training session:', error);
+      setError(`Failed to delete session: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleBack = () => {
     if (onBack) {
       onBack();
@@ -672,6 +708,7 @@ const Training: React.FC<TrainingProps> = ({
   );
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
       <div className="max-w-[1400px] mx-auto px-4 py-6">
         {/* Header */}
@@ -719,6 +756,18 @@ const Training: React.FC<TrainingProps> = ({
                     Stop Training
                   </>
                 )}
+              </button>
+            )}
+            {sessionId && ['completed', 'failed', 'stopped'].includes(statusType) && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-white border border-red-300 hover:bg-red-50 hover:border-red-400 disabled:opacity-50 text-red-600 text-sm rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Session
               </button>
             )}
             {sessionId && (
@@ -1502,6 +1551,41 @@ const Training: React.FC<TrainingProps> = ({
         )}
       </div>
     </div>
+
+    {/* Delete Session Confirmation Dialog */}
+    {showDeleteConfirm && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full mx-4 p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-800">Delete Training Session?</h3>
+          </div>
+          <p className="text-sm text-gray-600">
+            This will permanently delete session <span className="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded">{sessionId}</span> and all its data. This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-4 py-2 text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteSession}
+              disabled={isDeleting}
+              className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Session'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

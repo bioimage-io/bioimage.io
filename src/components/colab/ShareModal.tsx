@@ -144,6 +144,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
             const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
             const sessionsDict = await cellposeService.list_training_sessions({
               dataset_artifact_ids: [dataArtifactId],
+              labels: label ? [label] : undefined,
               _rkwargs: true
             });
 
@@ -210,7 +211,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
     return () => {
       mounted = false;
     };
-  }, [server, dataArtifactId, artifactManager]);
+  }, [server, dataArtifactId, label, artifactManager]);
 
   // Group models for select and order groups/models for better discoverability.
   const groupedModels = availableModels.reduce((acc, m) => {

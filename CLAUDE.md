@@ -173,6 +173,8 @@ The **core Python runtime library** (`bioimageio.core`) for loading and executin
 
 The **distributed AI inference backend** that powers the BioEngine — the in-browser model testing service on bioimage.io. Built on Ray and Ray Serve for auto-scaling GPU inference across cloud/HPC nodes. Exposes model serving via Hypha RPC, supports dataset streaming with access control, and manages custom application deployment. This is the server-side counterpart to the BioEngine frontend that lets users test models on the website.
 
+**BioEngine skill**: When working with BioEngine apps (deploying, updating, calling services), load the skill at `public/skills/bioengine/SKILL.md` first — it contains the canonical deploy workflow, CLI reference, and critical pitfalls. Key rule: always pass `--app-id <running-id>` when updating a deployed app; omitting it always creates a new random instance.
+
 ---
 
 ## Development Rules

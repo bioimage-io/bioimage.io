@@ -49,9 +49,76 @@ const ColabPageContent: React.FC = () => {
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [cellposeModel, setCellposeModel] = useState('cpsam');
   const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
+  const [modelBannerSession, setModelBannerSession] = useState<string | null>(null);
+
+  // Persist + load model selection per artifact+label
+  const getModelStorageKey = (artifactId: string, lbl: string) =>
+    `colab-model:${artifactId}:${lbl}`;
+
+  // Load persisted model when artifact+label changes and sync to Python service
+  useEffect(() => {
+    if (!dataArtifactId || !label) return;
+    const stored = localStorage.getItem(getModelStorageKey(dataArtifactId, label));
+    if (!stored) return;
+    setCellposeModel(stored);
+    // Sync to running Python service so getImage() returns the correct model
+    if (executeCode) {
+      executeCode(`
+try:
+    if "service_info" in globals() and "_hypha_client" in globals():
+        svc_id = service_info["service_id"]
+        svc = await _hypha_client.get_service(svc_id)
+        await svc.set_cellpose_model("${stored}")
+except Exception as e:
+    print(f"Failed to restore cellpose model: {e}")
+      `).catch(console.error);
+    }
+  }, [dataArtifactId, label]); // intentionally omit cellposeModel/executeCode — run once per session
+
+  // Poll localStorage for newly trained model (set by Training.tsx after completion)
+  useEffect(() => {
+    if (!dataArtifactId || !label) return;
+    const key = getModelStorageKey(dataArtifactId, label);
+
+    const checkForNewModel = () => {
+      const stored = localStorage.getItem(key);
+      if (stored && stored !== cellposeModel) {
+        setCellposeModel(stored);
+        setModelBannerSession(stored);
+        // Auto-dismiss banner after 10s
+        setTimeout(() => setModelBannerSession(null), 10000);
+        // Update running service
+        if (executeCode) {
+          executeCode(`
+try:
+    if "service_info" in globals() and "_hypha_client" in globals():
+        svc_id = service_info["service_id"]
+        svc = await _hypha_client.get_service(svc_id)
+        await svc.set_cellpose_model("${stored}")
+        print(f"Auto-updated cellpose model to ${stored}")
+except Exception as e:
+    print(f"Failed to auto-update cellpose model: {e}")
+          `).catch(console.error);
+        }
+      }
+    };
+
+    // Check on focus (user returns from Training page)
+    window.addEventListener('focus', checkForNewModel);
+    // Also check every 5 seconds
+    const interval = setInterval(checkForNewModel, 5000);
+    return () => {
+      window.removeEventListener('focus', checkForNewModel);
+      clearInterval(interval);
+    };
+  }, [dataArtifactId, label, cellposeModel, executeCode]);
 
   const handleCellposeModelChange = (model: string) => {
     setCellposeModel(model);
+    // Persist selection
+    if (dataArtifactId && label) {
+      localStorage.setItem(getModelStorageKey(dataArtifactId, label), model);
+    }
 
     // Keep the running annotation service in sync when available.
     if (executeCode) {
@@ -215,6 +282,10 @@ print("Packages installed", end='')
           const clientId = `colab-client-${Date.now()}`;
           const serviceId = `data-provider-${Date.now()}`;
 
+          // Read persisted model from localStorage before registering so the annotation UI
+          // sees the correct model from the very first getImage() call.
+          const storedModelForResume = localStorage.getItem(getModelStorageKey(fullArtifactId, sessionLabel)) || cellposeModel || 'cpsam';
+
           const registerCode = `
 service_info = await register_service(
     server_url="${serverUrl}",
@@ -226,7 +297,7 @@ service_info = await register_service(
     label="${sessionLabel}",
     client_id="${clientId}",
     service_id="${serviceId}",
-    cellpose_model="${cellposeModel || ''}"
+    cellpose_model="${storedModelForResume}"
 )
 print("Service registered successfully", end='')
 `;
@@ -590,6 +661,14 @@ print("Service registered successfully", end='')
   };
 
   const handleDeleteSuccess = () => {
+    setDataArtifactId(null);
+    setAnnotationsList([]);
+    setAnnotationURL('');
+    setLabel('');
+    navigate('/colab', { replace: true });
+  };
+
+  const handleLabelDeleteSuccess = (_deletedLabel: string) => {
     setDataArtifactId(null);
     setAnnotationsList([]);
     setAnnotationURL('');
@@ -1003,8 +1082,10 @@ print("Service registered successfully", end='')
         <DeleteArtifactModal
           setShowDeleteModal={setShowDeleteModal}
           dataArtifactId={dataArtifactId}
+          currentLabel={label}
           artifactManager={artifactManager}
           onDeleteSuccess={handleDeleteSuccess}
+          onLabelDeleteSuccess={handleLabelDeleteSuccess}
         />
       )}
 
@@ -1026,6 +1107,31 @@ print("Service registered successfully", end='')
             supportedFileTypes={supportedFileTypes}
             onClose={() => setShowGuideModal(false)}
           />
+        )}
+
+        {/* Auto-model floating banner */}
+        {modelBannerSession && (
+          <div className="fixed bottom-6 right-6 z-50 max-w-sm">
+            <div className="bg-green-600 text-white rounded-xl shadow-lg px-5 py-4 flex items-start gap-3 animate-slideIn">
+              <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">New model selected</p>
+                <p className="text-xs text-green-100 mt-0.5">
+                  Training completed — Cellpose model auto-updated to the new session.
+                </p>
+              </div>
+              <button
+                onClick={() => setModelBannerSession(null)}
+                className="text-green-200 hover:text-white transition-colors flex-shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

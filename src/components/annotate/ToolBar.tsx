@@ -78,13 +78,14 @@ export interface ToolBarProps {
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
   hasCustomCellposeConfig: boolean;
+  isLowContrast?: boolean;
 }
 
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
   onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
   sessionUrl, imageName, cellposeModel, cellposeAvailable = false,
-  isSaving, isRunningCellpose, isCLAHEActive,
+  isSaving, isRunningCellpose, isCLAHEActive, isLowContrast = false,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
   const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
@@ -223,9 +224,17 @@ const ToolBar: React.FC<ToolBarProps> = ({
           </IconButton>
         </Tooltip>
 
-        <Tooltip title={isCLAHEActive ? 'Restore Original Image' : 'Enhance Contrast (CLAHE)'} placement="right">
+        <Tooltip title={isCLAHEActive ? 'Restore Original Image' : isLowContrast && !isCLAHEActive ? 'Low contrast detected — Enhance Contrast (CLAHE)' : 'Enhance Contrast (CLAHE)'} placement="right">
           <IconButton size="small" data-tool="clahe" onClick={onToggleCLAHE}
-            sx={collapsedBtnSx(isCLAHEActive)}>
+            sx={isCLAHEActive ? collapsedBtnSx(true) : isLowContrast ? {
+              ...collapsedBtnSx(),
+              color: 'warning.main',
+              animation: 'clahe-pulse 2s ease-in-out infinite',
+              '@keyframes clahe-pulse': {
+                '0%, 100%': { boxShadow: '0 1px 3px rgba(0,0,0,0.18)' },
+                '50%': { boxShadow: '0 0 0 3px rgba(237,108,2,0.35)' },
+              },
+            } : collapsedBtnSx()}>
             <ContrastIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -418,14 +427,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
       </ButtonBase>
 
       <ButtonBase onClick={onToggleCLAHE} data-tool="clahe"
-        sx={{ ...rowSx(isCLAHEActive), '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.10)' : 'rgba(0,0,0,0.04)' } }}>
-        <ContrastIcon fontSize="small" sx={{ color: isCLAHEActive ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+        sx={{ ...rowSx(isCLAHEActive), '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.10)' : isLowContrast ? 'rgba(237,108,2,0.08)' : 'rgba(0,0,0,0.04)' } }}>
+        <ContrastIcon fontSize="small" sx={{ color: isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.secondary', mt: 0.2, flexShrink: 0 }} />
         <Box>
-          <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : 'text.primary'} display="block">
+          <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.primary'} display="block">
             {isCLAHEActive ? 'Restore Original' : 'Enhance Contrast'}
           </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-            CLAHE contrast enhancement
+          <Typography variant="caption" color={isLowContrast && !isCLAHEActive ? 'warning.main' : 'text.secondary'} display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+            {isLowContrast && !isCLAHEActive ? 'Low contrast detected' : 'CLAHE contrast enhancement'}
           </Typography>
         </Box>
       </ButtonBase>

@@ -32,7 +32,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
-  min_mask_area: 0,
+  min_mask_area: 30,
 };
 
 const STORAGE_KEY = 'cellpose-config';

@@ -93,6 +93,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
         const sessions = await cellposeService.list_training_sessions({
           dataset_artifact_ids: [dataArtifactId],
+          labels: label ? [label] : undefined,
           _rkwargs: true
         });
 
@@ -168,6 +169,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         weight_decay: Number(weightDecay),
         n_samples: null,
         min_train_masks: 1,
+        label: label || null,
         _rkwargs: true,
       };
 
@@ -193,7 +195,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
       // Close modal and navigate to training page in the same tab.
       setShowTrainingModal(false);
-      navigate(`/colab/training/${sessionId}`);
+      navigate(`/colab/training/${sessionId}`, { state: { dataArtifactId, label } });
 
     } catch (error) {
       console.error('Error starting training:', error);
@@ -263,7 +265,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       }
 
       setShowTrainingModal(false);
-      navigate(`/colab/training/${resolvedSessionId}`);
+      navigate(`/colab/training/${resolvedSessionId}`, { state: { dataArtifactId, label } });
     } catch (error) {
       console.error('Error resolving existing training session:', error);
       setError(`Failed to open training session: ${error instanceof Error ? error.message : String(error)}`);

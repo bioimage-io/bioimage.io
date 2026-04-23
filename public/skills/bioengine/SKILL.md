@@ -149,6 +149,15 @@ bioengine apps upload ./my-app/
 bioengine apps run my-workspace/my-app --app-id my-app
 ```
 
+> **CRITICAL — artifact ≠ app, `--app-id` is required to update**: One artifact can be deployed many times with different `--app-id`s. Running `bioengine apps run <artifact>` **without `--app-id` always creates a new instance with a random ID** — it never updates the existing one. To update a running app you MUST pass `--app-id <running-app-id>`. Before deploying, check `bioengine apps status` to find the correct running app ID, then pass it explicitly:
+> ```bash
+> # WRONG — spawns a brand-new random instance, does NOT update cellpose-finetuning:
+> bioengine apps run bioimage-io/cellpose-finetuning
+>
+> # CORRECT — updates the running 'cellpose-finetuning' instance to the latest artifact version:
+> bioengine apps run bioimage-io/cellpose-finetuning --app-id cellpose-finetuning
+> ```
+
 App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`  
 Deployments ready when all reach `HEALTHY`. Check logs: `bioengine apps logs my-app --tail 100`.
 
@@ -185,6 +194,7 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 | App UNHEALTHY — `HYPHA_TOKEN` missing | Use `--hypha-token $HYPHA_TOKEN`, not `--env HYPHA_TOKEN=...` |
 | Composition param name mismatch | `runtime_a:RuntimeA` must match `__init__` param name `runtime_a` |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |
+| Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
 
 ---
 

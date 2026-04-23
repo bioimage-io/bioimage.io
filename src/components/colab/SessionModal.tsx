@@ -852,7 +852,7 @@ print("Service registered successfully", end='')
                     const shortId = artifact.id.split('/').pop() || artifact.id;
                     return (
                       <option key={artifact.id} value={artifact.id}>
-                        {shortId} - {displayName}
+                        {displayName} ({shortId})
                       </option>
                     );
                   })}

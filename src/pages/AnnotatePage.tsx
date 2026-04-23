@@ -160,6 +160,7 @@ print('CLAHE packages ready')
     } catch { /* ignore */ }
   }, []);
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
+  const [isLowContrast, setIsLowContrast] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
@@ -193,6 +194,33 @@ print('CLAHE packages ready')
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
+  // Detect low contrast by sampling luminance values from the loaded image.
+  // Returns true when the 5th–95th percentile luminance range is below 60/255.
+  const detectLowContrast = useCallback((img: HTMLImageElement): boolean => {
+    try {
+      const SAMPLE = 256; // downscale to at most 256×256 for speed
+      const scale = Math.min(1, SAMPLE / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const lumas: number[] = [];
+      for (let i = 0; i < data.length; i += 4) {
+        lumas.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      }
+      lumas.sort((a, b) => a - b);
+      const p5 = lumas[Math.floor(lumas.length * 0.05)];
+      const p95 = lumas[Math.floor(lumas.length * 0.95)];
+      return (p95 - p5) < 60;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const loadNewImage = useCallback(async (showBanner = true) => {
     if (!service) return;
     setIsLoadingImage(true);
@@ -200,6 +228,7 @@ print('CLAHE packages ready')
     setAllAnnotatedInfo(null);
     setNoImagesInfo(null);
     setIsCLAHEActive(false);
+    setIsLowContrast(false);
     setOriginalImageUrl(null);
     console.log('[AnnotatePage] Loading new image...');
     const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
@@ -241,6 +270,7 @@ print('CLAHE packages ready')
         img.onerror = () => reject(new Error('Failed to load image'));
       });
       console.log('[AnnotatePage] Image loaded:', img.naturalWidth, 'x', img.naturalHeight);
+      setIsLowContrast(detectLowContrast(img));
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
     } catch (err: any) {
@@ -728,6 +758,7 @@ print("CLAHE_RESULT:" + result_b64)
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
+        isLowContrast={isLowContrast}
         hasCustomCellposeConfig={hasCustomCellposeConfig}
       />
       <Box sx={{ flex: 1, position: 'relative' }}>
