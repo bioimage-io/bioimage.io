@@ -137,27 +137,44 @@ const SessionModal: React.FC<SessionModalProps> = ({
       setNoArtifactsFound(false);
       setError(null);
       try {
-        const artifacts = await artifactManager.list({
-          parent_id: "bioimage-io/colab-annotations",
-          stage: true,
-          _rkwargs: true
-        });
-        const myArtifacts = artifacts.filter((a: any) =>
+        // Fetch both staged (draft) and committed artifacts, then deduplicate by id.
+        // Committed artifacts are put back into staging mode by colab_service.py
+        // (_ensure_artifact_exists calls edit(stage=True)) when a session resumes.
+        const [stagedArtifacts, committedArtifacts] = await Promise.allSettled([
+          artifactManager.list({ parent_id: "bioimage-io/colab-annotations", stage: true, _rkwargs: true }),
+          artifactManager.list({ parent_id: "bioimage-io/colab-annotations", _rkwargs: true }),
+        ]);
+
+        const seen = new Set<string>();
+        const allArtifacts: any[] = [];
+        for (const result of [stagedArtifacts, committedArtifacts]) {
+          if (result.status === 'fulfilled') {
+            for (const a of (result.value ?? [])) {
+              if (!seen.has(a.id)) {
+                seen.add(a.id);
+                allArtifacts.push(a);
+              }
+            }
+          }
+        }
+
+        const myArtifacts = allArtifacts.filter((a: any) =>
           a.manifest?.owner?.id === user.id || a.manifest?.created_by === user.id
         );
 
-        // Read full details for each to get the latest labels 
+        // Read full details for each to get the latest labels
         const fetchedArtifacts = await Promise.all(
           myArtifacts.map(async (a: any) => {
             try {
-              return await artifactManager.read({
-                 artifact_id: a.id,
-                 stage: true,
-                 _rkwargs: true
-              });
+              // Try staged read first; fall back to committed read
+              try {
+                return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true });
+              } catch {
+                return await artifactManager.read({ artifact_id: a.id, _rkwargs: true });
+              }
             } catch (e) {
               console.error("Failed to read details for", a.id, e);
-              return a; // fallback to shallow info
+              return a;
             }
           })
         );
