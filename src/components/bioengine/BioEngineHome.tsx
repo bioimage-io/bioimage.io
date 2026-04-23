@@ -6,10 +6,18 @@ import BioEngineGuide from './BioEngineGuide';
 const STORAGE_KEY = 'bioengine-observed-workspaces';
 const DEFAULT_PUBLIC_WORKSPACE = 'bioimage-io';
 
+type GeoLocation = {
+  region?: string;
+  country_name?: string;
+  country_code?: string;
+  continent_code?: string;
+};
+
 type BioEngineService = {
   id: string;
   name: string;
   description: string;
+  geo_location?: GeoLocation;
 };
 
 type WorkspaceStatus = 'loading' | 'loaded' | 'error';
@@ -66,6 +74,19 @@ const ServiceCard: React.FC<{
         </div>
 
         <p className="text-gray-600 mb-4 leading-relaxed">{service.description || 'No description available'}</p>
+
+        {service.geo_location && (
+          <div className="mb-3 flex items-center gap-1.5 text-sm text-gray-500">
+            <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span>
+              {[service.geo_location.region, service.geo_location.country_name, service.geo_location.continent_code]
+                .filter(Boolean).join(', ')}
+            </span>
+          </div>
+        )}
 
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">Service ID</label>
@@ -196,6 +217,25 @@ const BioEngineHome: React.FC = () => {
           }
           // Not found or other error → services remains empty
         }
+      }
+
+      // Enrich each service with geo_location from get_status()
+      if (services.length > 0) {
+        const geoResults = await Promise.allSettled(
+          services.map(async (svc) => {
+            try {
+              const worker = await server.getService(svc.id, { mode: 'random' });
+              const st = await worker.get_status();
+              return st?.geo_location ?? null;
+            } catch {
+              return null;
+            }
+          })
+        );
+        services = services.map((svc, i) => ({
+          ...svc,
+          geo_location: geoResults[i].status === 'fulfilled' ? geoResults[i].value ?? undefined : undefined,
+        }));
       }
 
       setWorkspaceServices(prev => ({ ...prev, [workspace]: services }));

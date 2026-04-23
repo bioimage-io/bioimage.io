@@ -42,6 +42,15 @@ type ServiceStatus = {
   client_id?: string;
   admin_users?: string[];
   is_ready?: boolean;
+  geo_location?: {
+    region?: string;
+    country_name?: string;
+    country_code?: string;
+    continent_code?: string;
+    latitude?: number;
+    longitude?: number;
+    timezone?: string;
+  };
   cluster?: {
     total_cpu: number;
     used_cpu: number;
@@ -297,12 +306,12 @@ const BioEngineWorker: React.FC = () => {
         setLoading(true);
       }
 
-      const bioengineWorker = await server.getService(serviceId, {mode: "last"});
+      const bioengineWorker = await server.getService(serviceId, {mode: "random"});
       let statusData = await bioengineWorker.get_status();
 
-      // Fetch deployed applications using new get_application_status API
+      // Fetch deployed applications using new get_app_status API
       try {
-        const appStatus = await bioengineWorker.get_application_status({ _rkwargs: true });
+        const appStatus = await bioengineWorker.get_app_status({ _rkwargs: true });
         console.log('Application status:', appStatus);
 
         // Merge application status into statusData.bioengine_apps
@@ -465,7 +474,7 @@ const BioEngineWorker: React.FC = () => {
 
       const bioengineWorker = await server.getService(serviceId);
 
-      await bioengineWorker.run_application({
+      await bioengineWorker.deploy_app({
         ...config,
         _rkwargs: true
       });
@@ -576,8 +585,7 @@ const BioEngineWorker: React.FC = () => {
       setUndeployingArtifactId(applicationId);
 
       const bioengineWorker = await server.getService(serviceId);
-      // Use new stop_application API
-      await bioengineWorker.stop_application({
+      await bioengineWorker.stop_app({
         application_id: applicationId,
         _rkwargs: true
       });
@@ -795,8 +803,8 @@ const BioEngineWorker: React.FC = () => {
       throw new Error('Service unavailable or user not logged in');
     }
 
-    const bioengineWorker = await server.getService(serviceId, { mode: 'last' });
-    const result = await bioengineWorker.get_application_status({
+    const bioengineWorker = await server.getService(serviceId, { mode: 'random' });
+    const result = await bioengineWorker.get_app_status({
       ...params,
       _rkwargs: true,
     });
@@ -1047,6 +1055,16 @@ const BioEngineWorker: React.FC = () => {
                     <div>
                       <span className="text-xs font-medium text-gray-500 block">BioEngine Version</span>
                       <span className="text-sm font-semibold text-gray-900 font-mono break-all">{status.bioengine_version}</span>
+                    </div>
+                  )}
+
+                  {status?.geo_location && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 block">Location</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {[status.geo_location.region, status.geo_location.country_name, status.geo_location.continent_code]
+                          .filter(Boolean).join(', ')}
+                      </span>
                     </div>
                   )}
                 </div>
