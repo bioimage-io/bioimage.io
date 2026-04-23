@@ -49,17 +49,59 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-       setVersion('');
-       setApplicationId(initialApplicationId || '');
-       setKwargs('{}');
-       setEnvVars('{}');
-       setHyphaToken('');
-       setDisableGpu(false);
-       setMaxOngoingRequests(10);
-       setAutoRedeploy(false);
-       setDebug(false);
-       setError(null);
-       setShowAdvanced(false);
+      setApplicationId(initialApplicationId || '');
+      setError(null);
+      setHyphaToken('');
+
+      // Pre-populate from running app metadata when updating
+      const runningApp = initialApplicationId && bioengineApps
+        ? bioengineApps[initialApplicationId]
+        : null;
+      const isRunning = Boolean(runningApp && ['RUNNING', 'HEALTHY'].includes(runningApp?.status));
+
+      if (isRunning && runningApp) {
+        setVersion(runningApp.version || '');
+
+        const appKwargs = runningApp.application_kwargs ?? null;
+        setKwargs(appKwargs && typeof appKwargs === 'object' && Object.keys(appKwargs).length > 0
+          ? JSON.stringify(appKwargs, null, 2)
+          : '{}');
+
+        const appEnvVars = runningApp.application_env_vars ?? null;
+        setEnvVars(appEnvVars && typeof appEnvVars === 'object' && Object.keys(appEnvVars).length > 0
+          ? JSON.stringify(appEnvVars, null, 2)
+          : '{}');
+
+        // get_app_status returns gpu_enabled (= !disable_gpu); recovered apps also return disable_gpu directly
+        const disableGpuVal = runningApp.disable_gpu !== undefined
+          ? Boolean(runningApp.disable_gpu)
+          : runningApp.gpu_enabled !== undefined ? !runningApp.gpu_enabled : false;
+        setDisableGpu(disableGpuVal);
+
+        setMaxOngoingRequests(runningApp.max_ongoing_requests ?? 10);
+        setAutoRedeploy(runningApp.auto_redeploy ?? false);
+        // debug is only returned for recovered apps; default false otherwise
+        setDebug(runningApp.debug ?? false);
+
+        // Auto-expand advanced section if any non-default value was loaded
+        const hasNonDefaults =
+          (appKwargs && Object.keys(appKwargs).length > 0) ||
+          (appEnvVars && Object.keys(appEnvVars).length > 0) ||
+          disableGpuVal ||
+          (runningApp.auto_redeploy ?? false) ||
+          (runningApp.debug ?? false) ||
+          (runningApp.max_ongoing_requests !== undefined && runningApp.max_ongoing_requests !== 10);
+        setShowAdvanced(Boolean(hasNonDefaults));
+      } else {
+        setVersion('');
+        setKwargs('{}');
+        setEnvVars('{}');
+        setDisableGpu(false);
+        setMaxOngoingRequests(10);
+        setAutoRedeploy(false);
+        setDebug(false);
+        setShowAdvanced(false);
+      }
     }
   }, [isOpen, initialMode, initialApplicationId]);
 
@@ -120,6 +162,12 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
             </div>
           )}
 
+          {isUpdateTarget && !showRecoveredAppWarning && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg text-sm mb-4">
+              Parameters loaded from the running application. Hypha token is not shown and must be re-entered if needed.
+            </div>
+          )}
+
           {showRecoveredAppWarning && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm mb-4">
               <div className="font-semibold mb-2">⚠️ Recovered Application Warning</div>
@@ -140,19 +188,19 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Artifact ID</label>
-              <input 
-                type="text" 
-                value={artifactId} 
-                disabled 
+              <input
+                type="text"
+                value={artifactId}
+                disabled
                 className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed"
               />
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Application ID (Optional)</label>
-              <input 
-                type="text" 
-                value={applicationId} 
+              <input
+                type="text"
+                value={applicationId}
                 onChange={(e) => setApplicationId(e.target.value)}
                 placeholder="Auto-generated"
                 className={`w-full px-3 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
@@ -171,6 +219,17 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     : 'This ID is currently unused. Submitting will create a new deployment instance with this ID.'}
                 </p>
               )}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Version</label>
+              <input
+                type="text"
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                placeholder="Latest"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+              />
             </div>
 
             <div className="md:col-span-2">
@@ -193,65 +252,64 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
 
             {showAdvanced && (
               <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Version</label>
-                  <input 
-                    type="text" 
-                    value={version} 
-                    onChange={(e) => setVersion(e.target.value)}
-                    placeholder="Latest"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Max Ongoing Requests</label>
-                  <input 
-                    type="number" 
-                    min="1"
-                    value={maxOngoingRequests} 
-                    onChange={(e) => setMaxOngoingRequests(e.target.value === '' ? '' : parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
-                  />
-                </div>
-
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Application Kwargs (JSON)
-                    <span className="text-gray-400 font-normal ml-2 text-xs">Arguments passed to application initialization</span>
+                    <span className="text-gray-400 font-normal ml-2 text-xs">Keyword arguments passed to each deployment in the app at initialization</span>
                   </label>
-                  <textarea 
-                    value={kwargs} 
+                  <textarea
+                    value={kwargs}
                     onChange={(e) => setKwargs(e.target.value)}
-                    rows={1}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm"
+                    style={{ resize: 'vertical', minHeight: `${Math.max(3, (kwargs.match(/\n/g) || []).length + 2) * 1.5}em` }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm overflow-x-auto whitespace-pre"
                     placeholder="{}"
+                    wrap="off"
                   />
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Environment Variables (JSON)
-                    <span className="text-gray-400 font-normal ml-2 text-xs">Environment variables for the application</span>
+                    <span className="text-gray-400 font-normal ml-2 text-xs">Environment variables injected into each deployment in the app</span>
                   </label>
-                  <textarea 
-                    value={envVars} 
+                  <textarea
+                    value={envVars}
                     onChange={(e) => setEnvVars(e.target.value)}
-                    rows={1}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm"
+                    style={{ resize: 'vertical', minHeight: `${Math.max(3, (envVars.match(/\n/g) || []).length + 2) * 1.5}em` }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm overflow-x-auto whitespace-pre"
                     placeholder="{}"
+                    wrap="off"
                   />
+                  {isUpdateTarget && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Variables prefixed with <code className="bg-gray-100 px-0.5 rounded">_</code> are secret: their value is shown as <code className="bg-gray-100 px-0.5 rounded">*****</code> here, but the app receives them without the prefix and with the original value (e.g. <code className="bg-gray-100 px-0.5 rounded">_HYPHA_TOKEN</code> → <code className="bg-gray-100 px-0.5 rounded">HYPHA_TOKEN</code>).
+                    </p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hypha Token</label>
-                  <input 
-                    type="password" 
-                    value={hyphaToken} 
+                  <input
+                    type="password"
+                    value={hyphaToken}
                     onChange={(e) => setHyphaToken(e.target.value)}
                     autoComplete="off"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
                     placeholder="None"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Sets <code className="bg-gray-100 px-0.5 rounded">HYPHA_TOKEN</code> for all deployments in this app. To use different tokens per deployment, set <code className="bg-gray-100 px-0.5 rounded">_HYPHA_TOKEN</code> in the Environment Variables field above instead — the leading underscore keeps the value secret.
+                  </p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Max Ongoing Requests</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={maxOngoingRequests}
+                    onChange={(e) => setMaxOngoingRequests(e.target.value === '' ? '' : parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
                   />
                 </div>
 

@@ -744,7 +744,7 @@ spec:
                       />
                       {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                       {isLoggedIn && !tokenIsManual && token && (
-                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Store as a Kubernetes secret for deployment.</p>
+                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token — regenerate when it expires using the button above.</p>
                       )}
                       <p className="text-xs text-gray-500 mt-1">Used to resolve workspace and populate the deployment YAML. Store in a Kubernetes secret for production.</p>
                     </div>
@@ -895,6 +895,11 @@ spec:
                   <p className="text-sm text-orange-700">
                     BioEngine runs inside a container. Install one of the supported runtimes: <strong>Docker</strong> (most common), <strong>Podman</strong> (rootless alternative), <strong>Apptainer</strong> (HPC, Singularity successor), or <strong>Singularity</strong>. The latest image is ~1.1 GB and will be pulled automatically on first run.
                   </p>
+                  {gpus > 0 && (
+                    <p className="text-sm text-orange-700 mt-2">
+                      <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-900">installation guide</a>.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1111,7 +1116,7 @@ spec:
                     />
                     {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                     {isLoggedIn && !tokenIsManual && token && (
-                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token.</p>
+                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token — regenerate when it expires using the button above.</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
                       Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>.
