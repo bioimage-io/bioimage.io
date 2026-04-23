@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip } from '@mui/material';
+import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip, useMediaQuery, useTheme } from '@mui/material';
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
@@ -66,11 +66,14 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     return backTo || '/colab';
   }, [sessionId, serviceConfig?.label, backTo]);
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
+
   const { service, loading: serviceLoading, error: serviceError, cellposeAvailable } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
-  
+
   const [dynamicCellposeModel, setDynamicCellposeModel] = useState<string | undefined>(undefined);
   
   const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
@@ -636,6 +639,43 @@ print("CLAHE_RESULT:" + result_b64)
     }
   }, [measurePhase, measurePt1, getOlMap]);
 
+  // Touch equivalents for the measurement overlay (mobile/tablet support)
+  const handleMeasureTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (measurePhase === 'idle') return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMeasureScreenMouse([touch.clientX - rect.left, touch.clientY - rect.top]);
+  }, [measurePhase]);
+
+  const handleMeasureTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const map = getOlMap?.();
+    if (!map) return;
+    // Use changedTouches (the finger that was lifted)
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pixel: [number, number] = [touch.clientX - rect.left, touch.clientY - rect.top];
+    const coord = map.getCoordinateFromPixel(pixel);
+    const screenPos: [number, number] = pixel;
+
+    if (measurePhase === 'first') {
+      setMeasurePt1([coord[0], coord[1]]);
+      setMeasureScreenPt1(screenPos);
+      setMeasurePhase('second');
+    } else if (measurePhase === 'second' && measurePt1) {
+      const dx = coord[0] - measurePt1[0];
+      const dy = coord[1] - measurePt1[1];
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      measureCallbackRef.current?.(dist);
+      measureCallbackRef.current = null;
+      setMeasurePhase('idle');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    }
+  }, [measurePhase, measurePt1, getOlMap]);
+
   const handleUploadGeoJSON = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -686,10 +726,10 @@ print("CLAHE_RESULT:" + result_b64)
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* Compact header with logo and user button */}
       <div
-        className="flex items-center justify-between px-4 h-10 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
-        style={{ position: 'relative', zIndex: 1000 }}
+        className="flex items-center justify-between px-3 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
+        style={{ position: 'relative', zIndex: 1000, height: isMobile ? 48 : 40 }}
       >
-        <div className="flex items-center gap-2 z-10">
+        <div className="flex items-center gap-2 z-10 flex-shrink-0">
           {sessionUrl && (
             <Tooltip title="Go back to the Colab session — view all images, annotation progress, and training">
               <MuiButton
@@ -699,7 +739,7 @@ print("CLAHE_RESULT:" + result_b64)
                 onClick={() => navigate(backTarget)}
                 sx={{
                   minWidth: 'auto',
-                  padding: '3px 10px',
+                  padding: isMobile ? '5px 8px' : '3px 10px',
                   color: '#1976d2',
                   borderColor: 'rgba(25,118,210,0.45)',
                   bgcolor: 'rgba(255,255,255,0.7)',
@@ -713,14 +753,17 @@ print("CLAHE_RESULT:" + result_b64)
                   }
                 }}
               >
-                Session overview
+                {/* Hide text on phones to save space */}
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Session overview
+                </Box>
               </MuiButton>
             </Tooltip>
           )}
         </div>
 
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
-          <Link to="/" className="flex items-center group">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2">
+          <Link to="/" className="flex items-center group flex-shrink-0">
             <img
               src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
               alt="BioImage.IO"
@@ -728,13 +771,13 @@ print("CLAHE_RESULT:" + result_b64)
             />
           </Link>
           {serviceConfig?.label && (
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide">
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide max-w-[120px] truncate sm:max-w-none">
               {serviceConfig.label}
             </span>
           )}
         </div>
 
-        <div className="z-10">
+        <div className="z-10 flex-shrink-0">
           <LoginButton />
         </div>
       </div>
@@ -777,22 +820,26 @@ print("CLAHE_RESULT:" + result_b64)
         {/* Diameter measurement overlay */}
         {measurePhase !== 'idle' && (
           <Box
-            sx={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'crosshair' }}
+            sx={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'crosshair', touchAction: 'none' }}
             onClick={handleMeasureClick}
             onMouseMove={handleMeasureMouseMove}
+            onTouchMove={handleMeasureTouchMove}
+            onTouchEnd={handleMeasureTouchEnd}
           >
             {/* Instruction banner */}
             <Box sx={{
               position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
               bgcolor: 'rgba(0,0,0,0.78)', color: '#fff',
-              px: 3, py: 1.25, borderRadius: 2,
-              fontSize: '0.875rem', pointerEvents: 'none', zIndex: 10,
-              display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap',
+              px: { xs: 2, sm: 3 }, py: 1.25, borderRadius: 2,
+              fontSize: { xs: '0.8rem', sm: '0.875rem' }, pointerEvents: 'none', zIndex: 10,
+              display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 },
+              whiteSpace: 'normal', textAlign: 'center',
+              maxWidth: { xs: 'calc(100% - 32px)', sm: 'none' },
             }}>
               {measurePhase === 'first'
-                ? 'Click one edge of a representative cell'
-                : 'Click the opposite edge to complete measurement'}
-              <Box component="span" sx={{ fontSize: '0.75rem', opacity: 0.65 }}>Esc to cancel</Box>
+                ? 'Tap one edge of a representative cell'
+                : 'Tap the opposite edge to complete measurement'}
+              <Box component="span" sx={{ fontSize: '0.75rem', opacity: 0.65, display: { xs: 'none', sm: 'inline' } }}>Esc to cancel</Box>
             </Box>
 
             {/* SVG ruler line */}

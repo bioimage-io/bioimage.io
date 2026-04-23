@@ -103,7 +103,9 @@ const FloatingBanners: React.FC<FloatingBannersProps> = ({ banners }) => {
           flexDirection: 'column',
           gap: 1,
           pointerEvents: 'none',
-          maxWidth: 360,
+          // On phones, banners stretch near full width; on desktop cap at 360px
+          maxWidth: { xs: 'calc(100% - 16px)', sm: 360 },
+          width: { xs: 'calc(100% - 16px)', sm: 'auto' },
         }}
       >
         {banners.map((banner) => (
