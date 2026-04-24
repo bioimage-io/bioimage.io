@@ -83,15 +83,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
         // debug is only returned for recovered apps; default false otherwise
         setDebug(runningApp.debug ?? false);
 
-        // Auto-expand advanced section if any non-default value was loaded
-        const hasNonDefaults =
-          (appKwargs && Object.keys(appKwargs).length > 0) ||
-          (appEnvVars && Object.keys(appEnvVars).length > 0) ||
-          disableGpuVal ||
-          (runningApp.auto_redeploy ?? false) ||
-          (runningApp.debug ?? false) ||
-          (runningApp.max_ongoing_requests !== undefined && runningApp.max_ongoing_requests !== 10);
-        setShowAdvanced(Boolean(hasNonDefaults));
+        setShowAdvanced(false);
       } else {
         setVersion('');
         setKwargs('{}');
