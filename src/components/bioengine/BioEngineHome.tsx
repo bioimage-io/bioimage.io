@@ -10,7 +10,6 @@ type GeoLocation = {
   region?: string;
   country_name?: string;
   country_code?: string;
-  continent_code?: string;
 };
 
 type BioEngineService = {
@@ -82,7 +81,7 @@ const ServiceCard: React.FC<{
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
             <span>
-              {[service.geo_location.region, service.geo_location.country_name, service.geo_location.continent_code]
+              {[service.geo_location.region, service.geo_location.country_name]
                 .filter(Boolean).join(', ')}
             </span>
           </div>

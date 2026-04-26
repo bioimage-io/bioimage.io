@@ -46,7 +46,6 @@ type ServiceStatus = {
     region?: string;
     country_name?: string;
     country_code?: string;
-    continent_code?: string;
     latitude?: number;
     longitude?: number;
     timezone?: string;
@@ -1069,7 +1068,7 @@ const BioEngineWorker: React.FC = () => {
                     <div>
                       <span className="text-xs font-medium text-gray-500 block">Location</span>
                       <span className="text-sm font-semibold text-gray-900">
-                        {[status.geo_location.region, status.geo_location.country_name, status.geo_location.continent_code]
+                        {[status.geo_location.region, status.geo_location.country_name]
                           .filter(Boolean).join(', ')}
                       </span>
                     </div>
