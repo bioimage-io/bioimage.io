@@ -8,6 +8,15 @@ interface DeploymentConfigModalProps {
   initialMode: string | null; // 'cpu' or 'gpu'
   bioengineApps?: Record<string, any>; // All bioengine apps keyed by application ID
   initialApplicationId?: string;
+  manifest?: any; // App manifest for hints (deployment names, etc.)
+}
+
+/** Extract deployment class names from manifest.deployments ("module:ClassName" entries). */
+function getDeploymentClassNames(manifest?: any): string[] {
+  if (!Array.isArray(manifest?.deployments)) return [];
+  return manifest.deployments
+    .map((d: string) => (typeof d === 'string' ? d.split(':').pop() || d : ''))
+    .filter(Boolean);
 }
 
 const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
@@ -17,7 +26,8 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
   artifactId,
   initialMode,
   bioengineApps,
-  initialApplicationId
+  initialApplicationId,
+  manifest,
 }) => {
   const [version, setVersion] = useState<string>('');
   const [applicationId, setApplicationId] = useState<string>('');
@@ -28,15 +38,17 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
   const [maxOngoingRequests, setMaxOngoingRequests] = useState<number | ''>(10);
   const [autoRedeploy, setAutoRedeploy] = useState<boolean>(false);
   const [debug, setDebug] = useState<boolean>(false);
+  const [authorizedUsers, setAuthorizedUsers] = useState<string>('');
+  const [iceServers, setIceServers] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   // Check if app is recovered and should show warning
-  // For testing: either set REACT_APP_TEST_RECOVERED_APP=true in .env, or 
+  // For testing: either set REACT_APP_TEST_RECOVERED_APP=true in .env, or
   // set localStorage.setItem('test_recovered_app', 'true') in browser console
-  const testMode = process.env.REACT_APP_TEST_RECOVERED_APP === 'true' || 
+  const testMode = process.env.REACT_APP_TEST_RECOVERED_APP === 'true' ||
                    typeof window !== 'undefined' && localStorage.getItem('test_recovered_app') === 'true';
-  
+
   // Look up the app by its applicationId to check if it's recovered
   const appData = applicationId && bioengineApps ? bioengineApps[applicationId] : null;
   const showRecoveredAppWarning = applicationId && (testMode || appData?.recovered_app === true);
@@ -46,6 +58,9 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
   const isApplicationIdValid = !hasApplicationId || applicationIdPattern.test(applicationId);
   const selectedApp = hasApplicationId && bioengineApps ? bioengineApps[applicationId.trim()] : null;
   const isUpdateTarget = Boolean(selectedApp && typeof selectedApp === 'object' && ['RUNNING', 'HEALTHY'].includes(selectedApp.status));
+
+  // Deployment class names from manifest (for hints)
+  const deploymentClassNames = getDeploymentClassNames(manifest);
 
   useEffect(() => {
     if (isOpen) {
@@ -83,6 +98,18 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
         // debug is only returned for recovered apps; default false otherwise
         setDebug(runningApp.debug ?? false);
 
+        // authorized_users (v0.8.0+): dict keyed by method name
+        const appAuthorizedUsers = runningApp.authorized_users ?? null;
+        setAuthorizedUsers(appAuthorizedUsers && typeof appAuthorizedUsers === 'object'
+          ? JSON.stringify(appAuthorizedUsers, null, 2)
+          : '');
+
+        // ice_servers (v0.7.2+): list of STUN/TURN server configs
+        const appIceServers = runningApp.ice_servers ?? null;
+        setIceServers(Array.isArray(appIceServers) && appIceServers.length > 0
+          ? JSON.stringify(appIceServers, null, 2)
+          : '');
+
         setShowAdvanced(false);
       } else {
         setVersion('');
@@ -92,6 +119,8 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
         setMaxOngoingRequests(10);
         setAutoRedeploy(false);
         setDebug(false);
+        setAuthorizedUsers('');
+        setIceServers('');
         setShowAdvanced(false);
       }
     }
@@ -111,12 +140,22 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
         if (kwargs && kwargs.trim() !== '') {
             parsedKwargs = JSON.parse(kwargs);
         }
-        
+
         let parsedEnvVars = null;
         if (envVars && envVars.trim() !== '') {
             parsedEnvVars = JSON.parse(envVars);
         }
-        
+
+        let parsedAuthorizedUsers = null;
+        if (authorizedUsers && authorizedUsers.trim() !== '') {
+            parsedAuthorizedUsers = JSON.parse(authorizedUsers);
+        }
+
+        let parsedIceServers = null;
+        if (iceServers && iceServers.trim() !== '') {
+            parsedIceServers = JSON.parse(iceServers);
+        }
+
         onDeploy({
             artifact_id: artifactId,
             version: version || null,
@@ -127,13 +166,17 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
             disable_gpu: disableGpu,
             max_ongoing_requests: maxOngoingRequests !== '' ? maxOngoingRequests : null,
             auto_redeploy: autoRedeploy,
-            debug: debug
+            debug: debug,
+            authorized_users: parsedAuthorizedUsers,
+            ice_servers: parsedIceServers,
         });
         onClose();
     } catch (err) {
-        setError('Invalid JSON in Application Kwargs or Env Vars. Please ensure valid JSON format.');
+        setError('Invalid JSON in one or more fields. Please ensure valid JSON format.');
     }
   };
+
+  const textareaSx = "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm overflow-x-auto whitespace-pre";
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -146,7 +189,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
             </svg>
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
@@ -253,10 +296,17 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     value={kwargs}
                     onChange={(e) => setKwargs(e.target.value)}
                     style={{ resize: 'vertical', minHeight: `${Math.max(3, (kwargs.match(/\n/g) || []).length + 2) * 1.5}em` }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm overflow-x-auto whitespace-pre"
+                    className={textareaSx}
                     placeholder="{}"
                     wrap="off"
                   />
+                  {deploymentClassNames.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Deployments in this app: {deploymentClassNames.map(n => (
+                        <code key={n} className="bg-gray-100 px-0.5 rounded mx-0.5">{n}</code>
+                      ))}.
+                    </p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
@@ -268,7 +318,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     value={envVars}
                     onChange={(e) => setEnvVars(e.target.value)}
                     style={{ resize: 'vertical', minHeight: `${Math.max(3, (envVars.match(/\n/g) || []).length + 2) * 1.5}em` }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-mono text-sm overflow-x-auto whitespace-pre"
+                    className={textareaSx}
                     placeholder="{}"
                     wrap="off"
                   />
@@ -277,6 +327,27 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                       Variables prefixed with <code className="bg-gray-100 px-0.5 rounded">_</code> are secret: their value is shown as <code className="bg-gray-100 px-0.5 rounded">*****</code> here, but the app receives them without the prefix and with the original value (e.g. <code className="bg-gray-100 px-0.5 rounded">_HYPHA_TOKEN</code> → <code className="bg-gray-100 px-0.5 rounded">HYPHA_TOKEN</code>).
                     </p>
                   )}
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Authorized Users (JSON)
+                    <span className="text-gray-400 font-normal ml-2 text-xs">Per-method access control</span>
+                  </label>
+                  <textarea
+                    value={authorizedUsers}
+                    onChange={(e) => setAuthorizedUsers(e.target.value)}
+                    style={{ resize: 'vertical', minHeight: `${Math.max(3, (authorizedUsers.match(/\n/g) || []).length + 2) * 1.5}em` }}
+                    className={textareaSx}
+                    placeholder={'{\n  "*": ["*"]\n}'}
+                    wrap="off"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Dict mapping method names to allowed user lists. Use <code className="bg-gray-100 px-0.5 rounded">"*"</code> as key to apply a rule to all methods; <code className="bg-gray-100 px-0.5 rounded">["*"]</code> as value for public access.
+                    Example: <code className="bg-gray-100 px-0.5 rounded">{"{"}"run_inference": ["*"], "train": ["admin@lab.edu"]{"}"}</code>.
+                    Leave empty to use the app's default access control (public access).
+                    Admin users are always added automatically.
+                  </p>
                 </div>
 
                 <div className="md:col-span-2">
@@ -303,38 +374,66 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     onChange={(e) => setMaxOngoingRequests(e.target.value === '' ? '' : parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Maximum number of requests the Hypha service wrapper handles concurrently. This does not change the concurrency settings of individual deployments inside the app — a deployment such as a training job may still only process one request at a time regardless of this value.</p>
                 </div>
 
-                <div className="md:col-span-2 flex items-center space-x-6 pt-2">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={disableGpu} 
+                <div className="md:col-span-2 space-y-3 pt-1">
+                  <label className="flex items-start space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={disableGpu}
                       onChange={(e) => setDisableGpu(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="w-4 h-4 mt-0.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0"
                     />
-                    <span className="text-sm font-medium text-gray-700">Disable GPU</span>
+                    <span>
+                      <span className="text-sm font-medium text-gray-700 block">Disable GPU</span>
+                      <span className="text-xs text-gray-500">Force CPU-only mode even if the app requests a GPU. Useful for testing or when no GPU is available.</span>
+                    </span>
                   </label>
 
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={autoRedeploy} 
+                  <label className="flex items-start space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoRedeploy}
                       onChange={(e) => setAutoRedeploy(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="w-4 h-4 mt-0.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0"
                     />
-                    <span className="text-sm font-medium text-gray-700">Auto Redeploy</span>
+                    <span>
+                      <span className="text-sm font-medium text-gray-700 block">Auto Redeploy</span>
+                      <span className="text-xs text-gray-500">Automatically redeploy this app if it enters a failed or unhealthy state. Recommended for production apps that should recover without manual intervention.</span>
+                    </span>
                   </label>
 
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={debug} 
+                  <label className="flex items-start space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={debug}
                       onChange={(e) => setDebug(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="w-4 h-4 mt-0.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0"
                     />
-                    <span className="text-sm font-medium text-gray-700">Debug Mode</span>
+                    <span>
+                      <span className="text-sm font-medium text-gray-700 block">Debug Mode</span>
+                      <span className="text-xs text-gray-500">Enable verbose logging for all deployments in this app. Increases log output — use only for troubleshooting.</span>
+                    </span>
                   </label>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    ICE Servers (JSON)
+                    <span className="text-gray-400 font-normal ml-2 text-xs">Custom STUN/TURN servers for WebRTC</span>
+                  </label>
+                  <textarea
+                    value={iceServers}
+                    onChange={(e) => setIceServers(e.target.value)}
+                    style={{ resize: 'vertical', minHeight: `${Math.max(5, (iceServers.match(/\n/g) || []).length + 2) * 1.5}em` }}
+                    className={textareaSx}
+                    placeholder={'[\n  { "urls": "stun:stun.example.com:3478" },\n  { "urls": "turn:turn.example.com:3478", "username": "user", "credential": "pass" }\n]'}
+                    wrap="off"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Inject custom STUN/TURN servers at deploy time. If left empty, the public ICE servers at hypha.aicell.io (located in Stockholm, Sweden) will be used.
+                  </p>
                 </div>
               </>
             )}

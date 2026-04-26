@@ -177,7 +177,7 @@ const BioEngineWorker: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [workerMcpCopied, setWorkerMcpCopied] = useState(false);
   const [showDeployConfig, setShowDeployConfig] = useState(false);
-  const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string} | null>(null);
+  const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string, manifest?: any} | null>(null);
 
   // Update current time every second for live uptime calculation
   useEffect(() => {
@@ -516,10 +516,17 @@ const BioEngineWorker: React.FC = () => {
       });
 
       const existingApplicationId = deployedEntry ? deployedEntry[0] : undefined;
+      // Resolve manifest: prefer the deployed app's manifest (most up-to-date),
+      // fall back to the manifest cache populated during status fetch.
+      const deployedManifest = existingApplicationId
+        ? (currentDeployments[existingApplicationId] as any)?.manifest
+        : undefined;
+      const resolvedManifest = deployedManifest || manifestCacheRef.current[artifactId] || undefined;
       setPendingDeployment({
-      artifactId,
-      mode: deployMode,
-      applicationId: existingApplicationId,
+        artifactId,
+        mode: deployMode,
+        applicationId: existingApplicationId,
+        manifest: resolvedManifest,
       });
      setShowDeployConfig(true);
   };
@@ -1187,6 +1194,7 @@ const BioEngineWorker: React.FC = () => {
             initialMode={pendingDeployment.mode}
             bioengineApps={status?.bioengine_apps}
             initialApplicationId={pendingDeployment.applicationId}
+            manifest={pendingDeployment.manifest}
           />
         )}
       </div>
