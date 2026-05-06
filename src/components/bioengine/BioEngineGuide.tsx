@@ -3,6 +3,105 @@ import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
 
 type OSType = 'macos' | 'linux' | 'windows';
+
+// Tag-badge input: space/enter commits a tag, backspace on empty field focuses last tag,
+// arrow keys navigate tags, delete/backspace removes focused tag.
+const TagInput: React.FC<{
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  placeholder?: string;
+  allowWildcard?: boolean;
+}> = ({ tags, onChange, placeholder, allowWildcard = true }) => {
+  const [inputValue, setInputValue] = useState('');
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const commit = (value: string) => {
+    const v = value.trim();
+    if (v && !tags.includes(v) && (allowWildcard || v !== '*')) onChange([...tags, v]);
+    setInputValue('');
+  };
+
+  const remove = (idx: number) => {
+    const next = tags.filter((_, i) => i !== idx);
+    onChange(next);
+    if (next.length === 0) { setFocusedIdx(null); inputRef.current?.focus(); }
+    else if (idx >= next.length) setFocusedIdx(next.length - 1);
+    else setFocusedIdx(idx);
+  };
+
+  useEffect(() => {
+    if (focusedIdx === null) return;
+    const els = containerRef.current?.querySelectorAll<HTMLElement>('[data-tag-badge]');
+    els?.[focusedIdx]?.focus();
+  }, [focusedIdx]);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((e.key === ' ' || e.key === 'Enter') && inputValue.trim()) {
+      e.preventDefault(); commit(inputValue);
+    } else if (e.key === 'Backspace' && !inputValue && tags.length > 0) {
+      e.preventDefault(); setFocusedIdx(tags.length - 1);
+    } else if (e.key === 'ArrowLeft' && !inputValue && tags.length > 0) {
+      e.preventDefault(); setFocusedIdx(tags.length - 1);
+    }
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>, idx: number) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault(); remove(idx);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (idx > 0) setFocusedIdx(idx - 1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (idx < tags.length - 1) setFocusedIdx(idx + 1);
+      else { setFocusedIdx(null); inputRef.current?.focus(); }
+    } else if (e.key.length === 1) {
+      setFocusedIdx(null); inputRef.current?.focus();
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      onClick={() => { if (focusedIdx === null) inputRef.current?.focus(); }}
+      className="flex flex-wrap gap-1.5 items-center min-h-[38px] px-2.5 py-1.5 border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 bg-white cursor-text"
+    >
+      {tags.map((tag, i) => (
+        <span
+          key={tag}
+          data-tag-badge
+          tabIndex={0}
+          onFocus={() => setFocusedIdx(i)}
+          onBlur={() => setFocusedIdx(null)}
+          onKeyDown={(e) => handleTagKeyDown(e, i)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border outline-none select-none bg-blue-100 text-blue-700 border-blue-200 focus:ring-2 focus:ring-blue-400"
+        >
+          {tag}
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => { e.stopPropagation(); remove(i); }}
+            className="opacity-50 hover:opacity-100 leading-none ml-0.5"
+            aria-label={`Remove ${tag}`}
+          >×</button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        placeholder={tags.length === 0 ? placeholder : ''}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleInputKeyDown}
+        onFocus={() => setFocusedIdx(null)}
+        onBlur={() => { if (inputValue.trim()) commit(inputValue); }}
+        className="flex-1 min-w-[140px] outline-none text-sm bg-transparent py-0.5"
+      />
+    </div>
+  );
+};
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
@@ -32,7 +131,7 @@ const BioEngineGuide: React.FC = () => {
   const [workspace, setWorkspace] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [rayAddress, setRayAddress] = useState('');
-  const [adminUsers, setAdminUsers] = useState('');
+  const [adminUsers, setAdminUsers] = useState<string[]>([]);
   const [workerName, setWorkerName] = useState('');
   const [workspaceDir, setWorkspaceDir] = useState('');
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -161,12 +260,8 @@ const BioEngineGuide: React.FC = () => {
     if (workspace) args.push(`--workspace "${workspace}"`);
     if (serverUrl) args.push(`--server-url ${serverUrl}`);
     if (token) args.push(`--token ${token}`);
-    if (adminUsers) {
-      if (adminUsers === '*') {
-        args.push(`--admin-users "*"`);
-      } else {
-        args.push(`--admin-users ${adminUsers.split(',').map(u => u.trim()).join(' ')}`);
-      }
+    if (adminUsers.length > 0) {
+      args.push(`--admin-users ${adminUsers.map(u => `"${u}"`).join(' ')}`);
     }
     if (workerName) args.push(`--worker-name "${workerName}"`);
     if (clientId) args.push(`--client-id ${clientId}`);
@@ -293,7 +388,7 @@ const BioEngineGuide: React.FC = () => {
         `- **PVC available**: ${hasPvc ? 'yes (bioengine-pvc)' : 'no'}`,
         workspace && `- **Hypha Workspace**: ${workspace}`,
         serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
-        adminUsers && `- **Admin Users**: ${adminUsers}`,
+        adminUsers.length > 0 && `- **Admin Users**: ${adminUsers.join(', ')}`,
         customImage && `- **Custom Image**: ${customImage}`,
       ].filter(Boolean).join('\n');
       const yaml = getKubernetesWorkerYaml().replace(token, '<my-token>');
@@ -308,7 +403,7 @@ const BioEngineGuide: React.FC = () => {
         mode === 'single-machine' && `- **Memory**: ${memory > 0 ? `${memory} GB` : 'auto-detect'}`,
         workspace && `- **Hypha Workspace**: ${workspace}`,
         serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
-        adminUsers && `- **Admin Users**: ${adminUsers}`,
+        adminUsers.length > 0 && `- **Admin Users**: ${adminUsers.join(', ')}`,
         workspaceDir && `- **BioEngine Workspace Directory**: ${workspaceDir}`,
         customImage && `- **Custom Image**: ${customImage}`,
       ].filter(Boolean).join('\n');
@@ -362,14 +457,8 @@ ${setupSection}
     if (rayWorkspaceDir) extraArgs += arg('--ray-workspace-dir', rayWorkspaceDir);
     if (clientServerPort && clientServerPort !== '10001') extraArgs += arg('--client-server-port', clientServerPort);
 
-    if (adminUsers) {
-      if (adminUsers === '*') {
-        extraArgs += arg('--admin-users', '*');
-      } else {
-        adminUsers.split(',').map(u => u.trim()).filter(Boolean).forEach(u => {
-          extraArgs += arg('--admin-users', u);
-        });
-      }
+    if (adminUsers.length > 0) {
+      adminUsers.forEach(u => { extraArgs += arg('--admin-users', u); });
     }
     if (workerName) extraArgs += arg('--worker-name', workerName);
 
@@ -699,10 +788,13 @@ spec:
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
-                      <input type="text" value={adminUsers} onChange={(e) => setAdminUsers(e.target.value)}
-                        placeholder="user1@example.com,user2@example.com or *"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Users who can manage the worker (comma-separated, * for all)</p>
+                      <TagInput
+                        tags={adminUsers}
+                        onChange={setAdminUsers}
+                        placeholder="user@example.com"
+                        allowWildcard={false}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Leave empty to use the logged-in user. Press Space or Enter to add.</p>
                     </div>
 
                     <div>
@@ -1056,10 +1148,13 @@ spec:
                   {/* ── Worker identity ── */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
-                    <input type="text" value={adminUsers} onChange={(e) => setAdminUsers(e.target.value)}
-                      placeholder="user1@example.com,user2@example.com or *"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Users who can manage the worker. Leave empty to use the logged-in user</p>
+                    <TagInput
+                      tags={adminUsers}
+                      onChange={setAdminUsers}
+                      placeholder="user@example.com"
+                      allowWildcard={false}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Leave empty to use the logged-in user. Press Space or Enter to add.</p>
                   </div>
 
                   <div>
