@@ -19,7 +19,6 @@ interface DeploymentCardProps {
       num_gpus?: number;
       memory?: number;
     };
-    manifest?: any;
     service_ids?: {  // New: independent service IDs
       websocket_service_id?: string;
       webrtc_service_id?: string;
@@ -50,23 +49,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     return gb < 1 ? `${Math.round(gb * 1024)} MB` : `${gb.toFixed(1)} GB`;
   };
 
-  // Resolve resources: prefer live worker data, fall back to manifest ray_actor_options.
-  // Handles both flat deployment_config and modes-based (cpu/gpu) config.
-  const resolveResources = () => {
-    if (deployment.resources) return deployment.resources;
-    const dc = deployment.manifest?.deployment_config;
-    if (!dc) return null;
-    // Modes-based: pick gpu first, then cpu
-    const modeOptions = dc.modes?.gpu?.ray_actor_options ?? dc.modes?.cpu?.ray_actor_options;
-    const options = modeOptions ?? dc.ray_actor_options ?? deployment.manifest?.ray_actor_options;
-    if (!options) return null;
-    return {
-      num_cpus: options.num_cpus,
-      num_gpus: options.num_gpus,
-      memory: options.memory,
-    };
-  };
-  const resources = resolveResources();
+  const resources = deployment.resources ?? null;
 
   // Get MCP URL from websocket service ID
   const getMcpUrl = (): string | null => {

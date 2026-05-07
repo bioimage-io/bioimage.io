@@ -328,19 +328,31 @@ const BioEngineWorker: React.FC = () => {
                 ? app.service_ids[0]
                 : app.service_ids || {};
 
+              // Aggregate replica_states across all deployments (not a top-level field)
+              const aggregatedReplicaStates: Record<string, number> = {};
+              if (app.deployments && typeof app.deployments === 'object') {
+                for (const deployment of Object.values(app.deployments) as any[]) {
+                  if (deployment?.replica_states) {
+                    for (const [state, count] of Object.entries(deployment.replica_states)) {
+                      aggregatedReplicaStates[state] = (aggregatedReplicaStates[state] || 0) + (count as number);
+                    }
+                  }
+                }
+              }
+
               statusData.bioengine_apps[appId] = {
                 ...app,
                 application_id: appId,
                 artifact_id: app.artifact_id || appId,
-                deployment_name: app.deployment_name || appId,
+                deployment_name: appId,
                 status: app.status || 'UNKNOWN',
                 start_time: app.start_time,
                 last_updated_at: app.last_updated_at,
                 service_ids: serviceIds,
                 available_methods: app.available_methods || app.methods,
-                replica_states: app.replica_states,
+                replica_states: Object.keys(aggregatedReplicaStates).length > 0 ? aggregatedReplicaStates : undefined,
                 static_site_url: app.static_site_url,
-                resources: app.resources
+                resources: app.application_resources,
               };
             }
           }
@@ -815,15 +827,11 @@ const BioEngineWorker: React.FC = () => {
       _rkwargs: true,
     });
 
+    // Worker always returns a dict keyed by application_id. Unwrap for single-app requests
+    // so callers receive the status object directly (not {appId: {...}}).
     if (params.application_ids && params.application_ids.length === 1) {
-      return result;
-    }
-
-    if (result && typeof result === 'object' && params.application_ids && params.application_ids.length > 0) {
-      const firstId = params.application_ids[0];
-      if (firstId && result[firstId]) {
-        return result[firstId];
-      }
+      const id = params.application_ids[0];
+      return (result && typeof result === 'object' && result[id]) ? result[id] : result;
     }
 
     return result;
