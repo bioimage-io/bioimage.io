@@ -239,16 +239,16 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
             {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
           </h4>
           <p className="text-gray-600 mb-3">{artifact.manifest?.description || "No description available"}</p>
-          <p className="text-sm text-gray-500 mb-2 flex items-center gap-3 flex-wrap">
+          <p className="text-sm text-gray-500 mb-1 flex items-center gap-3 flex-wrap">
             <span><span className="font-medium">Artifact ID:</span> {artifact.id}</span>
             <span><span className="font-medium">Version:</span> {artifact.version || 'N/A'}</span>
           </p>
+          {artifact.lastFileModified && (
+            <p className="text-xs text-gray-500 mb-3">
+              <span className="font-medium">Last file update:</span> {artifact.lastFileModified}
+            </p>
+          )}
           <DocumentationLinks className="mb-3" />
-            {artifact.lastFileModified && (
-              <p className="text-xs text-gray-500 mb-3">
-                <span className="font-medium">Last file update:</span> {artifact.lastFileModified}
-              </p>
-            )}
           <ResourceInfo className="mb-3" />
         </div>
 
