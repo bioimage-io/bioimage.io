@@ -40,6 +40,8 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   onStatusClick
 }) => {
   const [mcpCopied, setMcpCopied] = React.useState(false);
+  const [appIdCopied, setAppIdCopied] = React.useState(false);
+  const [serviceIdCopied, setServiceIdCopied] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
   const isAppRunning = deployment.status === "RUNNING";
 
@@ -77,6 +79,24 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
       return `https://hypha.aicell.io/${workspace}/services/${serviceIdentifier}`;
     }
     return null;
+  };
+
+  const handleCopyAppId = async () => {
+    try {
+      await navigator.clipboard.writeText(deployment.deployment_name);
+      setAppIdCopied(true);
+      setTimeout(() => setAppIdCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+
+  const handleCopyServiceId = async () => {
+    const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
+    if (!wsServiceId) return;
+    try {
+      await navigator.clipboard.writeText(wsServiceId);
+      setServiceIdCopied(true);
+      setTimeout(() => setServiceIdCopied(false), 2000);
+    } catch { /* ignore */ }
   };
 
   const handleCopyMcpUrl = async () => {
@@ -206,7 +226,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
           )}
 
           {deployment.replica_states && Object.keys(deployment.replica_states).length > 0 && (
-            <div>
+            <div className="mb-3">
               <p className="text-sm font-medium text-gray-700 mb-2">Replica States:</p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(deployment.replica_states).map(([state, count]) => (
@@ -223,19 +243,13 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               </div>
             </div>
           )}
-        </div>
-
-        <div>
-          <p className="text-sm text-gray-600 mb-3">
-            <span className="font-medium">Application ID:</span> {deployment.deployment_name}
-          </p>
 
           {resources && (
             (resources.num_cpus != null && resources.num_cpus > 0) ||
             (resources.num_gpus != null && resources.num_gpus > 0) ||
             (resources.memory != null && resources.memory > 0)
           ) && (
-            <div className="mb-3">
+            <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Resources:</p>
               <div className="flex flex-wrap gap-2">
                 {resources.num_cpus != null && resources.num_cpus > 0 && (
@@ -263,6 +277,45 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                   </span>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+
+        <div>
+          {/* Application ID with copy button */}
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">Application ID:</span> {deployment.deployment_name}
+            </p>
+            <button
+              onClick={handleCopyAppId}
+              title="Copy Application ID"
+              className="flex-shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              {appIdCopied
+                ? <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              }
+            </button>
+          </div>
+
+          {/* Service ID with copy button */}
+          {(deployment.service_ids?.websocket_service_id || serviceId) && (
+            <div className="flex items-center gap-2 mb-3">
+              <p className="text-sm text-gray-600 truncate">
+                <span className="font-medium">Service ID:</span>{' '}
+                <span className="font-mono text-xs">{deployment.service_ids?.websocket_service_id || serviceId}</span>
+              </p>
+              <button
+                onClick={handleCopyServiceId}
+                title="Copy Service ID"
+                className="flex-shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                {serviceIdCopied
+                  ? <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                }
+              </button>
             </div>
           )}
 
