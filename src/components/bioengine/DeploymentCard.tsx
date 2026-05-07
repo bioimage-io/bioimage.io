@@ -19,6 +19,7 @@ interface DeploymentCardProps {
       num_gpus?: number;
       memory?: number;
     };
+    manifest?: any;
     service_ids?: {  // New: independent service IDs
       websocket_service_id?: string;
       webrtc_service_id?: string;
@@ -48,6 +49,24 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     const gb = bytes / (1024 * 1024 * 1024);
     return gb < 1 ? `${Math.round(gb * 1024)} MB` : `${gb.toFixed(1)} GB`;
   };
+
+  // Resolve resources: prefer live worker data, fall back to manifest ray_actor_options.
+  // Handles both flat deployment_config and modes-based (cpu/gpu) config.
+  const resolveResources = () => {
+    if (deployment.resources) return deployment.resources;
+    const dc = deployment.manifest?.deployment_config;
+    if (!dc) return null;
+    // Modes-based: pick gpu first, then cpu
+    const modeOptions = dc.modes?.gpu?.ray_actor_options ?? dc.modes?.cpu?.ray_actor_options;
+    const options = modeOptions ?? dc.ray_actor_options ?? deployment.manifest?.ray_actor_options;
+    if (!options) return null;
+    return {
+      num_cpus: options.num_cpus,
+      num_gpus: options.num_gpus,
+      memory: options.memory,
+    };
+  };
+  const resources = resolveResources();
 
   // Get MCP URL from websocket service ID
   const getMcpUrl = (): string | null => {
@@ -129,28 +148,28 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               )}
 
               {/* Resource badges */}
-              {deployment.resources?.num_cpus != null && deployment.resources.num_cpus > 0 && (
+              {resources?.num_cpus != null && resources!.num_cpus > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200" title="CPUs reserved per replica">
                   <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
-                  {deployment.resources.num_cpus} CPU{deployment.resources.num_cpus !== 1 ? 's' : ''}
+                  {resources!.num_cpus} CPU{resources!.num_cpus !== 1 ? 's' : ''}
                 </span>
               )}
-              {deployment.resources?.num_gpus != null && deployment.resources.num_gpus > 0 && (
+              {resources?.num_gpus != null && resources!.num_gpus > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200" title="GPUs reserved per replica">
                   <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  {deployment.resources.num_gpus} GPU{deployment.resources.num_gpus !== 1 ? 's' : ''}
+                  {resources!.num_gpus} GPU{resources!.num_gpus !== 1 ? 's' : ''}
                 </span>
               )}
-              {deployment.resources?.memory != null && deployment.resources.memory > 0 && (
+              {resources?.memory != null && resources!.memory > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Memory reserved per replica">
                   <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
                   </svg>
-                  {formatMemoryToGB(deployment.resources.memory)}
+                  {formatMemoryToGB(resources!.memory)}
                 </span>
               )}
             </div>
