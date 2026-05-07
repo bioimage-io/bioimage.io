@@ -156,7 +156,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             <p className="text-sm text-gray-600 mt-2">{deployment.description}</p>
           )}
           <p className="text-sm text-gray-500 mt-2">
-            <span className="font-medium">Artifact ID:</span> {deployment.artifact_id}
+            <span className="font-medium">Deployed from Artifact ID:</span> {deployment.artifact_id}
           </p>
         </div>
 

@@ -235,14 +235,14 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({
     <article className="p-6 bg-gradient-to-r from-white to-blue-50 border border-blue-100 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-200">
       <div className="flex justify-between items-start">
         <div className="flex-1 mr-4">
-          <h4 className="text-lg font-semibold mb-1">
+          <h4 className="text-lg font-semibold mb-2">
             {artifact.manifest?.id_emoji || ""} {artifact.manifest?.name || artifact.name || artifact.alias}
           </h4>
-          <p className="text-sm text-gray-500 mb-2">{artifact.id}</p>
-            <p className="text-sm text-gray-500 mb-2">
-              <span className="font-medium">Version:</span> {artifact.version || 'N/A'}
-            </p>
           <p className="text-gray-600 mb-3">{artifact.manifest?.description || "No description available"}</p>
+          <p className="text-sm text-gray-500 mb-2 flex items-center gap-3 flex-wrap">
+            <span><span className="font-medium">Artifact ID:</span> {artifact.id}</span>
+            <span><span className="font-medium">Version:</span> {artifact.version || 'N/A'}</span>
+          </p>
           <DocumentationLinks className="mb-3" />
             {artifact.lastFileModified && (
               <p className="text-xs text-gray-500 mb-3">
