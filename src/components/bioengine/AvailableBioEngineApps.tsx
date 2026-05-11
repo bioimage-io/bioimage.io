@@ -133,65 +133,72 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     if (!serviceId || !artifactManager) return;
     setLoading(true);
     setError(null);
-    try {
-      let allArtifacts: ArtifactType[] = [];
+    setAvailableArtifacts([]);
 
-      for (const ws of selectedWorkspaces) {
-        const collectionId = `${ws}/applications`;
+    // Process workspaces in a stable order: bioimage-io first, then the user's
+    // personal workspace, then any additional workspaces.
+    const orderedWorkspaces = [
+      ...(['bioimage-io'].filter(w => selectedWorkspaces.includes(w))),
+      ...(userWorkspace && selectedWorkspaces.includes(userWorkspace) && userWorkspace !== 'bioimage-io' ? [userWorkspace] : []),
+      ...selectedWorkspaces.filter(w => w !== 'bioimage-io' && w !== userWorkspace),
+    ];
+
+    const seen = new Set<string>();
+
+    try {
+      for (const ws of orderedWorkspaces) {
+        let wsArtifacts: ArtifactType[] = [];
         try {
-          const arts: ArtifactType[] = await artifactManager.list({
-            parent_id: collectionId,
+          wsArtifacts = await artifactManager.list({
+            parent_id: `${ws}/applications`,
             filters: { type: 'application', manifest: { type: 'ray-serve' } },
             _rkwargs: true,
           });
-          allArtifacts = [...allArtifacts, ...arts];
         } catch {
-          // workspace may not have an applications collection — skip silently
+          continue; // workspace may not have an applications collection
         }
-      }
 
-      // Deduplicate by id
-      const seen = new Set<string>();
-      allArtifacts = allArtifacts.filter(a => { if (seen.has(a.id)) return false; seen.add(a.id); return true; });
+        // Deduplicate across workspaces
+        const fresh = wsArtifacts.filter(a => { if (seen.has(a.id)) return false; seen.add(a.id); return true; });
+        if (fresh.length === 0) continue;
 
-      // Lazily load manifests
-      for (const art of allArtifacts) {
-        try {
-          const data = await artifactManager.read(art.id);
-          if (data) {
-            art.manifest = data.manifest;
-            art.version = data.manifest?.version || 'N/A';
-            try {
-              const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
-              const timestamps = (fileList || [])
-                .filter((f: any) => f?.type === 'file' && f.last_modified != null)
-                .map((f: any) => {
-                  const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
-                  return Number.isFinite(v) ? v : null;
-                })
-                .filter((v: number | null): v is number => v !== null);
-              if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
-            } catch { /* ignore */ }
-            const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
-            art.supportedModes = supportedModes;
-            art.defaultMode = defaultMode;
+        // Enrich each artifact and append it to the list as soon as it's ready
+        for (const art of fresh) {
+          try {
+            const data = await artifactManager.read(art.id);
+            if (data) {
+              art.manifest = data.manifest;
+              art.version = data.manifest?.version || 'N/A';
+              try {
+                const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
+                const timestamps = (fileList || [])
+                  .filter((f: any) => f?.type === 'file' && f.last_modified != null)
+                  .map((f: any) => {
+                    const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
+                    return Number.isFinite(v) ? v : null;
+                  })
+                  .filter((v: number | null): v is number => v !== null);
+                if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
+              } catch { /* ignore */ }
+              const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
+              art.supportedModes = supportedModes;
+              art.defaultMode = defaultMode;
+            }
+          } catch { /* skip bad artifact */ }
+
+          // Append immediately so the card appears as soon as it's enriched
+          setAvailableArtifacts(prev => [...prev, art]);
+          if (onSetArtifactMode && art.supportedModes?.cpu && art.supportedModes?.gpu && !artifactModes[art.id]) {
+            onSetArtifactMode(art.id, 'cpu');
           }
-        } catch { /* skip bad artifact */ }
-      }
-
-      setAvailableArtifacts(allArtifacts);
-      if (onSetArtifactMode) {
-        allArtifacts.forEach(a => {
-          if (a.supportedModes?.cpu && a.supportedModes?.gpu && !artifactModes[a.id])
-            onSetArtifactMode(a.id, 'cpu');
-        });
+        }
       }
     } catch (err) {
       setError(`Failed to fetch artifacts: ${err}`);
     } finally {
       setLoading(false);
     }
-  }, [artifactManager, serviceId, selectedWorkspaces, onSetArtifactMode, artifactModes]);
+  }, [artifactManager, serviceId, selectedWorkspaces, userWorkspace, onSetArtifactMode, artifactModes]);
 
   const addWorkspace = () => {
     const ws = wsInput.trim();
