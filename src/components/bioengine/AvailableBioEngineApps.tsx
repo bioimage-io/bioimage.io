@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import ArtifactCard from './ArtifactCard';
 import BioEngineAppManager from './BioEngineAppManager';
+
+const BIOENGINE_SKILL_URL = 'https://bioimage.io/skills/bioengine/SKILL.md';
 
 type ArtifactType = {
   id: string;
@@ -34,6 +36,8 @@ interface AvailableBioEngineAppsProps {
   serviceId: string;
   server: any;
   isLoggedIn: boolean;
+  adminUsers?: string[];
+  currentUserEmail?: string;
   // Deployment state
   deployingArtifactId?: string | null;
   pendingDeploymentArtifactId?: string | null;
@@ -52,10 +56,14 @@ interface AvailableBioEngineAppsProps {
   onArtifactUpdated?: () => void;
 }
 
+const DEFAULT_WORKSPACES = ['bioimage-io'];
+
 const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   serviceId,
   server,
   isLoggedIn,
+  adminUsers = [],
+  currentUserEmail,
   deployingArtifactId,
   pendingDeploymentArtifactId,
   artifactModes = {},
@@ -71,12 +79,22 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   getDeployButtonText,
   onArtifactUpdated
 }) => {
+  const userWorkspace: string = server?.config?.workspace || '';
+
+  // Workspace selection: default to bioimage-io + user's workspace
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>(() => {
+    const defaults = [...DEFAULT_WORKSPACES];
+    if (userWorkspace && !defaults.includes(userWorkspace)) defaults.push(userWorkspace);
+    return defaults;
+  });
+  const [wsInput, setWsInput] = useState('');
+
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artifactManager, setArtifactManager] = useState<any>(null);
+  const [skillCopied, setSkillCopied] = useState(false);
 
-  // Reference to the app manager
   const appManagerRef = React.useRef<{
     openCreateDialog: () => void;
     openEditDialog: (artifact: ArtifactType) => void;
@@ -85,218 +103,172 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   // Initialize artifact manager
   useEffect(() => {
     if (!isLoggedIn) return;
-
-    const initArtifactManager = async () => {
-      try {
-        const manager = await server.getService('public/artifact-manager');
-        setArtifactManager(manager);
-      } catch (err) {
-        console.error('Failed to initialize artifact manager:', err);
-        setError('Failed to initialize artifact manager');
-      }
-    };
-
-    initArtifactManager();
+    server.getService('public/artifact-manager')
+      .then(setArtifactManager)
+      .catch((err: any) => setError(`Failed to initialize artifact manager: ${err}`));
   }, [server, isLoggedIn]);
 
-  // Fetch artifacts when artifact manager is available
   useEffect(() => {
-    if (isLoggedIn && artifactManager && serviceId) {
-      fetchAvailableArtifacts();
-    }
-  }, [artifactManager, isLoggedIn, serviceId]);
+    if (isLoggedIn && artifactManager && serviceId) fetchAvailableArtifacts();
+  }, [artifactManager, isLoggedIn, serviceId, selectedWorkspaces]);
 
   const determineArtifactSupportedModes = (artifact: any) => {
     const supportedModes = { cpu: false, gpu: false };
-    let defaultMode = 'cpu'; // Always default to CPU
-
+    const defaultMode = 'cpu';
     if (artifact.manifest?.deployment_config?.modes) {
       const modes = artifact.manifest.deployment_config.modes;
-
       if (modes.cpu) supportedModes.cpu = true;
       if (modes.gpu) supportedModes.gpu = true;
+    } else if (artifact.manifest?.deployment_config?.ray_actor_options) {
+      const n = artifact.manifest.deployment_config.ray_actor_options.num_gpus || 0;
+      supportedModes.gpu = n > 0; supportedModes.cpu = !supportedModes.gpu;
+    } else if (artifact.manifest?.ray_actor_options) {
+      const n = artifact.manifest.ray_actor_options.num_gpus || 0;
+      supportedModes.gpu = n > 0; supportedModes.cpu = !supportedModes.gpu;
     }
-    else if (artifact.manifest?.deployment_config?.ray_actor_options) {
-      const numGpus = artifact.manifest.deployment_config.ray_actor_options.num_gpus || 0;
-      supportedModes.gpu = numGpus > 0;
-      supportedModes.cpu = !supportedModes.gpu;
-    }
-    else if (artifact.manifest?.ray_actor_options) {
-      const numGpus = artifact.manifest.ray_actor_options.num_gpus || 0;
-      supportedModes.gpu = numGpus > 0;
-      supportedModes.cpu = !supportedModes.gpu;
-    }
-
     return { supportedModes, defaultMode };
   };
 
-  const fetchAvailableArtifacts = async () => {
+  const fetchAvailableArtifacts = useCallback(async () => {
     if (!serviceId || !artifactManager) return;
-
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-
       let allArtifacts: ArtifactType[] = [];
 
-      try {
-        const publicCollectionId = 'bioimage-io/applications';
-        let publicArtifacts: ArtifactType[] = [];
-
+      for (const ws of selectedWorkspaces) {
+        const collectionId = `${ws}/applications`;
         try {
-          publicArtifacts = await artifactManager.list({
-            parent_id: publicCollectionId,
-            filters: {
-              type: "application",
-              manifest: { type: "ray-serve" }
-            },
-            _rkwargs: true
+          const arts: ArtifactType[] = await artifactManager.list({
+            parent_id: collectionId,
+            filters: { type: 'application', manifest: { type: 'ray-serve' } },
+            _rkwargs: true,
           });
-          console.log(`Public artifacts found in ${publicCollectionId}:`, publicArtifacts.map(a => a.id));
-        } catch (err) {
-          console.warn(`Could not fetch public artifacts: ${err}`);
+          allArtifacts = [...allArtifacts, ...arts];
+        } catch {
+          // workspace may not have an applications collection — skip silently
         }
+      }
 
-        let userArtifacts: ArtifactType[] = [];
-        const userWorkspace = server.config.workspace;
+      // Deduplicate by id
+      const seen = new Set<string>();
+      allArtifacts = allArtifacts.filter(a => { if (seen.has(a.id)) return false; seen.add(a.id); return true; });
 
-        if (userWorkspace) {
-          const userCollectionId = `${userWorkspace}/applications`;
-          try {
-            userArtifacts = await artifactManager.list({
-              parent_id: userCollectionId,
-              filters: {
-                type: "application",
-                manifest: { type: "ray-serve" }
-              },
-              _rkwargs: true
-            });
-            console.log(`User artifacts found in ${userCollectionId}:`, userArtifacts.map(a => a.id));
-          } catch (collectionErr) {
-            console.log(`User collection ${userCollectionId} does not exist, skipping`);
+      // Lazily load manifests
+      for (const art of allArtifacts) {
+        try {
+          const data = await artifactManager.read(art.id);
+          if (data) {
+            art.manifest = data.manifest;
+            art.version = data.manifest?.version || 'N/A';
+            try {
+              const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
+              const timestamps = (fileList || [])
+                .filter((f: any) => f?.type === 'file' && f.last_modified != null)
+                .map((f: any) => {
+                  const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
+                  return Number.isFinite(v) ? v : null;
+                })
+                .filter((v: number | null): v is number => v !== null);
+              if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
+            } catch { /* ignore */ }
+            const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
+            art.supportedModes = supportedModes;
+            art.defaultMode = defaultMode;
           }
-        }
-
-        const combinedArtifacts = [...publicArtifacts, ...userArtifacts];
-
-        // Lazily load manifests for each artifact
-        for (const art of combinedArtifacts) {
-          try {
-            console.log(`Processing artifact: ${art.id}, alias: ${art.alias}, workspace: ${art.workspace}`);
-
-            const artifactData = await artifactManager.read(art.id);
-
-            if (artifactData) {
-              art.manifest = artifactData.manifest;
-              art.version = artifactData.manifest?.version || 'N/A';
-
-              try {
-                const fileList = await artifactManager.list_files({
-                  artifact_id: art.id,
-                  _rkwargs: true
-                });
-
-                const timestamps = (fileList || [])
-                  .filter((f: any) => f && f.type === 'file' && typeof f.last_modified !== 'undefined' && f.last_modified !== null)
-                  .map((f: any) => {
-                    let value: number;
-
-                    if (typeof f.last_modified === 'number') {
-                      // artifactManager.list_files returns Unix timestamps in seconds.
-                      value = f.last_modified * 1000;
-                    } else {
-                      const numeric = Number(f.last_modified);
-                      if (Number.isFinite(numeric)) {
-                        value = numeric * 1000;
-                      } else {
-                        value = Date.parse(f.last_modified);
-                      }
-                    }
-
-                    return Number.isFinite(value) ? value : null;
-                  })
-                  .filter((v: number | null): v is number => v !== null);
-
-                if (timestamps.length > 0) {
-                  art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
-                }
-              } catch (fileErr) {
-                console.warn(`Failed to fetch file metadata for ${art.id}:`, fileErr);
-              }
-
-              const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
-              console.log(`${art.id} supported modes:`, supportedModes, `Default: ${defaultMode}`);
-
-              art.supportedModes = supportedModes;
-              art.defaultMode = defaultMode;
-            } else {
-              console.log(`No manifest found for ${art.id}`);
-            }
-          } catch (err) {
-            console.warn(`Failed to fetch manifest for ${art.id}:`, err);
-          }
-        }
-
-        allArtifacts = combinedArtifacts;
-      } catch (err) {
-        console.warn(`Error processing artifacts: ${err}`);
+        } catch { /* skip bad artifact */ }
       }
 
       setAvailableArtifacts(allArtifacts);
-
-      // After setting artifacts, initialize modes for artifacts that support both CPU and GPU
       if (onSetArtifactMode) {
-        allArtifacts.forEach(artifact => {
-          if (artifact.supportedModes?.cpu && artifact.supportedModes?.gpu && !artifactModes[artifact.id]) {
-            onSetArtifactMode(artifact.id, 'cpu');
-          }
+        allArtifacts.forEach(a => {
+          if (a.supportedModes?.cpu && a.supportedModes?.gpu && !artifactModes[a.id])
+            onSetArtifactMode(a.id, 'cpu');
         });
       }
     } catch (err) {
-      console.error('Error fetching artifacts:', err);
       setError(`Failed to fetch artifacts: ${err}`);
     } finally {
       setLoading(false);
     }
+  }, [artifactManager, serviceId, selectedWorkspaces, onSetArtifactMode, artifactModes]);
+
+  const addWorkspace = () => {
+    const ws = wsInput.trim();
+    if (ws && !selectedWorkspaces.includes(ws)) {
+      setSelectedWorkspaces(prev => [...prev, ws]);
+    }
+    setWsInput('');
   };
 
-  const isUserOwnedArtifact = (artifactId: string): boolean => {
-    const userWorkspace = server.config.workspace;
-    return userWorkspace && artifactId.startsWith(userWorkspace);
+  const removeWorkspace = (ws: string) => {
+    setSelectedWorkspaces(prev => prev.filter(w => w !== ws));
   };
 
-  const handleOpenCreateApp = () => {
-    appManagerRef.current?.openCreateDialog();
-  };
-
-  const handleOpenEditApp = (artifact: ArtifactType) => {
-    appManagerRef.current?.openEditDialog(artifact);
-  };
-
-  const handleArtifactUpdated = () => {
-    fetchAvailableArtifacts();
-    if (onArtifactUpdated) {
-      onArtifactUpdated();
+  const handleCopySkill = async () => {
+    try {
+      await navigator.clipboard.writeText(BIOENGINE_SKILL_URL);
+      setSkillCopied(true);
+      setTimeout(() => setSkillCopied(false), 2500);
+    } catch {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = BIOENGINE_SKILL_URL;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setSkillCopied(true);
+      setTimeout(() => setSkillCopied(false), 2500);
     }
   };
 
+  const allWorkspaces = [...new Set([...DEFAULT_WORKSPACES, userWorkspace, ...selectedWorkspaces])].filter(Boolean);
+
   return (
-    <div className="space-y-6">
-      {/* Available Apps Header */}
-      <div className="flex justify-between items-center">
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap justify-between items-start gap-3">
         <div className="flex items-center">
           <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mr-3 p-1">
             <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
           </div>
           <h3 className="text-lg font-semibold text-gray-800">Available BioEngine Apps</h3>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* BioEngine AI Skill copy button */}
           <button
-            onClick={handleOpenCreateApp}
-            disabled={loading}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
+            onClick={handleCopySkill}
+            title="Copy the BioEngine AI coding skill URL to clipboard — paste it into an AI agent (Claude Code, etc.) to get guided app creation"
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border transition-all duration-200 shadow-sm ${
+              skillCopied
+                ? 'bg-green-50 border-green-300 text-green-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
+            }`}
           >
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {skillCopied ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Skill URL Copied!
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.7-1.388 2.7H4.186c-1.418 0-2.389-1.7-1.388-2.7L4.2 15.3" />
+                </svg>
+                Copy AI Coding Skill
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={() => appManagerRef.current?.openCreateDialog()}
+            disabled={loading}
+            className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-medium rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 flex items-center gap-2 shadow-sm hover:shadow-md transition-all duration-200"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Create App
@@ -304,111 +276,125 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
           <button
             onClick={fetchAvailableArtifacts}
             disabled={loading}
-            className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed flex items-center shadow-sm hover:shadow-md transition-all duration-200"
+            className="px-5 py-2 bg-white border-2 border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 flex items-center gap-2 shadow-sm hover:shadow-md transition-all duration-200"
           >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin mr-2"></div>
-            ) : null}
+            {loading && <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />}
             {availableArtifacts.length > 0 ? 'Refresh' : 'Load Artifacts'}
           </button>
         </div>
       </div>
 
-      {/* Deployment Error Display */}
+      {/* Workspace selector */}
+      <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+        <span className="text-xs font-semibold text-gray-600 mr-1">Workspaces:</span>
+        {selectedWorkspaces.map(ws => (
+          <span
+            key={ws}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white border border-gray-300 text-gray-700 shadow-sm"
+          >
+            {ws}
+            <button
+              onClick={() => removeWorkspace(ws)}
+              className="text-gray-400 hover:text-red-500 transition-colors"
+              title={`Remove ${ws}`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
+        ))}
+        <div className="flex items-center gap-1">
+          <input
+            value={wsInput}
+            onChange={e => setWsInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addWorkspace(); }}
+            placeholder="Add workspace…"
+            className="px-2 py-1 text-xs border border-gray-300 rounded-lg w-36 focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={addWorkspace}
+            disabled={!wsInput.trim()}
+            className="px-2 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
+          >Add</button>
+        </div>
+      </div>
+
+      {/* Deployment error */}
       {deploymentError && setDeploymentError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex justify-between items-start">
-            <div className="flex">
-              <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
-                <p className="text-sm text-red-700 mt-1">{deploymentError}</p>
-              </div>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex justify-between items-start">
+          <div className="flex gap-2">
+            <svg className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
+              <p className="text-sm text-red-700 mt-1">{deploymentError}</p>
             </div>
-            <button
-              onClick={() => setDeploymentError(null)}
-              className="text-red-400 hover:text-red-600"
-              aria-label="Dismiss error"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
+          <button onClick={() => setDeploymentError(null)} className="text-red-400 hover:text-red-600">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
         </div>
       )}
 
-      {/* Error Display */}
+      {/* Error */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex justify-between items-start">
-            <div className="flex">
-              <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-red-800">Error</h4>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-              </div>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex justify-between items-start">
+          <div className="flex gap-2">
+            <svg className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <h4 className="text-sm font-medium text-red-800">Error</h4>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
             </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600"
-              aria-label="Dismiss error"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
         </div>
       )}
 
-      {/* Loading State */}
       {loading && availableArtifacts.length === 0 && (
-        <div className="flex justify-center p-8">
-          <p className="text-gray-500">Loading artifacts...</p>
+        <div className="flex justify-center p-8 text-gray-500 text-sm gap-2">
+          <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+          Loading artifacts…
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && availableArtifacts.length === 0 && (
-        <div className="flex justify-center p-8">
-          <p className="text-gray-500">No deployable artifacts found. Click "Load Artifacts" to fetch available artifacts.</p>
+        <div className="flex justify-center p-8 text-gray-500 text-sm">
+          No deployable artifacts found. Click "Load Artifacts" or add a workspace.
         </div>
       )}
 
-      {/* Artifacts List */}
       {availableArtifacts.length > 0 && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {availableArtifacts.map((artifact) => (
+          {availableArtifacts.map(artifact => (
             <ArtifactCard
               key={artifact.id}
               artifact={artifact}
               artifactMode={artifactModes[artifact.id]}
-              onEdit={() => handleOpenEditApp(artifact)}
+              onViewFiles={() => appManagerRef.current?.openEditDialog(artifact)}
               onDeploy={(artifactId, mode) => onDeployArtifact?.(artifactId, mode)}
-              onModeChange={(checked) => onModeChange?.(artifact.id, checked)}
+              onModeChange={checked => onModeChange?.(artifact.id, checked)}
               isDeploying={deployingArtifactId === artifact.id || pendingDeploymentArtifactId === artifact.id}
               server={server}
-              onDeployFeedback={(message, type) => {
-                // You can add feedback handling here if needed
-                console.log(`Deploy feedback: ${message} (${type})`);
-              }}
             />
           ))}
         </div>
       )}
 
-      {/* App Manager Component */}
       <BioEngineAppManager
         ref={appManagerRef}
         serviceId={serviceId}
         server={server}
         isLoggedIn={isLoggedIn}
-        onArtifactUpdated={handleArtifactUpdated}
+        adminUsers={adminUsers}
+        currentUserEmail={currentUserEmail}
+        availableWorkspaces={allWorkspaces}
+        onArtifactUpdated={() => { fetchAvailableArtifacts(); onArtifactUpdated?.(); }}
       />
     </div>
   );

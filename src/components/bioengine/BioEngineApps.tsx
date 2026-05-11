@@ -6,6 +6,8 @@ import DeployedBioEngineApps from './DeployedBioEngineApps';
 interface BioEngineAppsProps {
   serviceId: string;
   onArtifactUpdated?: () => void;
+  adminUsers?: string[];
+  currentUserEmail?: string;
   // Deployment-related props
   deployingArtifactId?: string | null;
   undeployingArtifactId?: string | null;
@@ -36,6 +38,8 @@ interface BioEngineAppsProps {
 const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   serviceId,
   onArtifactUpdated,
+  adminUsers,
+  currentUserEmail,
   deployingArtifactId,
   undeployingArtifactId,
   pendingDeploymentArtifactId,
@@ -79,6 +83,8 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
         serviceId={serviceId}
         server={activeServer}
         isLoggedIn={isLoggedIn}
+        adminUsers={adminUsers}
+        currentUserEmail={currentUserEmail}
         deployingArtifactId={deployingArtifactId}
         pendingDeploymentArtifactId={pendingDeploymentArtifactId}
         artifactModes={artifactModes}
