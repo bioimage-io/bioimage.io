@@ -125,9 +125,10 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       .catch((err: any) => setError(`Failed to initialize artifact manager: ${err}`));
   }, [server, isLoggedIn]);
 
+  // Full reload only on initial connect — workspace add/remove is handled separately.
   useEffect(() => {
     if (isLoggedIn && artifactManager && serviceId) fetchAvailableArtifacts();
-  }, [artifactManager, isLoggedIn, serviceId, selectedWorkspaces]);
+  }, [artifactManager, isLoggedIn, serviceId]);
 
   const determineArtifactSupportedModes = (artifact: any) => {
     const supportedModes = { cpu: false, gpu: false };
@@ -182,35 +183,15 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
         // Enrich each artifact and append it to the list as soon as it's ready
         for (const art of fresh) {
-          try {
-            const data = await artifactManager.read(art.id);
-            if (data) {
-              art.manifest = data.manifest;
-              art.version = data.manifest?.version || 'N/A';
-              try {
-                const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
-                const timestamps = (fileList || [])
-                  .filter((f: any) => f?.type === 'file' && f.last_modified != null)
-                  .map((f: any) => {
-                    const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
-                    return Number.isFinite(v) ? v : null;
-                  })
-                  .filter((v: number | null): v is number => v !== null);
-                if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
-              } catch { /* ignore */ }
-              const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
-              art.supportedModes = supportedModes;
-              art.defaultMode = defaultMode;
-            }
-          } catch { /* skip bad artifact */ }
+          const enriched = await enrichArtifact(art);
 
           // Discard if a newer fetch has started in the meantime
           if (fetchId !== fetchIdRef.current) return;
 
           // Append immediately so the card appears as soon as it's enriched
-          setAvailableArtifacts(prev => [...prev, art]);
-          if (onSetArtifactMode && art.supportedModes?.cpu && art.supportedModes?.gpu && !artifactModes[art.id]) {
-            onSetArtifactMode(art.id, 'cpu');
+          setAvailableArtifacts(prev => [...prev, enriched]);
+          if (onSetArtifactMode && enriched.supportedModes?.cpu && enriched.supportedModes?.gpu && !artifactModes[enriched.id]) {
+            onSetArtifactMode(enriched.id, 'cpu');
           }
         }
       }
@@ -219,12 +200,74 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     } finally {
       if (fetchId === fetchIdRef.current) setLoading(false);
     }
-  }, [artifactManager, serviceId, selectedWorkspaces, workerWorkspace, userWorkspace, onSetArtifactMode, artifactModes]);
+  }, [artifactManager, serviceId, selectedWorkspaces, workerWorkspace, userWorkspace, enrichArtifact, onSetArtifactMode, artifactModes]);
+
+  /** Enrich a single artifact in-place (manifest, last-modified, modes). */
+  const enrichArtifact = useCallback(async (art: ArtifactType): Promise<ArtifactType> => {
+    try {
+      const data = await artifactManager.read(art.id);
+      if (data) {
+        art.manifest = data.manifest;
+        art.version = data.manifest?.version || 'N/A';
+        try {
+          const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
+          const timestamps = (fileList || [])
+            .filter((f: any) => f?.type === 'file' && f.last_modified != null)
+            .map((f: any) => {
+              const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
+              return Number.isFinite(v) ? v : null;
+            })
+            .filter((v: number | null): v is number => v !== null);
+          if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
+        } catch { /* ignore */ }
+        const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
+        art.supportedModes = supportedModes;
+        art.defaultMode = defaultMode;
+      }
+    } catch { /* skip bad artifact */ }
+    return art;
+  }, [artifactManager]);
+
+  /** Fetch and append artifacts for a single workspace without touching others. */
+  const fetchWorkspaceArtifacts = useCallback(async (ws: string) => {
+    if (!artifactManager) return;
+    const fetchId = ++fetchIdRef.current;
+    try {
+      const wsArtifacts: ArtifactType[] = await artifactManager.list({
+        parent_id: `${ws}/applications`,
+        filters: { type: 'application', manifest: { type: 'ray-serve' } },
+        _rkwargs: true,
+      });
+
+      for (const art of wsArtifacts) {
+        if (fetchId !== fetchIdRef.current) return;
+        // Skip if already in the list
+        const isDupe = await new Promise<boolean>(resolve =>
+          setAvailableArtifacts(prev => {
+            const dup = prev.some(a => a.id === art.id);
+            resolve(dup);
+            return prev; // no state change — just reading
+          })
+        );
+        if (isDupe || fetchId !== fetchIdRef.current) continue;
+
+        const enriched = await enrichArtifact(art);
+        if (fetchId !== fetchIdRef.current) return;
+        setAvailableArtifacts(prev => prev.some(a => a.id === enriched.id) ? prev : [...prev, enriched]);
+        if (onSetArtifactMode && enriched.supportedModes?.cpu && enriched.supportedModes?.gpu && !artifactModes[enriched.id]) {
+          onSetArtifactMode(enriched.id, 'cpu');
+        }
+      }
+    } catch {
+      // workspace may not have an applications collection — ignore silently
+    }
+  }, [artifactManager, enrichArtifact, onSetArtifactMode, artifactModes]);
 
   const addWorkspace = () => {
     const ws = wsInput.trim();
     if (ws && !selectedWorkspaces.includes(ws)) {
       setSelectedWorkspaces(prev => [...prev, ws]);
+      fetchWorkspaceArtifacts(ws);
     }
     setWsInput('');
   };
@@ -232,6 +275,8 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   const removeWorkspace = (ws: string) => {
     if (pinnedWorkspaces.includes(ws)) return; // pinned — cannot be removed
     setSelectedWorkspaces(prev => prev.filter(w => w !== ws));
+    // Drop all artifacts that belong to this workspace
+    setAvailableArtifacts(prev => prev.filter(a => !a.id.startsWith(`${ws}/`)));
   };
 
   const handleCopySkill = async () => {
