@@ -147,6 +147,32 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     return { supportedModes, defaultMode };
   };
 
+  /** Enrich a single artifact in-place (manifest, last-modified, modes). */
+  const enrichArtifact = useCallback(async (art: ArtifactType): Promise<ArtifactType> => {
+    try {
+      const data = await artifactManager.read(art.id);
+      if (data) {
+        art.manifest = data.manifest;
+        art.version = data.manifest?.version || 'N/A';
+        try {
+          const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
+          const timestamps = (fileList || [])
+            .filter((f: any) => f?.type === 'file' && f.last_modified != null)
+            .map((f: any) => {
+              const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
+              return Number.isFinite(v) ? v : null;
+            })
+            .filter((v: number | null): v is number => v !== null);
+          if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
+        } catch { /* ignore */ }
+        const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
+        art.supportedModes = supportedModes;
+        art.defaultMode = defaultMode;
+      }
+    } catch { /* skip bad artifact */ }
+    return art;
+  }, [artifactManager]);
+
   const fetchAvailableArtifacts = useCallback(async () => {
     if (!serviceId || !artifactManager) return;
     const fetchId = ++fetchIdRef.current;
@@ -201,32 +227,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }, [artifactManager, serviceId, selectedWorkspaces, workerWorkspace, userWorkspace, enrichArtifact, onSetArtifactMode, artifactModes]);
-
-  /** Enrich a single artifact in-place (manifest, last-modified, modes). */
-  const enrichArtifact = useCallback(async (art: ArtifactType): Promise<ArtifactType> => {
-    try {
-      const data = await artifactManager.read(art.id);
-      if (data) {
-        art.manifest = data.manifest;
-        art.version = data.manifest?.version || 'N/A';
-        try {
-          const fileList = await artifactManager.list_files({ artifact_id: art.id, _rkwargs: true });
-          const timestamps = (fileList || [])
-            .filter((f: any) => f?.type === 'file' && f.last_modified != null)
-            .map((f: any) => {
-              const v = typeof f.last_modified === 'number' ? f.last_modified * 1000 : Date.parse(f.last_modified);
-              return Number.isFinite(v) ? v : null;
-            })
-            .filter((v: number | null): v is number => v !== null);
-          if (timestamps.length > 0) art.lastFileModified = new Date(Math.max(...timestamps)).toLocaleString();
-        } catch { /* ignore */ }
-        const { supportedModes, defaultMode } = determineArtifactSupportedModes(art);
-        art.supportedModes = supportedModes;
-        art.defaultMode = defaultMode;
-      }
-    } catch { /* skip bad artifact */ }
-    return art;
-  }, [artifactManager]);
 
   /** Fetch and append artifacts for a single workspace without touching others. */
   const fetchWorkspaceArtifacts = useCallback(async (ws: string) => {
