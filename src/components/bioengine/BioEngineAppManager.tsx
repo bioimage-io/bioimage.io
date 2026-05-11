@@ -95,15 +95,25 @@ function getEntriesAtDir(rawFiles: RawFileEntry[], dir: string): DirEntry[] {
     if (!rel) continue;
 
     const slashIdx = rel.indexOf('/');
-    if (slashIdx === -1) {
-      // file at this level
+    // A name is a directory if it contains a slash, ends with a slash,
+    // or the artifact manager returned type: 'directory' (no trailing slash).
+    const isExplicitDir = f.type === 'directory' || rel.endsWith('/');
+
+    if (slashIdx === -1 && !isExplicitDir) {
+      // plain file at this level
       const lm = f.last_modified
         ? new Date(typeof f.last_modified === 'number' ? f.last_modified * 1000 : f.last_modified).toLocaleString()
         : undefined;
       entries.push({ kind: 'file', displayName: rel, fullPath: name, size: f.size, lastModified: lm });
     } else {
-      // subdirectory
-      const dirName = rel.slice(0, slashIdx + 1);
+      // subdirectory (from an explicit dir entry or a nested file path)
+      let dirName: string;
+      if (slashIdx !== -1) {
+        dirName = rel.slice(0, slashIdx + 1);
+      } else {
+        // explicit dir entry without trailing slash — normalise to have one
+        dirName = rel.replace(/\/?$/, '/');
+      }
       if (!seenDirs.has(dirName)) {
         seenDirs.add(dirName);
         entries.push({ kind: 'dir', displayName: dirName, fullPath: dir + dirName });
