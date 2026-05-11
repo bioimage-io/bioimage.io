@@ -103,10 +103,16 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     openEditDialog: (artifact: ArtifactType) => void;
   }>(null);
 
-  // Keep pinned workspaces present in selectedWorkspaces whenever they change
+  // Counter used to cancel stale concurrent fetches.
+  const fetchIdRef = React.useRef(0);
+
+  // Keep pinned workspaces present in selectedWorkspaces whenever they change.
+  // Only update state when the resulting array is actually different to avoid
+  // triggering a spurious re-fetch.
   useEffect(() => {
     setSelectedWorkspaces(prev => {
       const merged = [...pinnedWorkspaces, ...prev.filter(w => !pinnedWorkspaces.includes(w))];
+      if (merged.length === prev.length && merged.every((w, i) => w === prev[i])) return prev;
       return merged;
     });
   }, [pinnedWorkspaces]);
@@ -142,6 +148,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
   const fetchAvailableArtifacts = useCallback(async () => {
     if (!serviceId || !artifactManager) return;
+    const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     setAvailableArtifacts([]);
@@ -197,6 +204,9 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             }
           } catch { /* skip bad artifact */ }
 
+          // Discard if a newer fetch has started in the meantime
+          if (fetchId !== fetchIdRef.current) return;
+
           // Append immediately so the card appears as soon as it's enriched
           setAvailableArtifacts(prev => [...prev, art]);
           if (onSetArtifactMode && art.supportedModes?.cpu && art.supportedModes?.gpu && !artifactModes[art.id]) {
@@ -205,9 +215,9 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         }
       }
     } catch (err) {
-      setError(`Failed to fetch artifacts: ${err}`);
+      if (fetchId === fetchIdRef.current) setError(`Failed to fetch artifacts: ${err}`);
     } finally {
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }, [artifactManager, serviceId, selectedWorkspaces, workerWorkspace, userWorkspace, onSetArtifactMode, artifactModes]);
 
