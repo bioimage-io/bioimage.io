@@ -56,8 +56,6 @@ interface AvailableBioEngineAppsProps {
   onArtifactUpdated?: () => void;
 }
 
-const DEFAULT_WORKSPACES = ['bioimage-io'];
-
 const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   serviceId,
   server,
@@ -80,13 +78,18 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   onArtifactUpdated
 }) => {
   const userWorkspace: string = server?.config?.workspace || '';
+  const workerWorkspace: string = serviceId ? serviceId.split('/')[0] : '';
 
-  // Workspace selection: default to bioimage-io + user's workspace
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>(() => {
-    const defaults = [...DEFAULT_WORKSPACES];
-    if (userWorkspace && !defaults.includes(userWorkspace)) defaults.push(userWorkspace);
-    return defaults;
-  });
+  // Pinned workspaces can never be removed by the user.
+  const pinnedWorkspaces = React.useMemo(() => {
+    const pinned: string[] = [];
+    if (workerWorkspace) pinned.push(workerWorkspace);
+    if (userWorkspace && userWorkspace !== workerWorkspace) pinned.push(userWorkspace);
+    return pinned;
+  }, [workerWorkspace, userWorkspace]);
+
+  // Default selected = pinned only; user can add extras on top.
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>(pinnedWorkspaces);
   const [wsInput, setWsInput] = useState('');
 
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
@@ -99,6 +102,14 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     openCreateDialog: () => void;
     openEditDialog: (artifact: ArtifactType) => void;
   }>(null);
+
+  // Keep pinned workspaces present in selectedWorkspaces whenever they change
+  useEffect(() => {
+    setSelectedWorkspaces(prev => {
+      const merged = [...pinnedWorkspaces, ...prev.filter(w => !pinnedWorkspaces.includes(w))];
+      return merged;
+    });
+  }, [pinnedWorkspaces]);
 
   // Initialize artifact manager
   useEffect(() => {
@@ -135,12 +146,12 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     setError(null);
     setAvailableArtifacts([]);
 
-    // Process workspaces in a stable order: bioimage-io first, then the user's
-    // personal workspace, then any additional workspaces.
+    // Process workspaces in a stable order: worker's workspace first, then the
+    // user's personal workspace, then any additional workspaces.
     const orderedWorkspaces = [
-      ...(['bioimage-io'].filter(w => selectedWorkspaces.includes(w))),
-      ...(userWorkspace && selectedWorkspaces.includes(userWorkspace) && userWorkspace !== 'bioimage-io' ? [userWorkspace] : []),
-      ...selectedWorkspaces.filter(w => w !== 'bioimage-io' && w !== userWorkspace),
+      ...(workerWorkspace && selectedWorkspaces.includes(workerWorkspace) ? [workerWorkspace] : []),
+      ...(userWorkspace && selectedWorkspaces.includes(userWorkspace) && userWorkspace !== workerWorkspace ? [userWorkspace] : []),
+      ...selectedWorkspaces.filter(w => w !== workerWorkspace && w !== userWorkspace),
     ];
 
     const seen = new Set<string>();
@@ -198,7 +209,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [artifactManager, serviceId, selectedWorkspaces, userWorkspace, onSetArtifactMode, artifactModes]);
+  }, [artifactManager, serviceId, selectedWorkspaces, workerWorkspace, userWorkspace, onSetArtifactMode, artifactModes]);
 
   const addWorkspace = () => {
     const ws = wsInput.trim();
@@ -209,6 +220,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   };
 
   const removeWorkspace = (ws: string) => {
+    if (pinnedWorkspaces.includes(ws)) return; // pinned — cannot be removed
     setSelectedWorkspaces(prev => prev.filter(w => w !== ws));
   };
 
@@ -230,7 +242,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     }
   };
 
-  const allWorkspaces = [...new Set([...DEFAULT_WORKSPACES, userWorkspace, ...selectedWorkspaces])].filter(Boolean);
+  const allWorkspaces = [...new Set([...pinnedWorkspaces, ...selectedWorkspaces])].filter(Boolean);
 
   return (
     <div className="space-y-5">
@@ -294,23 +306,33 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       {/* Workspace selector */}
       <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
         <span className="text-xs font-semibold text-gray-600 mr-1">Workspaces:</span>
-        {selectedWorkspaces.map(ws => (
-          <span
-            key={ws}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white border border-gray-300 text-gray-700 shadow-sm"
-          >
-            {ws}
-            <button
-              onClick={() => removeWorkspace(ws)}
-              className="text-gray-400 hover:text-red-500 transition-colors"
-              title={`Remove ${ws}`}
+        {selectedWorkspaces.map(ws => {
+          const isPinned = pinnedWorkspaces.includes(ws);
+          return (
+            <span
+              key={ws}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shadow-sm ${
+                isPinned
+                  ? 'bg-blue-50 border-blue-300 text-blue-700'
+                  : 'bg-white border-gray-300 text-gray-700'
+              }`}
+              title={isPinned ? `${ws === workerWorkspace ? "Worker's" : "Your"} workspace — cannot be removed` : ws}
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </span>
-        ))}
+              {ws}
+              {!isPinned && (
+                <button
+                  onClick={() => removeWorkspace(ws)}
+                  className="text-gray-400 hover:text-red-500 transition-colors"
+                  title={`Remove ${ws}`}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </span>
+          );
+        })}
         <div className="flex items-center gap-1">
           <input
             value={wsInput}
