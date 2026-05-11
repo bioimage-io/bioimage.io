@@ -742,23 +742,33 @@ const BioEngineAppManager = React.forwardRef<
               <span className="text-[10px] bg-green-100 text-green-700 rounded px-1">new</span>
             )}
             {editable && entry.kind === 'file' && entry.fullPath !== 'manifest.yaml' && (
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  setDeletedFiles(prev => {
-                    const next = new Set(prev);
-                    if (next.has(entry.fullPath)) next.delete(entry.fullPath);
-                    else next.add(entry.fullPath);
-                    return next;
-                  });
-                }}
-                className="opacity-0 group-hover:opacity-100 hover:opacity-100 p-0.5 rounded hover:text-red-500 text-gray-400 flex-shrink-0"
-                title={deletedFiles.has(entry.fullPath) ? 'Restore file' : 'Mark for deletion'}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              deletedFiles.has(entry.fullPath) ? (
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    setDeletedFiles(prev => { const next = new Set(prev); next.delete(entry.fullPath); return next; });
+                  }}
+                  className="p-0.5 rounded text-gray-400 hover:text-blue-600 flex-shrink-0"
+                  title="Restore file"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    setDeletedFiles(prev => new Set([...prev, entry.fullPath]));
+                  }}
+                  className="p-0.5 rounded text-gray-300 hover:text-red-500 flex-shrink-0"
+                  title="Delete file"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              )
             )}
           </button>
         ))}
