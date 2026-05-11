@@ -312,6 +312,21 @@ const BioEngineAppManager = React.forwardRef<
       const am = await getArtifactManager();
       const fileList: RawFileEntry[] = await am.list_files({ artifact_id: art.id, _rkwargs: true });
       setRawFiles(fileList || []);
+
+      // Auto-select manifest.yaml so the user sees something immediately
+      const hasManifest = (fileList || []).some((f: RawFileEntry) => f.name === 'manifest.yaml');
+      if (hasManifest) {
+        // Load content inline so the editor is populated without a second click
+        try {
+          const url = await am.get_file({ artifact_id: art.id, file_path: 'manifest.yaml', _rkwargs: true });
+          const res = await fetch(url);
+          const content = res.ok ? await res.text() : '# Failed to load manifest.yaml';
+          setLoadedFiles({ 'manifest.yaml': { content, language: 'yaml', isEditable: true } });
+        } catch {
+          setLoadedFiles({ 'manifest.yaml': { content: '# Failed to load manifest.yaml', language: 'yaml', isEditable: false } });
+        }
+        setSelectedFile('manifest.yaml');
+      }
     } catch (err) {
       setError(`Failed to list files: ${err}`);
     } finally {
