@@ -159,7 +159,7 @@ The annotation URL encodes this ID so the annotator (`AnnotatePage`) can connect
 |---|---|---|
 | spec-bioimage-io | `../spec-bioimage-io` | Python |
 | core-bioimage-io-python | `../core-bioimage-io-python` | Python |
-| bioengine-worker | `../bioengine-worker` | Python |
+| bioengine | `../bioengine` | Python |
 
 ### `../spec-bioimage-io`
 
@@ -169,7 +169,7 @@ Defines the **official YAML format specification** for all bioimage.io resources
 
 The **core Python runtime library** (`bioimageio.core`) for loading and executing bioimage.io models. Implements standardized pre/post-processing pipelines, weight format conversion (PyTorch, TensorFlow, ONNX, TorchScript, Keras), dataset statistics computation, and CLI tools for testing resource descriptions. This is what community partner tools and custom scripts use to run inference on Zoo models in a few lines of code.
 
-### `../bioengine-worker`
+### `../bioengine`
 
 The **distributed AI inference backend** that powers the BioEngine — the in-browser model testing service on bioimage.io. Built on Ray and Ray Serve for auto-scaling GPU inference across cloud/HPC nodes. Exposes model serving via Hypha RPC, supports dataset streaming with access control, and manages custom application deployment. This is the server-side counterpart to the BioEngine frontend that lets users test models on the website.
 
