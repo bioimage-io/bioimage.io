@@ -5,7 +5,7 @@ import DeployedBioEngineApps from './DeployedBioEngineApps';
 
 interface BioEngineAppsProps {
   serviceId: string;
-  onArtifactUpdated?: () => void;
+  onArtifactUpdated?: (workspace?: string) => void;
   adminUsers?: string[];
   currentUserEmail?: string;
   // Deployment-related props

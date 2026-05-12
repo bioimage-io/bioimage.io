@@ -51,7 +51,7 @@ interface BioEngineAppManagerProps {
   adminUsers?: string[];
   currentUserEmail?: string;
   availableWorkspaces?: string[];
-  onArtifactUpdated?: () => void;
+  onArtifactUpdated?: (workspace?: string) => void;
 }
 
 type DialogMode = 'closed' | 'view' | 'edit' | 'create' | 'copy';
@@ -61,9 +61,10 @@ type DialogMode = 'closed' | 'view' | 'edit' | 'create' | 'copy';
 function getFileLanguage(fileName: string): string {
   const ext = fileName.toLowerCase().split('.').pop() || '';
   const map: Record<string, string> = {
-    yaml: 'yaml', yml: 'yaml', py: 'python', js: 'javascript',
-    ts: 'typescript', json: 'json', md: 'markdown', txt: 'plaintext',
-    sh: 'shell', cfg: 'plaintext', conf: 'plaintext', ini: 'plaintext',
+    yaml: 'yaml', yml: 'yaml', py: 'python', js: 'javascript', jsx: 'javascript',
+    ts: 'typescript', tsx: 'typescript', json: 'json', md: 'markdown', txt: 'plaintext',
+    sh: 'shell', html: 'html', htm: 'html', css: 'css', ipynb: 'json',
+    cfg: 'plaintext', conf: 'plaintext', ini: 'plaintext',
     dockerfile: 'dockerfile', ijm: 'plaintext',
   };
   return map[ext] || (fileName === 'Dockerfile' ? 'dockerfile' : 'plaintext');
@@ -71,7 +72,7 @@ function getFileLanguage(fileName: string): string {
 
 function isEditableFile(fileName: string): boolean {
   const ext = fileName.toLowerCase().split('.').pop() || '';
-  const editableExts = ['yaml','yml','py','js','ts','json','md','txt','sh','ijm','cfg','conf','ini','dockerfile','requirements','gitignore'];
+  const editableExts = ['yaml','yml','py','js','ts','jsx','tsx','json','md','txt','sh','html','htm','css','ipynb','ijm','cfg','conf','ini','dockerfile','requirements','gitignore'];
   return editableExts.includes(ext) || fileName === 'Dockerfile' || fileName === 'requirements.txt';
 }
 
@@ -202,6 +203,7 @@ const BioEngineAppManager = React.forwardRef<
 
   // ─ File browser
   const [rawFiles, setRawFiles] = useState<RawFileEntry[]>([]);
+  const [fetchedDirs, setFetchedDirs] = useState<Set<string>>(new Set());
   const [currentDir, setCurrentDir] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [loadedFiles, setLoadedFiles] = useState<Record<string, LoadedFile>>({});
@@ -211,6 +213,7 @@ const BioEngineAppManager = React.forwardRef<
   const [editedContents, setEditedContents] = useState<Record<string, string>>({});
   const [newFiles, setNewFiles] = useState<Record<string, string>>({});   // path → content
   const [deletedFiles, setDeletedFiles] = useState<Set<string>>(new Set());
+  const [editorKey, setEditorKey] = useState(0); // bumped to force Monaco re-mount on discard
 
   // ─ Permission
   const [permission, setPermission] = useState<PermissionInfo | null>(null);
@@ -260,8 +263,8 @@ const BioEngineAppManager = React.forwardRef<
 
   const generateWorkspaceToken = useCallback(async (workspace: string): Promise<string> => {
     try {
-      if (typeof server.generate_token === 'function') {
-        const tok = await server.generate_token({ workspace, expires_in: 3600 });
+      if (typeof server.generateToken === 'function') {
+        const tok = await server.generateToken({ workspace, expires_in: 3600 });
         return typeof tok === 'string' ? tok : (tok?.token ?? tok);
       }
     } catch (_) { /* fall through */ }
@@ -271,50 +274,40 @@ const BioEngineAppManager = React.forwardRef<
 
   // ─── Permission check (called when entering edit mode) ───────────────────
 
-  const checkEditPermission = useCallback(async (art: ArtifactType): Promise<PermissionInfo> => {
-    const workerWs = getWorkerWorkspace();
-    const artifactWs = art.id.split('/')[0];
+  const checkEditPermission = useCallback(async (): Promise<PermissionInfo> => {
     const bioengineWorker = await server.getService(serviceId, { mode: 'random' });
-
-    if (artifactWs === workerWs) {
-      const isAdmin = await bioengineWorker.check_access();
-      if (isAdmin) {
-        return { mode: 'admin' };
-      }
-      // Not admin — try to generate token for worker's workspace
-      const token = await generateWorkspaceToken(workerWs);
-      return { mode: 'token', workspace: workerWs, token };
-    } else {
-      // Different workspace — generate token for it
-      const token = await generateWorkspaceToken(artifactWs);
-      return { mode: 'token', workspace: artifactWs, token };
+    const isAdmin = await bioengineWorker.check_access();
+    if (!isAdmin) {
+      throw new Error('You need admin access to this BioEngine worker to edit or copy apps.');
     }
-  }, [serviceId, server, getWorkerWorkspace, generateWorkspaceToken]);
+    return { mode: 'admin' };
+  }, [serviceId, server]);
 
   // ─── Upload via worker ────────────────────────────────────────────────────
 
   const uploadApp = useCallback(async (
     filesToUpload: Array<{ name: string; content: string; type: string }>,
-    perm: PermissionInfo
+    targetWorkspace?: string,
   ): Promise<string> => {
     const bioengineWorker = await server.getService(serviceId, { mode: 'random' });
-    if (perm.mode === 'admin') {
-      return await bioengineWorker.upload_app({ files: filesToUpload, _rkwargs: true });
-    } else {
+    if (targetWorkspace) {
+      const token = await generateWorkspaceToken(targetWorkspace);
       return await bioengineWorker.upload_app({
         files: filesToUpload,
-        workspace: perm.workspace,
-        hypha_token: perm.token,
+        workspace: targetWorkspace,
+        hypha_token: token,
         _rkwargs: true,
       });
     }
-  }, [serviceId, server]);
+    return await bioengineWorker.upload_app({ files: filesToUpload, _rkwargs: true });
+  }, [serviceId, server, generateWorkspaceToken]);
 
   // ─── Load artifact file list ──────────────────────────────────────────────
 
   const loadArtifactFiles = useCallback(async (art: ArtifactType) => {
     setInitialLoading(true);
     setRawFiles([]);
+    setFetchedDirs(new Set());
     setLoadedFiles({});
     setCurrentDir('');
     setSelectedFile(null);
@@ -382,6 +375,40 @@ const BioEngineAppManager = React.forwardRef<
     }
   }, [loadedFiles, getArtifactManager]);
 
+  // ─── Navigate into a directory, lazy-fetching its contents ──────────────
+
+  const handleNavigateDir = useCallback(async (dirFullPath: string) => {
+    setCurrentDir(dirFullPath);
+    setSelectedFile(null);
+
+    if (!artifact || fetchedDirs.has(dirFullPath)) return;
+    setFetchedDirs(prev => new Set([...prev, dirFullPath]));
+
+    const cleanDir = dirFullPath.replace(/\/$/, ''); // strip trailing slash for API
+    try {
+      const am = await getArtifactManager();
+      const subFiles: RawFileEntry[] = await am.list_files({
+        artifact_id: artifact.id,
+        dir_path: cleanDir,
+        _rkwargs: true,
+      });
+      if (!subFiles || subFiles.length === 0) return;
+
+      // Normalize names: API may return relative names ("file.txt") or full paths ("frontend/file.txt")
+      const prefix = dirFullPath; // 'frontend/'
+      const normalized: RawFileEntry[] = subFiles.map(f => ({
+        ...f,
+        name: f.name.startsWith(cleanDir + '/') ? f.name : prefix + f.name,
+      }));
+
+      setRawFiles(prev => {
+        const existingNames = new Set(prev.map(f => f.name));
+        const toAdd = normalized.filter(f => !existingNames.has(f.name));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+    } catch (_) { /* silently ignore — directory will appear empty */ }
+  }, [artifact, fetchedDirs, getArtifactManager]);
+
   // ─── Open view dialog ─────────────────────────────────────────────────────
 
   const handleOpenViewDialog = useCallback(async (art: ArtifactType) => {
@@ -403,7 +430,7 @@ const BioEngineAppManager = React.forwardRef<
     setPermChecking(true);
     setPermError(null);
     try {
-      const perm = await checkEditPermission(artifact);
+      const perm = await checkEditPermission();
       setPermission(perm);
       setMode('edit');
     } catch (err) {
@@ -417,13 +444,21 @@ const BioEngineAppManager = React.forwardRef<
 
   const handleDiscardChanges = useCallback(() => {
     setMode('view');
+    setRawFiles(prev => prev.filter(f => !(f.name in newFiles)));
+    setLoadedFiles(prev => {
+      const next = { ...prev };
+      Object.keys(newFiles).forEach(k => delete next[k]);
+      return next;
+    });
     setEditedContents({});
     setNewFiles({});
     setDeletedFiles(new Set());
+    setSelectedFile(sel => (sel && newFiles[sel] !== undefined ? null : sel));
     setPermission(null);
     setPermError(null);
     setError(null);
-  }, []);
+    setEditorKey(k => k + 1);
+  }, [newFiles]);
 
   // ─── Update app ───────────────────────────────────────────────────────────
 
@@ -432,43 +467,77 @@ const BioEngineAppManager = React.forwardRef<
     setSaving(true);
     setError(null);
     try {
-      // Merge: loaded (possibly edited) + new files, minus deleted
+      const am = await getArtifactManager();
+
+      // Recursively list ALL files in the artifact (upload_app removes any file not in the list)
+      const allFilesFlat: RawFileEntry[] = [];
+      const listDir = async (dirPath: string) => {
+        const opts: any = { artifact_id: artifact.id, _rkwargs: true };
+        if (dirPath) opts.dir_path = dirPath;
+        const entries: RawFileEntry[] = await am.list_files(opts);
+        for (const e of entries || []) {
+          if (e.type === 'directory' || e.name.endsWith('/')) {
+            const sub = e.name.replace(/\/$/, '');
+            await listDir(dirPath ? `${dirPath}/${sub}` : sub);
+          } else {
+            // API may return names relative to dir_path or full artifact-root paths
+            const fullName = (dirPath && !e.name.startsWith(dirPath + '/'))
+              ? `${dirPath}/${e.name}`
+              : e.name;
+            allFilesFlat.push({ ...e, name: fullName });
+          }
+        }
+      };
+      await listDir('');
+
       const filesToUpload: Array<{ name: string; content: string; type: string }> = [];
 
-      // All files from rawFiles (excluding directories and deleted)
-      for (const rf of rawFiles) {
-        if (rf.name.endsWith('/')) continue;        // skip dir entries
-        if (deletedFiles.has(rf.name)) continue;   // skip deleted
+      for (const rf of allFilesFlat) {
+        if (deletedFiles.has(rf.name)) continue;
 
         const editedContent = editedContents[rf.name];
-        const loadedContent = loadedFiles[rf.name]?.content;
-
         if (editedContent !== undefined) {
           filesToUpload.push({ name: rf.name, content: editedContent, type: 'text' });
-        } else if (loadedContent !== undefined && loadedFiles[rf.name]?.isEditable) {
-          filesToUpload.push({ name: rf.name, content: loadedContent, type: 'text' });
+          continue;
         }
-        // Binary files that weren't loaded are skipped — worker keeps existing
+
+        const loaded = loadedFiles[rf.name];
+        if (loaded?.isEditable) {
+          filesToUpload.push({ name: rf.name, content: loaded.content, type: 'text' });
+          continue;
+        }
+
+        // File not yet loaded — fetch it now if it's a text file
+        if (isEditableFile(rf.name)) {
+          try {
+            const url = await am.get_file({ artifact_id: artifact.id, file_path: rf.name, _rkwargs: true });
+            const res = await fetch(url);
+            if (res.ok) filesToUpload.push({ name: rf.name, content: await res.text(), type: 'text' });
+          } catch { /* skip unloadable — will be removed by worker */ }
+        }
+        // Binary files cannot be re-uploaded through this interface and will be removed by the worker
       }
 
-      // Add new files
+      // Add new files (skip any that were discarded via deletedFiles)
       for (const [path, content] of Object.entries(newFiles)) {
-        filesToUpload.push({ name: path, content, type: 'text' });
+        if (!deletedFiles.has(path) && !filesToUpload.some(f => f.name === path)) {
+          filesToUpload.push({ name: path, content, type: 'text' });
+        }
       }
 
       if (!filesToUpload.some(f => f.name === 'manifest.yaml')) {
         throw new Error('manifest.yaml is required');
       }
 
-      await uploadApp(filesToUpload, permission);
-      onArtifactUpdated?.();
+      await uploadApp(filesToUpload);
+      onArtifactUpdated?.(artifact.id.split('/')[0]);
       handleCloseDialog();
     } catch (err) {
       setError(`Failed to update app: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
-  }, [artifact, permission, rawFiles, deletedFiles, editedContents, loadedFiles, newFiles, uploadApp, onArtifactUpdated]);
+  }, [artifact, permission, deletedFiles, editedContents, loadedFiles, newFiles, uploadApp, onArtifactUpdated, getArtifactManager]);
 
   // ─── Create Copy ─────────────────────────────────────────────────────────
 
@@ -480,48 +549,72 @@ const BioEngineAppManager = React.forwardRef<
 
   const handleCreateCopy = useCallback(async () => {
     if (!artifact) return;
-    const targetWs = copyWorkspace.trim();
-    if (!targetWs) { setError('Please specify a target workspace.'); return; }
 
     setCopySaving(true);
     setError(null);
     try {
-      const token = await generateWorkspaceToken(targetWs);
-      const perm: PermissionInfo = { mode: 'token', workspace: targetWs, token };
+      const am = await getArtifactManager();
 
-      // Collect all loaded editable files
-      const filesToUpload: Array<{ name: string; content: string; type: string }> = [];
-      for (const rf of rawFiles) {
-        if (rf.name.endsWith('/')) continue;
-        const loaded = loadedFiles[rf.name];
-        if (loaded?.isEditable && loaded.content) {
-          // Strip workspace from manifest id
-          let content = loaded.content;
-          if (rf.name === 'manifest.yaml') {
-            try {
-              const obj: any = yaml.load(content);
-              if (obj?.id && typeof obj.id === 'string' && obj.id.includes('/')) {
-                obj.id = obj.id.split('/').pop();
-              }
-              content = yaml.dump(obj, { indent: 2, lineWidth: 120, noRefs: true });
-            } catch { /* use original */ }
+      // Recursively collect all files (same as handleUpdateApp)
+      const allFilesFlat: RawFileEntry[] = [];
+      const listDir = async (dirPath: string) => {
+        const opts: any = { artifact_id: artifact.id, _rkwargs: true };
+        if (dirPath) opts.dir_path = dirPath;
+        const entries: RawFileEntry[] = await am.list_files(opts);
+        for (const e of entries || []) {
+          if (e.type === 'directory' || e.name.endsWith('/')) {
+            const sub = e.name.replace(/\/$/, '');
+            await listDir(dirPath ? `${dirPath}/${sub}` : sub);
+          } else {
+            const fullName = (dirPath && !e.name.startsWith(dirPath + '/'))
+              ? `${dirPath}/${e.name}`
+              : e.name;
+            allFilesFlat.push({ ...e, name: fullName });
           }
-          filesToUpload.push({ name: rf.name, content, type: 'text' });
         }
+      };
+      await listDir('');
+
+      const filesToUpload: Array<{ name: string; content: string; type: string }> = [];
+      for (const rf of allFilesFlat) {
+        if (!isEditableFile(rf.name)) continue;
+        const loaded = loadedFiles[rf.name];
+        let content = loaded?.isEditable ? loaded.content : null;
+        if (content === null) {
+          try {
+            const url = await am.get_file({ artifact_id: artifact.id, file_path: rf.name, _rkwargs: true });
+            const res = await fetch(url);
+            if (res.ok) content = await res.text();
+          } catch { continue; }
+        }
+        if (content === null) continue;
+
+        // Strip workspace prefix from manifest id so the copy gets a clean id
+        if (rf.name === 'manifest.yaml') {
+          try {
+            const obj: any = yaml.load(content);
+            if (obj?.id && typeof obj.id === 'string' && obj.id.includes('/')) {
+              obj.id = obj.id.split('/').pop();
+            }
+            content = yaml.dump(obj, { indent: 2, lineWidth: 120, noRefs: true });
+          } catch { /* use original */ }
+        }
+        filesToUpload.push({ name: rf.name, content, type: 'text' });
       }
       if (!filesToUpload.some(f => f.name === 'manifest.yaml')) {
-        throw new Error('manifest.yaml was not loaded — please open the file first to load its content.');
+        throw new Error('manifest.yaml was not loaded — open the file first to load its content.');
       }
 
-      await uploadApp(filesToUpload, perm);
-      onArtifactUpdated?.();
+      const targetWs = copyWorkspace.trim() || getWorkerWorkspace() || undefined;
+      await uploadApp(filesToUpload, targetWs || undefined);
+      onArtifactUpdated?.(targetWs);
       handleCloseDialog();
     } catch (err) {
       setError(`Failed to create copy: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCopySaving(false);
     }
-  }, [artifact, copyWorkspace, rawFiles, loadedFiles, generateWorkspaceToken, uploadApp, onArtifactUpdated]);
+  }, [artifact, copyWorkspace, rawFiles, loadedFiles, uploadApp, onArtifactUpdated, getArtifactManager]);
 
   // ─── Create new app ───────────────────────────────────────────────────────
 
@@ -536,9 +629,6 @@ const BioEngineAppManager = React.forwardRef<
   }, [server]);
 
   const handleCreateApp = useCallback(async () => {
-    const targetWs = createWorkspace.trim();
-    if (!targetWs) { setError('Please specify a workspace.'); return; }
-
     const manifestContent = createFiles['manifest.yaml'];
     if (!manifestContent) { setError('manifest.yaml is required.'); return; }
 
@@ -552,49 +642,18 @@ const BioEngineAppManager = React.forwardRef<
     setCreateChecking(true);
     setError(null);
     try {
-      // Check existence
-      const am = await getArtifactManager();
-      const fullArtifactId = `${targetWs}/${appId}`;
-      try {
-        await am.read({ artifact_id: fullArtifactId, _rkwargs: true });
-        setError(`Artifact "${fullArtifactId}" already exists. Choose a different id in manifest.yaml or workspace.`);
-        return;
-      } catch {
-        // Good — doesn't exist yet
-      }
-
-      // Determine permission
-      const workerWs = getWorkerWorkspace();
-      let perm: PermissionInfo;
-      if (targetWs === workerWs) {
-        const bioengineWorker = await server.getService(serviceId, { mode: 'random' });
-        const isAdmin = await bioengineWorker.check_access();
-        if (isAdmin) {
-          perm = { mode: 'admin' };
-        } else {
-          const token = await generateWorkspaceToken(targetWs);
-          perm = { mode: 'token', workspace: targetWs, token };
-        }
-      } else {
-        const token = await generateWorkspaceToken(targetWs);
-        perm = { mode: 'token', workspace: targetWs, token };
-      }
-
       const filesToUpload = Object.entries(createFiles).map(([name, content]) => ({
         name, content, type: 'text' as const,
       }));
-
-      await uploadApp(filesToUpload, perm);
-      onArtifactUpdated?.();
+      await uploadApp(filesToUpload);
+      onArtifactUpdated?.(getWorkerWorkspace());
       handleCloseDialog();
     } catch (err) {
-      if (!error) {
-        setError(`Failed to create app: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      setError(`Failed to create app: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCreateChecking(false);
     }
-  }, [createWorkspace, createFiles, getArtifactManager, getWorkerWorkspace, serviceId, server, generateWorkspaceToken, uploadApp, onArtifactUpdated, error]);
+  }, [createFiles, uploadApp, onArtifactUpdated]);
 
   // ─── Delete app ───────────────────────────────────────────────────────────
 
@@ -718,8 +777,7 @@ const BioEngineAppManager = React.forwardRef<
             key={entry.fullPath}
             onClick={() => {
               if (entry.kind === 'dir') {
-                setCurrentDir(entry.fullPath);
-                setSelectedFile(null);
+                handleNavigateDir(entry.fullPath);
               } else {
                 if (artifact) loadFileContent(artifact, entry.fullPath);
               }
@@ -738,38 +796,73 @@ const BioEngineAppManager = React.forwardRef<
               </svg>
             )}
             <span className="truncate flex-1">{entry.displayName}</span>
-            {newFiles[entry.fullPath] !== undefined && entry.kind === 'file' && (
-              <span className="text-[10px] bg-green-100 text-green-700 rounded px-1">new</span>
-            )}
-            {editable && entry.kind === 'file' && entry.fullPath !== 'manifest.yaml' && (
-              deletedFiles.has(entry.fullPath) ? (
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    setDeletedFiles(prev => { const next = new Set(prev); next.delete(entry.fullPath); return next; });
-                  }}
-                  className="p-0.5 rounded text-gray-400 hover:text-blue-600 flex-shrink-0"
-                  title="Restore file"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                  </svg>
-                </button>
-              ) : (
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    setDeletedFiles(prev => new Set([...prev, entry.fullPath]));
-                  }}
-                  className="p-0.5 rounded text-gray-300 hover:text-red-500 flex-shrink-0"
-                  title="Delete file"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              )
-            )}
+            {editable && (() => {
+              const isNewFile = entry.kind === 'file' && newFiles[entry.fullPath] !== undefined;
+              const isNewDir = entry.kind === 'dir' && newFiles[entry.fullPath + '.gitkeep'] !== undefined;
+              if (isNewFile || isNewDir) {
+                // Discard button: removes new entries entirely
+                return (
+                  <>
+                    {isNewFile && <span className="text-[10px] bg-green-100 text-green-700 rounded px-1">new</span>}
+                    {isNewDir && <span className="text-[10px] bg-green-100 text-green-700 rounded px-1">new</span>}
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (isNewFile) {
+                          setNewFiles(prev => { const n = { ...prev }; delete n[entry.fullPath]; return n; });
+                          setEditedContents(prev => { const n = { ...prev }; delete n[entry.fullPath]; return n; });
+                          setLoadedFiles(prev => { const n = { ...prev }; delete n[entry.fullPath]; return n; });
+                          if (selectedFile === entry.fullPath) setSelectedFile(null);
+                        } else {
+                          // Remove all new files under this folder
+                          const prefix = entry.fullPath;
+                          setNewFiles(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith(prefix))));
+                          setEditedContents(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith(prefix))));
+                          setLoadedFiles(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith(prefix))));
+                          if (selectedFile?.startsWith(prefix)) setSelectedFile(null);
+                        }
+                      }}
+                      className="p-0.5 rounded text-gray-400 hover:text-red-500 flex-shrink-0"
+                      title="Discard new entry"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </>
+                );
+              }
+              if (entry.kind === 'file' && entry.fullPath !== 'manifest.yaml') {
+                return deletedFiles.has(entry.fullPath) ? (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      setDeletedFiles(prev => { const next = new Set(prev); next.delete(entry.fullPath); return next; });
+                    }}
+                    className="p-0.5 rounded text-gray-400 hover:text-blue-600 flex-shrink-0"
+                    title="Restore file"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      setDeletedFiles(prev => new Set([...prev, entry.fullPath]));
+                    }}
+                    className="p-0.5 rounded text-gray-300 hover:text-red-500 flex-shrink-0"
+                    title="Delete file"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                );
+              }
+              return null;
+            })()}
           </button>
         ))}
       </div>
@@ -873,16 +966,18 @@ const BioEngineAppManager = React.forwardRef<
 
           {/* Error banner */}
           {error && (
-            <div className="px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700 flex items-center gap-2">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {error}
-              <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <div className="px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-              </button>
+                <pre className="flex-1 whitespace-pre-wrap break-all font-sans max-h-40 overflow-y-auto">{error}</pre>
+                <button onClick={() => setError(null)} className="flex-shrink-0 text-red-500 hover:text-red-700">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
 
@@ -918,6 +1013,7 @@ const BioEngineAppManager = React.forwardRef<
                       ) : (
                         <div className="flex-1">
                           <Editor
+                            key={editorKey}
                             height="100%"
                             language={selectedFileData?.language || getFileLanguage(selectedFile)}
                             value={currentContent}
@@ -1007,12 +1103,6 @@ const BioEngineAppManager = React.forwardRef<
   // ─── Create App dialog ────────────────────────────────────────────────────
 
   const renderCreateDialog = () => {
-    const wsOptions = [...new Set([
-      userWs,
-      ...availableWorkspaces.filter(w => w !== 'bioimage-io'),
-      getWorkerWorkspace(),
-    ])].filter(Boolean);
-
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-white rounded-2xl shadow-lg w-full max-w-6xl mx-4 h-5/6 flex flex-col border border-gray-200">
@@ -1023,22 +1113,7 @@ const BioEngineAppManager = React.forwardRef<
               </svg>
             </div>
             <h3 className="text-base font-semibold text-gray-900 flex-1">Create New App</h3>
-
-            {/* Workspace selector */}
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-600">Workspace:</label>
-              <input
-                list="create-ws-list"
-                value={createWorkspace}
-                onChange={e => setCreateWorkspace(e.target.value)}
-                placeholder="workspace name"
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg w-52 focus:ring-2 focus:ring-blue-500"
-              />
-              <datalist id="create-ws-list">
-                {wsOptions.map(w => <option key={w} value={w} />)}
-              </datalist>
-            </div>
-
+            <span className="text-xs text-gray-500">Will be created in workspace <code className="bg-gray-100 px-1 rounded">{getWorkerWorkspace()}</code></span>
             <button onClick={handleCloseDialog} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1047,12 +1122,14 @@ const BioEngineAppManager = React.forwardRef<
           </div>
 
           {error && (
-            <div className="px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700 flex items-center gap-2">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {error}
-              <button onClick={() => setError(null)} className="ml-auto"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+            <div className="px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <pre className="flex-1 whitespace-pre-wrap break-all font-sans max-h-40 overflow-y-auto">{error}</pre>
+                <button onClick={() => setError(null)} className="flex-shrink-0"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+              </div>
             </div>
           )}
 
@@ -1157,15 +1234,16 @@ const BioEngineAppManager = React.forwardRef<
   const renderCopyDialog = () => {
     const wsOptions = [...new Set([
       userWs,
-      ...availableWorkspaces.filter(w => w !== 'bioimage-io'),
+      getWorkerWorkspace(),
+      ...availableWorkspaces,
     ])].filter(Boolean);
 
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-white rounded-xl shadow-lg w-full max-w-md mx-4 p-6">
-          <h3 className="text-base font-semibold text-gray-900 mb-4">Create Copy in Another Workspace</h3>
+          <h3 className="text-base font-semibold text-gray-900 mb-4">Create Copy</h3>
           <p className="text-sm text-gray-600 mb-4">
-            Copies all loaded files from <span className="font-mono text-xs bg-gray-100 px-1 rounded">{artifact?.id}</span> to the selected workspace.
+            Copies all files from <span className="font-mono text-xs bg-gray-100 px-1 rounded">{artifact?.id}</span> into the target workspace. The artifact <code>id</code> in <code>manifest.yaml</code> determines the new artifact name.
           </p>
 
           <label className="block text-sm font-medium text-gray-700 mb-1">Target Workspace</label>
@@ -1173,21 +1251,21 @@ const BioEngineAppManager = React.forwardRef<
             list="copy-ws-list"
             value={copyWorkspace}
             onChange={e => setCopyWorkspace(e.target.value)}
-            placeholder="workspace name"
+            placeholder="workspace name (leave blank for worker workspace)"
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-1"
           />
           <datalist id="copy-ws-list">
             {wsOptions.map(w => <option key={w} value={w} />)}
           </datalist>
-          <p className="text-xs text-gray-500 mb-4">You must have write access to this workspace.</p>
+          <p className="text-xs text-gray-500 mb-4">Leave blank to copy into the worker's workspace. You must be a member of any other workspace.</p>
 
-          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 max-h-40 overflow-y-auto"><pre className="whitespace-pre-wrap break-all font-sans">{error}</pre></div>}
 
           <div className="flex justify-end gap-3">
             <button onClick={() => { setMode('edit'); setError(null); }} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
             <button
               onClick={handleCreateCopy}
-              disabled={copySaving || !copyWorkspace.trim()}
+              disabled={copySaving}
               className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
             >
               {copySaving ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Creating…</> : 'Create Copy'}
@@ -1219,7 +1297,7 @@ const BioEngineAppManager = React.forwardRef<
           placeholder="Enter artifact ID"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 mb-4"
         />
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 max-h-40 overflow-y-auto"><pre className="whitespace-pre-wrap break-all font-sans">{error}</pre></div>}
         <div className="flex justify-end gap-3">
           <button onClick={() => { setDeleteOpen(false); setDeleteText(''); }} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
           <button

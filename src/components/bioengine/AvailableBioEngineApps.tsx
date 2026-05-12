@@ -53,7 +53,7 @@ interface AvailableBioEngineAppsProps {
   getDeploymentStatus?: (artifactId: string) => string | null;
   isDeployButtonDisabled?: (artifactId: string) => boolean;
   getDeployButtonText?: (artifactId: string) => string;
-  onArtifactUpdated?: () => void;
+  onArtifactUpdated?: (workspace?: string) => void;
 }
 
 const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
@@ -478,7 +478,20 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         adminUsers={adminUsers}
         currentUserEmail={currentUserEmail}
         availableWorkspaces={allWorkspaces}
-        onArtifactUpdated={() => { fetchAvailableArtifacts(); onArtifactUpdated?.(); }}
+        onArtifactUpdated={(workspace?: string) => {
+          if (workspace && selectedWorkspaces.includes(workspace)) {
+            // Remove existing entries for this workspace and re-fetch only it
+            setAvailableArtifacts(prev => prev.filter(a => !a.id.startsWith(`${workspace}/`)));
+            fetchWorkspaceArtifacts(workspace);
+          } else if (workspace && !selectedWorkspaces.includes(workspace)) {
+            // Newly created in a workspace not yet observed — add it
+            setSelectedWorkspaces(prev => [...prev, workspace]);
+            fetchWorkspaceArtifacts(workspace);
+          } else {
+            fetchAvailableArtifacts();
+          }
+          onArtifactUpdated?.(workspace);
+        }}
       />
     </div>
   );
