@@ -105,7 +105,7 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE = 'ghcr.io/aicell-lab/bioengine-worker:0.7.1';
+const DEFAULT_IMAGE = 'ghcr.io/aicell-lab/bioengine:0.8.18';
 
 const BioEngineGuide: React.FC = () => {
   const { server, isLoggedIn } = useHyphaStore();
@@ -153,6 +153,20 @@ const BioEngineGuide: React.FC = () => {
   const [k8sSecretCopied, setK8sSecretCopied] = useState(false);
   const [k8sYamlCopied, setK8sYamlCopied] = useState(false);
   const [k8sApplyCopied, setK8sApplyCopied] = useState(false);
+
+  // SLURM-specific options (HPC mode)
+  const [slurmDefaultNumCpus, setSlurmDefaultNumCpus] = useState(8);
+  const [slurmDefaultNumGpus, setSlurmDefaultNumGpus] = useState(1);
+  const [slurmDefaultMemPerCpu, setSlurmDefaultMemPerCpu] = useState(16);
+  const [slurmDefaultTimeLimit, setSlurmDefaultTimeLimit] = useState('4:00:00');
+  const [slurmMaxWorkers, setSlurmMaxWorkers] = useState<number | ''>('');
+  const [slurmGpuFlag, setSlurmGpuFlag] = useState('--gpus={n}');
+  const [slurmFurtherArgs, setSlurmFurtherArgs] = useState('');
+  const [slurmApptainerArgs, setSlurmApptainerArgs] = useState('');
+  const [slurmWorkerWorkspaceDir, setSlurmWorkerWorkspaceDir] = useState('');
+  const [copiedSlurmStep1, setCopiedSlurmStep1] = useState(false);
+  const [copiedSlurmStep2, setCopiedSlurmStep2] = useState(false);
+  const [copiedSlurmStep3, setCopiedSlurmStep3] = useState(false);
 
   const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
 
@@ -271,12 +285,34 @@ const BioEngineGuide: React.FC = () => {
 
     if (mode === 'slurm') {
       if (workspaceDir) args.push(`--workspace-dir ${workspaceDir}`);
+      if (slurmWorkerWorkspaceDir) args.push(`--worker-workspace-dir ${slurmWorkerWorkspaceDir}`);
+      if (slurmDefaultNumCpus !== 8) args.push(`--default-num-cpus ${slurmDefaultNumCpus}`);
+      if (slurmDefaultNumGpus !== 1) args.push(`--default-num-gpus ${slurmDefaultNumGpus}`);
+      if (slurmDefaultMemPerCpu !== 16) args.push(`--default-mem-in-gb-per-cpu ${slurmDefaultMemPerCpu}`);
+      if (slurmDefaultTimeLimit && slurmDefaultTimeLimit !== '4:00:00') args.push(`--default-time-limit ${slurmDefaultTimeLimit}`);
+      if (slurmMaxWorkers !== '' && Number(slurmMaxWorkers) > 0) args.push(`--max-workers ${slurmMaxWorkers}`);
+      if (slurmGpuFlag !== '--gpus={n}') {
+        // Empty string is a valid value meaning "omit the GPU directive entirely".
+        args.push(slurmGpuFlag === '' ? `--gpu-slurm-flag ""` : `--gpu-slurm-flag "${slurmGpuFlag}"`);
+      }
+      if (slurmFurtherArgs.trim()) {
+        args.push(`--further-slurm-args "${slurmFurtherArgs.trim()}"`);
+      }
+      if (slurmApptainerArgs.trim()) {
+        args.push(`--further-apptainer-args "${slurmApptainerArgs.trim()}"`);
+      }
       const nl = ' \\\n  ';
-      const parts = [
-        'bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine-worker/refs/heads/main/scripts/start_hpc_worker.sh)',
+      const scriptCmd = [
+        'bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/refs/heads/main/scripts/start_hpc_worker.sh)',
         ...args,
-      ];
-      return parts.join(nl);
+      ].join(nl);
+
+      const hostPath = workspaceDir || '$HOME/.bioengine';
+      const createDirCmd = `mkdir -p ${hostPath}`;
+      const tokenExportCmd = token
+        ? `export HYPHA_TOKEN=${token}`
+        : `export HYPHA_TOKEN=<your-hypha-token>`;
+      return { createDirCmd, tokenExportCmd, scriptCmd };
     }
 
     const platform = getPlatform();
@@ -352,6 +388,8 @@ const BioEngineGuide: React.FC = () => {
       let textToCopy = '';
       if (typeof command === 'string') {
         textToCopy = command;
+      } else if ('scriptCmd' in command) {
+        textToCopy = `# Step 1: Create the BioEngine workspace directory\n${command.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${command.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${command.scriptCmd}`;
       } else {
         textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
       }
@@ -372,11 +410,13 @@ const BioEngineGuide: React.FC = () => {
     if (currentCommand) {
       if (typeof currentCommand === 'string') {
         commandText = currentCommand;
+      } else if ('scriptCmd' in currentCommand) {
+        commandText = `# Step 1: Create the BioEngine workspace directory\n${currentCommand.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${currentCommand.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${currentCommand.scriptCmd}`;
       } else {
         commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
       }
       // Redact token from command
-      if (token) commandText = commandText.replace(token, '<my-token>');
+      if (token) commandText = commandText.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<my-token>');
     }
 
     let setupSection: string;
@@ -394,13 +434,23 @@ const BioEngineGuide: React.FC = () => {
       const yaml = getKubernetesWorkerYaml().replace(token, '<my-token>');
       setupSection = `### My Kubernetes Setup\n${k8sLines}\n\n### Deployment YAML\n\`\`\`yaml\n${yaml}\n\`\`\``;
     } else {
+      const isSlurm = mode === 'slurm';
       const lines = [
-        `- **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}`,
-        `- **Container Runtime**: ${containerName}`,
+        !isSlurm && `- **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}`,
+        !isSlurm && `- **Container Runtime**: ${containerName}`,
         `- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local)' : 'SLURM (HPC cluster)'}`,
         mode === 'single-machine' && `- **CPUs**: ${cpus}`,
         mode === 'single-machine' && `- **GPUs**: ${gpus}${gpus > 0 && gpuIndices ? ` (indices: ${gpuIndices})` : ''}`,
         mode === 'single-machine' && `- **Memory**: ${memory > 0 ? `${memory} GB` : 'auto-detect'}`,
+        isSlurm && `- **Worker CPUs (default)**: ${slurmDefaultNumCpus}`,
+        isSlurm && `- **Worker GPUs (default)**: ${slurmDefaultNumGpus}`,
+        isSlurm && `- **Memory per CPU (default)**: ${slurmDefaultMemPerCpu} GB`,
+        isSlurm && `- **Worker time limit (default)**: ${slurmDefaultTimeLimit}`,
+        isSlurm && slurmMaxWorkers !== '' && `- **Max workers**: ${slurmMaxWorkers}`,
+        isSlurm && slurmGpuFlag !== '--gpus={n}' && `- **GPU sbatch flag**: ${slurmGpuFlag || '(omitted)'}`,
+        isSlurm && slurmFurtherArgs.trim() && `- **Further SLURM args**: ${slurmFurtherArgs.trim()}`,
+        isSlurm && slurmApptainerArgs.trim() && `- **Further apptainer args**: ${slurmApptainerArgs.trim()}`,
+        isSlurm && slurmWorkerWorkspaceDir && `- **Worker Workspace Directory**: ${slurmWorkerWorkspaceDir}`,
         workspace && `- **Hypha Workspace**: ${workspace}`,
         serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
         adminUsers.length > 0 && `- **Admin Users**: ${adminUsers.join(', ')}`,
@@ -414,7 +464,7 @@ const BioEngineGuide: React.FC = () => {
 
 I'm trying to set up a **BioEngine Worker**. BioEngine is part of the AI4Life project and provides cloud-powered AI tools for bioimage analysis.
 
-The source code and documentation are available at: https://github.com/aicell-lab/bioengine-worker
+The source code and documentation are available at: https://github.com/aicell-lab/bioengine
 ${isK8s ? `Deployment is on **Kubernetes** using KubeRay (external-cluster mode). The worker connects to an existing Ray cluster and registers itself as a Hypha service.` : `Deployment mode: **${mode === 'single-machine' ? 'Single Machine' : 'SLURM HPC cluster'}**.`}
 ${setupSection}
 
@@ -599,9 +649,9 @@ spec:
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
-                { value: 'single-machine', label: '💻 Desktop/Workstation', desc: 'Run locally on your computer or workstation using Docker. Perfect for development or small-scale analysis.', badge: 'Easy Setup', color: 'blue', disabled: false },
+                { value: 'single-machine', label: '💻 Desktop/Workstation', desc: 'Run locally on your computer or workstation using Docker. Perfect for development or small-scale analysis.', badge: 'Easy Setup', color: 'purple', disabled: false },
                 { value: 'slurm', label: '🖥️ HPC Cluster', desc: 'Deploy on a high-performance computing cluster with SLURM job scheduler. Ideal for large-scale workloads.', badge: 'SLURM', color: 'purple', disabled: false },
-                { value: 'external-cluster', label: '☸️ Kubernetes Cluster', desc: 'Deploy on Kubernetes with KubeRay. Connect BioEngine to an existing Ray cluster for cloud-native deployment.', badge: 'Cloud Native', color: 'orange', disabled: false },
+                { value: 'external-cluster', label: '☸️ Kubernetes Cluster', desc: 'Deploy on Kubernetes with KubeRay. Connect BioEngine to an existing Ray cluster for cloud-native deployment.', badge: 'Cloud Native', color: 'purple', disabled: false },
               ].map(({ value, label, desc, badge, color, disabled }) => (
                 <div
                   key={value}
@@ -622,7 +672,7 @@ spec:
                   </div>
                   <p className="text-sm text-gray-600 ml-6">{desc}</p>
                   <div className="mt-2 ml-6">
-                    <span className={`inline-block px-2 py-1 text-xs bg-${color}-100 text-${color}-700 rounded`}>{badge}</span>
+                    <span className="inline-block px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">{badge}</span>
                   </div>
                 </div>
               ))}
@@ -1041,14 +1091,128 @@ spec:
 
               {/* SLURM info */}
               {mode === 'slurm' && (
-                <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="text-sm text-purple-800">
-                      <p className="font-semibold mb-1">HPC Cluster Setup</p>
-                      <p className="text-purple-700">The startup script runs BioEngine via SLURM and may require manual adjustments for your cluster environment. Please report issues and feedback on <a href="https://github.com/aicell-lab/bioengine-worker/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-purple-900">GitHub</a>.</p>
+                <>
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                    <p className="text-sm font-semibold text-blue-800 mb-1">HPC Cluster Setup</p>
+                    <p className="text-sm text-blue-700">
+                      Run BioEngine on an HPC cluster managed by SLURM. The head node runs on the login node inside an Apptainer/Singularity container and submits SLURM jobs to scale Ray workers up and down on demand. Please report issues and feedback on <a href="https://github.com/aicell-lab/bioengine/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">GitHub</a>.
+                    </p>
+                  </div>
+
+                  {/* Cluster requirements */}
+                  <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+                    <p className="text-sm font-semibold text-orange-800 mb-1">Cluster requirements</p>
+                    <ul className="text-sm text-orange-700 list-disc list-inside space-y-1">
+                      <li>Run from a <strong>login node</strong> with <code className="bg-orange-100 px-1 rounded">sbatch</code>, <code className="bg-orange-100 px-1 rounded">squeue</code>, <code className="bg-orange-100 px-1 rounded">scancel</code>, and <code className="bg-orange-100 px-1 rounded">sinfo</code> available.</li>
+                      <li><strong>Apptainer</strong> or <strong>Singularity</strong> available on both login and compute nodes.</li>
+                      <li>The BioEngine workspace directory must live on a <strong>shared filesystem</strong> visible to every compute node (e.g. <code className="bg-orange-100 px-1 rounded">/proj/...</code> or <code className="bg-orange-100 px-1 rounded">/home/...</code> on most clusters).</li>
+                      <li>Your SLURM account/project must have <strong>sufficient allocation</strong> for the requested GPUs and time.</li>
+                    </ul>
+                  </div>
+
+                  {/* Workspace directory info */}
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                    <div className="flex items-start">
+                      <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-sm text-blue-800">
+                        <span className="font-medium">BioEngine Workspace Directory: </span>
+                        <code className="bg-blue-100 px-1 rounded">{workspaceDir || '$HOME/.bioengine'}</code>
+                        <span className="text-blue-700 text-xs block mt-1">Created on the login node, mounted into the head and worker containers. Stores apps, logs, the Apptainer image cache, and Ray temporary files. Must be on a filesystem shared between login and compute nodes. Change it in Advanced Options below.</span>
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* SLURM compute defaults & cluster knobs */}
+              {mode === 'slurm' && (
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <h5 className="text-sm font-semibold text-gray-700 mb-3">Worker Defaults & Cluster Configuration</h5>
+                  <p className="text-xs text-gray-500 mb-3">Defaults used when BioEngine submits a SLURM job to start a new Ray worker. Individual deployments can override these per-app.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">CPU Cores per Worker</label>
+                      <input type="number" min="1" max="128" value={slurmDefaultNumCpus}
+                        onChange={(e) => setSlurmDefaultNumCpus(parseInt(e.target.value) || 1)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">Requested with <code className="bg-gray-100 px-1 rounded">--cpus-per-task</code> per worker</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">GPUs per Worker</label>
+                      <input type="number" min="0" max="16" value={slurmDefaultNumGpus}
+                        onChange={(e) => setSlurmDefaultNumGpus(parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">Set to 0 for CPU-only worker jobs</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Memory per CPU (GB)</label>
+                      <input type="number" min="1" max="128" value={slurmDefaultMemPerCpu}
+                        onChange={(e) => setSlurmDefaultMemPerCpu(parseInt(e.target.value) || 1)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">Total RAM = CPUs × this value</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Worker Time Limit</label>
+                      <input type="text" value={slurmDefaultTimeLimit}
+                        onChange={(e) => setSlurmDefaultTimeLimit(e.target.value)}
+                        placeholder="4:00:00"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">SLURM <code className="bg-gray-100 px-1 rounded">--time</code> format <code className="bg-gray-100 px-1 rounded">HH:MM:SS</code></p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Workers</label>
+                      <input type="number" min="1" max="64"
+                        value={slurmMaxWorkers}
+                        onChange={(e) => setSlurmMaxWorkers(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1))}
+                        placeholder="(autoscaler default)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">Upper bound on concurrent Ray worker jobs</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">GPU sbatch directive</label>
+                      <select value={slurmGpuFlag} onChange={(e) => setSlurmGpuFlag(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="--gpus={n}">--gpus=&#123;n&#125; (default)</option>
+                        <option value="--gres=gpu:{n}">--gres=gpu:&#123;n&#125; (gres syntax)</option>
+                        <option value="">(omit — use a custom flag in Further SLURM Args)</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">How GPUs are requested in <code className="bg-gray-100 px-1 rounded">sbatch</code>. Use gres if your cluster requires it.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Further SLURM Args</label>
+                      <input type="text" value={slurmFurtherArgs}
+                        onChange={(e) => setSlurmFurtherArgs(e.target.value)}
+                        placeholder='--account=<your-project> --partition=gpu'
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+                      <p className="text-xs text-gray-500 mt-1">Extra <code className="bg-gray-100 px-1 rounded">sbatch</code> directives appended to every worker job, as a single shell-style string (e.g. <code className="bg-gray-100 px-1 rounded">--account=...</code>, <code className="bg-gray-100 px-1 rounded">--partition=...</code>, <code className="bg-gray-100 px-1 rounded">-C thin</code>, <code className="bg-gray-100 px-1 rounded">--qos=...</code>).</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Further Apptainer Args</label>
+                      <input type="text" value={slurmApptainerArgs}
+                        onChange={(e) => setSlurmApptainerArgs(e.target.value)}
+                        placeholder="--bind /path/on/host:/path/in/container"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+                      <p className="text-xs text-gray-500 mt-1">Extra flags forwarded to <code className="bg-gray-100 px-1 rounded">apptainer exec</code> inside each worker job, as a single shell-style string. Common use: extra <code className="bg-gray-100 px-1 rounded">--bind</code> mounts.</p>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Worker Workspace Directory <span className="text-gray-400 font-normal">(optional)</span></label>
+                      <input type="text" value={slurmWorkerWorkspaceDir}
+                        onChange={(e) => setSlurmWorkerWorkspaceDir(e.target.value)}
+                        placeholder="(same as head BioEngine workspace dir)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">Path used inside worker containers. Defaults to the head BioEngine workspace directory. Override only when compute nodes see the workspace under a different path.</p>
                     </div>
                   </div>
                 </div>
@@ -1324,23 +1488,106 @@ spec:
             </div>
           )}
 
-          {/* ── Generated command ── */}
+          {/* ── Generated command (SLURM step-by-step) ── */}
           {mode === 'slurm' && (
-            <div className="bg-gray-900 rounded-xl p-4 relative">
-              <div className="flex justify-between items-start mb-2">
-                <h4 className="text-sm font-medium text-gray-300">SLURM Cluster Command:</h4>
+            <div className="space-y-3">
+              {/* Step 1: Create workspace directory */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">1. Create the BioEngine workspace directory (shared filesystem)</p>
+                  <button
+                    onClick={async () => {
+                      const command = getCommand();
+                      if (typeof command !== 'string' && 'scriptCmd' in command) {
+                        try { await navigator.clipboard.writeText(command.createDirCmd); setCopiedSlurmStep1(true); setTimeout(() => setCopiedSlurmStep1(false), 2000); } catch (_) {}
+                      }
+                    }}
+                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {copiedSlurmStep1 ? (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    ) : (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    )}
+                  </button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
+                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.createDirCmd : ''; })()}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Step 2: Export Hypha token */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">2. Set your Hypha authentication token</p>
+                  <button
+                    onClick={async () => {
+                      const command = getCommand();
+                      if (typeof command !== 'string' && 'scriptCmd' in command) {
+                        try { await navigator.clipboard.writeText(command.tokenExportCmd); setCopiedSlurmStep2(true); setTimeout(() => setCopiedSlurmStep2(false), 2000); } catch (_) {}
+                      }
+                    }}
+                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {copiedSlurmStep2 ? (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    ) : (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    )}
+                  </button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
+                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.tokenExportCmd : ''; })()}
+                  </pre>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  The startup script picks up <code className="bg-gray-100 px-1 rounded">HYPHA_TOKEN</code> from the environment (or from a <code className="bg-gray-100 px-1 rounded">.env</code> file in the current directory). Prefer this over baking the token into the command itself so it doesn't end up in your shell history.
+                </p>
+              </div>
+
+              {/* Step 3: Run the SLURM script */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">3. Launch the BioEngine worker on SLURM</p>
+                  <button
+                    onClick={async () => {
+                      const command = getCommand();
+                      if (typeof command !== 'string' && 'scriptCmd' in command) {
+                        try { await navigator.clipboard.writeText(command.scriptCmd); setCopiedSlurmStep3(true); setTimeout(() => setCopiedSlurmStep3(false), 2000); } catch (_) {}
+                      }
+                    }}
+                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {copiedSlurmStep3 ? (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    ) : (
+                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    )}
+                  </button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
+                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.scriptCmd : ''; })()}
+                  </pre>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Run in a persistent shell (<code className="bg-gray-100 px-1 rounded">tmux</code> or <code className="bg-gray-100 px-1 rounded">screen</code>) so the head node survives ssh disconnects. Pressing <code className="bg-gray-100 px-1 rounded">Ctrl+C</code> stops the worker and cancels any pending Ray worker jobs.
+                </p>
+              </div>
+
+              <div className="flex justify-end">
                 <button onClick={copyToClipboard}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg flex items-center">
                   {copied ? (
-                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied all steps!</>
                   ) : (
-                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy all three steps</>
                   )}
                 </button>
               </div>
-              <code className="text-green-400 text-sm font-mono break-all whitespace-pre-wrap">
-                {(() => { const command = getCommand(); return typeof command === 'string' ? command : ''; })()}
-              </code>
             </div>
           )}
 
@@ -1380,7 +1627,7 @@ spec:
                   <button
                     onClick={async () => {
                       const command = getCommand();
-                      if (typeof command !== 'string') {
+                      if (typeof command !== 'string' && 'dockerCmd' in command) {
                         try { await navigator.clipboard.writeText(command.dockerCmd); setCopiedStep2(true); setTimeout(() => setCopiedStep2(false), 2000); } catch (_) {}
                       }
                     }}
@@ -1395,7 +1642,7 @@ spec:
                 </div>
                 <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
                   <pre className="text-green-400 text-xs font-mono whitespace-pre">
-                    {(() => { const command = getCommand(); return typeof command !== 'string' ? command.dockerCmd : ''; })()}
+                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'dockerCmd' in command ? command.dockerCmd : ''; })()}
                   </pre>
                 </div>
                 {(containerRuntime === 'docker' || containerRuntime === 'podman') && os !== 'windows' && (
@@ -1415,22 +1662,23 @@ spec:
 
           {/* ── SLURM info ── */}
           {mode === 'slurm' && (
-            <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
               <div className="flex items-start">
-                <svg className="w-5 h-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
-                <div className="text-sm text-purple-800">
+                <div className="text-sm text-blue-800">
                   <p className="font-medium mb-2">🖥️ SLURM Cluster Mode</p>
-                  <div className="text-purple-700 space-y-1">
-                    <p>The script automatically downloads the BioEngine worker, submits SLURM jobs for Ray nodes, handles container caching, and manages the worker lifecycle.</p>
-                    <div className="mt-2 p-3 bg-purple-100 rounded-lg">
-                      <p className="font-medium text-purple-900 mb-1">💡 Tips:</p>
-                      <ul className="list-disc list-inside space-y-1 text-purple-800 text-xs">
-                        <li>Run from a login node with SLURM access</li>
-                        <li>Ensure your account has sufficient allocation</li>
-                        <li>Monitor jobs: <code className="bg-purple-200 px-1 rounded">squeue -u $USER</code></li>
-                        <li>Singularity/Apptainer must be available on compute nodes</li>
+                  <div className="text-blue-700 space-y-1">
+                    <p>The startup script downloads the BioEngine container, starts the Ray head inside <code className="bg-blue-100 px-1 rounded">apptainer</code> on the login node, and submits SLURM jobs for Ray workers on demand. Workers idle out automatically when nothing is deployed.</p>
+                    <div className="mt-2 p-3 bg-blue-100 rounded-lg">
+                      <p className="font-medium text-blue-900 mb-1">💡 Tips:</p>
+                      <ul className="list-disc list-inside space-y-1 text-blue-800 text-xs">
+                        <li>Run the script inside <code className="bg-blue-200 px-1 rounded">tmux</code> or <code className="bg-blue-200 px-1 rounded">screen</code> so the head survives ssh disconnects.</li>
+                        <li>Monitor active jobs: <code className="bg-blue-200 px-1 rounded">squeue -u $USER -n ray_worker</code>.</li>
+                        <li>Stop everything: <code className="bg-blue-200 px-1 rounded">Ctrl+C</code> in the script window — pending Ray workers are auto-cancelled on cleanup.</li>
+                        <li>The first launch will pull the Apptainer image (~1 GB) into <code className="bg-blue-200 px-1 rounded">$WORKSPACE_DIR/images</code> — subsequent runs are fast.</li>
+                        <li>After the script reports the worker is registered, open the dashboard at <a href="https://bioimage.io/#/bioengine" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">bioimage.io/#/bioengine</a>.</li>
                       </ul>
                     </div>
                   </div>
