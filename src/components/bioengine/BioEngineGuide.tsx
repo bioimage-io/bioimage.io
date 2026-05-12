@@ -105,7 +105,7 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE = 'ghcr.io/aicell-lab/bioengine-worker:0.8.18';
+const DEFAULT_IMAGE = 'ghcr.io/aicell-lab/bioengine-worker:0.8.19';
 
 const BioEngineGuide: React.FC = () => {
   const { server, isLoggedIn } = useHyphaStore();
