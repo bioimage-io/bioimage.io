@@ -119,6 +119,7 @@ class MyDeployment:
 - Entry/orchestrator deployments in composition apps: `num_cpus: 0, num_gpus: 0`
 - `Field(None)` not `Field([...])` for mutable defaults — mutable defaults crash at startup
 - Never return raw numpy arrays over RPC — call `.tolist()` first
+- **Don't pin `pydantic` yourself unless you have to.** BioEngine auto-injects the driver's pydantic into your `runtime_env.pip` so the deployment unpickles cleanly on the Ray Serve replica. If you *do* pin pydantic explicitly, it must resolve to the same `pydantic-core` as the driver — otherwise the pre-flight check refuses to deploy. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important).
 
 ---
 
@@ -195,6 +196,8 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 | Composition param name mismatch | `runtime_a:RuntimeA` must match `__init__` param name `runtime_a` |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |
 | Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
+| Deploy fails with `RuntimeError: pydantic-core version mismatch` | Pin `pydantic==2.11.0` (or whatever the driver runs) in `runtime_env.pip`. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important) |
+| Ray Serve replica crashes with `'FieldInfo' object has no attribute 'exclude_if'` | Same root cause as above — driver/runtime_env pydantic-core mismatch. Pin `pydantic` in the app's `runtime_env.pip` |
 
 ---
 
