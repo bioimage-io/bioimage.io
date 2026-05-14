@@ -105,10 +105,12 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE = 'ghcr.io/aicell-lab/bioengine-worker:0.8.19';
+const DEFAULT_IMAGE_VERSION = '0.9.1';
+const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
+const DEFAULT_RAY_VERSION = '2.55.1';
 
 const BioEngineGuide: React.FC = () => {
-  const { server, isLoggedIn } = useHyphaStore();
+  const { server, isLoggedIn, user } = useHyphaStore();
   const [os, setOS] = useState<OSType>('macos');
   const [mode, setMode] = useState<ModeType>('single-machine');
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
@@ -149,10 +151,20 @@ const BioEngineGuide: React.FC = () => {
   const [hasPvc, setHasPvc] = useState(false);
   const [rayWorkspaceDir, setRayWorkspaceDir] = useState('');
   const [k8sNamespace, setK8sNamespace] = useState('');
+  // Optional Bearer token for token-protected Ray clusters. Same value is
+  // used both as RAY_AUTH_TOKEN env (gRPC metadata for Ray Client, Bearer
+  // header for dashboard requests from the proxy actor) and stored alongside
+  // HYPHA_TOKEN in the bioengine-secrets Kubernetes Secret.
+  const [rayAuthToken, setRayAuthToken] = useState('');
   const [showRayWorkspaceDirDialog, setShowRayWorkspaceDirDialog] = useState(false);
   const [k8sSecretCopied, setK8sSecretCopied] = useState(false);
   const [k8sYamlCopied, setK8sYamlCopied] = useState(false);
   const [k8sApplyCopied, setK8sApplyCopied] = useState(false);
+  const [rayVersion, setRayVersion] = useState('');
+  const [dockerHubUsername, setDockerHubUsername] = useState('');
+  const [k8sLoginCopied, setK8sLoginCopied] = useState(false);
+  const [k8sBuildCopied, setK8sBuildCopied] = useState(false);
+  const [k8sPushCopied, setK8sPushCopied] = useState(false);
 
   // SLURM-specific options (HPC mode)
   const [slurmDefaultNumCpus, setSlurmDefaultNumCpus] = useState(8);
@@ -200,6 +212,15 @@ const BioEngineGuide: React.FC = () => {
       generateToken();
     }
   }, [isLoggedIn, tokenIsManual, token, generateToken]);
+
+  // Pre-populate Admin Users with the logged-in user's email — only when the
+  // list is currently empty, so manual edits aren't overwritten on re-renders.
+  useEffect(() => {
+    if (isLoggedIn && user?.email && adminUsers.length === 0) {
+      setAdminUsers([user.email]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, user?.email]);
 
   // When the token changes, briefly connect to Hypha to resolve the workspace
   const [workspaceResolved, setWorkspaceResolved] = useState(false);
@@ -279,7 +300,10 @@ const BioEngineGuide: React.FC = () => {
     }
     if (workerName) args.push(`--worker-name "${workerName}"`);
     if (clientId) args.push(`--client-id ${clientId}`);
-    if (customImage) args.push(`--image ${customImage}`);
+    // --image is a SLURM-only flag (apptainer image for worker jobs). Don't
+    // emit it for single-machine / external-cluster — the image is selected
+    // at container-runtime via the docker/podman command, not here.
+    if (mode === 'slurm' && customImage) args.push(`--image ${customImage}`);
 
     const argsString = args.length > 0 ? args.join(' ') : '';
 
@@ -323,6 +347,12 @@ const BioEngineGuide: React.FC = () => {
     const imageToUse = customImage || DEFAULT_IMAGE;
     const gpuEnvFlag = (gpuIndices && gpus > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
       ? `-e CUDA_VISIBLE_DEVICES=${gpuIndices} ` : '';
+    // The worker's default --workspace-dir is $HOME/.bioengine. Pin HOME=/
+    // so that resolves to /.bioengine, which matches the mount point below.
+    // Without this, runAsRoot=true uses /root/.bioengine inside the container
+    // (unmounted) and worker logs/apps are lost on container exit.
+    const homeEnvFlag = (containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
+      ? '-e HOME=/ ' : '';
 
     // Linux/macOS: $HOME is safe inside -v flags (unlike ~ which doesn't expand in quoted strings)
     const hostPath = workspaceDir || '$HOME/.bioengine';
@@ -360,7 +390,7 @@ const BioEngineGuide: React.FC = () => {
       ].filter(Boolean);
       dockerCmd = parts.join(nl);
     } else if (os === 'windows') {
-      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
+      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
     } else {
       const parts = [
         `${containerRuntime} run`,
@@ -369,6 +399,7 @@ const BioEngineGuide: React.FC = () => {
         '--rm',
         ...(shmFlag ? [shmFlag.trim()] : []),
         ...(userFlag ? [userFlag.trim()] : []),
+        ...(homeEnvFlag ? [homeEnvFlag.trim()] : []),
         ...(gpuEnvFlag ? [gpuEnvFlag.trim()] : []),
         volumeMounts,
         imageToUse,
@@ -486,12 +517,42 @@ ${setupSection}
   const getK8sSecretCommand = () => {
     const ns = k8sNamespace || 'bioengine';
     const tokenValue = token || '<your-admin-token>';
-    return `kubectl create secret generic bioengine-secrets \\\n  --from-literal=HYPHA_TOKEN=${tokenValue} \\\n  --dry-run=client -o yaml \\\n  | kubectl apply -f - -n ${ns}`;
+    const rayAuthLine = rayAuthToken
+      ? ` \\\n  --from-literal=RAY_AUTH_TOKEN=${rayAuthToken}`
+      : '';
+    return `kubectl create secret generic bioengine-secrets \\\n  --from-literal=HYPHA_TOKEN=${tokenValue}${rayAuthLine} \\\n  --dry-run=client -o yaml \\\n  | kubectl apply -f - -n ${ns}`;
   };
 
   const getK8sApplyCommand = () => {
     const ns = k8sNamespace || 'bioengine';
     return `kubectl apply -f bioengine-deployment.yaml -n ${ns}`;
+  };
+
+  const getDockerLoginCommand = () => 'docker login';
+
+  const getDockerBuildCommand = () => {
+    const rv = rayVersion || '<ray-version>';
+    const user = dockerHubUsername || '<your-dockerhub-username>';
+    return `BIOENGINE_VERSION=${DEFAULT_IMAGE_VERSION}
+RAY_VERSION=${rv}
+DOCKERHUB_USERNAME=${user}
+
+docker build \\
+  --build-arg BIOENGINE_IMAGE=ghcr.io/aicell-lab/bioengine-worker:\${BIOENGINE_VERSION} \\
+  --build-arg RAY_VERSION=\${RAY_VERSION} \\
+  -t \${DOCKERHUB_USERNAME}/bioengine-worker:\${BIOENGINE_VERSION}-ray\${RAY_VERSION} \\
+  - <<'DOCKERFILE'
+ARG BIOENGINE_IMAGE
+FROM \${BIOENGINE_IMAGE}
+ARG RAY_VERSION
+RUN pip install --no-cache-dir "ray[client,serve]==\${RAY_VERSION}"
+ENV BIOENGINE_RAY_VERSION=\${RAY_VERSION}
+DOCKERFILE`;
+  };
+
+  const getDockerPushCommand = () => {
+    const rv = rayVersion || '<ray-version>';
+    return `docker push \${DOCKERHUB_USERNAME}/bioengine-worker:${DEFAULT_IMAGE_VERSION}-ray${rv}`;
   };
 
   const getKubernetesWorkerYaml = () => {
@@ -501,6 +562,12 @@ ${setupSection}
     const ns = k8sNamespace || 'bioengine';
 
     const arg = (flag: string, value: string) => `\n        - "${flag}"\n        - "${value}"`;
+    // For nargs="+" CLI flags like --admin-users: emit the flag once followed
+    // by each value as its own YAML list item. Repeating the flag instead
+    // would only keep the last value (argparse behavior).
+    const multiValueArg = (flag: string, values: string[]) =>
+      `\n        - "${flag}"` +
+      values.map(v => `\n        - "${v}"`).join('');
 
     let extraArgs = '';
     if (workspaceDir) extraArgs += arg('--workspace-dir', workspaceDir);
@@ -508,9 +575,25 @@ ${setupSection}
     if (clientServerPort && clientServerPort !== '10001') extraArgs += arg('--client-server-port', clientServerPort);
 
     if (adminUsers.length > 0) {
-      adminUsers.forEach(u => { extraArgs += arg('--admin-users', u); });
+      extraArgs += multiValueArg('--admin-users', adminUsers);
     }
     if (workerName) extraArgs += arg('--worker-name', workerName);
+
+    // RAY_AUTH_TOKEN + RAY_AUTH_MODE — only emit when the user provided a
+    // Ray Cluster Auth Token. Otherwise the env vars stay unset and Ray
+    // Client / proxy actor make unauthenticated requests, which is the
+    // correct default for KubeRay clusters without Bearer-auth on the
+    // dashboard/client port.
+    const rayAuthEnv = rayAuthToken
+      ? `
+        - name: RAY_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: bioengine-secrets
+              key: RAY_AUTH_TOKEN
+        - name: RAY_AUTH_MODE
+          value: token`
+      : '';
 
     return `apiVersion: apps/v1
 kind: Deployment
@@ -534,7 +617,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: bioengine-worker
-        image: ${customImage || DEFAULT_IMAGE}
+        image: ${customImage || (rayVersion ? `${dockerHubUsername || '<your-dockerhub-username>'}/bioengine-worker:${DEFAULT_IMAGE_VERSION}-ray${rayVersion}` : DEFAULT_IMAGE)}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -561,7 +644,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: bioengine-secrets
-              key: HYPHA_TOKEN
+              key: HYPHA_TOKEN${rayAuthEnv}
         - name: POD_NAME
           valueFrom:
             fieldRef:
@@ -637,7 +720,7 @@ spec:
       </button>
 
       {isExpanded && (
-        <div className="mt-4 space-y-6">
+        <form className="mt-4 space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
 
           {/* ── Mode selection ── */}
           <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
@@ -740,6 +823,14 @@ spec:
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                 <h5 className="text-sm font-semibold text-gray-700 mb-3">Configuration</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                      placeholder="BioEngine Worker"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
+                  </div>
+
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Address</label>
                     <input
@@ -844,15 +935,7 @@ spec:
                         placeholder="user@example.com"
                         allowWildcard={false}
                       />
-                      <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Leave empty to use the logged-in user. Press Space or Enter to add.</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
-                      <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
-                        placeholder="BioEngine Worker"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry</p>
+                      <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Press Space or Enter to add.</p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -896,7 +979,7 @@ spec:
                       <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
                         placeholder="https://hypha.aicell.io"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Hypha server URL (defaults to public server)</p>
+                      <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use https://hypha.aicell.io.</p>
                     </div>
 
                     <div>
@@ -912,9 +995,9 @@ spec:
                         )}
                       </div>
                       <input type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
-                        placeholder="my-workspace" autoComplete="off"
+                        autoComplete="off"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Hypha workspace for service registration (resolved from token if not set)</p>
+                      <p className="text-xs text-gray-500 mt-1">Hypha workspace for service registration. Resolved from the token if left empty.</p>
                     </div>
 
                     <div>
@@ -922,7 +1005,17 @@ spec:
                       <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                         placeholder={DEFAULT_IMAGE}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Custom image. Leave empty for default ({DEFAULT_IMAGE})</p>
+                      <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ray Version</label>
+                      <input type="text" value={rayVersion} onChange={(e) => setRayVersion(e.target.value)}
+                        placeholder={DEFAULT_RAY_VERSION}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Override the Ray version baked into the BioEngine image. Must satisfy <code className="bg-gray-100 px-1 rounded">&ge;2.33.0, &lt;3.0.0</code>.
+                      </p>
                     </div>
 
                     <div>
@@ -932,9 +1025,121 @@ spec:
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Port exposed by the Ray head service</p>
                     </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Auth Token</label>
+                      <input
+                        type="password"
+                        value={rayAuthToken}
+                        onChange={(e) => setRayAuthToken(e.target.value)}
+                        placeholder="Only for Bearer-auth Ray clusters"
+                        autoComplete="new-password"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Required when the Ray cluster is protected by a Bearer-auth proxy. Stored in the
+                        <code className="bg-gray-100 px-1 rounded mx-1">bioengine-secrets</code> Secret as
+                        <code className="bg-gray-100 px-1 rounded mx-1">RAY_AUTH_TOKEN</code>.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Build & push a custom image (only when a non-default Ray version is requested) */}
+              {rayVersion && (
+                <div className="space-y-4 border-t border-gray-200 pt-4">
+                  <h5 className="text-sm font-semibold text-gray-700">Build & push a custom BioEngine image (Ray {rayVersion})</h5>
+                  <p className="text-xs text-gray-600">
+                    The public image bundles Ray {DEFAULT_RAY_VERSION}. To use a different Ray release, build a thin overlay image and push it to your Docker Hub account. <strong>You do not need to clone the BioEngine repo</strong> — the entire Dockerfile is embedded inline below via a heredoc. Fill in <strong>Docker Hub Username</strong> below to auto-populate every step and the deployment YAML; otherwise replace <code className="bg-gray-100 px-1 rounded">&lt;your-dockerhub-username&gt;</code> manually. Once pushed, continue with "Deploy to Kubernetes".
+                  </p>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Docker Hub Username</label>
+                    <input type="text" value={dockerHubUsername} onChange={(e) => setDockerHubUsername(e.target.value)}
+                      placeholder="<your-dockerhub-username>"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image — filled into the build script, push command, and deployment YAML below.</p>
+                  </div>
+
+                  {/* Step 1: docker login */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm text-gray-700 font-medium">1. Log in to Docker Hub</p>
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(getDockerLoginCommand()); setK8sLoginCopied(true); setTimeout(() => setK8sLoginCopied(false), 2000); } catch (_) {}
+                        }}
+                        className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        {k8sLoginCopied ? (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                        ) : (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                      <pre className="text-green-400 text-xs font-mono whitespace-pre">{getDockerLoginCommand()}</pre>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      You'll be prompted for your Docker Hub username and a personal access token. Create a token at <a href="https://hub.docker.com/settings/security" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">hub.docker.com/settings/security</a>.
+                    </p>
+                  </div>
+
+                  {/* Step 2: docker build */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm text-gray-700 font-medium">2. Build the overlay image</p>
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(getDockerBuildCommand()); setK8sBuildCopied(true); setTimeout(() => setK8sBuildCopied(false), 2000); } catch (_) {}
+                        }}
+                        className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        {k8sBuildCopied ? (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                        ) : (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-3">
+                      <pre className="text-green-400 text-xs font-mono overflow-x-auto max-h-72 overflow-y-auto whitespace-pre">{getDockerBuildCommand()}</pre>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Builds <code className="bg-gray-100 px-1 rounded">{dockerHubUsername || '<your-dockerhub-username>'}/bioengine-worker:{DEFAULT_IMAGE_VERSION}-ray{rayVersion}</code> on top of the published BioEngine image, swapping only the Ray pin. Edit <code className="bg-gray-100 px-1 rounded">BIOENGINE_VERSION</code> at the top to use a different BioEngine release as the base.
+                    </p>
+                  </div>
+
+                  {/* Step 3: docker push */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm text-gray-700 font-medium">3. Push to Docker Hub</p>
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(getDockerPushCommand()); setK8sPushCopied(true); setTimeout(() => setK8sPushCopied(false), 2000); } catch (_) {}
+                        }}
+                        className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        {k8sPushCopied ? (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                        ) : (
+                          <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                      <pre className="text-green-400 text-xs font-mono whitespace-pre">{getDockerPushCommand()}</pre>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {dockerHubUsername
+                        ? <>The deployment YAML below already references this image.</>
+                        : <>Uses <code className="bg-gray-100 px-1 rounded">$&#123;DOCKERHUB_USERNAME&#125;</code> from step 2 — make sure you set it there. Fill in <strong>Docker Hub Username</strong> above to auto-populate both step 2 and the YAML below.</>}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Commands */}
               <div className="space-y-4 border-t border-gray-200 pt-4">
@@ -1131,6 +1336,13 @@ spec:
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                   <h5 className="text-sm font-semibold text-gray-700 mb-3">Worker Defaults & Cluster Configuration</h5>
                   <p className="text-xs text-gray-500 mb-3">Defaults used when BioEngine submits a SLURM job to start a new Ray worker. Individual deployments can override these per-app.</p>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                      placeholder="BioEngine Worker"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">CPU Cores per Worker</label>
@@ -1170,51 +1382,23 @@ spec:
                       <input type="number" min="1" max="64"
                         value={slurmMaxWorkers}
                         onChange={(e) => setSlurmMaxWorkers(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1))}
-                        placeholder="(autoscaler default)"
+                        placeholder="10"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Upper bound on concurrent Ray worker jobs</p>
+                      <p className="text-xs text-gray-500 mt-1">Upper bound on concurrent Ray worker jobs.</p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">GPU sbatch directive</label>
                       <select value={slurmGpuFlag} onChange={(e) => setSlurmGpuFlag(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="--gpus={n}">--gpus=&#123;n&#125; (default)</option>
-                        <option value="--gres=gpu:{n}">--gres=gpu:&#123;n&#125; (gres syntax)</option>
+                        <option value="--gpus={n}">--gpus=&#123;n&#125;</option>
+                        <option value="--gres=gpu:{n}">--gres=gpu:&#123;n&#125;</option>
                         <option value="">(omit — use a custom flag in Further SLURM Args)</option>
                       </select>
                       <p className="text-xs text-gray-500 mt-1">How GPUs are requested in <code className="bg-gray-100 px-1 rounded">sbatch</code>. Use gres if your cluster requires it.</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Further SLURM Args</label>
-                      <input type="text" value={slurmFurtherArgs}
-                        onChange={(e) => setSlurmFurtherArgs(e.target.value)}
-                        placeholder='--account=<your-project> --partition=gpu'
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-                      <p className="text-xs text-gray-500 mt-1">Extra <code className="bg-gray-100 px-1 rounded">sbatch</code> directives appended to every worker job, as a single shell-style string (e.g. <code className="bg-gray-100 px-1 rounded">--account=...</code>, <code className="bg-gray-100 px-1 rounded">--partition=...</code>, <code className="bg-gray-100 px-1 rounded">-C thin</code>, <code className="bg-gray-100 px-1 rounded">--qos=...</code>).</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Further Apptainer Args</label>
-                      <input type="text" value={slurmApptainerArgs}
-                        onChange={(e) => setSlurmApptainerArgs(e.target.value)}
-                        placeholder="--bind /path/on/host:/path/in/container"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-                      <p className="text-xs text-gray-500 mt-1">Extra flags forwarded to <code className="bg-gray-100 px-1 rounded">apptainer exec</code> inside each worker job, as a single shell-style string. Common use: extra <code className="bg-gray-100 px-1 rounded">--bind</code> mounts.</p>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Worker Workspace Directory <span className="text-gray-400 font-normal">(optional)</span></label>
-                      <input type="text" value={slurmWorkerWorkspaceDir}
-                        onChange={(e) => setSlurmWorkerWorkspaceDir(e.target.value)}
-                        placeholder="(same as head BioEngine workspace dir)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Path used inside worker containers. Defaults to the head BioEngine workspace directory. Override only when compute nodes see the workspace under a different path.</p>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1222,6 +1406,13 @@ spec:
               {mode === 'single-machine' && (
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                   <h5 className="text-sm font-semibold text-gray-700 mb-3">Container & Compute</h5>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                      placeholder="BioEngine Worker"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Operating System</label>
@@ -1318,19 +1509,11 @@ spec:
                       placeholder="user@example.com"
                       allowWildcard={false}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Leave empty to use the logged-in user. Press Space or Enter to add.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
-                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
-                      placeholder="BioEngine Worker"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry</p>
+                    <p className="text-xs text-gray-500 mt-1">Users who can deploy and manage apps on this worker. Press Space or Enter to add.</p>
                   </div>
 
                   {/* ── BioEngine data directory ── */}
-                  <div className="md:col-span-2">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">BioEngine Workspace Directory</label>
                     <input type="text" value={workspaceDir}
                       onChange={(e) => setWorkspaceDir(e.target.value)}
@@ -1387,7 +1570,7 @@ spec:
                     <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
                       placeholder="https://hypha.aicell.io"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Hypha server URL (defaults to public server)</p>
+                    <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use https://hypha.aicell.io.</p>
                   </div>
 
                   <div>
@@ -1403,16 +1586,16 @@ spec:
                       )}
                     </div>
                     <input type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
-                      placeholder="my-workspace" autoComplete="off"
+                      autoComplete="off"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Hypha workspace name for service registration (uses token's workspace if not set)</p>
+                    <p className="text-xs text-gray-500 mt-1">Hypha workspace name for service registration. Resolved from the token if left empty.</p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
                     <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Custom client ID (auto-generated if empty)</p>
+                    <p className="text-xs text-gray-500 mt-1">Auto-generated by BioEngine if left empty.</p>
                   </div>
 
                   {/* ── GPU indices ── */}
@@ -1426,44 +1609,55 @@ spec:
                   )}
 
                   {/* ── Container / runtime ── */}
-                  {mode === 'single-machine' && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
-                        <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
-                          placeholder={DEFAULT_IMAGE}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        <p className="text-xs text-gray-500 mt-1">Custom image. Leave empty for default ({DEFAULT_IMAGE})</p>
-                      </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
+                    <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                      placeholder={DEFAULT_IMAGE}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                  </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Platform Override</label>
-                        <select value={platformOverride} onChange={(e) => setPlatformOverride(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                          <option value="">Auto-detect (default)</option>
-                          <option value="linux/amd64">linux/amd64</option>
-                          <option value="linux/arm64">linux/arm64</option>
-                        </select>
-                        <p className="text-xs text-gray-500 mt-1">Override platform only if auto-detection is wrong</p>
-                      </div>
-                    </>
+                  {mode === 'single-machine' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Platform Override</label>
+                      <select value={platformOverride} onChange={(e) => setPlatformOverride(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Auto-detect</option>
+                        <option value="linux/amd64">linux/amd64</option>
+                        <option value="linux/arm64">linux/arm64</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">Override platform only if auto-detection is wrong.</p>
+                    </div>
                   )}
 
-                  {mode === 'external-cluster' && (
+                  {/* ── SLURM-specific advanced fields ── */}
+                  {mode === 'slurm' && (
                     <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Client Server Port</label>
-                        <input type="number" min="1024" max="65535" value={clientServerPort}
-                          onChange={(e) => setClientServerPort(e.target.value)} placeholder="10001"
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Worker Workspace Directory</label>
+                        <input type="text" value={slurmWorkerWorkspaceDir}
+                          onChange={(e) => setSlurmWorkerWorkspaceDir(e.target.value)}
+                          placeholder={workspaceDir || '$HOME/.bioengine'}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        <p className="text-xs text-gray-500 mt-1">Port for Ray client server (default: 10001)</p>
+                        <p className="text-xs text-gray-500 mt-1">Path used inside worker containers. Override only when compute nodes see the workspace under a different path.</p>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Serve Port</label>
-                        <input type="number" min="1024" max="65535" value={servePort}
-                          onChange={(e) => setServePort(e.target.value)} placeholder="8000"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        <p className="text-xs text-gray-500 mt-1">Port for Ray Serve (default: 8000)</p>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Further SLURM Args</label>
+                        <input type="text" value={slurmFurtherArgs}
+                          onChange={(e) => setSlurmFurtherArgs(e.target.value)}
+                          placeholder='--account=<your-project> --partition=gpu'
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+                        <p className="text-xs text-gray-500 mt-1">Extra <code className="bg-gray-100 px-1 rounded">sbatch</code> directives appended to every worker job, as a single shell-style string (e.g. <code className="bg-gray-100 px-1 rounded">--account=...</code>, <code className="bg-gray-100 px-1 rounded">--partition=...</code>, <code className="bg-gray-100 px-1 rounded">-C thin</code>, <code className="bg-gray-100 px-1 rounded">--qos=...</code>).</p>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Further Apptainer Args</label>
+                        <input type="text" value={slurmApptainerArgs}
+                          onChange={(e) => setSlurmApptainerArgs(e.target.value)}
+                          placeholder="--bind /path/on/host:/path/in/container"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+                        <p className="text-xs text-gray-500 mt-1">Extra flags forwarded to <code className="bg-gray-100 px-1 rounded">apptainer exec</code> inside each worker job, as a single shell-style string. Common use: extra <code className="bg-gray-100 px-1 rounded">--bind</code> mounts.</p>
                       </div>
                     </>
                   )}
@@ -1700,7 +1894,7 @@ spec:
               </button>
             </div>
           )}
-        </div>
+        </form>
       )}
 
       {/* ── Ray workspace dir explanation dialog ── */}
