@@ -793,7 +793,7 @@ spec:
                     <div className="text-sm text-blue-800">
                       <p className="font-medium">Recommended: mount a shared PVC on your Ray cluster nodes</p>
                       <p className="text-blue-700 text-xs mt-1">
-                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. For apps that communicate through the filesystem (e.g. <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>), scaling to multiple replicas requires a shared volume across all Ray nodes — otherwise only reduced functionality is available.
+                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. For apps that communicate through the filesystem (e.g. <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>), scaling to multiple replicas requires a shared volume across all Ray nodes. Otherwise only reduced functionality is available.
                       </p>
                     </div>
                   </div>
@@ -814,7 +814,7 @@ spec:
                   </svg>
                   <p className="text-sm text-blue-800">
                     <span className="font-medium">Recommended: mount a PVC at the BioEngine Workspace Directory</span>
-                    <span className="text-blue-700"> — worker logs will otherwise be lost when the pod restarts.</span>
+                    <span className="text-blue-700">. Worker logs will otherwise be lost when the pod restarts.</span>
                   </p>
                 </div>
               </div>
@@ -963,13 +963,13 @@ spec:
                         type="password"
                         value={token}
                         onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
-                        placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated — paste to override') : 'Paste your Hypha token'}
+                        placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated; paste to override') : 'Paste your Hypha token'}
                         autoComplete="new-password"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                       {isLoggedIn && !tokenIsManual && token && (
-                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token — regenerate when it expires using the button above.</p>
+                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
                       )}
                       <p className="text-xs text-gray-500 mt-1">Used to resolve workspace and populate the deployment YAML. Store in a Kubernetes secret for production.</p>
                     </div>
@@ -1051,7 +1051,7 @@ spec:
                 <div className="space-y-4 border-t border-gray-200 pt-4">
                   <h5 className="text-sm font-semibold text-gray-700">Build & push a custom BioEngine image (Ray {rayVersion})</h5>
                   <p className="text-xs text-gray-600">
-                    The public image bundles Ray {DEFAULT_RAY_VERSION}. To use a different Ray release, build a thin overlay image and push it to your Docker Hub account. <strong>You do not need to clone the BioEngine repo</strong> — the entire Dockerfile is embedded inline below via a heredoc. Fill in <strong>Docker Hub Username</strong> below to auto-populate every step and the deployment YAML; otherwise replace <code className="bg-gray-100 px-1 rounded">&lt;your-dockerhub-username&gt;</code> manually. Once pushed, continue with "Deploy to Kubernetes".
+                    The public image bundles Ray {DEFAULT_RAY_VERSION}. To use a different Ray release, build a thin overlay image and push it to your Docker Hub account. <strong>You do not need to clone the BioEngine repo</strong>; the entire Dockerfile is embedded inline below via a heredoc. Fill in <strong>Docker Hub Username</strong> below to auto-populate every step and the deployment YAML; otherwise replace <code className="bg-gray-100 px-1 rounded">&lt;your-dockerhub-username&gt;</code> manually. Once pushed, continue with "Deploy to Kubernetes".
                   </p>
 
                   <div>
@@ -1059,7 +1059,7 @@ spec:
                     <input type="text" value={dockerHubUsername} onChange={(e) => setDockerHubUsername(e.target.value)}
                       placeholder="<your-dockerhub-username>"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image — filled into the build script, push command, and deployment YAML below.</p>
+                    <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image; filled into the build script, push command, and deployment YAML below.</p>
                   </div>
 
                   {/* Step 1: docker login */}
@@ -1135,7 +1135,7 @@ spec:
                     <p className="text-xs text-gray-500 mt-1">
                       {dockerHubUsername
                         ? <>The deployment YAML below already references this image.</>
-                        : <>Uses <code className="bg-gray-100 px-1 rounded">$&#123;DOCKERHUB_USERNAME&#125;</code> from step 2 — make sure you set it there. Fill in <strong>Docker Hub Username</strong> above to auto-populate both step 2 and the YAML below.</>}
+                        : <>Uses <code className="bg-gray-100 px-1 rounded">$&#123;DOCKERHUB_USERNAME&#125;</code> from step 2; make sure you set it there. Fill in <strong>Docker Hub Username</strong> above to auto-populate both step 2 and the YAML below.</>}
                     </p>
                   </div>
                 </div>
@@ -1393,7 +1393,7 @@ spec:
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="--gpus={n}">--gpus=&#123;n&#125;</option>
                         <option value="--gres=gpu:{n}">--gres=gpu:&#123;n&#125;</option>
-                        <option value="">(omit — use a custom flag in Further SLURM Args)</option>
+                        <option value="">(omit; use a custom flag in Further SLURM Args)</option>
                       </select>
                       <p className="text-xs text-gray-500 mt-1">How GPUs are requested in <code className="bg-gray-100 px-1 rounded">sbatch</code>. Use gres if your cluster requires it.</p>
                     </div>
@@ -1552,13 +1552,13 @@ spec:
                       type="password"
                       value={token}
                       onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
-                      placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated — paste to override') : 'Paste your Hypha token'}
+                      placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated; paste to override') : 'Paste your Hypha token'}
                       autoComplete="new-password"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                     {isLoggedIn && !tokenIsManual && token && (
-                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token — regenerate when it expires using the button above.</p>
+                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
                       Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>.
@@ -1604,7 +1604,7 @@ spec:
                       <label className="block text-sm font-medium text-gray-700 mb-1">GPU Indices</label>
                       <input type="text" value={gpuIndices} onChange={(e) => setGpuIndices(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">CUDA_VISIBLE_DEVICES — comma-separated GPU indices (e.g. 0,1). Leave empty to use all GPUs</p>
+                      <p className="text-xs text-gray-500 mt-1">CUDA_VISIBLE_DEVICES: comma-separated GPU indices (e.g. 0,1). Leave empty to use all GPUs.</p>
                     </div>
                   )}
 
@@ -1870,8 +1870,8 @@ spec:
                       <ul className="list-disc list-inside space-y-1 text-blue-800 text-xs">
                         <li>Run the script inside <code className="bg-blue-200 px-1 rounded">tmux</code> or <code className="bg-blue-200 px-1 rounded">screen</code> so the head survives ssh disconnects.</li>
                         <li>Monitor active jobs: <code className="bg-blue-200 px-1 rounded">squeue -u $USER -n ray_worker</code>.</li>
-                        <li>Stop everything: <code className="bg-blue-200 px-1 rounded">Ctrl+C</code> in the script window — pending Ray workers are auto-cancelled on cleanup.</li>
-                        <li>The first launch will pull the Apptainer image (~1 GB) into <code className="bg-blue-200 px-1 rounded">$WORKSPACE_DIR/images</code> — subsequent runs are fast.</li>
+                        <li>Stop everything: <code className="bg-blue-200 px-1 rounded">Ctrl+C</code> in the script window. Pending Ray workers are auto-cancelled on cleanup.</li>
+                        <li>The first launch will pull the Apptainer image (~1 GB) into <code className="bg-blue-200 px-1 rounded">$WORKSPACE_DIR/images</code>. Subsequent runs are fast.</li>
                         <li>After the script reports the worker is registered, open the dashboard at <a href="https://bioimage.io/#/bioengine" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">bioimage.io/#/bioengine</a>.</li>
                       </ul>
                     </div>
@@ -1917,7 +1917,7 @@ spec:
             overflowY: 'auto',
           }} className="bg-white rounded-2xl shadow-2xl border border-gray-200">
             <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-base font-semibold text-gray-800">Ray Workspace Directory — Why It Matters</h3>
+              <h3 className="text-base font-semibold text-gray-800">Ray Workspace Directory: Why It Matters</h3>
               <button onClick={() => setShowRayWorkspaceDirDialog(false)}
                 className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1930,12 +1930,12 @@ spec:
                 The BioEngine worker runs in its own pod and writes to the <strong>BioEngine Workspace Directory</strong> (e.g. <code className="bg-gray-100 px-1 rounded">/home/bioengine</code>). This is the same directory configured with <code className="bg-gray-100 px-1 rounded">--workspace-dir</code> in single-machine mode.
               </p>
               <p>
-                In Kubernetes mode the actual BioEngine apps execute on <strong>Ray cluster nodes</strong>, not inside the worker pod. Those nodes need their own writable directory, set with <code className="bg-gray-100 px-1 rounded">--ray-workspace-dir</code>. If this flag is not set, the worker falls back to the same path as <code className="bg-gray-100 px-1 rounded">--workspace-dir</code> — which only works if the Ray nodes can also reach that path.
+                In Kubernetes mode the actual BioEngine apps execute on <strong>Ray cluster nodes</strong>, not inside the worker pod. Those nodes need their own writable directory, set with <code className="bg-gray-100 px-1 rounded">--ray-workspace-dir</code>. If this flag is not set, the worker falls back to the same path as <code className="bg-gray-100 px-1 rounded">--workspace-dir</code>, which only works if the Ray nodes can also reach that path.
               </p>
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="font-medium text-amber-800 mb-1">Impact on scaling</p>
                 <p className="text-amber-700">
-                  Some apps, like <code className="bg-amber-100 px-1 rounded">bioimage-io/model-runner</code>, communicate between the worker and Ray nodes through the filesystem. Without a shared <strong>ReadWriteMany</strong> PVC mounted at the same path on all Ray nodes, running more than one app replica will result in reduced functionality — only the replica on the node that holds the file will work correctly.
+                  Some apps, like <code className="bg-amber-100 px-1 rounded">bioimage-io/model-runner</code>, communicate between the worker and Ray nodes through the filesystem. Without a shared <strong>ReadWriteMany</strong> PVC mounted at the same path on all Ray nodes, running more than one app replica will result in reduced functionality: only the replica on the node that holds the file will work correctly.
                 </p>
               </div>
               <p>
