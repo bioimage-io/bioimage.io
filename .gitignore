@@ -3,6 +3,7 @@
 *.log
 .vscode/
 bioimageio_test_reports/
+.svamp
 
 /resources
 # dependencies

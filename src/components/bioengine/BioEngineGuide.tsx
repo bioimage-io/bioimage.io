@@ -144,7 +144,6 @@ const BioEngineGuide: React.FC = () => {
   const [clientId, setClientId] = useState('');
   const [clientServerPort, setClientServerPort] = useState('10001');
   const [servePort, setServePort] = useState('8000');
-  const [runAsRoot, setRunAsRoot] = useState(false);
   const [gpuIndices, setGpuIndices] = useState('');
 
   // Kubernetes-specific options
@@ -264,7 +263,6 @@ const BioEngineGuide: React.FC = () => {
   };
 
   const getUserFlag = () => {
-    if (runAsRoot) return '';
     return os === 'windows' ? '' : '--user $(id -u):$(id -g) ';
   };
 
@@ -349,8 +347,6 @@ const BioEngineGuide: React.FC = () => {
       ? `-e CUDA_VISIBLE_DEVICES=${gpuIndices} ` : '';
     // The worker's default --workspace-dir is $HOME/.bioengine. Pin HOME=/
     // so that resolves to /.bioengine, which matches the mount point below.
-    // Without this, runAsRoot=true uses /root/.bioengine inside the container
-    // (unmounted) and worker logs/apps are lost on container exit.
     const homeEnvFlag = (containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
       ? '-e HOME=/ ' : '';
 
@@ -764,7 +760,7 @@ spec:
 
           {/* ── Kubernetes setup ── */}
           {mode === 'external-cluster' && (
-            <div className="space-y-4">
+            <div className="space-y-4 border-t border-gray-200 pt-4">
 
               {/* Intro */}
               <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
@@ -913,7 +909,7 @@ spec:
               )}
 
               {/* Advanced options */}
-              <div className="border-t border-gray-200 pt-4">
+              <div className="pt-2 pb-2">  
                 <button
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
@@ -1485,7 +1481,7 @@ spec:
 
           {/* ── Advanced options ── */}
           {mode !== 'external-cluster' && (
-            <div className="border-t border-gray-200 pt-4">
+            <div>
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
@@ -1662,21 +1658,6 @@ spec:
                     </>
                   )}
 
-                  {/* ── Permissions — last ── */}
-                  {mode === 'single-machine' && (containerRuntime === 'docker' || containerRuntime === 'podman') && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Permissions</label>
-                      <label className="flex items-center mt-2">
-                        <input type="checkbox" checked={runAsRoot} onChange={(e) => setRunAsRoot(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded" />
-                        <span className="ml-2 text-sm text-gray-700">Run as root</span>
-                      </label>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {runAsRoot ? 'Root – may be required for some Docker setups' : 'User permissions – recommended for security'}
-                      </p>
-                    </div>
-                  )}
-
                 </div>
               )}
             </div>
@@ -1684,7 +1665,7 @@ spec:
 
           {/* ── Generated command (SLURM step-by-step) ── */}
           {mode === 'slurm' && (
-            <div className="space-y-3">
+            <div className="space-y-3 border-t border-gray-200 pt-4">
               {/* Step 1: Create workspace directory */}
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -1786,7 +1767,7 @@ spec:
           )}
 
           {mode === 'single-machine' && (
-            <div className="space-y-3">
+            <div className="space-y-3 border-t border-gray-200 pt-4">
               {/* Step 1: Create directories */}
               <div>
                 <div className="flex items-center justify-between mb-1">
