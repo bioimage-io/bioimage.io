@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Menu } from '@headlessui/react';
@@ -67,7 +68,7 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
     
     try {
       // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const runner = await server.getService('bioimage-io/model-runner', {mode: "select:min:get_load"});
+      const runner = await server.getService(BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, {mode: "select:min:get_load"});
       // Parse the RDF content and assert its type
       let rdfDict = yaml.load(rdfContent) as RdfWithUploader | null;
       

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
+import { BIOIMAGEIO_WORKER_SERVICE_ID } from '../../utils/bioengineService';
 import BioEngineGuide from './BioEngineGuide';
 
 const STORAGE_KEY = 'bioengine-observed-workspaces';
@@ -196,9 +197,15 @@ const BioEngineHome: React.FC = () => {
           description: s.description || '',
         }));
       } else {
-        // External workspace: probe with short service ID
+        // External workspace: probe with short service ID. For the public
+        // bioimage-io workspace, pin to the KTH pod glob so other workers
+        // sharing the workspace (e.g. deNBI onboarding instances) aren't
+        // picked up as production workers.
+        const probeId = workspace === DEFAULT_PUBLIC_WORKSPACE
+          ? BIOIMAGEIO_WORKER_SERVICE_ID
+          : `${workspace}/bioengine-worker`;
         try {
-          const svc = await server.getService(`${workspace}/bioengine-worker`);
+          const svc = await server.getService(probeId);
           services = [{ id: svc.id, name: svc.name || svc.id, description: svc.description || '' }];
         } catch (err) {
           const errStr = String(err);
