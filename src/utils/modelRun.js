@@ -12,6 +12,7 @@ import {
   parseAxes,
   isImg2Img as checkImg2Img
 } from "./imgProcess";
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from "./bioengineService";
 
 // Base URL for accessing artifact files
 const ARTIFACT_BASE_URL = "https://hypha.aicell.io/bioimage-io/artifacts";
@@ -288,7 +289,7 @@ class BioEngineExecutor {
     this.serverUrl = serverUrl;
   }
 
-  async init(token = null, serviceId = 'bioimage-io/model-runner') {
+  async init(token = null, serviceId = BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID) {
     const connectOptions = {
       server_url: this.serverUrl,
       method_timeout: 360,
@@ -357,7 +358,7 @@ export class ModelRunnerEngine {
     this.modelId = null;
   }
 
-  async init(token = null, serviceId = 'bioimage-io/model-runner') {
+  async init(token = null, serviceId = BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID) {
     await this.bioengineExecutor.init(token, serviceId);
   }
 

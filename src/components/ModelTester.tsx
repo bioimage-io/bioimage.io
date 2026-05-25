@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Menu } from '@headlessui/react';
@@ -111,7 +112,7 @@ const ModelTester: React.FC<ModelTesterProps> = ({
     try {
       setLoadingStep('Connecting to model runner service...');
       // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const runner = await server.getService('bioimage-io/model-runner', {mode: "select:min:get_load"});
+      const runner = await server.getService(BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, {mode: "select:min:get_load"});
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');

@@ -9,6 +9,7 @@ import {
 
 } from '../utils/modelRun';
 import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, processForShow } from '../utils/imgProcess';
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import ModelTester from './ModelTester';
 
 // Extend the ModelRunnerEngine type to properly type the runTiles method
@@ -130,7 +131,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
   const [serverUrl, setServerUrl] = useState<string>("https://hypha.aicell.io");
-  const [serviceId, setServiceId] = useState<string>("bioimage-io/model-runner");
+  const [serviceId, setServiceId] = useState<string>(BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID);
   const [token, setToken] = useState<string>("");
   
   // Button states
@@ -738,7 +739,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 type="text"
                 value={serviceId}
                 onChange={(e) => setServiceId(e.target.value)}
-                placeholder="bioimage-io/model-runner"
+                placeholder={BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
