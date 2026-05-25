@@ -44,6 +44,24 @@ interface ClusterData {
     accelerator_type?: string | null;
     slurm_job_id?: string | null;
   }>;
+  slurm_jobs?: {
+    queued?: Array<{
+      job_id: string;
+      state?: string;
+      submit_time?: number;
+      pending_seconds?: number;
+      reason?: string;
+    }>;
+    running?: Array<{
+      job_id: string;
+      state?: string;
+      node?: string;
+      start_time?: number;
+      time_limit_seconds?: number;
+      elapsed_seconds?: number;
+      remaining_seconds?: number;
+    }>;
+  };
 }
 
 interface BioEngineClusterResourcesProps {
@@ -56,6 +74,7 @@ interface BioEngineClusterResourcesProps {
 const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, workerMode, currentTime, formatTimeInfo }) => {
   const [nodesExpanded, setNodesExpanded] = useState(false);
   const [pendingExpanded, setPendingExpanded] = useState(false);
+  const [slurmJobsExpanded, setSlurmJobsExpanded] = useState(false);
 
   if (!rayCluster?.cluster && !rayCluster?.nodes) return null;
 
@@ -230,65 +249,6 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
           />
         </div>
 
-        {/* Expandable Pending Resources Section */}
-        {rayCluster.cluster?.pending_resources && (
-          <div className="border-t border-gray-200 pt-6 mb-6">
-            <button
-              onClick={() => setPendingExpanded(!pendingExpanded)}
-              className="flex items-center justify-between w-full text-left p-3 bg-yellow-50 rounded-xl hover:bg-yellow-100 transition-colors duration-200"
-            >
-              <div className="flex items-center">
-                <svg className="w-5 h-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="font-medium text-yellow-800">
-                  Pending Resources (Total: {rayCluster.cluster.pending_resources.total})
-                </span>
-              </div>
-              <svg
-                className={`w-5 h-5 text-yellow-600 transition-transform duration-200 ${pendingExpanded ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {pendingExpanded && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 animate-slideUp">
-                <div className="bg-white border border-yellow-200 rounded-xl p-4">
-                  <div className="flex items-center mb-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
-                    <span className="font-medium text-gray-800">Actors</span>
-                  </div>
-                  <div className="text-lg font-bold text-yellow-700">
-                    {rayCluster.cluster.pending_resources.actors.length}
-                  </div>
-                </div>
-                <div className="bg-white border border-yellow-200 rounded-xl p-4">
-                  <div className="flex items-center mb-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
-                    <span className="font-medium text-gray-800">Jobs</span>
-                  </div>
-                  <div className="text-lg font-bold text-yellow-700">
-                    {rayCluster.cluster.pending_resources.jobs.length}
-                  </div>
-                </div>
-                <div className="bg-white border border-yellow-200 rounded-xl p-4">
-                  <div className="flex items-center mb-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
-                    <span className="font-medium text-gray-800">Tasks</span>
-                  </div>
-                  <div className="text-lg font-bold text-yellow-700">
-                    {rayCluster.cluster.pending_resources.tasks.length}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Expandable Nodes Section */}
         {rayCluster.nodes && Object.keys(rayCluster.nodes).length > 0 && (
           <div className="border-t border-gray-200 pt-6">
@@ -439,6 +399,198 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
             })()}
           </div>
         )}
+
+        {/* Expandable Pending Resources Section — yellow when total > 0, grey when empty */}
+        {rayCluster.cluster?.pending_resources && (() => {
+          const pending = rayCluster.cluster.pending_resources;
+          const total = pending.total || 0;
+          const isActive = total > 0;
+          const btnBg = isActive ? 'bg-yellow-50 hover:bg-yellow-100' : 'bg-gray-50 hover:bg-gray-100';
+          const iconColor = isActive ? 'text-yellow-600' : 'text-gray-500';
+          const textColor = isActive ? 'text-yellow-800' : 'text-gray-700';
+          const chevronColor = isActive ? 'text-yellow-600' : 'text-gray-500';
+          const innerBorder = isActive ? 'border-yellow-200' : 'border-gray-200';
+          const innerDot = isActive ? 'bg-yellow-500' : 'bg-gray-400';
+          const countColor = isActive ? 'text-yellow-700' : 'text-gray-600';
+          return (
+            <div className="border-t border-gray-200 pt-6 mt-6">
+              <button
+                onClick={() => setPendingExpanded(!pendingExpanded)}
+                className={`flex items-center justify-between w-full text-left p-3 rounded-xl transition-colors duration-200 ${btnBg}`}
+              >
+                <div className="flex items-center">
+                  <svg className={`w-5 h-5 mr-2 ${iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className={`font-medium ${textColor}`}>
+                    Pending Resources (Total: {total})
+                  </span>
+                </div>
+                <svg
+                  className={`w-5 h-5 transition-transform duration-200 ${chevronColor} ${pendingExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {pendingExpanded && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 animate-slideUp">
+                  {[
+                    { name: 'Actors', count: pending.actors.length },
+                    { name: 'Jobs', count: pending.jobs.length },
+                    { name: 'Tasks', count: pending.tasks.length },
+                  ].map(({ name, count }) => (
+                    <div key={name} className={`bg-white border rounded-xl p-4 ${innerBorder}`}>
+                      <div className="flex items-center mb-2">
+                        <div className={`w-3 h-3 rounded-full mr-2 ${innerDot}`}></div>
+                        <span className="font-medium text-gray-800">{name}</span>
+                      </div>
+                      <div className={`text-lg font-bold ${countColor}`}>{count}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Expandable SLURM Jobs Section — only when there are queued/running jobs */}
+        {(() => {
+          const queuedRaw = rayCluster.slurm_jobs?.queued || [];
+          const runningRaw = rayCluster.slurm_jobs?.running || [];
+          if (queuedRaw.length + runningRaw.length === 0) return null;
+
+          // Most recently submitted on top within each group
+          const queued = [...queuedRaw].sort((a, b) => (b.submit_time || 0) - (a.submit_time || 0));
+          const running = [...runningRaw].sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
+
+          const formatMinutes = (seconds?: number): string => {
+            const m = Math.max(0, Math.round((seconds || 0) / 60));
+            return `${m}m`;
+          };
+
+          // Yellow when there are pending resources, grey otherwise
+          const pendingTotal = rayCluster.cluster?.pending_resources?.total || 0;
+          const isActive = pendingTotal > 0;
+          const btnBg = isActive ? 'bg-yellow-50 hover:bg-yellow-100' : 'bg-gray-50 hover:bg-gray-100';
+          const iconColor = isActive ? 'text-yellow-600' : 'text-gray-600';
+          const textColor = isActive ? 'text-yellow-800' : 'text-gray-700';
+          const chevronColor = isActive ? 'text-yellow-600' : 'text-gray-500';
+
+          return (
+            <div className="border-t border-gray-200 pt-6 mt-6">
+              <button
+                onClick={() => setSlurmJobsExpanded(!slurmJobsExpanded)}
+                className={`flex items-center justify-between w-full text-left p-3 rounded-xl transition-colors duration-200 ${btnBg}`}
+              >
+                <div className="flex items-center">
+                  <svg className={`w-5 h-5 mr-2 ${iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                  <span className={`font-medium ${textColor}`}>
+                    SLURM Jobs ({queued.length} queued, {running.length} running)
+                  </span>
+                </div>
+                <svg
+                  className={`w-5 h-5 transition-transform duration-200 ${chevronColor} ${slurmJobsExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {slurmJobsExpanded && (
+                <div className="mt-4 space-y-3 animate-slideUp">
+                  {queued.map((job) => (
+                    <div key={`q-${job.job_id}`} className="bg-white border border-gray-200 rounded-xl p-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-1">
+                          <div className="flex items-center mb-3">
+                            <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
+                            <span className="font-medium text-gray-800">Job #{job.job_id}</span>
+                          </div>
+                          <div className="space-y-2 text-sm">
+                            {job.state && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">State:</span>
+                                <span className="text-gray-900 font-semibold">{job.state}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="lg:col-span-2">
+                          <h4 className="font-medium text-gray-700 mb-3">Timing</h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Waiting:</span>
+                              <span className="text-gray-900">{formatMinutes(job.pending_seconds)}</span>
+                            </div>
+                            {job.reason && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Reason:</span>
+                                <span className="text-gray-900 font-mono">{job.reason}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {running.map((job) => (
+                    <div key={`r-${job.job_id}`} className="bg-white border border-gray-200 rounded-xl p-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-1">
+                          <div className="flex items-center mb-3">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            <span className="font-medium text-gray-800">Job #{job.job_id}</span>
+                          </div>
+                          <div className="space-y-2 text-sm">
+                            {job.state && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">State:</span>
+                                <span className="text-gray-900 font-semibold">{job.state}</span>
+                              </div>
+                            )}
+                            {job.node && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Node:</span>
+                                <span className="text-gray-900 font-mono">{job.node}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="lg:col-span-2">
+                          <h4 className="font-medium text-gray-700 mb-3">Timing</h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Started:</span>
+                              <span className="text-gray-900">{formatMinutes(job.elapsed_seconds)} ago</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Remaining:</span>
+                              <span className="text-gray-900">{formatMinutes(job.remaining_seconds)}</span>
+                            </div>
+                            {job.time_limit_seconds !== undefined && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Time limit:</span>
+                                <span className="text-gray-900">{formatMinutes(job.time_limit_seconds)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
