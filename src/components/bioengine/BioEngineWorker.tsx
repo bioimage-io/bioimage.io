@@ -77,6 +77,14 @@ type ServiceStatus = {
     head_address?: string;
     start_time?: number | "N/A";
     mode?: string;  // Legacy, now use worker_mode at top level
+    geo_location?: {
+      region?: string;
+      country_name?: string;
+      country_code?: string;
+      latitude?: number;
+      longitude?: number;
+      timezone?: string;
+    };
     cluster?: {
       total_gpu?: number;
       available_gpu?: number;
@@ -1045,15 +1053,44 @@ const BioEngineWorker: React.FC = () => {
                     );
                   })()}
 
-                  {status?.geo_location && (
-                    <div>
-                      <span className="text-xs font-medium text-gray-500 block">Location</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {[status.geo_location.region, status.geo_location.country_name]
-                          .filter(Boolean).join(', ')}
-                      </span>
-                    </div>
-                  )}
+                  {(() => {
+                    const workerGeo = status?.geo_location;
+                    const clusterGeo = status?.ray_cluster?.geo_location;
+                    const formatGeo = (g?: typeof workerGeo) =>
+                      g ? [g.region, g.country_name].filter(Boolean).join(', ') : '';
+
+                    // External-cluster mode can have the worker pod and the Ray
+                    // head node in different sites — show both rows only when
+                    // both geos are resolved and the countries actually differ.
+                    const showSplit =
+                      status?.worker_mode === 'external-cluster' &&
+                      !!clusterGeo?.country_code &&
+                      !!workerGeo?.country_code &&
+                      clusterGeo.country_code !== workerGeo.country_code;
+
+                    if (showSplit) {
+                      return (
+                        <>
+                          <div>
+                            <span className="text-xs font-medium text-gray-500 block">Worker Location</span>
+                            <span className="text-sm font-semibold text-gray-900">{formatGeo(workerGeo)}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs font-medium text-gray-500 block">Ray Cluster Location</span>
+                            <span className="text-sm font-semibold text-gray-900">{formatGeo(clusterGeo)}</span>
+                          </div>
+                        </>
+                      );
+                    }
+
+                    if (!workerGeo) return null;
+                    return (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 block">Location</span>
+                        <span className="text-sm font-semibold text-gray-900">{formatGeo(workerGeo)}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="space-y-4">
