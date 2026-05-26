@@ -39,6 +39,13 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
       }
 
       try {
+        // Allow users to edit artifacts they uploaded or created even if they don't have global write permission
+        if ((artifact.created_by && artifact.created_by === user.id) ||
+            (artifact.manifest?.uploader?.email && user.email && artifact.manifest.uploader.email === user.email)) {
+          setCanEdit(true);
+          return;
+        }
+
         const collection = await artifactManager.read({
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true
