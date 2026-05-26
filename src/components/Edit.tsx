@@ -874,7 +874,7 @@ const Edit: React.FC = () => {
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: mergedManifest, // Use the merged manifest
-              stage: isStaged, // Keep in staging mode if currently staged
+              stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
               _rkwargs: true
             });
 
@@ -948,7 +948,7 @@ const Edit: React.FC = () => {
                   [file.path]: fileSha256
                 }
               },
-              stage: isStaged, // Keep in staging mode if currently staged
+              stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
               _rkwargs: true
             });
 
@@ -1774,7 +1774,7 @@ const Edit: React.FC = () => {
                 [file.name]: fileSha256
               }
             },
-            stage: isStaged, // Keep in staging mode if currently staged
+            stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
             _rkwargs: true
           });
 
