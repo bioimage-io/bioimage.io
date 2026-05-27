@@ -78,29 +78,61 @@ const MyArtifacts: React.FC = () => {
 
     try {
       setLoading(true);
-      const filters: any = {
-        created_by: user.id,
-      };
-      const keywords: string[] = [];
 
-      // Add search query to filters if present
-      if (serverSearchQuery.trim()) {
-        keywords.push(serverSearchQuery.trim());
-      }
-      
-      const response = await artifactManager.list({
+      // We treat "my artifacts" as the union of two sets:
+      //   (a) artifacts I created    -> filters.created_by == user.id
+      //   (b) artifacts I uploaded   -> manifest.uploader.email == user.email
+      // Hypha's nested-filter on manifest fields is unreliable, but the
+      // full-text `keywords` index does cover manifest.uploader.email,
+      // so we issue both queries in parallel and post-filter (b) to drop
+      // any keyword matches that aren't actually uploader-email matches.
+      // We then merge by id and paginate the merged list client-side.
+      const baseKeywords: string[] = [];
+      if (serverSearchQuery.trim()) baseKeywords.push(serverSearchQuery.trim());
+
+      // _rkwargs: true tells the JS hypha-rpc client to treat this object as
+      // kwargs (it strips the marker before the wire-send — see hypha-rpc
+      // websocket.js around line 1153).
+      const listOpts = {
         parent_id: "bioimage-io/bioimage.io",
-        filters: filters,
-        keywords: keywords,
-        limit: itemsPerPage,
         stage: showStagedOnly ? "stage" : "all",
-        offset: (myArtifactsPage - 1) * itemsPerPage,
-        pagination: true,
-        _rkwargs: true
-      });
+        limit: 100,  // grab a wide page; client-side paginates the merged result
+        _rkwargs: true,
+      } as const;
 
-      setArtifacts(response.items);
-      setMyArtifactsTotalItems(response.total);
+      const [createdRes, uploadedRes] = await Promise.all([
+        artifactManager.list({
+          ...listOpts,
+          filters: { created_by: user.id },
+          keywords: baseKeywords,
+        }),
+        user.email
+          ? artifactManager.list({
+              ...listOpts,
+              keywords: [...baseKeywords, user.email],
+            })
+          : Promise.resolve([]),
+      ]);
+
+      // Post-filter (b): keywords-by-email returns anything mentioning the
+      // string, so verify the uploader email is exact and the manifest is
+      // ours, not the bot's, before counting an artifact as "uploaded by me".
+      const userEmail = user.email?.toLowerCase();
+      const isMine = (a: any) =>
+        a?.created_by === user.id ||
+        (userEmail && a?.manifest?.uploader?.email?.toLowerCase() === userEmail);
+
+      const byId: Record<string, any> = {};
+      for (const a of [...(createdRes || []), ...(uploadedRes || [])]) {
+        if (a?.id && isMine(a)) byId[a.id] = a;
+      }
+      const merged = Object.values(byId).sort((x: any, y: any) =>
+        (y.last_modified ?? y.created_at ?? 0) - (x.last_modified ?? x.created_at ?? 0)
+      );
+
+      const start = (myArtifactsPage - 1) * itemsPerPage;
+      setArtifacts(merged.slice(start, start + itemsPerPage) as Artifact[]);
+      setMyArtifactsTotalItems(merged.length);
       setError(null);
     } catch (err) {
       console.error('Error loading artifacts:', err);
@@ -382,7 +414,7 @@ const MyArtifacts: React.FC = () => {
                     ]}
                     image={artifact.manifest?.cover || undefined}
                     downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
-                    onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`)}
+                    onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}${artifact.staging ? '/stage' : ''}`)}
                     onDelete={() => {
                       setArtifactToDelete(artifact);
                       setIsDeleteDialogOpen(true);

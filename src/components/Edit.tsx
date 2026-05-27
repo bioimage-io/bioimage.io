@@ -216,6 +216,14 @@ const Edit: React.FC = () => {
     return window.innerWidth >= 1024; // 1024px is the lg breakpoint in Tailwind
   });
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
+  // `canEditArtifact` is broader than `isCollectionAdmin`: it also covers the
+  // per-artifact uploader/editor case (Hypha grants `edit`/`commit`/`put_file`
+  // tokens on the artifact's `_permissions[user.id]` to uploaders, even when
+  // they aren't in the collection-level permissions map). Use this in any
+  // gate that semantically asks "may this user write to THIS artifact".
+  // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
+  // the uploader-email validation in `validateRdfContent`).
+  const [canEditArtifact, setCanEditArtifact] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -354,7 +362,7 @@ const Edit: React.FC = () => {
       // Set artifact type from manifest
       setArtifactType(artifact.manifest?.type || null);
 
-      // Check collection admin status
+      // Check collection admin status + per-artifact edit rights
       try {
         const collection = await artifactManager.read({
           artifact_id: 'bioimage-io/bioimage.io',
@@ -362,14 +370,29 @@ const Edit: React.FC = () => {
         });
 
         if (user) {
-          // Check if user is in collection permissions or has admin role
+          // Collection-wide: user is in bioimage-io.config.permissions
+          // (any role) or has site-admin role.
           const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
                          user.roles?.includes('admin');
           setIsCollectionAdmin(isAdmin);
+
+          // Per-artifact: user is an uploader/editor on THIS artifact.
+          // Three signals, any one of which is sufficient:
+          //   - collection admin (already covers anything)
+          //   - artifact._permissions[user.id] contains 'edit' (or '*')
+          //   - manifest.uploader.email matches user.email (uploader by email)
+          const artPerms = (artifact as any)?._permissions?.[user.id];
+          const hasArtifactEdit = Array.isArray(artPerms)
+            ? artPerms.includes('edit') || artPerms.includes('*')
+            : artPerms === '*';
+          const uploaderEmail = (artifact?.manifest as any)?.uploader?.email?.toLowerCase?.();
+          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
+          setCanEditArtifact(isAdmin || hasArtifactEdit || matchesUploaderEmail);
         }
       } catch (error) {
         console.error('Error checking collection admin status:', error);
         setIsCollectionAdmin(false);
+        setCanEditArtifact(false);
       }
 
       setArtifactInfo(artifact);
@@ -647,8 +670,9 @@ const Edit: React.FC = () => {
     
     if (!artifactManager || !contentToSave) return;
 
-    // If not in staging mode and not a collection admin, no changes are allowed
-    if (!isStaged && !isCollectionAdmin) {
+    // Not in staging mode: only users with write rights on the artifact
+    // (collection admin OR per-artifact uploader/editor) may make changes.
+    if (!isStaged && !canEditArtifact) {
       setUploadStatus({
         message: 'Cannot make changes when not in staging mode.',
         severity: 'error'
@@ -697,9 +721,10 @@ const Edit: React.FC = () => {
       // Track the final content that was uploaded (may be modified during save)
       let finalSavedContent: string = contentToSave;
 
-      // If user is collection admin and not in stage mode, create temporary stage
+      // If user can write to the artifact and isn't already in stage mode,
+      // open a temporary stage so the edit lands somewhere and we can commit it.
       let needsStageCleanup = false;
-      if (isCollectionAdmin && !isStaged) {
+      if (canEditArtifact && !isStaged) {
         try {
           // Create temporary stage
           await artifactManager.edit({
@@ -1583,8 +1608,8 @@ const Edit: React.FC = () => {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
 
-    // If not in staging mode and not a collection admin, block file uploads
-    if (!isStaged && !isCollectionAdmin) {
+    // Only writers on the artifact can upload files outside stage mode.
+    if (!isStaged && !canEditArtifact) {
       setUploadStatus({
         message: 'Cannot upload files when not in staging mode. Only manifest changes are allowed.',
         severity: 'error'
@@ -1592,9 +1617,9 @@ const Edit: React.FC = () => {
       return;
     }
 
-    // If collection admin and not in stage mode, create temporary stage
+    // Same temp-stage shortcut as the rdf.yaml save path.
     let needsStageCleanup = false;
-    if (isCollectionAdmin && !isStaged) {
+    if (canEditArtifact && !isStaged) {
       try {
         await artifactManager.edit({
           artifact_id: artifactId,
@@ -1847,8 +1872,9 @@ const Edit: React.FC = () => {
           }
         }
 
-        // If collection admin and not in stage mode, commit changes immediately
-        if (isCollectionAdmin && !isStaged) {
+        // Auto-commit the temporary stage we created above for writers
+        // who weren't already in stage mode.
+        if (canEditArtifact && !isStaged) {
           try {
             await artifactManager.commit({
               artifact_id: artifactId,
@@ -1905,7 +1931,7 @@ const Edit: React.FC = () => {
         });
       }
     }
-  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, isStaged, unsavedChanges, fetchFileContent, handleSave]);
+  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -1916,8 +1942,8 @@ const Edit: React.FC = () => {
   const handleDeleteFile = async (file: FileNode) => {
     if (!artifactManager || !artifactId) return;
 
-    // If not in staging mode and not a collection admin, block file deletions
-    if (!isStaged && !isCollectionAdmin) {
+    // Only writers on the artifact can delete files outside stage mode.
+    if (!isStaged && !canEditArtifact) {
       setUploadStatus({
         message: 'Cannot delete files when not in staging mode. Only manifest changes are allowed.',
         severity: 'error'
@@ -1931,9 +1957,9 @@ const Edit: React.FC = () => {
         severity: 'info'
       });
 
-      // If collection admin and not in stage mode, create temporary stage
+      // Same temp-stage shortcut as save/upload.
       let needsStageCleanup = false;
-      if (isCollectionAdmin && !isStaged) {
+      if (canEditArtifact && !isStaged) {
         try {
           await artifactManager.edit({
             artifact_id: artifactId,
@@ -1994,8 +2020,9 @@ const Edit: React.FC = () => {
         console.error('Error removing file from file_sha256 map:', error);
       }
 
-      // If collection admin and not in stage mode, commit changes immediately
-      if (isCollectionAdmin && !isStaged) {
+      // Auto-commit the temporary stage we created above for writers
+      // who weren't already in stage mode.
+      if (canEditArtifact && !isStaged) {
         try {
           await artifactManager.commit({
             artifact_id: artifactId,
