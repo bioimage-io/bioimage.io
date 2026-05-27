@@ -332,10 +332,11 @@ const BioEngineWorker: React.FC = () => {
               const app = appData as any;
               console.log(`App ${appId} service_ids:`, app.service_ids);
 
-              // service_ids is an array, get the first element
-              const serviceIds = Array.isArray(app.service_ids) && app.service_ids.length > 0
-                ? app.service_ids[0]
-                : app.service_ids || {};
+              // BioEngine 0.10.0+: service_ids is a single {websocket_service_id,
+              // webrtc_service_id} dict (ProxyDeployment is fixed at one replica
+              // per app, so no per-replica list any more). Fall back to {} if
+              // the worker hasn't returned anything yet.
+              const serviceIds = app.service_ids || {};
 
               // Aggregate replica_states across all deployments (not a top-level field)
               const aggregatedReplicaStates: Record<string, number> = {};
