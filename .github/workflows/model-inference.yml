@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_cache:
+        description: 'Skip cache during inference checks'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test-bioimageio-model-inference:
@@ -56,6 +61,7 @@ jobs:
         # Set safe defaults for inputs (handle scheduled runs)
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
         DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+        SKIP_CACHE="${{ github.event.inputs.skip_cache || 'false' }}"
 
         # Build command arguments
         ARGS=""
@@ -67,6 +73,10 @@ jobs:
 
         if [ "$DRY_RUN" = "true" ]; then
           ARGS="$ARGS --dry-run"
+        fi
+
+        if [ "$SKIP_CACHE" = "true" ]; then
+          ARGS="$ARGS --skip-cache"
         fi
 
         echo "Running: python -u bioengine_model_infer.py $ARGS"
