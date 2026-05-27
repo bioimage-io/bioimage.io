@@ -90,11 +90,13 @@ const MyArtifacts: React.FC = () => {
       const baseKeywords: string[] = [];
       if (serverSearchQuery.trim()) baseKeywords.push(serverSearchQuery.trim());
 
+      // _rkwargs: true tells the JS hypha-rpc client to treat this object as
+      // kwargs (it strips the marker before the wire-send — see hypha-rpc
+      // websocket.js around line 1153).
       const listOpts = {
         parent_id: "bioimage-io/bioimage.io",
         stage: showStagedOnly ? "stage" : "all",
         limit: 100,  // grab a wide page; client-side paginates the merged result
-        pagination: true,
         _rkwargs: true,
       } as const;
 
@@ -109,7 +111,7 @@ const MyArtifacts: React.FC = () => {
               ...listOpts,
               keywords: [...baseKeywords, user.email],
             })
-          : Promise.resolve({ items: [], total: 0 }),
+          : Promise.resolve([]),
       ]);
 
       // Post-filter (b): keywords-by-email returns anything mentioning the
@@ -121,7 +123,7 @@ const MyArtifacts: React.FC = () => {
         (userEmail && a?.manifest?.uploader?.email?.toLowerCase() === userEmail);
 
       const byId: Record<string, any> = {};
-      for (const a of [...(createdRes.items || []), ...(uploadedRes.items || [])]) {
+      for (const a of [...(createdRes || []), ...(uploadedRes || [])]) {
         if (a?.id && isMine(a)) byId[a.id] = a;
       }
       const merged = Object.values(byId).sort((x: any, y: any) =>
