@@ -126,7 +126,12 @@ const ArtifactDetails = () => {
     return partnerService.getPartnerByName(name)?.link;
   };
 
-  // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard
+  // Check if user has edit permissions (reviewer/admin) similar to ArtifactCard.
+  // Uploaders/per-artifact editors are recognised via `created_by`, the
+  // uploader-email match, and the artifact's `_permissions` map (the same
+  // shortcut ArtifactCard.tsx got in commit def24b3, plus the per-artifact
+  // permissions check that uploaders rely on when `created_by` is the
+  // bioimage-io bot and the manifest uploader email doesn't match).
   useEffect(() => {
     const checkEditPermissions = async () => {
       if (!isLoggedIn || !user || !artifactManager) {
@@ -135,6 +140,24 @@ const ArtifactDetails = () => {
       }
 
       try {
+        const artifact: any = selectedResource;
+        if (artifact) {
+          const artPerms = artifact._permissions?.[user.id];
+          const hasArtifactEdit = Array.isArray(artPerms)
+            ? artPerms.includes('edit') || artPerms.includes('*')
+            : artPerms === '*';
+          const uploaderEmail = artifact.manifest?.uploader?.email?.toLowerCase?.();
+          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
+          if (
+            (artifact.created_by && artifact.created_by === user.id) ||
+            matchesUploaderEmail ||
+            hasArtifactEdit
+          ) {
+            setCanEdit(true);
+            return;
+          }
+        }
+
         const collection = await artifactManager.read({
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true
@@ -155,7 +178,7 @@ const ArtifactDetails = () => {
     };
 
     checkEditPermissions();
-  }, [isLoggedIn, user, artifactManager]);
+  }, [isLoggedIn, user, artifactManager, selectedResource]);
 
   useEffect(() => {
     if (id) {
