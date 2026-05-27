@@ -18,6 +18,8 @@ BioEngine applications are Ray Serve classes packaged as Hypha artifacts, exposi
 
 | Goal | Where |
 |---|---|
+| **Start a new BioEngine worker** (single-machine / SLURM / Kubernetes) | [references/worker_onboarding.md](references/worker_onboarding.md) |
+| **Build a branded dashboard** for a facility / lab worker | [references/custom_dashboard.md](references/custom_dashboard.md) |
 | Build and deploy an app | [Deploy workflow](#deploy-workflow) |
 | Multi-deployment composition app | [references/app_templates.md](references/app_templates.md) |
 | Call any deployed service | `bioengine call <service-id> --list-methods` |
@@ -27,6 +29,26 @@ BioEngine applications are Ray Serve classes packaged as Hypha artifacts, exposi
 | Run BioImage.IO model inference | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) |
 | Fine-tune Cellpose on custom data | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) |
 | Search cell morphology (JUMP dataset) | [apps/cell-image-search.md](apps/cell-image-search.md) |
+
+---
+
+## Worker onboarding
+
+If the user is **starting a new BioEngine worker** (rather than calling an existing one),
+load [references/worker_onboarding.md](references/worker_onboarding.md) and follow it end
+to end. It covers environment selection, Hypha token, the right deployment command per
+mode, and a 7-check readiness test you must run after the worker registers.
+
+---
+
+## Custom dashboard (facility / lab branding)
+
+If the user wants a **branded dashboard** for their worker — e.g. a core facility
+offering BioEngine as a service, or a lab with its own UI — load
+[references/custom_dashboard.md](references/custom_dashboard.md). It walks through
+creating a static-site Hypha artifact in the user's own workspace with the same
+`HYPHA_TOKEN` used to start the worker, and ships a minimal HTML template the agent
+can adapt.
 
 ---
 
@@ -205,6 +227,8 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 
 | What | File |
 |---|---|
+| Worker onboarding (mode selection + 7-check readiness test) | [references/worker_onboarding.md](references/worker_onboarding.md) |
+| Custom facility / lab dashboard (Hypha artifact + HTML template) | [references/custom_dashboard.md](references/custom_dashboard.md) |
 | App code templates (simple, composition, frontend) | [references/app_templates.md](references/app_templates.md) |
 | Model serving patterns (multiplexing, HuggingFace, auto-scaling) | [references/model_serving.md](references/model_serving.md) |
 | Full manifest fields | [references/manifest_reference.md](references/manifest_reference.md) |
