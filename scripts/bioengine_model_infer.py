@@ -122,12 +122,16 @@ async def check_bmz_model_inference(
     model_ids: Optional[List[str]] = None,
     dry_run: bool = False,
     summary_file: str = DEFAULT_INFERENCE_SUMMARY_PATH,
+    skip_cache: bool = False,
 ) -> None:
     """Test BioImage.IO model and generate test report.
 
     Args:
         model_id: The ID of the model to test.
         result_dir: Directory to store JSON test results.
+        skip_cache: When True, re-run inference even for models that previously
+            passed and haven't changed since (bypasses the in-script result
+            cache), and ask the model-runner to bypass its own cache too.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
@@ -166,7 +170,11 @@ async def check_bmz_model_inference(
                 "status", "never tested"
             )
             latest_change = await get_latest_change(artifact_manager, model_id)
-            if latest_change <= last_test_at and last_test_status == "passed":
+            if (
+                not skip_cache
+                and latest_change <= last_test_at
+                and last_test_status == "passed"
+            ):
                 print(
                     f"-> Model '{model_id}' has not changed since last test, skipping inference"
                 )
@@ -177,7 +185,7 @@ async def check_bmz_model_inference(
 
             model_start_time = time.time()
             await asyncio.wait_for(
-                runner.infer(model_id=model_id, inputs=image),
+                runner.infer(model_id=model_id, inputs=image, skip_cache=skip_cache),
                 timeout=120,  # 2 minutes timeout
             )
             model_execution_time = time.time() - model_start_time
@@ -254,6 +262,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Print shell variables derived from inference summary report",
     )
+    parser.add_argument(
+        "--skip-cache",
+        action="store_true",
+        help="Skip cache during inference checks "
+        "(re-run inference even for previously-passed unchanged models, "
+        "and ask the model-runner to bypass its own cache)",
+    )
 
     args = parser.parse_args()
 
@@ -266,5 +281,6 @@ if __name__ == "__main__":
             model_ids=args.model_ids,
             dry_run=args.dry_run,
             summary_file=args.summary_file,
+            skip_cache=args.skip_cache,
         )
     )
