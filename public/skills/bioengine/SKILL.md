@@ -184,6 +184,8 @@ bioengine apps run my-workspace/my-app --app-id my-app
 App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`  
 Deployments ready when all reach `HEALTHY`. Check logs: `bioengine apps logs my-app --tail 100`.
 
+> **Debugging `DEPLOY_FAILED` / `UNHEALTHY`.** The top-level `message` is generic ("The deployments ['X'] are UNHEALTHY."). The **actionable** error — failed pip install, `RuntimeEnvSetupError`, import errors, etc. — is in `deployments[<name>].message` (full Ray error + pip stderr) and `deployments[<name>].logs`. The default `bioengine apps status` output only prints per-deployment *status*, not the message. To see it, run `bioengine apps status <app-id> --json`, or via the SDK: `(await worker.get_app_status(application_ids=[app_id]))[app_id]["deployments"][<name>]["message"]`. Always check this **before** guessing at the root cause — it usually names the offending package and exit code.
+
 After verifying on the live worker: bump `version` in `manifest.yaml` and commit.
 
 ---
@@ -218,6 +220,7 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 | Composition param name mismatch | `runtime_a:RuntimeA` must match `__init__` param name `runtime_a` |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |
 | Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
+| `DEPLOY_FAILED` with generic top-level message | Read `deployments[<name>].message` via `apps status --json` or SDK — it carries the real pip/runtime_env/import error |
 | Deploy fails with `RuntimeError: pydantic-core version mismatch` | Pin `pydantic==2.11.0` (or whatever the driver runs) in `runtime_env.pip`. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important) |
 | Ray Serve replica crashes with `'FieldInfo' object has no attribute 'exclude_if'` | Same root cause as above — driver/runtime_env pydantic-core mismatch. Pin `pydantic` in the app's `runtime_env.pip` |
 
@@ -231,6 +234,7 @@ All commands respect `HYPHA_TOKEN`, `BIOENGINE_WORKER_SERVICE_ID`, `BIOENGINE_SE
 | Custom facility / lab dashboard (Hypha artifact + HTML template) | [references/custom_dashboard.md](references/custom_dashboard.md) |
 | App code templates (simple, composition, frontend) | [references/app_templates.md](references/app_templates.md) |
 | Model serving patterns (multiplexing, HuggingFace, auto-scaling) | [references/model_serving.md](references/model_serving.md) |
+| Streaming public datasets (BioImage Archive + any HTTPS OME-Zarr) | [references/data_sources.md](references/data_sources.md) |
 | Full manifest fields | [references/manifest_reference.md](references/manifest_reference.md) |
 | Full CLI reference | [references/cli_reference.md](references/cli_reference.md) |
 
