@@ -116,8 +116,8 @@ const BioEngineGuide: React.FC = () => {
   // Top-level audience toggle: humans get the full configurator below;
   // agents get a compact panel that hands off to the BioEngine SKILL.md.
   const [audience, setAudience] = useState<'human' | 'agent'>('human');
-  const [agentLinkCopied, setAgentLinkCopied] = useState(false);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
   const [cpus, setCpus] = useState(2);
   const [gpus, setGpus] = useState(0);
@@ -723,128 +723,88 @@ spec:
       {isExpanded && (
         <form className="mt-4 space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
 
-          {/* ── Audience toggle: Human vs Agent ── */}
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
-            <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 11-8 0 4 4 0 018 0zm6 0a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Who is setting up this BioEngine worker?
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                { value: 'human', label: '👤 I\'m a human', desc: 'Show me the full configurator: pick a mode, fill in advanced options, copy the command.' },
-                { value: 'agent', label: '🤖 I\'m an AI agent', desc: 'Skip the form — give me the BioEngine skill so I can walk the user through onboarding and the readiness checks.' },
-              ].map(({ value, label, desc }) => {
+          {/* ── Audience toggle: small segmented control, no explainer (the rest of the form explains itself) ── */}
+          <div className="flex justify-end -mb-2">
+            <div className="inline-flex items-center bg-gray-100 rounded-lg p-1" role="tablist" aria-label="Audience">
+              {(['human', 'agent'] as const).map(value => {
                 const selected = audience === value;
                 return (
-                  <div
+                  <button
                     key={value}
-                    className={`p-4 rounded-lg border-2 transition-all duration-200 cursor-pointer ${
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setAudience(value)}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                       selected
-                        ? 'border-purple-500 bg-purple-50 shadow-md'
-                        : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-sm'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
                     }`}
-                    onClick={() => setAudience(value as 'human' | 'agent')}
                   >
-                    <div className="flex items-center mb-2">
-                      <input type="radio" name="audience" value={value} checked={selected}
-                        onChange={(e) => setAudience(e.target.value as 'human' | 'agent')}
-                        className="w-4 h-4 text-purple-600" />
-                      <span className="ml-2 font-medium text-gray-800">{label}</span>
-                    </div>
-                    <p className="text-sm text-gray-600 ml-6">{desc}</p>
-                  </div>
+                    {value === 'human' ? 'Human' : 'Agent'}
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* ── Agent mode: hand off to the BioEngine skill ── */}
-          {audience === 'agent' && (
-            <div className="space-y-4">
-              <div className="p-5 bg-purple-50 rounded-xl border border-purple-200">
-                <h4 className="text-base font-semibold text-purple-900 mb-2">Set up your worker with an AI agent</h4>
-                <p className="text-sm text-purple-800">
-                  Hand the link below to your agent (Claude Code, Codex, Gemini CLI, …). It loads the
-                  BioEngine skill, walks the user through mode selection and the right deployment command
-                  for the environment, then runs a 7-check readiness test before declaring the worker ready.
-                  When the worker is up, the same skill can publish a branded dashboard for a facility or
-                  lab.
-                </p>
-              </div>
-
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">BioEngine skill URL</span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText('https://bioimage.io/skills/bioengine/SKILL.md');
-                        setAgentLinkCopied(true);
-                        setTimeout(() => setAgentLinkCopied(false), 2000);
-                      } catch (_) { /* ignore */ }
-                    }}
-                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-100 transition-colors"
-                  >
-                    {agentLinkCopied ? (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
-                    ) : (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
-                    )}
-                  </button>
+          {/* ── Agent mode: blue intro + grey copy-able prompt with optional admin-token injection ── */}
+          {audience === 'agent' && (() => {
+            const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
+            const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
+            const promptText = (includeAgentToken && token)
+              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace:\n${token}`
+              : basePrompt;
+            return (
+              <div className="space-y-4">
+                <div className="p-5 bg-blue-50 rounded-xl border border-blue-200">
+                  <h4 className="text-base font-semibold text-blue-900 mb-2">Set up your worker with an AI agent</h4>
+                  <p className="text-sm text-blue-800">
+                    Copy the prompt below into your AI agent (Claude Code, Codex, Gemini CLI, and so on). It will load the BioEngine skill, ask you about your environment, then guide you through the deployment and a readiness test.
+                  </p>
                 </div>
-                <code className="block text-xs font-mono text-gray-800 break-all">https://bioimage.io/skills/bioengine/SKILL.md</code>
-                <p className="text-xs text-gray-500 mt-2">Tell the agent to fetch this and follow the <strong>Worker onboarding</strong> entry point.</p>
-              </div>
 
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Suggested prompt</span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText('Help me deploy a BioEngine worker. Load https://bioimage.io/skills/bioengine/SKILL.md and follow the worker onboarding playbook: pick the right deployment mode for my environment, give me the exact command, wait for the worker to register, and then run the 7-check readiness test before declaring it ready.');
-                        setAgentPromptCopied(true);
-                        setTimeout(() => setAgentPromptCopied(false), 2000);
-                      } catch (_) { /* ignore */ }
-                    }}
-                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-200 transition-colors"
-                  >
-                    {agentPromptCopied ? (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
-                    ) : (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
-                    )}
-                  </button>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-sm font-semibold text-gray-800">Setup BioEngine Worker</h5>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(promptText);
+                          setAgentPromptCopied(true);
+                          setTimeout(() => setAgentPromptCopied(false), 2000);
+                        } catch (_) { /* ignore */ }
+                      }}
+                      className="flex items-center px-2 py-1 text-xs text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+                    >
+                      {agentPromptCopied ? (
+                        <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
+                      ) : (
+                        <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-700 mb-3">Paste this into your AI agent.</p>
+                  <pre className="bg-white border border-gray-200 rounded p-3 text-xs font-mono text-gray-800 whitespace-pre-wrap break-words">{promptText}</pre>
+                  <label className={`flex items-start mt-3 ${isLoggedIn ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      disabled={!isLoggedIn}
+                      checked={includeAgentToken && isLoggedIn}
+                      onChange={(e) => setIncludeAgentToken(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      Include an admin Hypha token for my workspace in the prompt
+                      {!isLoggedIn && <span className="text-gray-500"> (log in to enable)</span>}
+                      {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
+                    </span>
+                  </label>
                 </div>
-                <p className="text-xs text-gray-700 italic">
-                  "Help me deploy a BioEngine worker. Load <code className="bg-white px-1 rounded">https://bioimage.io/skills/bioengine/SKILL.md</code> and follow the worker onboarding playbook: pick the right deployment mode for my environment, give me the exact command, wait for the worker to register, and then run the 7-check readiness test before declaring it ready."
-                </p>
               </div>
-
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                <p className="text-sm font-semibold text-amber-800 mb-1">Hard constraints to mention to the agent</p>
-                <ul className="text-sm text-amber-700 space-y-1 ml-5 list-disc">
-                  <li><strong>External-cluster mode</strong>: Ray Client requires the worker image's Ray version to exactly match the cluster's Ray version. The published image ships Ray 2.55.1; for any other cluster Ray version, the agent must build a thin overlay image first (the SKILL.md covers this).</li>
-                  <li><strong>SLURM mode</strong>: needs login-node access, a SLURM allocation for the requested CPUs / GPUs / time, and Apptainer / Singularity available.</li>
-                  <li><strong>Single-machine mode</strong>: needs Docker, Podman, Apptainer, or Singularity on the host; GPU support requires the NVIDIA Container Toolkit.</li>
-                  <li>The agent needs a Hypha admin token to register the worker and to create the optional facility dashboard artifact.</li>
-                </ul>
-              </div>
-
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                <p className="text-sm font-medium text-gray-700 mb-2">Quick links</p>
-                <ul className="text-sm text-blue-700 space-y-1 ml-5 list-disc">
-                  <li><a href="https://github.com/aicell-lab/bioengine" target="_blank" rel="noopener noreferrer" className="hover:underline">BioEngine GitHub repository</a></li>
-                  <li><a href="https://bioimage.io/skills/bioengine/references/worker_onboarding.md" target="_blank" rel="noopener noreferrer" className="hover:underline">Worker onboarding playbook (markdown)</a></li>
-                  <li><a href="https://bioimage.io/skills/bioengine/references/custom_dashboard.md" target="_blank" rel="noopener noreferrer" className="hover:underline">Custom dashboard guide (markdown)</a></li>
-                </ul>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── Human mode: full configurator ── */}
           {audience === 'human' && (<>
@@ -1994,21 +1954,23 @@ spec:
           )}
 
 
-          {/* ── Troubleshooting ── */}
-          {mode !== 'external-cluster' && (
-            <div className="flex justify-center pt-4 border-t border-gray-200">
-              <button onClick={() => setShowTroubleshooting(true)}
-                className="flex items-center px-4 py-2 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Need Help? Get AI Troubleshooting Prompt
-              </button>
-            </div>
-          )}
-
           </>)}
           {/* end human mode */}
+
+          {/* ── GitHub link (visible in both human and agent modes) ── */}
+          <div className="flex justify-center pt-4 border-t border-gray-200">
+            <a
+              href="https://github.com/aicell-lab/bioengine"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.4 3-.405 1.02.005 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+              </svg>
+              <span>aicell-lab/bioengine on GitHub</span>
+            </a>
+          </div>
         </form>
       )}
 

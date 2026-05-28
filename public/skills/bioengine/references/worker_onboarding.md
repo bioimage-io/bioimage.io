@@ -6,6 +6,19 @@ Do not skip the readiness checks. A worker that starts is not necessarily a work
 
 ---
 
+## 0. Hard constraints to surface up front
+
+Mention these to the user before they pick a mode, so they know what they will need:
+
+- **External-cluster mode**: Ray Client requires the worker image's Ray version to **exactly match** the cluster's Ray version. The published image `ghcr.io/aicell-lab/bioengine-worker:0.9.1` ships Ray `2.55.1`. For any other cluster Ray version the user must build a thin overlay image first (covered in §3c below).
+- **SLURM mode**: needs login-node access, a SLURM allocation for the requested CPUs / GPUs / wall time, and Apptainer or Singularity available on compute nodes.
+- **Single-machine mode**: needs Docker, Podman, Apptainer, or Singularity on the host. GPU support requires the NVIDIA Container Toolkit.
+- **All modes**: the user needs an **admin** Hypha token (not read-only) to register the worker and to create the optional facility dashboard artifact. If they paste a token whose `permission` is anything other than `admin`, registration silently fails.
+
+If any of these is a blocker for the user's environment, stop and resolve it before issuing the deployment command.
+
+---
+
 ## 1. Identify the environment
 
 Ask the user 2–3 questions and pick the deployment mode:
