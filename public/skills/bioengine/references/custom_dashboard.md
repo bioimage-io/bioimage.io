@@ -21,6 +21,20 @@ https://hypha.aicell.io/<workspace>/view/<alias>/
 
 If the user is fine with the canonical dashboard, do not build a custom one — point them to https://bioimage.io/#/bioengine instead.
 
+### Scope — what to include, what NOT to include
+
+A custom dashboard mirrors the two public pages of the canonical BioEngine UI:
+
+| Include | Equivalent canonical page |
+|---|---|
+| **Worker discovery** — list available BioEngine workers in the workspace | `https://bioimage.io/#/bioengine` (BioEngineHome) |
+| **Worker dashboard** — per-worker view of cluster resources, deployed apps, app frontends | `https://bioimage.io/#/bioengine/worker?service_id=...` (BioEngineWorker) |
+
+Do **not** include:
+
+- **The BioEngine setup wizard** (`https://bioimage.io/#/bioengine/...` with the Docker/SLURM/Kubernetes installer flow). Facility admins use the canonical setup tool or the steps in `worker_onboarding.md` — a per-facility dashboard is not the right place to onboard new workers.
+- Anything that asks an end user to install a worker. The dashboard's audience is users of an already-running worker.
+
 ---
 
 ## 2. What the dashboard does
