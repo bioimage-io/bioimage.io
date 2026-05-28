@@ -200,13 +200,20 @@ You have an artifact ID (e.g. `bioimage-io/model-runner`) and a worker you have 
 # First check what's already running:
 bioengine apps status
 
-# Deploy a fresh instance with a stable, addressable ID:
-bioengine apps run bioimage-io/cellpose-finetuning --app-id cellpose-finetuning
+# Deploy a fresh instance with a stable, addressable ID.
+# Pass --hypha-token if the app talks back to Hypha internally (most do):
+bioengine apps run bioimage-io/cellpose-finetuning \
+    --app-id cellpose-finetuning \
+    --hypha-token $HYPHA_TOKEN
 
-# Or, to update an already-running instance to the latest artifact version,
+# To update an already-running instance to the latest artifact version,
 # pass the SAME --app-id as the running instance:
-bioengine apps run bioimage-io/cellpose-finetuning --app-id cellpose-finetuning
+bioengine apps run bioimage-io/cellpose-finetuning \
+    --app-id cellpose-finetuning \
+    --hypha-token $HYPHA_TOKEN
 ```
+
+> **`--hypha-token` is required for any app that calls back into Hypha** — model-runner, cellpose-finetuning, anything that registers services or reads datasets via Hypha RPC. Without it the deployment fails inside the actor with `RuntimeError: HYPHA_TOKEN environment variable is not set.` (you'll find this in `deployments[<name>].message`, not the top-level error). If you don't know whether an app needs it: pass it anyway, it's harmless.
 
 > **CRITICAL — artifact ≠ app, `--app-id` is required to update.** One artifact can be deployed many times with different `--app-id`s. Running `bioengine apps run <artifact>` **without `--app-id` always creates a new instance with a random ID** — it never updates an existing running one. To update a running app, you MUST pass `--app-id <running-app-id>` (which you find via `bioengine apps status`).
 >
