@@ -79,8 +79,6 @@ const ServiceCard: React.FC<{
           </div>
         </div>
 
-        <p className="text-gray-600 mb-4 leading-relaxed">{service.description || 'No description available'}</p>
-
         {(() => {
           // Prefer the Ray cluster head node location (where compute actually runs).
           // Worker geo is the fallback for single-machine / SLURM (where the two
