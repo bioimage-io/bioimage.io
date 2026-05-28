@@ -131,14 +131,20 @@ result = await svc.infer(
 
 ## start_training parameters
 
+> **`train_images`/`train_annotations` and `metadata_dir` are EXCLUSIVE alternatives, not both optional.** The JSON schema marks only `artifact` as required, but the method raises `ValueError: train_images must be a non-empty string when metadata_dir is not provided` if you pass neither. Choose one of:
+> - **Glob path** — provide both `train_images` and `train_annotations` as glob/folder paths.
+> - **Metadata index** — provide `metadata_dir` pointing at a folder containing a JSON manifest of image/mask pairs (see the "Manual annotation workflow" section below for the schema).
+>
+> Passing `metadata_dir` makes `train_images`/`train_annotations` redundant; passing them makes `metadata_dir` redundant. Don't mix both.
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `artifact` | str | required | Hypha artifact ID `workspace/alias` containing images |
-| `train_images` | str | required | Glob pattern or folder path for training images |
-| `train_annotations` | str | required | Glob pattern or folder path for training masks |
+| `train_images` | str | None* | Glob pattern or folder path for training images. *Required when `metadata_dir` is None. |
+| `train_annotations` | str | None* | Glob pattern or folder path for training masks. *Required when `metadata_dir` is None. |
 | `test_images` | str | None | Test images for per-epoch IoU evaluation |
 | `test_annotations` | str | None | Test masks (must match test_images) |
-| `metadata_dir` | str | None | Alternative: JSON metadata index directory |
+| `metadata_dir` | str | None* | Alternative to `train_images`/`train_annotations`: folder containing a JSON manifest of image/mask pairs. *Required when `train_images` is None. |
 | `model` | str | `"cpsam"` | Base model or previous session_id to continue from |
 | `n_epochs` | int | 10 | Total training epochs |
 | `learning_rate` | float | 1e-6 | Initial learning rate (use 1e-5 for brightfield) |
@@ -174,6 +180,8 @@ result = await svc.infer(
 ```
 
 **`test_metrics` iou is 0 for brightfield** — see note above. Use `instance_metrics` for the meaningful evaluation.
+
+> **First ~15 s of a fresh session: `get_training_status` blocks.** While the deployment loads the Cellpose model on the actor, the RPC call is effectively synchronous on the server side. Polling too aggressively from a client without a timeout will surface as a hang. Wrap the call with `asyncio.wait_for(svc.get_training_status(session_id), timeout=30)` and retry on `TimeoutError` until the model is loaded — once `status_type` reaches `"running"` the call returns quickly. The skill description "real-time metrics" applies only after the initial model load.
 
 ## infer parameters
 

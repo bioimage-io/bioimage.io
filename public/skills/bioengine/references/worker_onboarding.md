@@ -325,6 +325,7 @@ After all checks pass, present a short summary table to the user with the worker
 | C7 returns `403 Forbidden` | Token has insufficient permissions | Re-issue token with `permission='admin'` and 30-day expiry |
 | SLURM job pending forever | No allocation for requested GPU/time | Lower `--default-num-gpus` or `--default-time-limit`; check `sinfo` for partition |
 | `Multiple services found` when calling worker | More than one worker registered with the same alias | Pass the full service ID `<workspace>/<client-id>:bioengine-worker`, not just the alias |
+| `get_status()` reports `total_memory: 0` in single-machine Docker mode | Ray's auto-detection mis-reads cgroups in some Docker setups (other resource fields are fine) | Cosmetic; not a worker fault. The CPU and GPU counts in the same payload are still correct, so the dashboard / scheduler aren't affected — only the memory card on the dashboard renders as `0 GB / 0 GB`. |
 
 ---
 

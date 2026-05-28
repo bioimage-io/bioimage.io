@@ -60,7 +60,7 @@ The `bioengine call` command is the generic interface for calling any service me
 | Model documentation | `bioengine call bioimage-io/model-runner get_model_documentation --args '{"model_id": "<id>"}' --json` |
 | Validate RDF | `bioengine call bioimage-io/model-runner validate --args '{"model_id": "<id>"}' --json` |
 | Test model | `bioengine call bioimage-io/model-runner test --args '{"model_id": "<id>"}' --json` |
-| Run inference | Use `scripts/utils.py:infer_http()` (handles upload, RPC, download automatically) |
+| Run inference | `bioengine call <ws>/<worker_client_id>-<replica_id>:model-runner infer --args '{"model_id": "<id>", "inputs": "<url-or-tensor>"}' --json` (resolve the concrete service ID as shown above) |
 | List methods | `bioengine call bioimage-io/model-runner --list-methods` |
 
 All commands accept `--json` for machine-parseable output.
@@ -86,34 +86,53 @@ All commands accept `--json` for machine-parseable output.
 ```
 
 ```bash
-# Full example
-bioengine call bioimage-io/model-runner search_models --args '{"keywords": ["nuclei", "segmentation"], "limit": 5}' --json
-bioengine call bioimage-io/model-runner get_model_rdf --args '{"model_id": "affable-shark"}' --json
-# For inference, use scripts/utils.py:infer_http() — handles upload, RPC, download
+# Full example (CLI form — assumes BIOENGINE_WORKER_SERVICE_ID is set
+# to a concrete worker like bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker):
+bioengine call <model-runner-concrete-svc-id> search_models \
+    --args '{"keywords": ["nuclei", "segmentation"], "limit": 5}' --json
+bioengine call <model-runner-concrete-svc-id> get_model_rdf \
+    --args '{"model_id": "affable-shark"}' --json
+bioengine call <model-runner-concrete-svc-id> infer \
+    --args '{"model_id": "affable-shark", "inputs": "<url-or-tensor>"}' --json
 ```
 
-Use `scripts/utils.py` helpers for normalization and evaluation — do not rewrite tensor logic:
+### Direct Python — the actual API
+
+Direct `await mr.infer(...)` is the API. There is no `scripts/utils.py` helper module — you import `numpy` / `httpx` / `tifffile` etc. and write the small amount of tensor-prep glue yourself.
 
 ```python
-from scripts.utils import (
-    infer_http,               # upload + infer + download in one call; returns np.ndarray
-    get_model_rdf,            # fetch and parse RDF for a model_id
-    get_input_axes_info,      # parse input axes from RDF (handles 0.4.x and 0.5.x)
-    prepare_image_for_model,  # reshape array to required axes (e.g. "bcyx")
-    normalize_image,          # percentile normalization (pmin=1, pmax=99.8)
-    evaluate_segmentation,    # compute IoU and Dice between pred mask and GT mask
-    pad_or_crop_to_valid_size,# adjust H/W to satisfy model step/min constraints
-)
+from hypha_rpc import connect_to_server
+import httpx, numpy as np, io
 
-image = normalize_image(raw_image)               # percentile normalization
-tensor = prepare_image_for_model(image, axes)    # reshape to model input axes
-pred = infer_http(model_id, tensor)              # upload, infer, download — returns ndarray
-iou, dice = evaluate_segmentation(pred_mask, gt_mask)
+# 1. Resolve the concrete model-runner service ID (see "Service ID — discover before calling" above)
+s = await connect_to_server({"server_url": "https://hypha.aicell.io",
+                             "token": token, "workspace": "bioimage-io"})
+workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+worker = await s.get_service(workers[0])
+mr_sid = (await worker.get_app_status(None))["model-runner"]["service_ids"]["websocket_service_id"]
+mr = await s.get_service(mr_sid)
+
+# 2. (Optional) inspect the RDF — returns an ObjectProxy, json.dumps with default=str if you want to print it.
+rdf = await mr.get_model_rdf(model_id="affable-shark")
+input_axes = rdf["inputs"][0].get("axes", "bcyx")   # e.g. "bcyx" (RDF 0.4.x) or [{name:"b"},...] (0.5.x)
+output_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
+
+# 3. Run inference — `inputs` accepts an HTTPS URL OR a serialised tensor.
+#    For models with bundled test inputs, the URL pattern is:
+#      https://hypha.aicell.io/<workspace>/artifacts/<model-alias>/files/<relative-source>
+#    where <relative-source> is what `rdf.inputs[0].test_tensor.source` returns.
+test_url = f"https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/test_input_0.npy"
+result = await mr.infer(model_id="affable-shark", inputs=test_url)
+output_array = np.asarray(result[output_key])         # output_key is e.g. "output0"
+
+# 4. (Optional) percentile-normalise / reshape your own input array before sending.
+#    A tiny inline helper is usually enough — there is no library to import.
+def normalize_percentile(img, pmin=1.0, pmax=99.8):
+    lo, hi = np.percentile(img, [pmin, pmax])
+    return ((img.clip(lo, hi) - lo) / max(hi - lo, 1e-8)).astype(np.float32)
 ```
 
-Do NOT write networking or upload/download boilerplate from scratch — `infer_http` handles the full upload → infer → download cycle.
-
-Output key: `outputs[0].name` (RDF 0.4.x) or `outputs[0].id` (RDF 0.5.x). On shape errors: inspect the RDF via `get_model_rdf`, adapt dimensions, retry before discarding the model.
+**Output keys vary by model** — read `outputs[0].id` (RDF 0.5.x) or `outputs[0].name` (RDF 0.4.x), don't assume `"output0"`. On shape errors: inspect the RDF, reshape to match `inputs[0].axes`, then retry before discarding the model.
 
 ## Model screening / comparison workflow
 
@@ -122,8 +141,8 @@ Output key: `outputs[0].name` (RDF 0.4.x) or `outputs[0].id` (RDF 0.5.x). On sha
 - [ ] Step 2: Search models — use keywords from assets/search_keywords.yaml
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
-- [ ] Step 5: Run all suitable models on the same input — use `infer_http()` from `scripts/utils.py` in a loop
-- [ ] Step 6: Score models — compute mAP over IoU thresholds 0.1–0.95 (step 0.05) using `compute_instance_f1(pred_labels, gt_labels, iou_thresh=t)` for each threshold `t`; `evaluate_segmentation()` for semantic/pixel-level tasks only
+- [ ] Step 5: Run all suitable models on the same input — loop `await mr.infer(model_id=..., inputs=<url>)`
+- [ ] Step 6: Score models — compute mAP over IoU thresholds 0.1–0.95 (step 0.05). Use whatever IoU library is appropriate to your task; for instance segmentation, a small Hungarian-matching helper computing F1 per threshold is enough. Pixel-level IoU/Dice you can compute inline with numpy.
 - [ ] Step 7: Save all artifacts to comparison_results/
 - [ ] Step 8: Generate Illustration 1 (F1 vs IoU threshold curve), Illustration 2 (montage)
 - [ ] Step 9: Write comparison_summary.json
@@ -131,14 +150,18 @@ Output key: `outputs[0].name` (RDF 0.4.x) or `outputs[0].id` (RDF 0.5.x). On sha
 ```
 
 ```python
-# Run multiple models and save all outputs
-from scripts.utils import infer_http
+# Run multiple models and save all outputs.
+# Assumes `mr` is the resolved model-runner handle (see "Direct Python — the actual API" above)
+# and `test_url` is an HTTPS URL the worker can fetch.
 import numpy as np
 
 model_ids = ["affable-shark", "ambitious-ant", "chatty-frog"]
 results = {}
 for model_id in model_ids:
-    results[model_id] = infer_http(model_id, input_array)
+    rdf = await mr.get_model_rdf(model_id=model_id)
+    out_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
+    r = await mr.infer(model_id=model_id, inputs=test_url)
+    results[model_id] = np.asarray(r[out_key])
     np.save(f"comparison_results/{model_id}_output.npy", results[model_id])
 ```
 
@@ -218,7 +241,7 @@ Every screening run **must produce two illustrations** plus an HTML report. Gene
 
 **Skip only if there is exactly one suitable model** (single-candidate result). In that case, embed the mAP value as a text annotation in Illustration 2 instead.
 
-**For instance segmentation tasks**: compute F1 at each IoU threshold from 0.1 to 0.95 (step 0.05; 18 thresholds) via `compute_instance_f1(pred_labels, gt_labels, iou_thresh=t)`. Plot one curve per model. The mAP is the area under this curve (mean of the 18 F1 values). This shows both peak performance and how quickly each model degrades at strict IoU requirements.
+**For instance segmentation tasks**: compute F1 at each IoU threshold from 0.1 to 0.95 (step 0.05; 18 thresholds). Plot one curve per model. The mAP is the area under this curve (mean of the 18 F1 values). This shows both peak performance and how quickly each model degrades at strict IoU requirements. (Write the per-threshold F1 inline using Hungarian matching on instance masks, or use any segmentation-metrics library you prefer.)
 
 **For other tasks**: choose the most appropriate metric (PSNR/SSIM for denoising) and label the axis accordingly.
 
@@ -366,11 +389,13 @@ Wrap every inference call in a retry loop:
 ```python
 import time, requests
 
-def infer_with_retry(model_id, input_array, max_retries=3, retry_delay=15):
-    """Run inference, retrying on OOM errors with exponential back-off."""
+async def infer_with_retry(mr, model_id, inputs, max_retries=3, retry_delay=15):
+    """Run inference, retrying on OOM errors with exponential back-off.
+    `mr` is the resolved model-runner handle (see "Direct Python — the actual API").
+    """
     for attempt in range(max_retries):
         try:
-            result = infer_http(model_id, input_array)
+            result = await mr.infer(model_id=model_id, inputs=inputs)
             return result
         except Exception as e:
             err = str(e).lower()

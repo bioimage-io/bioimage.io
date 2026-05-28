@@ -83,6 +83,19 @@ TOKEN      = os.environ["HYPHA_TOKEN"]
 ALIAS      = "my-facility-dashboard"        # change me
 DASHBOARD_DIR = Path("./dashboard")          # contains index.html (+ optional assets)
 
+# The single BioEngine worker this dashboard is for.
+# Either a full service ID (workspace/client_id:bioengine-worker), or just the
+# workspace/client_id prefix — the published HTML auto-connects to this one.
+# Discover via `list_services({"type": "bioengine-worker"})` after the worker is up.
+WORKER_SERVICE_ID = os.environ.get("WORKER_SERVICE_ID")  # e.g. "ws-user-google-oauth2|...:bioengine-worker"
+if not WORKER_SERVICE_ID:
+    raise SystemExit(
+        "Set WORKER_SERVICE_ID to the worker's service ID before publishing.\n"
+        "Discover it with: hypha_rpc → connect_to_server → list_services({'type':'bioengine-worker'}).\n"
+        "If your worker's client_id changes on every restart, use a stable prefix like\n"
+        "'<workspace>/bioengine-worker-alm' and rely on Hypha's mode='first' selection."
+    )
+
 MANIFEST = {
     "name": "My Facility BioEngine Dashboard",
     "id":   ALIAS,
@@ -101,6 +114,19 @@ async def main():
     am = await server.get_service("public/artifact-manager")
     workspace = server.config.workspace
     artifact_id = f"{workspace}/{ALIAS}"
+
+    # Bake the worker service ID into the HTML before upload so the published
+    # dashboard auto-connects to this worker — no user input, no URL parameter.
+    index_html = (DASHBOARD_DIR / "index.html").read_text()
+    if "{{WORKER_SERVICE_ID}}" not in index_html:
+        raise SystemExit(
+            "dashboard/index.html must contain the placeholder {{WORKER_SERVICE_ID}} "
+            "in the <script> block — see section 5."
+        )
+    (DASHBOARD_DIR / "index.html").write_text(
+        index_html.replace("{{WORKER_SERVICE_ID}}", WORKER_SERVICE_ID)
+                  .replace("{{SERVER_URL}}", SERVER_URL)
+    )
 
     # Stage the artifact (create or edit an existing one)
     try:
@@ -176,7 +202,7 @@ After running it, the URL is the answer to return to the user.
 
 ## 5. Minimal `index.html` template
 
-Save as `dashboard/index.html`. It connects to a single worker, renders status, and lists deployed apps. The four constants at the top are the only places the agent normally edits per facility.
+Save as `dashboard/index.html`. The dashboard is **bound to one BioEngine worker** at publish time — the `{{WORKER_SERVICE_ID}}` and `{{SERVER_URL}}` placeholders are substituted by the publish script in section 4 before upload. The deployed page auto-connects on load: no inputs, no Connect button, no URL parameter required.
 
 ```html
 <!doctype html>
@@ -216,10 +242,6 @@ Save as `dashboard/index.html`. It connects to a single worker, renders status, 
     .badge.warn { background:#fef3c7; color:#92400e; }
     .badge.err  { background:#fee2e2; color:#991b1b; }
     .muted { color:var(--muted); }
-    button { background:var(--brand-color); color:white; border:none; padding:8px 14px;
-             border-radius:6px; cursor:pointer; font-size:14px; }
-    button[disabled] { opacity:0.5; cursor:not-allowed; }
-    input { border:1px solid var(--border); padding:6px 10px; border-radius:6px; font-size:14px; min-width:300px; }
     .error { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; padding:10px 14px;
              border-radius:8px; margin:16px 0; }
   </style>
@@ -239,72 +261,46 @@ Save as `dashboard/index.html`. It connects to a single worker, renders status, 
 </header>
 
 <main>
-  <!-- ──────── Configuration (set by hand or via URL parameters) ──────── -->
-  <section id="config">
-    <h2>Worker</h2>
-    <div class="row">
-      <label for="server-url">Server URL</label>
-      <input id="server-url" value="https://hypha.aicell.io" />
-    </div>
-    <div class="row">
-      <label for="service-id">Worker service ID</label>
-      <input id="service-id" placeholder="my-workspace/my-client-id:bioengine-worker" />
-    </div>
-    <div class="row">
-      <label for="token">Hypha token (optional for public workers)</label>
-      <input id="token" type="password" />
-    </div>
-    <div class="row">
-      <button id="connect">Connect</button>
-      <span id="status" class="muted">Not connected.</span>
-    </div>
-  </section>
-
-  <section id="status-section" hidden>
-    <h2>Cluster</h2>
-    <div class="grid" id="cluster-stats"></div>
+  <section>
+    <h2>
+      Worker
+      <span id="status" class="muted" style="font-weight:normal;font-size:13px;margin-left:8px;">Connecting…</span>
+    </h2>
+    <div id="cluster-stats" class="grid"></div>
 
     <h2>Deployed apps</h2>
-    <div id="apps"></div>
+    <div id="apps"><div class="muted">Loading…</div></div>
   </section>
 </main>
 
 <script>
-const $ = (id) => document.getElementById(id);
+// ───────── Baked at publish time by scripts/publish_dashboard.py ─────────
+const SERVER_URL    = "{{SERVER_URL}}";
+const WORKER_SVC_ID = "{{WORKER_SERVICE_ID}}";
 
-// Allow URL params: ?service=ws/cid:bioengine-worker&server=...&token=...
+// Optional admin token via URL parameter only — never hard-code a token in
+// the HTML, since the artifact is public-read and the URL would leak it.
+// For read-only get_status access, anonymous connection is sufficient.
 const params = new URLSearchParams(location.search);
-if (params.get("server"))  $("server-url").value = params.get("server");
-if (params.get("service")) $("service-id").value = params.get("service");
-if (params.get("token"))   $("token").value      = params.get("token");
+const token  = params.get("token") || undefined;
+
+const $ = (id) => document.getElementById(id);
 
 let serverConn = null;
 let workerSvc  = null;
-let refreshTimer = null;
 
-$("connect").addEventListener("click", async () => {
-  const serverUrl = $("server-url").value.trim();
-  const serviceId = $("service-id").value.trim();
-  const token     = $("token").value.trim() || undefined;
-
-  if (!serviceId) { setStatus("Enter a service ID first.", true); return; }
-  setStatus("Connecting…", false);
-  $("connect").disabled = true;
-
+(async () => {
   try {
-    serverConn = await hyphaWebsocketClient.connectToServer({ server_url: serverUrl, token });
-    workerSvc  = await serverConn.getService(serviceId);
-    setStatus(`Connected to ${serviceId}.`, false);
-    $("status-section").hidden = false;
+    serverConn = await hyphaWebsocketClient.connectToServer({ server_url: SERVER_URL, token });
+    workerSvc  = await serverConn.getService(WORKER_SVC_ID);
+    setStatus(`Connected · ${WORKER_SVC_ID}`, false);
     await refresh();
-    refreshTimer = setInterval(refresh, 5000);
+    setInterval(refresh, 5000);
   } catch (err) {
     console.error(err);
-    setStatus(`Failed: ${err.message || err}`, true);
-  } finally {
-    $("connect").disabled = false;
+    setStatus(`Failed to connect: ${err.message || err}`, true);
   }
-});
+})();
 
 function setStatus(msg, isError) {
   const el = $("status");
@@ -378,28 +374,48 @@ function renderApps(s) {
 
 The most common changes the agent makes (or asks the user about) before publishing:
 
-- **Facility / lab branding**: `--facility-name`, `--brand-color`, `--brand-color-2`, `<img src=...>` for the logo, `<h1>` text.
-- **Pre-fill the worker service ID**: replace the `placeholder=` on `#service-id` with the actual ID so the user does not have to type it. For a fully zero-click dashboard, also remove the inputs and just call `connectToServer + getService` on page load.
-- **Token handling**: for a public worker (read-only `authorized_users: ["*"]`), omit the token input entirely and pass no token. For a private worker, accept the token via URL parameter (`?token=...`) — never hard-code a token into the HTML, it would leak via the artifact's public URL.
+- **Facility / lab branding**: edit the CSS custom properties at the top (`--facility-name`, `--brand-color`, `--brand-color-2`), the `<img src=...>` for the logo, and the `<h1>` text.
+- **Worker selector**: the `WORKER_SERVICE_ID` constant baked into the HTML can be a full client_id (`ws/<client_id>:bioengine-worker`) or, when the workspace has exactly one worker and the client_id drifts on restart, the shorter `ws/bioengine-worker` form — Hypha resolves to the unique matching client. For multiple workers in the same workspace, use a stable `fullnameOverride` (Kubernetes) or `--client-id` (Docker / SLURM) and bake that.
+- **Admin actions**: by default the template is read-only and uses anonymous connection. To add Deploy / Stop / Restart buttons, gate them on the URL-parameter `?token=<admin-token>` and check `server.config.user.email` against an allow-list before showing them. **Never hard-code a token into the HTML** — the artifact is public-read and the URL would leak it.
 - **Filter apps**: only show apps whose `manifest.id` is in an allow-list — useful when a facility wants to expose `cellpose-finetuning` and `model-runner` but hide an internal app.
-- **Hide admin actions**: by default this template is read-only; add Deploy / Stop / Restart buttons only after gating on the user's identity (`server.config.user.email in allowed_admins`).
 - **Auto-refresh interval**: default 5 s; lower for live demos, higher for shared workers to reduce load.
 
 ---
 
-## 7. Multi-worker variants (optional)
+## 7. Discovering the right `WORKER_SERVICE_ID`
 
-If the user wants to watch several workers (e.g. a federation across facilities), accept a comma-separated list of service IDs and render one card per worker. The template above already does the heavy lifting per worker; just wrap the connect-and-render block in a `for…of` over the list. Be honest about the cost: each worker is a separate WebSocket connection.
+If you don't know the worker's exact service ID at publish time:
+
+```python
+from hypha_rpc import connect_to_server
+s = await connect_to_server({"server_url": "https://hypha.aicell.io",
+                             "token": TOKEN, "workspace": WORKSPACE})
+workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+print(workers)  # → [".../bioengine-worker-<hash>:bioengine-worker"]
+```
+
+For Docker / SLURM-mode workers the client_id is regenerated on every container restart, so the dashboard would break after a worker restart. Two ways to make it stable:
+
+1. **Pin the worker's client_id** at startup via `--client-id bioengine-worker-<facility>` (Docker / SLURM). The published dashboard then targets `<workspace>/bioengine-worker-<facility>:bioengine-worker` and survives restarts.
+2. **Use the workspace-only short form** `<workspace>/bioengine-worker` and rely on Hypha's selection mode (defaults to `first` when one match). This works when there is exactly one BioEngine worker registered in the workspace; if a second worker shows up, Hypha will pick one without warning.
 
 ---
 
 ## 8. Verifying the dashboard
 
-After `publish_dashboard.py` returns the public URL, verify two things:
+After `publish_dashboard.py` returns the public URL, verify three things:
 
-1. The URL serves the HTML without auth (or with the right auth if `authorized_users` is restricted).
-2. Hitting **Connect** with the actual worker service ID renders cluster stats and any deployed apps.
+1. The URL serves the HTML without auth (`curl -sSL <url> | head` should return the page, not `{"detail":"Permission denied"}`). If you see 403, the artifact's `config.permissions` is missing the `{"*": "r"}` entry (section 4 already includes this — but worth checking if the dashboard was published with an older version of the script).
+2. The page renders cluster stats and the deployed-apps list within a few seconds of load — no "Connecting…" stuck indefinitely.
+3. Stopping the worker and reloading the dashboard shows the connect failure cleanly (a 5xx-style message in the header status), not a blank page or an infinite spinner.
 
-If the URL 404s, the artifact was created but not committed — re-run with `am.commit(artifact_id)`. If the page renders but stats stay empty, the worker is not registered or the token is wrong.
+If the URL 404s, the artifact was created but not committed — re-run with `am.commit(artifact_id)`. If the page renders but stats stay empty, the `WORKER_SERVICE_ID` baked into the HTML doesn't resolve — verify it with the discovery snippet in section 7.
 
-Return the URL to the user once both checks pass.
+Return the URL to the user once all three checks pass.
+
+---
+
+## 9. Known cosmetic issues
+
+- **`total_memory` reports 0 in single-machine Docker mode** on some hosts (other resource fields render correctly). The dashboard's "Memory" card may show `0.0 GB / 0.0 GB` — this is upstream, not a dashboard bug, and `total_gpu` / `total_cpu` are still accurate.
+- **`am.create` / `am.edit` return value type varies across `hypha-rpc` versions** — on some versions you get attribute access (`artifact.id`), on others dict access (`artifact["id"]`). The publish script in section 4 reads `artifact_id` (constructed up front from `workspace + ALIAS`) instead of touching the returned object's `id`, sidestepping the issue.
