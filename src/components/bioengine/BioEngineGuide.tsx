@@ -724,7 +724,7 @@ spec:
         <form className="mt-4 space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
 
           {/* ── Audience toggle: small segmented control, no explainer (the rest of the form explains itself) ── */}
-          <div className="flex justify-end -mb-2">
+          <div className="flex justify-center -mb-2">
             <div className="inline-flex items-center bg-gray-100 rounded-lg p-1" role="tablist" aria-label="Audience">
               {(['human', 'agent'] as const).map(value => {
                 const selected = audience === value;
