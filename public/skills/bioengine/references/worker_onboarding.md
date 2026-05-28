@@ -95,6 +95,18 @@ docker run -d --name bioengine-worker \
 - Use `apptainer exec --nv` on HPC login nodes that have no Docker.
 - If you need more than one worker on the same host, give each its own `$HOME/.bioengine-<name>` volume and `--name`.
 
+> **Stable worker identity — `--client-id`.** By default the worker gets a random client_id each restart (e.g. `SemhzYTvD8aj8tZ5M7Rasj`) and its full Hypha service ID drifts: `<workspace>/<random>:bioengine-worker`. Anything that hard-codes the service ID — a [custom dashboard](custom_dashboard.md), an upstream script, a saved URL — breaks the next time the worker restarts. **For any persistent deployment, pass a stable `--client-id`** as the last python argument:
+>
+> ```bash
+> python -m bioengine.worker \
+>     --mode single-machine \
+>     --head-num-cpus 4 \
+>     --head-num-gpus 1 \
+>     --client-id bioengine-worker-<facility>     # ← pin this
+> ```
+>
+> The full worker CLI is `python -m bioengine.worker --help` inside the image: `docker run --rm ghcr.io/aicell-lab/bioengine-worker:0.10.1 python -m bioengine.worker --help`.
+
 ### 3b. SLURM
 
 ```bash
