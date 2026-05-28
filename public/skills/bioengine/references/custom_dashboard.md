@@ -109,12 +109,21 @@ async def main():
             artifact_id=artifact_id,
             manifest=MANIFEST,
             stage=True,
-            config={"view_config": {
-                "branch": "main",
-                "root_directory": "",
-                "headers": {},
-                "index": "index.html",
-            }},
+            config={
+                # Public read on the artifact itself — without this the URL
+                # returns 403 even though the BioEngine manifest's
+                # authorized_users: ["*"] looks like it should be enough.
+                # BioEngine's authorized_users field is a BioEngine concept;
+                # the underlying artifact-manager has its own permissions
+                # model that has to be set explicitly here.
+                "permissions": {"*": "r"},
+                "view_config": {
+                    "branch": "main",
+                    "root_directory": "",
+                    "headers": {},
+                    "index": "index.html",
+                },
+            },
         )
         print(f"Editing existing artifact: {artifact_id}")
     except Exception:
@@ -123,12 +132,21 @@ async def main():
             alias=ALIAS,
             manifest=MANIFEST,
             stage=True,
-            config={"view_config": {
-                "branch": "main",
-                "root_directory": "",
-                "headers": {},
-                "index": "index.html",
-            }},
+            config={
+                # Public read on the artifact itself — without this the URL
+                # returns 403 even though the BioEngine manifest's
+                # authorized_users: ["*"] looks like it should be enough.
+                # BioEngine's authorized_users field is a BioEngine concept;
+                # the underlying artifact-manager has its own permissions
+                # model that has to be set explicitly here.
+                "permissions": {"*": "r"},
+                "view_config": {
+                    "branch": "main",
+                    "root_directory": "",
+                    "headers": {},
+                    "index": "index.html",
+                },
+            },
         )
         print(f"Created artifact: {artifact.id}")
 
@@ -207,7 +225,7 @@ Save as `dashboard/index.html`. It connects to a single worker, renders status, 
   </style>
 
   <!-- Hypha RPC client; version matches BioEngine apps' frontend convention -->
-  <script src="https://cdn.jsdelivr.net/npm/hypha-rpc@0.20.30/dist/hypha-rpc-websocket.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hypha-rpc@0.21.40/dist/hypha-rpc-websocket.min.js"></script>
 </head>
 <body>
 

@@ -51,6 +51,10 @@ Store the token in an environment variable: `export HYPHA_TOKEN=<token>`. The wo
 
 ### 3a. Single-machine (Docker)
 
+Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/pkgs/container/bioengine-worker`. The examples below use `:0.10.1` — substitute the current tag.
+
+**Foreground (interactive — good for first runs, easy to Ctrl+C):**
+
 ```bash
 docker run --rm -it \
   --user $(id -u):$(id -g) \
@@ -58,16 +62,38 @@ docker run --rm -it \
   --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
-  ghcr.io/aicell-lab/bioengine-worker:0.9.1 \
+  ghcr.io/aicell-lab/bioengine-worker:0.10.1 \
   python -m bioengine.worker \
     --mode single-machine \
     --head-num-cpus 4 \
     --head-num-gpus 1
 ```
 
+**Detached (production / agent automation — survives session close, addressable by name):**
+
+```bash
+docker run -d --name bioengine-worker \
+  --restart unless-stopped \
+  --user $(id -u):$(id -g) \
+  --shm-size=8g \
+  --gpus=all \
+  -v $HOME/.bioengine:/.bioengine \
+  -e HYPHA_TOKEN \
+  ghcr.io/aicell-lab/bioengine-worker:0.10.1 \
+  python -m bioengine.worker \
+    --mode single-machine \
+    --head-num-cpus 4 \
+    --head-num-gpus 1
+
+# Inspect:  docker logs -f bioengine-worker
+# Stop:     docker stop bioengine-worker && docker rm bioengine-worker
+```
+
 - Omit `--gpus=all` if the host has no GPU.
+- Restrict to specific GPUs with `--gpus '"device=0,1"'` (note the doubled quoting; required by Docker's CLI parser).
 - Replace `--gpus=all` with `--device nvidia.com/gpu=all` on Podman.
 - Use `apptainer exec --nv` on HPC login nodes that have no Docker.
+- If you need more than one worker on the same host, give each its own `$HOME/.bioengine-<name>` volume and `--name`.
 
 ### 3b. SLURM
 
@@ -165,14 +191,24 @@ async def c1():
 
 **Expected**: `is_ready == True`. If `False`, the worker process is up but the Ray cluster has not finished registering — wait, retry, then inspect logs.
 
+> **`run_code` API contract.** The `code` parameter must define a function (default name `analyze`); the worker calls it on a Ray task and returns its return value in `result["result"]`. Ray resource options go through `remote_options={...}`, **not** as direct kwargs. The shape is:
+>
+> ```python
+> code = "def analyze():\n    return {'sum': 2 + 2}"
+> result = await w.run_code(code=code, remote_options={"num_cpus": 1})
+> # result == {"result": {"sum": 4}, ...}
+> ```
+> A `print(...)` from inside `analyze` ends up in the worker logs, not in the return value — return your result instead. (The skill examples below all follow this pattern.)
+
 ### C2 — CPU compute
 
 ```python
 async def c2():
     _, w = await get_worker()
-    result = await w.run_code(code="print(2 + 2)")
-    assert "4" in str(result)
-    return result
+    code = "def analyze():\n    return 2 + 2"
+    out = await w.run_code(code=code, remote_options={"num_cpus": 1})
+    assert out["result"] == 4
+    return out
 ```
 
 **Expected**: `run_code` executes a trivial Python expression on a Ray task and returns the output. Failure usually means the Ray cluster is unreachable from the worker process.
@@ -187,13 +223,13 @@ async def c3():
     s = await w.get_status()
     total = s["ray_cluster"]["cluster"]["total_gpu"]
     assert total > 0, f"No GPUs detected; expected at least one (worker_mode={s['worker_mode']})"
-    # Probe a real Ray task that touches CUDA
     code = (
-        "import torch; "
-        "print({'cuda_available': torch.cuda.is_available(), "
-        "'device_count': torch.cuda.device_count()})"
+        "def analyze():\n"
+        "    import torch\n"
+        "    return {'cuda_available': torch.cuda.is_available(),\n"
+        "            'device_count': torch.cuda.device_count()}\n"
     )
-    return await w.run_code(code=code, num_gpus=1)
+    return await w.run_code(code=code, remote_options={"num_gpus": 1})
 ```
 
 **Expected**: `cuda_available: True`, `device_count >= 1`. If `total_gpu == 0`, the host has no GPU, or the container was started without `--gpus=all`, or the GPU is masked by `CUDA_VISIBLE_DEVICES`. Inspect those in order.
@@ -204,12 +240,13 @@ async def c3():
 async def c4():
     _, w = await get_worker()
     code = (
-        "import httpx; "
-        "r = httpx.get('https://hypha.aicell.io/health', timeout=10); "
-        "print(r.status_code)"
+        "def analyze():\n"
+        "    import httpx\n"
+        "    r = httpx.get('https://hypha.aicell.io/health', timeout=10)\n"
+        "    return r.status_code\n"
     )
-    out = await w.run_code(code=code)
-    assert "200" in str(out)
+    out = await w.run_code(code=code, remote_options={"num_cpus": 1})
+    assert out["result"] == 200
     return out
 ```
 
@@ -221,13 +258,15 @@ async def c4():
 async def c5():
     _, w = await get_worker()
     code = (
-        "from pathlib import Path; "
-        "p = Path('/.bioengine/onboarding-test.txt'); "
-        "p.write_text('hello'); "
-        "print(p.read_text()); p.unlink()"
+        "def analyze():\n"
+        "    from pathlib import Path\n"
+        "    p = Path('/.bioengine/onboarding-test.txt')\n"
+        "    p.write_text('hello')\n"
+        "    txt = p.read_text(); p.unlink()\n"
+        "    return txt\n"
     )
-    out = await w.run_code(code=code)
-    assert "hello" in str(out)
+    out = await w.run_code(code=code, remote_options={"num_cpus": 1})
+    assert out["result"] == "hello"
     return out
 ```
 

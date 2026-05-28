@@ -1,6 +1,6 @@
 # BioEngine Model Runner
 
-**Service ID**: `bioimage-io/model-runner` · **Server**: `https://hypha.aicell.io`
+Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io) models. Runs on remote BioEngine workers — no local GPU required.
 
 ## Use this skill when
 
@@ -9,19 +9,45 @@
 - The user wants to compare multiple models against ground truth.
 - The user wants to validate a model RDF or run BioImage.IO compliance tests.
 
-## Quick start
+## Setup
 
-Install the CLI once:
+Install the CLI (Python ≥ 3.11):
 
 ```bash
-pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine-worker.git"
+pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"
 ```
 
-**Default server**: `https://hypha.aicell.io`  
-**Default service ID**: `bioimage-io/model-runner` (live, public, no auth required)  
-**No local GPU required** — computation runs on BioEngine remote workers.
+## Service ID — discover before calling
 
-If the user has their own BioEngine worker in workspace `ws-user-github|49943582`, the service ID becomes `ws-user-github|49943582/model-runner`. Use `bioimage-io/model-runner` unless the user specifies otherwise.
+The model-runner is deployed on one or more BioEngine workers in the `bioimage-io` workspace. **Don't try to call `bioimage-io/model-runner` directly** — that short form is the WebRTC offer proxy and exposes only `{offer}`, not the model-runner methods. The callable service ID is the per-worker per-replica form:
+
+```
+bioimage-io/bioengine-worker-<site>-<hash>-<replica>:model-runner
+```
+
+Find the concrete ID via the worker:
+
+```python
+from hypha_rpc import connect_to_server
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
+                             "workspace": "bioimage-io"})
+
+# 1. Pick a worker (KTH and deNBI both run model-runner today):
+workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+
+# 2. Get the concrete app service ID from the worker:
+worker = await s.get_service(workers[0])
+status = await worker.get_app_status(None)
+mr_sid = status["model-runner"]["service_ids"]["websocket_service_id"]
+#   → "bioimage-io/bioengine-worker-kth-<hash>-<replica>:model-runner"
+
+# 3. Get the actual model-runner service:
+mr = await s.get_service(mr_sid)
+```
+
+Throughout this skill, references to the **CLI form `bioengine call bioimage-io/model-runner <method>`** are shorthand for the resolved concrete ID. In practice you need to first set `BIOENGINE_WORKER_SERVICE_ID=<concrete-worker-id>` and pass the per-replica service ID to `bioengine call`. The Python `mr` handle above is the more direct path.
+
+If the user has their own worker, the same recipe applies — substitute their workspace and worker client_id.
 
 ## CLI reference
 

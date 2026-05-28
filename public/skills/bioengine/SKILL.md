@@ -44,25 +44,48 @@ export HYPHA_TOKEN=<your-token>                             # get one at https:/
 export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use
 ```
 
-**Canonical service IDs** (production workers on the `bioimage-io` workspace):
+### Service IDs — how to discover them (read carefully)
 
-| Service | Service ID pattern |
-|---|---|
-| KTH BioEngine worker (canonical) | `bioimage-io/bioengine-worker-kth-*:bioengine-worker` |
-| deNBI BioEngine worker | `bioimage-io/bioengine-worker-denbi-*:bioengine-worker` |
-| Berzelius BioEngine worker | `bioimage-io/bioengine-worker-berzelius:bioengine-worker` |
-| Model Runner app | `bioimage-io/model-runner` |
-| Cellpose Fine-Tuning app | `bioimage-io/cellpose-finetuning` |
+BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are two layers, and **they look superficially similar but resolve to different things**:
 
-A user who deployed their own worker in workspace `<ws>` has IDs like `<ws>/bioengine-worker` and `<ws>/<app-id>`.
+- **Worker service** — addresses the worker's admin API (`get_status`, `deploy_app`, etc.). One per worker:
+  ```
+  <workspace>/<worker_client_id>:bioengine-worker
+  ```
+  Concrete examples in the `bioimage-io` workspace today: `bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker`, `bioimage-io/bioengine-worker-denbi-<hash>:bioengine-worker`, `bioimage-io/bioengine-worker-berzelius:bioengine-worker`.
 
-**Enumerate workers in a workspace** (one-liner for when you don't know the exact pod hash suffix):
+- **App service** — addresses a specific running app on a specific worker. One per (worker, app):
+  ```
+  <workspace>/<worker_client_id>-<replica_id>:<application_id>
+  ```
+  e.g. `bioimage-io/bioengine-worker-denbi-<hash>-<replica>:model-runner`. The `<replica_id>` is appended to the worker's `client_id` so each app replica is its own Hypha client.
+
+> ⚠️ **`<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) is NOT the callable app service.** That short form exists as a WebRTC offer endpoint registered by the proxy, and calling it returns only `{offer}`, not the app methods. **Always use the per-worker per-replica form above when calling an app.**
+
+**Discovery recipe** (one ready-to-paste block):
 ```python
 from hypha_rpc import connect_to_server
 s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
+
+# 1. List workers in the workspace:
 workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+#   → ["bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker", "...-denbi-...", ...]
+
+# 2. For a chosen worker, ask which apps it has running AND get their concrete service IDs:
+worker = await s.get_service(workers[0])
+status = await worker.get_app_status(None)            # None / no args = all running apps
+for app_id, info in status.items():
+    if info.get("status") == "RUNNING":
+        ws_sid  = info["service_ids"]["websocket_service_id"]   # concrete; this is what you call
+        rtc_sid = info["service_ids"]["webrtc_service_id"]
+        print(app_id, "→", ws_sid)
+
+# 3. Call the app:
+app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<replica>:model-runner"
+result = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
-There is no `bioengine workers list` CLI today; the snippet above is the canonical way.
+
+A user who deployed their own worker in workspace `<ws>` has the same pattern: a `<ws>/bioengine-worker-*:bioengine-worker` for the worker and `<ws>/<worker_client_id>-<replica_id>:<app_id>` per app instance.
 
 ---
 
@@ -292,35 +315,44 @@ For the full CLI flag reference: [references/cli_reference.md](references/cli_re
 
 ## 4. Call an app
 
-Once an app is running you call its methods over Hypha RPC. Two equally good ways:
+Once an app is running you call its methods over Hypha RPC. Two equally good ways. **First read [§ Service IDs — how to discover them](#service-ids--how-to-discover-them-read-carefully) above** — calling `<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) does **not** reach the app methods. You always need the per-worker per-replica form like `<workspace>/<worker_client_id>-<replica_id>:<app-id>`, which you get from `worker.get_app_status(None)`.
 
 ### CLI
 
 ```bash
-# Discover methods on a service:
-bioengine call <workspace>/<app-id> --list-methods
+# Discover methods on the concrete service ID (resolved via get_app_status):
+bioengine call '<workspace>/<worker_client_id>-<replica_id>:<app-id>' --list-methods
 
 # Call with JSON arguments (recommended for agents):
-bioengine call <workspace>/<app-id> <method> --args '{"key": "value"}' --json
+bioengine call '<workspace>/<worker_client_id>-<replica_id>:<app-id>' <method> \
+    --args '{"key": "value"}' --json
 
 # Or with individual --arg flags (auto-typed):
-bioengine call <workspace>/<app-id> <method> --arg key=value --json
+bioengine call '<workspace>/<worker_client_id>-<replica_id>:<app-id>' <method> \
+    --arg key=value --json
 ```
+
+(Quote the service ID — it contains characters like `:` and `|` that some shells interpret.)
 
 ### Python
 
 ```python
 from hypha_rpc import connect_to_server
 
-server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
-svc = await server.get_service("<workspace>/<app-id>")
-methods = await svc.list_methods()           # if the app exposes one
-result  = await svc.<method-name>(<args>)
+server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
+                                  "workspace": "bioimage-io"})
+
+# Resolve the concrete service ID via the worker:
+worker  = await server.get_service("bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker")
+status  = await worker.get_app_status(None)
+ws_sid  = status["model-runner"]["service_ids"]["websocket_service_id"]
+
+# Now call the app:
+app     = await server.get_service(ws_sid)
+result  = await app.infer(model_id="affable-shark", inputs="<url>")
 ```
 
-### Where to find the service ID
-
-`bioengine apps status` lists running apps with their `application_id`. Combine with the worker's workspace: `<workspace>/<application_id>` is the service ID. For multi-replica apps (composition / scaled deployments), `get_app_status()` returns the canonical concrete `websocket_service_id` and `webrtc_service_id` in its `service_ids` field.
+### Apps that take dataset URIs
 
 ### Apps that take dataset URIs
 
