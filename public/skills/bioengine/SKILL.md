@@ -32,10 +32,11 @@ Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whet
 
 **Hypha server**: `https://hypha.aicell.io` is the default — use it unless the user specifies another.
 
-**Install the CLI**:
+**Install the CLI** (requires Python ≥3.11):
 ```bash
 pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"
 ```
+If your shell has a global `git config --global url."git@github.com:".insteadOf "https://github.com/"` rewrite (common dotfiles setup) and your SSH key isn't loaded, pip will fail with a `Permission denied (publickey)` error — temporarily unset the rewrite or load the SSH agent first.
 
 **Environment**:
 ```bash
@@ -54,6 +55,14 @@ export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker
 | Cellpose Fine-Tuning app | `bioimage-io/cellpose-finetuning` |
 
 A user who deployed their own worker in workspace `<ws>` has IDs like `<ws>/bioengine-worker` and `<ws>/<app-id>`.
+
+**Enumerate workers in a workspace** (one-liner for when you don't know the exact pod hash suffix):
+```python
+from hypha_rpc import connect_to_server
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
+workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+```
+There is no `bioengine workers list` CLI today; the snippet above is the canonical way.
 
 ---
 
@@ -231,12 +240,51 @@ bioengine apps run bioimage-io/cellpose-finetuning \
 bioengine apps list                            # what artifacts are available to deploy
 bioengine apps status [APP_ID]                 # what's actually running on the worker
 bioengine apps logs <app-id> --tail 200        # actor logs
-bioengine apps stop <app-id>                   # stop a running instance
+bioengine apps stop <app-id> -y                # stop a running instance (-y skips the confirmation prompt)
 ```
 
 App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deployments are ready when all reach `HEALTHY`.
 
-> **Debugging `DEPLOY_FAILED` / `UNHEALTHY`.** The top-level `message` is generic ("The deployments ['X'] are UNHEALTHY."). The **actionable** error — failed pip install, `RuntimeEnvSetupError`, import errors, etc. — is in `deployments[<name>].message` and `deployments[<name>].logs`. The default `bioengine apps status` output only prints per-deployment *status*, not the message. To see it: `bioengine apps status <app-id> --json`, or via the SDK: `(await worker.get_app_status(application_ids=[app_id]))[app_id]["deployments"][<name>]["message"]`.
+> **`bioengine apps status --json` response shape.** The top-level dict is keyed by **app id** (not flat):
+> ```json
+> {
+>   "my-app-id": {
+>     "status": "RUNNING",
+>     "deployments": {
+>       "MyDeployment":    {"status": "HEALTHY", "message": "...", "logs": "..."},
+>       "ProxyDeployment": {"status": "HEALTHY", ...}
+>     },
+>     "service_ids": {"websocket_service_id": "...", "webrtc_service_id": "..."}
+>   }
+> }
+> ```
+> So `result[app_id]["deployments"][deployment_name]["message"]` is where the actionable detail lives. The bare `bioengine apps status` output only prints per-deployment *status*, not the message — always pass `--json` when debugging.
+
+> **Debugging `DEPLOY_FAILED` / `UNHEALTHY`.** The top-level `message` is generic ("The deployments ['X'] are UNHEALTHY."). The **actionable** error — failed pip install, `RuntimeEnvSetupError`, import errors, etc. — is in `deployments[<name>].message` and `deployments[<name>].logs`. Check these before guessing.
+
+### Cleaning up a test deployment
+
+`bioengine apps stop` halts the running app but leaves its Hypha artifact in place. To fully remove a test deployment (so it doesn't clutter the artifact list), stop AND delete the artifact:
+
+```bash
+# 1. Stop the running instance:
+bioengine apps stop my-test-app -y
+
+# 2. Delete the artifact (no CLI command yet — call the Hypha artifact-manager directly):
+python - <<'PY'
+import asyncio, os
+from hypha_rpc import connect_to_server
+async def main():
+    s = await connect_to_server({"server_url": os.environ["BIOENGINE_SERVER_URL"],
+                                 "token": os.environ["HYPHA_TOKEN"],
+                                 "workspace": os.environ["HYPHA_WORKSPACE"]})
+    am = await s.get_service("public/artifact-manager")
+    await am.delete(artifact_id=f"{os.environ['HYPHA_WORKSPACE']}/my-test-app")
+asyncio.run(main())
+PY
+```
+
+Always clean up test deployments on shared production workers — they consume shared cluster resources and clutter the artifact list.
 
 For the full CLI flag reference: [references/cli_reference.md](references/cli_reference.md).
 

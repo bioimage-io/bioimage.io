@@ -1,6 +1,6 @@
 # BioEngine CLI Reference
 
-Install: `pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine-worker.git"`  
+Install: `pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"` — requires Python ≥3.11.  
 Entry point: `bioengine <command>`
 
 ## Prerequisites
