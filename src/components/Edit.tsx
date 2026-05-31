@@ -224,6 +224,15 @@ const Edit: React.FC = () => {
   // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
   // the uploader-email validation in `validateRdfContent`).
   const [canEditArtifact, setCanEditArtifact] = useState(false);
+  // Hypha treats `delete` as a creator-only token on artifacts: even site
+  // admins and uploaders with `rw+` on the collection do not get it. The
+  // artifact's creator (typically the bioimageiobot system account) holds
+  // the only `delete` capability. We expose the destructive delete UI only
+  // when `_permissions[user.id]` actually contains `delete` (or `*`);
+  // everyone else gets the request-deletion flow instead.
+  const [canDeleteArtifact, setCanDeleteArtifact] = useState(false);
+  const [showRequestDeletionDialog, setShowRequestDeletionDialog] = useState(false);
+  const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -385,14 +394,19 @@ const Edit: React.FC = () => {
           const hasArtifactEdit = Array.isArray(artPerms)
             ? artPerms.includes('edit') || artPerms.includes('*')
             : artPerms === '*';
+          const hasArtifactDelete = Array.isArray(artPerms)
+            ? artPerms.includes('delete') || artPerms.includes('*')
+            : artPerms === '*';
           const uploaderEmail = (artifact?.manifest as any)?.uploader?.email?.toLowerCase?.();
           const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
           setCanEditArtifact(isAdmin || hasArtifactEdit || matchesUploaderEmail);
+          setCanDeleteArtifact(hasArtifactDelete);
         }
       } catch (error) {
         console.error('Error checking collection admin status:', error);
         setIsCollectionAdmin(false);
         setCanEditArtifact(false);
+        setCanDeleteArtifact(false);
       }
 
       setArtifactInfo(artifact);
@@ -1423,15 +1437,28 @@ const Edit: React.FC = () => {
             </svg>
             New Version
           </button>
-          <button
-            onClick={() => setShowDeleteVersionDialog(true)}
-            className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Delete This Version
-          </button>
+          {canDeleteArtifact ? (
+            <button
+              onClick={() => setShowDeleteVersionDialog(true)}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete This Version
+            </button>
+          ) : canEditArtifact && (artifactInfo?.manifest as any)?.status !== 'deletion-requested' && (
+            <button
+              onClick={() => setShowRequestDeletionDialog(true)}
+              title="Only the artifact creator can delete versions directly. Submit a deletion request for the reviewers."
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Request Deletion
+            </button>
+          )}
         </div>
       )}
     </>
@@ -2879,12 +2906,49 @@ const Edit: React.FC = () => {
       navigate(getBackPath());
     } catch (error) {
       setShowDeleteVersionDialog(false);
-      alert(`Error deleting version: ${error}`);
       console.error('Error deleting version:', error);
+      const message = String(error || '');
+      const isPermissionError = /permission/i.test(message);
       setUploadStatus({
-        message: 'Error deleting version',
-        severity: 'error'
+        message: isPermissionError
+          ? "You don't have the 'delete' permission on this artifact. Use Request Deletion instead."
+          : `Error deleting version: ${message}`,
+        severity: 'error',
       });
+    }
+  };
+
+  // Submit a deletion request by flipping the manifest status on the staged
+  // version. Mirrors the flow in MyArtifacts.confirmDeletionRequest so the
+  // Review page picks it up the same way regardless of entry point.
+  const handleRequestDeletion = async () => {
+    if (!artifactManager || !artifactId || !artifactInfo) return;
+
+    try {
+      setIsRequestingDeletion(true);
+      await artifactManager.edit({
+        artifact_id: artifactId,
+        version: 'stage',
+        manifest: {
+          ...artifactInfo.manifest,
+          status: 'deletion-requested',
+        },
+        _rkwargs: true,
+      });
+      setUploadStatus({
+        message: 'Deletion request submitted. A reviewer will process it.',
+        severity: 'success',
+      });
+      setShowRequestDeletionDialog(false);
+      navigate(getBackPath());
+    } catch (error) {
+      console.error('Error requesting deletion:', error);
+      setUploadStatus({
+        message: `Failed to submit deletion request: ${error}`,
+        severity: 'error',
+      });
+    } finally {
+      setIsRequestingDeletion(false);
     }
   };
 
@@ -2926,6 +2990,49 @@ const Edit: React.FC = () => {
             className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
           >
             Update & Continue
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
+  );
+
+  const renderRequestDeletionDialog = () => (
+    <MuiDialog
+      open={showRequestDeletionDialog}
+      onClose={() => !isRequestingDeletion && setShowRequestDeletionDialog(false)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Request Artifact Deletion
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+            <p className="mb-2">
+              Only the artifact's creator can delete versions directly. Submitting a
+              request marks this artifact as <code className="bg-yellow-100 px-1 rounded">deletion-requested</code> so a reviewer can act on it.
+            </p>
+            <p>
+              The request covers the whole artifact, not just version{' '}
+              <code className="bg-yellow-100 px-1 rounded">{editVersion}</code>.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => setShowRequestDeletionDialog(false)}
+            disabled={isRequestingDeletion}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleRequestDeletion}
+            disabled={isRequestingDeletion}
+            className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 border border-transparent rounded-md hover:bg-yellow-700 disabled:opacity-50"
+          >
+            {isRequestingDeletion ? 'Submitting...' : 'Request Deletion'}
           </button>
         </div>
       </div>
@@ -3157,6 +3264,8 @@ const Edit: React.FC = () => {
 
       {/* Add Delete Version Dialog */}
       {renderDeleteVersionDialog()}
+
+      {renderRequestDeletionDialog()}
 
       {/* Add ValidationErrorDialog */}
       <ValidationErrorDialog
