@@ -328,6 +328,25 @@ const Edit: React.FC = () => {
     return languageMap[extension] || 'plaintext';
   };
 
+  // Read the artifact manifest fresh from the server (stage version).
+  // Used right before merging `file_sha256` so concurrent uploads don't
+  // clobber each other by writing back a stale React snapshot of the manifest.
+  const readLatestManifest = async (): Promise<Record<string, any>> => {
+    const fallback = (artifactInfo?.manifest as Record<string, any>) || {};
+    if (!artifactManager || !artifactId) return fallback;
+    try {
+      const fresh = await artifactManager.read({
+        artifact_id: artifactId,
+        version: 'stage',
+        _rkwargs: true
+      });
+      return (fresh?.manifest as Record<string, any>) || fallback;
+    } catch (error) {
+      console.error('Failed to read latest manifest from server; falling back to local snapshot', error);
+      return fallback;
+    }
+  };
+
   const loadArtifactFiles = async (versionOverride?: string) => {
     if (!artifactManager || !artifactId || !server) return;
     // Use the override if provided, otherwise fall back to state
@@ -788,9 +807,11 @@ const Edit: React.FC = () => {
           }
 
           try {
-            // Get the existing manifest to preserve fields like status
-            const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
-            
+            // Get the existing manifest to preserve fields like status.
+            // Read fresh from the server (stage) so we don't overwrite concurrent
+            // file_sha256 updates with a stale React snapshot.
+            const existingManifest = await readLatestManifest();
+
             // Get file_sha256 map from the existing manifest
             const existingFileSha256Map: Record<string, string> = (existingManifest as any).file_sha256 || {};
             
@@ -963,7 +984,9 @@ const Edit: React.FC = () => {
 
           // Update manifest with file_sha256
           if (fileSha256) {
-            const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
+            // Read fresh from the server so concurrent uploads of other
+            // files don't lose their just-written file_sha256 entries.
+            const existingManifest = await readLatestManifest();
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: {
@@ -1789,7 +1812,9 @@ const Edit: React.FC = () => {
 
         // Update manifest with file_sha256 map (Metadata update)
         if (fileSha256) {
-          const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
+          // Read fresh from the server so back-to-back drops don't
+          // overwrite each other's file_sha256 entries via a stale snapshot.
+          const existingManifest = await readLatestManifest();
           await artifactManager.edit({
             artifact_id: artifactId,
             manifest: {
@@ -1987,7 +2012,9 @@ const Edit: React.FC = () => {
 
       // Remove the file from file_sha256 map in the manifest
       try {
-        const existingManifest = artifactInfo?.manifest || {} as Record<string, any>;
+        // Read fresh from the server so we don't drop file_sha256 entries
+        // that other concurrent operations have just added.
+        const existingManifest = await readLatestManifest();
         const fileSha256Map = (existingManifest as any).file_sha256 || {};
         
         if (file.name in fileSha256Map || file.path in fileSha256Map) {
