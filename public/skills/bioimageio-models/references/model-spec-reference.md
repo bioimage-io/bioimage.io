@@ -1,6 +1,6 @@
 # BioImage.IO Model RDF — Field Reference
 
-Format version: **0.5.4** (always use this or latest)  
+Format version: **0.5.10** (always use this or latest)  
 Spec source: https://github.com/bioimage-io/spec-bioimage-io  
 Full interactive docs: https://bioimage-io.github.io/spec-bioimage-io/interactive_docs_v0-5.html
 
@@ -11,7 +11,7 @@ Full interactive docs: https://bioimage-io.github.io/spec-bioimage-io/interactiv
 ```yaml
 %YAML 1.2
 ---
-format_version: 0.5.4
+format_version: 0.5.10
 type: model
 name: "Your Model Name Here"
 description: "One or two sentences describing what this model does."
@@ -69,7 +69,7 @@ weights:
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `format_version` | YES | string | Always `"0.5.4"` |
+| `format_version` | YES | string | Always `"0.5.10"` (current stable) |
 | `type` | YES | string | Always `"model"` |
 | `name` | YES | string | 5–128 chars. Human-readable, descriptive. No "model" suffix needed. |
 | `description` | YES | string | Max 1024 chars. What it does, what data it handles. |
@@ -133,6 +133,8 @@ inputs:
       - id: ensure_dtype
         kwargs:
           dtype: float32
+    pad:                          # optional (spec 0.5.10+): how to pad undersized inputs
+      mode: reflect               # constant | edge | reflect | symmetric
 ```
 
 ### Axis Types
@@ -140,7 +142,7 @@ inputs:
 | Type | Description | Required subfields |
 |------|-------------|-------------------|
 | `batch` | Batch dimension | none (size defaults to inferred) |
-| `channel` | Channel dimension | `channel_names` (list of strings) |
+| `channel` | Channel dimension | `channel_names` (list of strings — arbitrary names allowed) |
 | `space` | Spatial (x, y, z) | `id` (x/y/z), `size` |
 | `time` | Time | `id`, `size` |
 | `index` | General index | `id`, `size` |
@@ -191,31 +193,41 @@ Applied to input tensors before inference:
 | Operation | kwargs | Description |
 |-----------|--------|-------------|
 | `zero_mean_unit_variance` | `axes: [y, x]` or `[c, y, x]` | Subtract mean, divide by std |
-| `scale_range` | `axes`, `min_percentile`, `max_percentile` | Percentile-based scaling |
+| `fixed_zero_mean_unit_variance` | `axes`, `mean`, `std` | Use pre-computed statistics |
+| `scale_range` | `axes`, `min_percentile`, `max_percentile`, `eps` | Percentile-based scaling |
 | `scale_linear` | `gain`, `offset` | `x = x * gain + offset` |
 | `ensure_dtype` | `dtype: float32` | Cast to dtype |
 | `binarize` | `threshold: 0.5` | Binary threshold |
 | `clip` | `min: 0.0, max: 1.0` | Clip values |
+| `custom` | `callable`, `source`, `sha256`, `kwargs` | User-supplied Python callable (spec 0.5.10+) |
 
 ## Postprocessing Operations
 
 Applied to output tensors after inference:
 
-| Operation | kwargs |
-|-----------|--------|
-| `sigmoid` | none |
-| `scale_linear` | `gain`, `offset` |
-| `ensure_dtype` | `dtype: float32` |
-| `binarize` | `threshold: 0.5` |
-| `clip` | `min`, `max` |
-| `zero_mean_unit_variance` | `axes` |
-| `scale_range` | `axes`, `min_percentile`, `max_percentile` |
-| `scale_mean_variance` | `axes` |
+| Operation | kwargs | Description |
+|-----------|--------|-------------|
+| `sigmoid` | none | Logits → probabilities |
+| `scale_linear` | `gain`, `offset` | Linear rescale |
+| `ensure_dtype` | `dtype: float32` | Cast to dtype |
+| `binarize` | `threshold: 0.5` | Binary threshold |
+| `clip` | `min`, `max` | Clip values |
+| `zero_mean_unit_variance` | `axes` | Subtract mean, divide by std |
+| `scale_range` | `axes`, `min_percentile`, `max_percentile` | Percentile-based scaling |
+| `scale_mean_variance` | `axes` | Match mean and variance to reference |
+| `cellpose_flow_dynamics` | `cellprob_threshold`, `flow_threshold`, `do_3D`, `min_size`, `output_dtype` | Cellpose flow → instance labels (spec 0.5.10+) |
+| `stardist_postprocessing` | `grid`, `prob_threshold`, `nms_threshold`, `n_rays` | StarDist probability+distance → instance labels (spec 0.5.10+) |
+| `custom` | `callable`, `source`, `sha256`, `kwargs` | User-supplied Python callable (spec 0.5.10+) |
 
 > **Note:** `softmax` is NOT a valid postprocessing operation in `bioimageio.spec` 0.5.x.
 > For multi-class models that need softmax, embed it inside the model's `forward()` method
 > so the output tensor is already a probability map. This keeps the model self-contained
 > and compatible with all runtimes.
+
+> **Custom processing:** For models that require arbitrary decoding logic (flow fields,
+> radial distance maps, etc.), use `id: custom` with an inline `.py` source file.
+> See [custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)
+> for full documentation, security model, and worked examples.
 
 ---
 
@@ -369,8 +381,10 @@ Or use the helper script: `scripts/compute_sha256.py model_package/`
 | `sha256 mismatch for ...` | Recompute SHA256 and update in YAML |
 | `axis id 'x' not unique` | Axis `id` values must be unique **within** each tensor (not globally across tensors) |
 | `pytorch_state_dict cannot have parent` | Remove `parent` from `pytorch_state_dict` block |
-| `format_version not supported` | Change to `"0.5.4"` |
+| `format_version not supported` | Change to `"0.5.10"` |
 | `channel_names length != axis size` | Ensure `channel_names` list length matches number of channels |
 | `test output does not match` | Regenerate `test_output.npy` by running the model on `test_input.npy` |
 | `documentation must end in .md` | Rename doc file or fix path in YAML |
 | `name too short` | Name must be 5–128 characters |
+| `custom processing not allowed` | Pass `allow_custom_postprocessing=True` to `create_prediction_pipeline()` |
+| `source sha256 required` | Add `sha256` for every `source:` field including custom processing `.py` files |
