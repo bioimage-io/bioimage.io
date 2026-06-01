@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.7"
+  version: "1.8"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -36,8 +36,10 @@ Required:
 [ ] Model architecture code — for pytorch_state_dict (the Python class)
 [ ] Input tensor: shape, dtype, axes, channel names, expected value range
 [ ] Output tensor: shape, dtype, axes, channel names, value range
-[ ] Preprocessing — zero_mean_unit_variance / scale_range / none
-[ ] Postprocessing — sigmoid or none (note: `softmax` is NOT supported — embed it in `forward()` instead)
+[ ] Preprocessing — zero_mean_unit_variance / scale_range / custom / none
+[ ] Postprocessing — sigmoid / cellpose_flow_dynamics / stardist_postprocessing / custom / none
+      (note: `softmax` is NOT a valid built-in op — embed it in `forward()` instead)
+      (for Cellpose or StarDist models, ask if the model outputs raw flows/distances that need decoding)
 [ ] Representative test input image (any format; will be converted to .npy)
 [ ] Model name — specific, human-readable (e.g. "cFOS Segmentation 2D UNet - Mouse Hippocampus")
 [ ] Description — 2-4 sentences: what it does, modality, organism/tissue, training data
@@ -114,6 +116,8 @@ mkdir -p model_package
      --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
    ```
 5. Write `model_package/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
+   - Use `format_version: 0.5.10`
+   - If the model needs Cellpose/StarDist decoding or custom logic, see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)
 6. Write `model_package/README.md` — must contain these sections:
    - `## Description` — what the model does, modality, organism
    - `## Intended Use` — what tasks it is suitable for, known limitations
@@ -180,7 +184,7 @@ print('✓ Static validation passed:', type(desc).__name__)
 
 Fix errors and retry. Common issues:
 - Missing `sha256` for a referenced file — run `compute_sha256.py` and update the YAML
-- Wrong `format_version` — use `0.5.4`
+- Wrong `format_version` — use `0.5.10`
 - Duplicate axis `id` values **within** a single tensor (same IDs across input/output tensors is fine)
 - `pytorch_state_dict` must NOT have a `parent` field
 - `softmax` is NOT a valid postprocessing operation — embed it inside the model's `forward()`
@@ -191,11 +195,14 @@ Fix errors and retry. Common issues:
 
 ## Phase 4 — Dynamic Testing
 
-> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, `bioimageio.core==0.9.0` works on Python 3.8/3.9 without downgrading. On Python 3.8/3.9 with `pytorch_state_dict`, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, the latest versions work for all formats: `pip install "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"`.
+> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, Python 3.8/3.9 works. On Python 3.10+, use the latest versions.
 
 ```bash
-pip install -q "bioimageio.spec==0.5.4.3" "bioimageio.core==0.9.0"
+pip install -q "bioimageio.spec>=0.5.10" "bioimageio.core>=0.10"
 bioimageio test model_package/rdf.yaml
+
+# For models with custom pre/postprocessing, add the flag:
+bioimageio test model_package/rdf.yaml --allow-custom-postprocessing
 ```
 
 Or with conda (handles Python version automatically):
@@ -510,10 +517,11 @@ EOF
 | File | When to Read |
 |------|-------------|
 | [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `rdf.yaml` — all fields explained |
+| [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) | Custom pre/postprocessing ops, Cellpose/StarDist built-ins, security model |
 | [references/example-rdf.yaml](https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml) | Annotated example to copy from |
 | [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) | Hypha API calls for submission |
 | [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) | Real worked examples from past submissions |
 | [scripts/hypha_login.py](https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py) | Log in to Hypha and save token to `.env` |
-| [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility |
+| [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility (also hashes custom processing `.py` files) |
 | [scripts/generate_test_tensors.py](https://bioimage.io/skills/bioimageio-models/scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
 | [scripts/validate_package.sh](https://bioimage.io/skills/bioimageio-models/scripts/validate_package.sh) | One-shot validation runner |

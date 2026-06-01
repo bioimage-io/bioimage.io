@@ -6,7 +6,7 @@
 ---
 
 # ---- IDENTITY ----
-format_version: 0.5.4     # Always 0.5.4 (current stable)
+format_version: 0.5.10    # Current stable (spec 0.5.10+ required for custom pre/postprocessing)
 type: model                # Always "model" for ML models
 
 name: UNet 2D Nuclei Broad              # 5-128 chars, human-readable, specific
