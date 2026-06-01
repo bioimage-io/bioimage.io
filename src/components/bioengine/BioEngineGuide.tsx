@@ -741,14 +741,14 @@ spec:
                         : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
-                    {value === 'human' ? 'Human' : 'Agent'}
+                    {value === 'human' ? 'Human' : 'AI Agent'}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* ── Agent mode: blue intro + grey copy-able prompt with optional admin-token injection ── */}
+          {/* ── AI Agent mode: blue intro + grey copy-able prompt with optional admin-token injection ── */}
           {audience === 'agent' && (() => {
             const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
             const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
