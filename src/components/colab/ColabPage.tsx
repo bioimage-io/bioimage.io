@@ -26,7 +26,7 @@ const ColabPageContent: React.FC = () => {
 
   const { user, server, artifactManager } = useHyphaStore();
   // Use shared kernel context instead of creating a new one
-  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide, imageFolderHandle, setImageFolderHandle } = useSharedKernel();
+  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide, imageFolderHandle, setImageFolderHandle, requestKernel } = useSharedKernel();
 
   // File system state
   const [imageList, setImageList] = useState<string[]>([]);
@@ -170,6 +170,12 @@ except Exception as e:
     if (annotationURL && dataArtifactId) {
       console.log('Session already active, skipping URL auto-load');
       return;
+    }
+
+    // Landing on /colab/<sessionId> needs the Python kernel; nudge it.
+    // requestKernel is idempotent so re-firing each render is fine.
+    if (sessionId && user?.email && !hasLoadedUrlSession) {
+      requestKernel();
     }
 
     if (sessionId && isReady && user?.email && artifactManager && executeCode && !hasLoadedUrlSession) {
@@ -372,7 +378,7 @@ print("Service registered successfully", end='')
 
       autoStartSession();
     }
-  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server, annotationURL, dataArtifactId]);
+  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server, annotationURL, dataArtifactId, requestKernel]);
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
@@ -653,10 +659,11 @@ print("Service registered successfully", end='')
       alert('Please login first');
       return;
     }
-    if (!isReady) {
-      alert('Python kernel is still initializing. Please wait...');
-      return;
-    }
+    // Kick off the Python kernel boot (idempotent — no-op if already running)
+    // and let the user fill in the session form while it warms up. The dialog
+    // surfaces the kernel status itself; the final Create / Resume submit
+    // waits for ready.
+    requestKernel();
     setShowSessionModal(true);
   };
 
@@ -859,19 +866,21 @@ print("Service registered successfully", end='')
         <div className="max-w-4xl mx-auto mb-8">
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md p-6">
             <div className="grid grid-cols-3 gap-4">
-              {/* Step 1 */}
+              {/* Step 1 — only gated on login. The Python kernel is booted
+                  on click (idempotent) and the modal surfaces its progress,
+                  so the user is never blocked from opening the dialog. */}
               <button
                 onClick={createAnnotationSession}
-                disabled={!isReady || !user?.email}
+                disabled={!user?.email}
                 className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-                  isReady && user?.email
+                  user?.email
                     ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
                     : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
                 }`}
               >
                 <div className="flex items-center gap-3 mb-2">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
-                    isReady && user?.email
+                    user?.email
                       ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
                       : 'bg-gray-200 text-gray-500'
                   }`}>

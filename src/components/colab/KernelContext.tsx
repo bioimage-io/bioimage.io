@@ -21,6 +21,13 @@ interface KernelContextType {
   syncFileSystem: ((mountPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   writeFilesToPyodide: ((files: File[], targetPath: string) => Promise<{success: boolean; error?: string}>) | undefined;
   kernelManager: any;
+  /**
+   * Idempotently start the Python kernel. Returns immediately if it is already
+   * starting or ready. Call this from the first user action that genuinely
+   * needs Python (e.g. opening the Start Annotation Session dialog) so the
+   * initial page render is not blocked on the 30-60 s kernel boot.
+   */
+  requestKernel: () => void;
   /** Persisted across navigation — the locally mounted folder handle for the active session. */
   imageFolderHandle: FileSystemDirectoryHandle | null;
   setImageFolderHandle: (handle: FileSystemDirectoryHandle | null) => void;
@@ -35,8 +42,15 @@ interface KernelProviderProps {
 
 export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipInitialization = false }) => {
   const [isReady, setIsReady] = useState(false);
-  const [kernelStatus, setKernelStatus] = useState<'idle' | 'busy' | 'starting' | 'error'>('starting');
+  // Idle until someone calls `requestKernel`. The previous default ('starting')
+  // implied a worker was already booting on every page load even when the user
+  // never opened the colab page.
+  const [kernelStatus, setKernelStatus] = useState<'idle' | 'busy' | 'starting' | 'error'>('idle');
   const [executeCode, setExecuteCode] = useState<((code: string, callbacks?: ExecuteCallbacks) => Promise<void>) | null>(null);
+  // Flipped by `requestKernel`. We gate the boot useEffect on this so the
+  // 30-60 s Pyodide + worker spin-up only runs when the user actually does
+  // something that needs Python.
+  const [shouldInitialize, setShouldInitialize] = useState(false);
 
   const kernelManagerRef = useRef<any>(null);
   const currentKernelIdRef = useRef<string | null>(null);
@@ -205,10 +219,21 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
   }, []);
 
   // Kernel initialization
+  // Idempotent on-demand kernel boot. Safe to call from a button click, an
+  // effect, or anywhere else — we already guard against re-entry via
+  // `isInitializingRef`. Memoised so consumers can put it in dep arrays.
+  const requestKernel = useCallback(() => {
+    setShouldInitialize(true);
+  }, []);
+
   useEffect(() => {
     if (skipInitialization) {
       console.log('[Kernel Context] Skipping initialization');
       setIsReady(true);
+      return;
+    }
+    if (!shouldInitialize) {
+      // Nobody has asked for the kernel yet. Stay idle, do not block the page.
       return;
     }
 
@@ -287,7 +312,7 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
         currentKernelIdRef.current = null;
       }
     };
-  }, [skipInitialization, loadWebPythonKernel, createExecuteCodeFunction]);
+  }, [shouldInitialize, skipInitialization, loadWebPythonKernel, createExecuteCodeFunction]);
 
   // Function to interrupt kernel execution
   const interruptKernel = useCallback(async () => {
@@ -382,6 +407,7 @@ export const KernelProvider: React.FC<KernelProviderProps> = ({ children, skipIn
     syncFileSystem,
     writeFilesToPyodide,
     kernelManager: kernelManagerRef.current,
+    requestKernel,
     imageFolderHandle,
     setImageFolderHandle,
   };

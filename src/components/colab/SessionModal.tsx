@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSharedKernel } from './KernelContext';
 
 interface SessionModalProps {
   setShowSessionModal: (show: boolean) => void;
@@ -41,6 +42,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
   resumeArtifactId: initialResumeArtifactId,
   cellposeModel,
 }) => {
+  // Kernel readiness — the modal is opened immediately, but the actual
+  // "Start Annotation Session" submit needs the Python kernel up. We watch
+  // the shared kernel state and disable the submit + surface the boot
+  // progress next to it.
+  const { isReady: isKernelReady, kernelStatus } = useSharedKernel();
+
   // Step management
   const [step, setStep] = useState<'choose' | 'configure' | 'creating'>(
     initialResumeArtifactId ? 'configure' : 'choose'
@@ -1005,25 +1012,40 @@ print("Service registered successfully", end='')
           (dataSourceType === 'local' && !localFolderHandle) ||
           (dataSourceType === 'upload' && selectedFiles.length === 0) ||
           (dataSourceType === 'resume' && !resumeArtifactId);
-        const isDisabled = missingFields.length > 0 || sourceIncomplete;
+        const kernelBlocked = !isKernelReady;
+        const isDisabled = missingFields.length > 0 || sourceIncomplete || kernelBlocked;
         const tooltipMsg = missingFields.length > 0
           ? `Please fill in: ${missingFields.join(', ')}`
           : sourceIncomplete
             ? dataSourceType === 'local' ? 'Please select a local folder'
             : dataSourceType === 'upload' ? 'Please select files to upload'
             : 'Please select a session to resume'
-          : '';
+          : kernelBlocked
+            ? kernelStatus === 'error'
+              ? 'Python kernel failed to start. Please reload the page.'
+              : 'Preparing the in-browser Python kernel (first-time setup can take up to a minute).'
+            : '';
         return (
           <div className="w-full relative group/startbtn">
             <button
               onClick={handleStartSession}
               disabled={isDisabled}
-              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all"
+              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2"
             >
-              Start Annotation Session
+              {kernelBlocked && !missingFields.length && !sourceIncomplete && kernelStatus !== 'error' ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75"/>
+                  </svg>
+                  Preparing kernel...
+                </>
+              ) : (
+                'Start Annotation Session'
+              )}
             </button>
             {isDisabled && tooltipMsg && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/startbtn:opacity-100 transition-opacity duration-0 pointer-events-none z-50 flex items-center gap-1.5">
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/startbtn:opacity-100 transition-opacity duration-0 pointer-events-none z-50 flex items-center gap-1.5 max-w-[420px]">
                 <svg className="w-3.5 h-3.5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <circle cx="12" cy="12" r="10" strokeWidth="2"/>
                   <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" strokeWidth="2"/>
