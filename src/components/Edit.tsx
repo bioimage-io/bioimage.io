@@ -356,6 +356,27 @@ const Edit: React.FC = () => {
     }
   };
 
+  // Commit only if the artifact is still in staging mode on the server.
+  // The auto-stage shortcut for writers (handleSave / onDrop / handleDeleteFile)
+  // can race with itself: a concurrent click, the setTimeout(handleSave, 100)
+  // recursion that updates rdf.yaml, or a prior iteration in onDrop may have
+  // already committed the same staging area. Reading first turns that race
+  // from an `AssertionError: Artifact must be in staging mode to commit` into
+  // a no-op, since the changes have already landed in the committed version.
+  const commitIfStaged = async (comment: string): Promise<void> => {
+    if (!artifactManager || !artifactId) return;
+    const fresh = await artifactManager.read({
+      artifact_id: artifactId,
+      _rkwargs: true
+    });
+    if (fresh?.staging == null) return;
+    await artifactManager.commit({
+      artifact_id: artifactId,
+      comment,
+      _rkwargs: true
+    });
+  };
+
   const loadArtifactFiles = async (versionOverride?: string) => {
     if (!artifactManager || !artifactId || !server) return;
     // Use the override if provided, otherwise fall back to state
@@ -1095,14 +1116,13 @@ const Edit: React.FC = () => {
           }
         }
 
-        // If we created a temporary stage, commit changes immediately
+        // If we created a temporary stage, commit changes immediately.
+        // commitIfStaged tolerates a concurrent path (e.g. the
+        // setTimeout(handleSave, 100) below for rdf.yaml SHA backfill) having
+        // already committed the same staging area.
         if (needsStageCleanup) {
           try {
-            await artifactManager.commit({
-              artifact_id: artifactId,
-              comment: `Updated ${file.path}`,
-              _rkwargs: true
-            });
+            await commitIfStaged(`Updated ${file.path}`);
 
             // Refresh artifact files to get the latest state
             await loadArtifactFiles();
@@ -1924,25 +1944,6 @@ const Edit: React.FC = () => {
           }
         }
 
-        // Auto-commit the temporary stage we created above for writers
-        // who weren't already in stage mode.
-        if (canEditArtifact && !isStaged) {
-          try {
-            await artifactManager.commit({
-              artifact_id: artifactId,
-              comment: `Added ${file.name}`,
-              _rkwargs: true
-            });
-          } catch (error) {
-            console.error('Error committing changes:', error);
-            setUploadStatus({
-              message: 'Error committing changes',
-              severity: 'error'
-            });
-            continue;
-          }
-        }
-
         // Add or update file in local state
         const content = await file.text();
         const newFile: FileNode = {
@@ -1950,14 +1951,14 @@ const Edit: React.FC = () => {
           path: file.name,
           content,
           isDirectory: false,
-          edited: false // Set to false since we've already committed if needed
+          edited: false // Set to false since we auto-commit the temp stage below
         };
 
         // Check if file already exists (was overwritten)
         const fileExists = files.some(f => f.name === file.name || f.path === file.name);
         if (fileExists) {
           // Update existing file
-          setFiles(prev => prev.map(f => 
+          setFiles(prev => prev.map(f =>
             (f.name === file.name || f.path === file.name) ? newFile : f
           ));
         } else {
@@ -1970,7 +1971,7 @@ const Edit: React.FC = () => {
           message: `${file.name} uploaded successfully${isWeightFile ? ' (marked as weight file)' : ''}`,
           severity: 'success'
         });
-        
+
         // If we uploaded a weight file, refresh to update artifact info with new download_weights
         if (isWeightFile) {
           loadArtifactFiles();
@@ -1979,6 +1980,26 @@ const Edit: React.FC = () => {
         console.error('Error uploading file:', error);
         setUploadStatus({
           message: `Error uploading ${file.name}`,
+          severity: 'error'
+        });
+      }
+    }
+
+    // Auto-commit the temporary stage we created above for writers who
+    // weren't already in stage mode. Done ONCE after all files are processed
+    // so the per-file iterations all see the same open stage; a per-iteration
+    // commit would drop the stage and break put_file on the next file.
+    if (needsStageCleanup) {
+      try {
+        await commitIfStaged(
+          acceptedFiles.length === 1
+            ? `Added ${acceptedFiles[0].name}`
+            : `Added ${acceptedFiles.length} files`
+        );
+      } catch (error) {
+        console.error('Error committing changes:', error);
+        setUploadStatus({
+          message: 'Error committing changes',
           severity: 'error'
         });
       }
@@ -2076,13 +2097,9 @@ const Edit: React.FC = () => {
 
       // Auto-commit the temporary stage we created above for writers
       // who weren't already in stage mode.
-      if (canEditArtifact && !isStaged) {
+      if (needsStageCleanup) {
         try {
-          await artifactManager.commit({
-            artifact_id: artifactId,
-            comment: `Deleted ${file.name}`,
-            _rkwargs: true
-          });
+          await commitIfStaged(`Deleted ${file.name}`);
         } catch (error) {
           console.error('Error committing changes:', error);
           setUploadStatus({
