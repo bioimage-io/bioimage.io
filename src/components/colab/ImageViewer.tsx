@@ -166,6 +166,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     setTestImageSet(new Set(splitInfo?.testImages ?? []));
   }, [splitInfo]);
 
+  // Seed cloudImages from splitInfo so the first click after a session
+  // resume doesn't race against the periodic list_files fetch below.
+  useEffect(() => {
+    if (!splitInfo) return;
+    setCloudImages(prev => {
+      const next = new Set(prev);
+      splitInfo.trainImages.forEach(n => next.add(n));
+      splitInfo.testImages.forEach(n => next.add(n));
+      return next;
+    });
+  }, [splitInfo]);
+
   // Derived split lists (based on local pending state)
   const testImages = imageList.filter(img => testImageSet.has(img));
   const trainImages = imageList.filter(img => !testImageSet.has(img));
