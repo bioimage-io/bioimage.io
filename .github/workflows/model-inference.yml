@@ -102,6 +102,7 @@ jobs:
 
         if [ "$TOTAL_MODELS" -gt 0 ]; then
           echo "**Total models in scope:** $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed model-runner version:** ${RUNNER_VERSION:-unknown}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "| Inference Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
@@ -112,6 +113,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Passed includes skipped models that were already previously passed." >> $GITHUB_STEP_SUMMARY
           echo "Timeouts are included in the failed count." >> $GITHUB_STEP_SUMMARY
+          echo "Cached results from a previous runner version are re-tested when the runner version is known and differs from the stored stamp; entries without a stored stamp are also re-tested once the current runner version is known so they pick one up." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Inference check completed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         else

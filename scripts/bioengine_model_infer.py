@@ -35,6 +35,7 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
         print("PASSED_RATE=0.00")
         print("FAILED_RATE=0.00")
         print("TIMEOUT_RATE=0.00")
+        print("RUNNER_VERSION=")
         return
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -43,6 +44,7 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
     passed = int(summary.get("passed", 0))
     failed = int(summary.get("failed", 0))
     timeout = int(summary.get("timeout", 0))
+    runner_version = summary.get("runner_version") or ""
 
     def rate(value: int) -> str:
         if total_models == 0:
@@ -56,6 +58,7 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
     print(f"PASSED_RATE={rate(passed)}")
     print(f"FAILED_RATE={rate(failed)}")
     print(f"TIMEOUT_RATE={rate(timeout)}")
+    print(f"RUNNER_VERSION='{runner_version.replace(chr(39), '')}'")
 
 
 async def fetch_previous_results(
@@ -64,6 +67,39 @@ async def fetch_previous_results(
     collection = await artifact_manager.read(f"{WORKSPACE}/{COLLECTION}")
 
     return collection["manifest"].get("bioengine_inference", {})
+
+
+async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
+    """Ask the deployed model-runner which BioEngine artifact version it was built from.
+
+    Returns the version string when the runner exposes ``get_version()`` and the
+    response includes a non-empty ``version`` field. Returns ``None`` when the
+    method is missing, raises, or returns no version. A ``None`` result disables
+    runner-version cache invalidation for this run so the workflow still does
+    useful work during the rollout window before the runner exposes the field.
+    """
+    try:
+        info = await runner.get_version()
+    except Exception as exc:
+        print(
+            f"Note: runner.get_version() unavailable ({exc}); "
+            "runner-version cache invalidation disabled for this run"
+        )
+        return None
+
+    if isinstance(info, dict):
+        version = info.get("version")
+    else:
+        version = info
+
+    if not version:
+        print(
+            "Note: runner reported no version; "
+            "runner-version cache invalidation disabled for this run"
+        )
+        return None
+
+    return str(version)
 
 
 async def fetch_model_ids(artifact_manager: ObjectProxy) -> List[str]:
@@ -148,6 +184,12 @@ async def check_bmz_model_inference(
     )
     artifact_manager = await server.get_service("public/artifact-manager")
 
+    current_runner_version = await fetch_runner_version(runner)
+    if current_runner_version:
+        print(f"Deployed model-runner version: {current_runner_version}")
+    else:
+        print("Deployed model-runner version: unknown")
+
     # Fetch previous test results
     previous_results = await fetch_previous_results(artifact_manager)
 
@@ -159,19 +201,29 @@ async def check_bmz_model_inference(
     results = {}
     skipped_models = 0
     timeout_models = 0
+    runner_version_invalidations = 0
     for model_id in model_ids:
         model_start_time = time.time()
 
         try:
             print(f"\nMODEL: {model_id}\n{'-' * (7 + len(model_id))}")
 
-            last_test_at = previous_results.get(model_id, {}).get("tested_at", 0)
-            last_test_status = previous_results.get(model_id, {}).get(
-                "status", "never tested"
+            previous_entry = previous_results.get(model_id, {})
+            last_test_at = previous_entry.get("tested_at", 0)
+            last_test_status = previous_entry.get("status", "never tested")
+            stored_runner_version = previous_entry.get("runner_version")
+            # Only treat the runner version as a cache-invalidation signal when we
+            # actually know the current version. When the runner does not expose
+            # the field yet, leave older entries alone instead of forcing a
+            # workflow-wide re-run.
+            runner_version_changed = (
+                current_runner_version is not None
+                and stored_runner_version != current_runner_version
             )
             latest_change = await get_latest_change(artifact_manager, model_id)
             if (
                 not skip_cache
+                and not runner_version_changed
                 and latest_change <= last_test_at
                 and last_test_status == "passed"
             ):
@@ -180,6 +232,14 @@ async def check_bmz_model_inference(
                 )
                 skipped_models += 1
                 continue
+
+            if runner_version_changed:
+                print(
+                    f"-> Model '{model_id}' was last tested against runner "
+                    f"'{stored_runner_version or 'unknown'}', current is "
+                    f"'{current_runner_version}', re-running inference"
+                )
+                runner_version_invalidations += 1
 
             image = await fetch_sample_image(artifact_manager, model_id)
 
@@ -210,11 +270,19 @@ async def check_bmz_model_inference(
             "status": status,
             "message": message[:20] if message else None,
             "tested_at": model_start_time,
+            "runner_version": current_runner_version,
         }
 
     execution_time = time.time() - start_time
     print("\n============ All Models Tested ============\n")
-    print(f"Total execution time: {execution_time:.2f} seconds\n")
+    print(f"Total execution time: {execution_time:.2f} seconds")
+    if current_runner_version:
+        print(
+            f"Runner version stamped on new results: {current_runner_version} "
+            f"(invalidated {runner_version_invalidations} stale entry/entries)"
+        )
+    else:
+        print("Runner version unknown; results stamped with null runner_version")
     print(json.dumps(results, indent=2))
 
     summary = {
@@ -226,6 +294,8 @@ async def check_bmz_model_inference(
         + timeout_models,
         "timeout": timeout_models,
         "execution_time_seconds": round(execution_time, 2),
+        "runner_version": current_runner_version,
+        "runner_version_invalidations": runner_version_invalidations,
     }
     save_inference_summary(summary_file, summary)
 

@@ -109,6 +109,7 @@ jobs:
 
         if [ "$TOTAL_MODELS" -gt 0 ]; then
           echo "**Total models tested:** $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed model-runner version:** ${RUNNER_VERSION:-unknown}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "| Test Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY

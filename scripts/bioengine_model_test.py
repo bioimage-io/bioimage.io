@@ -10,6 +10,36 @@ from typing import List, Optional
 
 import httpx
 from hypha_rpc import connect_to_server, login
+from hypha_rpc.utils import ObjectProxy
+
+
+async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
+    """Ask the deployed model-runner which BioEngine artifact version it was built from.
+
+    Returns the version string when the runner exposes ``get_version()`` and the
+    response includes a non-empty ``version`` field. Returns ``None`` when the
+    method is missing, raises, or returns no version. The model-runner stamps
+    its own version onto every published ``test_report.json``; this script only
+    reads it for surfacing in the CI summary.
+    """
+    try:
+        info = await runner.get_version()
+    except Exception as exc:
+        print(
+            f"Note: runner.get_version() unavailable ({exc}); "
+            "runner version will not be reported in summary"
+        )
+        return None
+
+    if isinstance(info, dict):
+        version = info.get("version")
+    else:
+        version = info
+
+    if not version:
+        return None
+
+    return str(version)
 
 
 async def test_bmz_models(
@@ -43,6 +73,12 @@ async def test_bmz_models(
     model_runner = await server.get_service(
         "bioimage-io/model-runner", {"mode": "select:min:get_load"}
     )
+
+    current_runner_version = await fetch_runner_version(model_runner)
+    if current_runner_version:
+        print(f"Deployed model-runner version: {current_runner_version}")
+    else:
+        print("Deployed model-runner version: unknown")
 
     # Fetch all model IDs if not provided
     if model_ids is None:
@@ -193,6 +229,7 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     failed = 0
     timeout = 0
     error = 0
+    runner_versions = set()
 
     for json_file in json_files:
         try:
@@ -211,6 +248,10 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
             elif status == "service-error":
                 error += 1
 
+            report_runner_version = test_report.get("runner_version")
+            if report_runner_version:
+                runner_versions.add(str(report_runner_version))
+
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
 
@@ -222,6 +263,13 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     failed_rate = round((failed / total_models) * 100, 1) if total_models > 0 else 0
     timeout_rate = round((timeout / total_models) * 100, 1) if total_models > 0 else 0
     error_rate = round((error / total_models) * 100, 1) if total_models > 0 else 0
+
+    if len(runner_versions) == 0:
+        runner_version_display = ""
+    elif len(runner_versions) == 1:
+        runner_version_display = next(iter(runner_versions))
+    else:
+        runner_version_display = "mixed: " + ", ".join(sorted(runner_versions))
 
     # Output variables for GitHub Actions
     print(f"TOTAL_MODELS={total_models}")
@@ -235,6 +283,7 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
     print(f"FAILED_RATE={failed_rate}")
     print(f"TIMEOUT_RATE={timeout_rate}")
     print(f"ERROR_RATE={error_rate}")
+    print(f"RUNNER_VERSION='{runner_version_display.replace(chr(39), '')}'")
 
 
 def clear_existing_test_reports(reports_dir: Path) -> None:
