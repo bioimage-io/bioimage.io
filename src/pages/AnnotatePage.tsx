@@ -845,7 +845,7 @@ print("CLAHE_RESULT:" + result_b64)
       >
         <div className="flex items-center gap-2 z-10 flex-shrink-0">
           {sessionUrl && (
-            <Tooltip title="Go back to the Colab session — view all images, annotation progress, and training">
+            <Tooltip title="Go back to the Colab session: view all images, annotation progress, and training">
               <MuiButton
                 size="small"
                 variant="outlined"

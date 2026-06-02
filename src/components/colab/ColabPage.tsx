@@ -1146,7 +1146,7 @@ print("Service registered successfully", end='')
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm">New model selected</p>
                 <p className="text-xs text-green-100 mt-0.5">
-                  Training completed — Cellpose model auto-updated to the new session.
+                  Training completed. Cellpose model auto-updated to the new session.
                 </p>
               </div>
               <button

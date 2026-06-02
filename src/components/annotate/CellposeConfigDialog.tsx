@@ -154,7 +154,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
-                  <InfoTip text="Cellpose-SAM was trained on cell diameters from 7.5 to 120 px. When set, the image is rescaled so cells appear ~30 px (scale = 30 ÷ diameter). Leave empty to run at original scale — safe when cells are roughly in the 7.5–120 px range. Set this if your cells are outside that range." />
+                  <InfoTip text="Cellpose-SAM was trained on cell diameters from 7.5 to 120 px. When set, the image is rescaled so cells appear ~30 px (scale = 30 ÷ diameter). Leave empty to run at original scale: safe when cells are roughly in the 7.5 to 120 px range. Set this if your cells are outside that range." />
                 </Box>
                 {onMeasureDiameter && (
                   <Tooltip title="Measure a representative cell in the image to set the diameter automatically">
