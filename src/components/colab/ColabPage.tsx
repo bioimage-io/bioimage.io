@@ -862,89 +862,107 @@ print("Service registered successfully", end='')
           </div>
         )}
 
-        {/* Workflow Steps - Vibrant & Dynamic */}
-        <div className="max-w-4xl mx-auto mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md p-6">
-            <div className="grid grid-cols-3 gap-4">
-              {/* Step 1 — only gated on login. The Python kernel is booted
-                  on click (idempotent) and the modal surfaces its progress,
-                  so the user is never blocked from opening the dialog. */}
-              <button
-                onClick={createAnnotationSession}
-                disabled={!user?.email}
-                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-                  user?.email
-                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
-                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
-                    user?.email
-                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                      : 'bg-gray-200 text-gray-500'
-                  }`}>
-                    1
-                  </div>
-                  <h3 className="font-semibold text-gray-900">Start Session</h3>
-                </div>
-                <p className="text-sm text-gray-600">
-                  Create or resume an annotation session
-                </p>
-              </button>
+        {/* Workflow Steps - compact once a session is active so the viewer below gets the real estate */}
+        {(() => {
+          const sessionActive = !!dataArtifactId;
+          const containerPad = sessionActive ? 'p-3' : 'p-6';
+          const containerMargin = sessionActive ? 'mb-4' : 'mb-8';
+          const cardPad = sessionActive ? 'p-2.5' : 'p-4';
+          const markerSize = sessionActive ? 'w-7 h-7 text-sm' : 'w-8 h-8';
+          const titleSize = sessionActive ? 'text-sm' : '';
+          const headerMargin = sessionActive ? 'mb-0' : 'mb-2';
 
-              {/* Step 2 */}
-              <button
-                onClick={() => setShowShareModal(true)}
-                disabled={!annotationURL || !user?.email}
-                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-                  annotationURL && user?.email
-                    ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
-                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
-                    annotationURL && user?.email
-                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                      : 'bg-gray-200 text-gray-500'
-                  }`}>
-                    2
-                  </div>
-                  <h3 className="font-semibold text-gray-900">Collaborate</h3>
-                </div>
-                <p className="text-sm text-gray-600">
-                  Share URL and annotate together
-                </p>
-              </button>
+          return (
+            <div className={`max-w-4xl mx-auto ${containerMargin}`}>
+              <div className={`bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md ${containerPad}`}>
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Step 1 — only gated on login. The Python kernel is booted
+                      on click (idempotent) and the modal surfaces its progress,
+                      so the user is never blocked from opening the dialog. */}
+                  <button
+                    onClick={createAnnotationSession}
+                    disabled={!user?.email}
+                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
+                      user?.email
+                        ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                    }`}
+                  >
+                    <div className={`flex items-center gap-3 ${headerMargin}`}>
+                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
+                        user?.email
+                          ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                          : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        1
+                      </div>
+                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Start Session</h3>
+                    </div>
+                    {!sessionActive && (
+                      <p className="text-sm text-gray-600">
+                        Create or resume an annotation session
+                      </p>
+                    )}
+                  </button>
 
-              {/* Step 3 */}
-              <button
-                onClick={() => setShowTrainingModal(true)}
-                disabled={!dataArtifactId || !user?.email}
-                className={`group text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-                  dataArtifactId && user?.email
-                    ? 'border-blue-200/60 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-100 bg-gradient-to-br from-white to-blue-50/30'
-                    : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all ${
-                    dataArtifactId && user?.email
-                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                      : 'bg-gray-200 text-gray-500'
-                  }`}>
-                    3
-                  </div>
-                  <h3 className="font-semibold text-gray-900">Train Model</h3>
+                  {/* Step 2 */}
+                  <button
+                    onClick={() => setShowShareModal(true)}
+                    disabled={!annotationURL || !user?.email}
+                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
+                      annotationURL && user?.email
+                        ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
+                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                    }`}
+                  >
+                    <div className={`flex items-center gap-3 ${headerMargin}`}>
+                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
+                        annotationURL && user?.email
+                          ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                          : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        2
+                      </div>
+                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Collaborate</h3>
+                    </div>
+                    {!sessionActive && (
+                      <p className="text-sm text-gray-600">
+                        Share URL and annotate together
+                      </p>
+                    )}
+                  </button>
+
+                  {/* Step 3 */}
+                  <button
+                    onClick={() => setShowTrainingModal(true)}
+                    disabled={!dataArtifactId || !user?.email}
+                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
+                      dataArtifactId && user?.email
+                        ? 'border-blue-200/60 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-100 bg-gradient-to-br from-white to-blue-50/30'
+                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
+                    }`}
+                  >
+                    <div className={`flex items-center gap-3 ${headerMargin}`}>
+                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
+                        dataArtifactId && user?.email
+                          ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
+                          : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        3
+                      </div>
+                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Train Model</h3>
+                    </div>
+                    {!sessionActive && (
+                      <p className="text-sm text-gray-600">
+                        Train AI on your annotations
+                      </p>
+                    )}
+                  </button>
                 </div>
-                <p className="text-sm text-gray-600">
-                  Train AI on your annotations
-                </p>
-              </button>
+              </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Main Content Area */}
         <div className="max-w-7xl mx-auto h-[600px]" ref={servicesRef}>

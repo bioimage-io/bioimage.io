@@ -23,20 +23,20 @@ interface TutorialStep {
 }
 
 const STEPS: TutorialStep[] = [
-  { text: 'Welcome to the BioImage Annotation Tool! This tutorial will guide you through the interface. Click Next to continue.' },
-  { text: 'Move Tool (M) \u2014 Pan and zoom the image. Scroll to zoom in/out. Click and drag to pan.', highlightSelector: '[data-tool="move"]' },
-  { text: 'Select Tool (S) \u2014 Click to select a mask. Hold Shift to select multiple. Press Delete to remove selected masks.', highlightSelector: '[data-tool="select"]' },
-  { text: 'Draw Mask (D) \u2014 Click to place polygon vertices, double-click to close and finish the mask.', highlightSelector: '[data-tool="polygon"]' },
-  { text: 'AI Pre-Segmentation \u2014 Run Cellpose AI segmentation on the current image. Opens settings first so you can adjust parameters before running.', highlightSelector: '[data-tool="cellpose"]' },
-  { text: 'Cut Mask (C) \u2014 Draw a line across a mask to split it into two separate polygons.', highlightSelector: '[data-tool="cutter"]' },
-  { text: 'Eraser (E) \u2014 Draw a freehand area to subtract from existing masks.', highlightSelector: '[data-tool="eraser"]' },
-  { text: 'Expand Mask (A) \u2014 Draw a freehand area to add to an existing mask. The drawn area merges with the nearest intersecting mask.', highlightSelector: '[data-tool="expander"]' },
-  { text: 'Save Annotation \u2014 Upload masks to cloud storage and load the next image. If no annotations exist the image is skipped.', highlightSelector: '[data-tool="save"]' },
-  { text: 'Fit to Image \u2014 Reset the view to fit the entire image in the viewport.', highlightSelector: '[data-tool="fit"]' },
-  { text: 'Contrast Enhancement \u2014 Apply CLAHE contrast enhancement to help visualize dim features. Click again to restore the original image.', highlightSelector: '[data-tool="clahe"]' },
-  { text: 'Undo (Ctrl+Z) \u2014 Undo the last annotation action. Supports up to 10 undo steps.', highlightSelector: '[data-tool="undo"]' },
-  { text: 'Clear All \u2014 Remove all annotations from the current image. This can be undone with Ctrl+Z.', highlightSelector: '[data-tool="clear"]' },
-  { text: 'Filter Masks \u2014 Remove masks below a minimum area. Useful for eliminating small spurious detections.', highlightSelector: '[data-tool="filter"]' },
+  { text: 'Welcome to the BioImage Annotation Tool! This tutorial will guide you through the interface. Click Next to continue, or Skip to jump straight in.' },
+  { text: 'Move Tool (M): pan and zoom the image. Scroll to zoom in/out. Click and drag to pan.', highlightSelector: '[data-tool="move"]' },
+  { text: 'Select Tool (S): click a mask to select it. Hold Shift to select multiple. Press Delete to remove the selected masks.', highlightSelector: '[data-tool="select"]' },
+  { text: 'Draw Mask (D): click to place polygon vertices, double-click to close and finish the mask.', highlightSelector: '[data-tool="polygon"]' },
+  { text: 'AI Pre-Segmentation: run Cellpose AI segmentation on the current image. Settings open first so you can tune parameters before running.', highlightSelector: '[data-tool="cellpose"]' },
+  { text: 'Cut Mask (C): draw a line across a mask to split it into two separate polygons.', highlightSelector: '[data-tool="cutter"]' },
+  { text: 'Eraser (E): draw a freehand area to subtract from existing masks.', highlightSelector: '[data-tool="eraser"]' },
+  { text: 'Expand Mask (A): draw a freehand area to add to an existing mask. The drawn area merges with the nearest intersecting mask.', highlightSelector: '[data-tool="expander"]' },
+  { text: 'Save Annotation: upload masks to cloud storage and load the next image. If no annotations exist, the image is skipped.', highlightSelector: '[data-tool="save"]' },
+  { text: 'Fit to Image: reset the view to fit the entire image in the viewport.', highlightSelector: '[data-tool="fit"]' },
+  { text: 'Contrast Enhancement: apply CLAHE contrast enhancement to help visualize dim features. Click again to restore the original image.', highlightSelector: '[data-tool="clahe"]' },
+  { text: 'Undo (Ctrl+Z): undo the last annotation action. Supports up to 10 undo steps.', highlightSelector: '[data-tool="undo"]' },
+  { text: 'Clear All: remove all annotations from the current image. This can be undone with Ctrl+Z.', highlightSelector: '[data-tool="clear"]' },
+  { text: 'Filter Masks: remove masks below a minimum area. Useful for eliminating small spurious detections.', highlightSelector: '[data-tool="filter"]' },
   { text: "You're all set! Use the Help button anytime to revisit this tutorial. Happy annotating!" },
 ];
 
@@ -145,7 +145,13 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
             <Typography variant="caption" color="text.secondary">
               {step + 1} / {STEPS.length}
             </Typography>
-            <IconButton size="small" onClick={handleClose} sx={{ mr: -1, mt: -1 }}>
+            <IconButton
+              size="small"
+              onClick={handleClose}
+              title="Skip tutorial"
+              aria-label="Skip tutorial"
+              sx={{ mr: -1, mt: -1 }}
+            >
               <CloseIcon fontSize="small" />
             </IconButton>
           </Stack>
@@ -154,7 +160,7 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
             {STEPS[step].text}
           </Typography>
 
-          <Stack direction="row" justifyContent="space-between">
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Button
               onClick={handleBack}
               disabled={step === 0}
@@ -163,9 +169,21 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
             >
               Back
             </Button>
-            <Button onClick={handleNext} variant="contained" size="small">
-              {isLast ? 'Finish' : 'Next'}
-            </Button>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {!isLast && (
+                <Button
+                  onClick={handleClose}
+                  size="small"
+                  color="inherit"
+                  sx={{ textTransform: 'none' }}
+                >
+                  Skip tutorial
+                </Button>
+              )}
+              <Button onClick={handleNext} variant="contained" size="small">
+                {isLast ? 'Finish' : 'Next'}
+              </Button>
+            </Stack>
           </Stack>
         </Paper>
       </Box>
