@@ -161,39 +161,43 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               <PencilIcon className="w-5 h-5" />
               <span className="ml-1">Edit</span>
             </button>
-            {isStaged && (
-              <>
-                {isCollectionAdmin && onDelete ? (
-                  <button
-                    onClick={(e) => handleClick(e, onDelete)}
-                    className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
-                    title="Delete"
-                    disabled={isLoading}
-                  >
+            {/*
+              Direct Delete is only meaningful on staged artifacts: for those
+              with published versions it discards the staged changes, and for
+              fully-unpublished ones it removes the artifact. On published
+              artifacts even an admin lacks Hypha's creator-only `delete`
+              token, so the only achievable action is to flip the status to
+              `deletion-requested` for the reviewers.
+            */}
+            {isStaged && isCollectionAdmin && onDelete ? (
+              <button
+                onClick={(e) => handleClick(e, onDelete)}
+                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
+                title="Delete"
+                disabled={isLoading}
+              >
+                <TrashIcon className="w-5 h-5" />
+                <span className="ml-1">Delete</span>
+              </button>
+            ) : onRequestDeletion && status !== 'deletion-requested' && (
+              <button
+                onClick={(e) => handleClick(e, onRequestDeletion)}
+                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
+                title="Request Deletion"
+                disabled={deletionRequestLoading}
+              >
+                {deletionRequestLoading ? (
+                  <>
+                    <CircularProgress size={20} className="mr-2" />
+                    <span className="ml-1">Requesting...</span>
+                  </>
+                ) : (
+                  <>
                     <TrashIcon className="w-5 h-5" />
-                    <span className="ml-1">Delete</span>
-                  </button>
-                ) : onRequestDeletion && status !== 'deletion-requested' && (
-                  <button
-                    onClick={(e) => handleClick(e, onRequestDeletion)}
-                    className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
-                    title="Request Deletion"
-                    disabled={deletionRequestLoading}
-                  >
-                    {deletionRequestLoading ? (
-                      <>
-                        <CircularProgress size={20} className="mr-2" />
-                        <span className="ml-1">Requesting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrashIcon className="w-5 h-5" />
-                        <span className="ml-1">Delete</span>
-                      </>
-                    )}
-                  </button>
+                    <span className="ml-1">Request Deletion</span>
+                  </>
                 )}
-              </>
+              </button>
             )}
           </div>
           
