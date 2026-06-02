@@ -45,10 +45,25 @@ export interface ImageResult {
   url: string;
   name: string;
   cellpose_model?: string;
+  existing_geojson_url?: string | null;
+}
+
+export interface ImageInfo {
+  name: string;
+  stem: string;
+  source: 'local' | 'remote';
+  is_annotated: boolean;
+}
+
+export interface ImageNotFoundResult {
+  status: 'not_found';
+  message: string;
 }
 
 export interface AnnotationDataService {
   getImage: () => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
+  getImageByStem: (stem: string) => Promise<ImageResult | ImageNotFoundResult>;
+  listImages: () => Promise<ImageInfo[]>;
   getSaveUrls: (imageName: string) => Promise<SaveUrls>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
 }
@@ -291,6 +306,23 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             }
             console.log('[useHyphaService] Image Info:', result);
             return result as ImageResult;
+          },
+          getImageByStem: async (stem: string) => {
+            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label);
+            const result = await dataService.get_image_by_stem({
+              image_stem: stem,
+              label: config.label,
+              _rkwargs: true,
+            });
+            if (result && typeof result === 'object' && (result as any).status === 'not_found') {
+              console.warn('[useHyphaService] Image not found:', result);
+              return result as ImageNotFoundResult;
+            }
+            return result as ImageResult;
+          },
+          listImages: async () => {
+            const result = await dataService.list_images();
+            return (result || []) as ImageInfo[];
           },
           getSaveUrls: async (imageName: string) => {
             console.log('[useHyphaService] Getting save URLs for:', imageName);

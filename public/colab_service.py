@@ -523,6 +523,70 @@ class AnnotationSession:
             "cellpose_model": self._cellpose_model,
         }
 
+    async def get_image_by_stem(
+        self,
+        image_stem: str,
+        label: Optional[str] = None,
+        context=None,
+    ) -> dict:
+        """Return URL for a specific image plus any existing annotation GeoJSON.
+
+        Used when refining a previously-saved annotation: the call bypasses
+        the unannotated-image filter from :meth:`get_image` so the UI can
+        re-open an image even when every entry in the artifact is already
+        annotated.  Local-only images are uploaded on demand, mirroring the
+        behaviour of :meth:`get_image`.
+
+        Return dict shapes
+        ------------------
+        - ``{"url", "name", "existing_geojson_url"|None, "cellpose_model"}``  -- found
+        - ``{"status": "not_found", "message": ...}``                         -- missing stem
+        - ``{"status": "error", "message": ...}``                             -- upload failed
+        """
+        console.log(f"get_image_by_stem: stem={image_stem!r}, label={label!r}")
+        await self._ensure_artifact_exists()
+
+        registry = await self._build_registry()
+        if image_stem not in registry:
+            return {
+                "status": "not_found",
+                "message": f"Image '{image_stem}' not found in this session.",
+            }
+
+        info = registry[image_stem]
+        if info["source"] == "local":
+            remote = await self._list_remote_images()
+            already_remote = any(Path(f["name"]).stem == image_stem for f in remote)
+            if not already_remote:
+                if not await self._upload_image(info):
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Failed to upload image '{info['name']}'. "
+                            "Check console for details."
+                        ),
+                    }
+
+        url = await self._get_download_url(info["name"])
+
+        effective_label = label or self.label
+        existing_geojson_url: Optional[str] = None
+        try:
+            existing_geojson_url = await self.artifact_manager.get_file(
+                self.artifact_id,
+                file_path=f"masks_{effective_label}/{image_stem}.geojson",
+                stage=True,
+            )
+        except Exception:
+            existing_geojson_url = None
+
+        return {
+            "url": url,
+            "name": info["name"],
+            "existing_geojson_url": existing_geojson_url,
+            "cellpose_model": self._cellpose_model,
+        }
+
     async def upload_all_images(self, context=None) -> dict:
         """Upload all images from the local folder to the artifact.
 
@@ -841,6 +905,7 @@ async def register_service(
                     "require_context": True,
                 },
                 "get_image": session.get_image,
+                "get_image_by_stem": session.get_image_by_stem,
                 "upload_all_images": session.upload_all_images,
                 "upload_images_from_temp": session.upload_images_from_temp,
                 "get_save_urls": session.get_save_urls,
