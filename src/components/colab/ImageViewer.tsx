@@ -276,11 +276,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       if (hasMasks) {
         const maskFolder = label ? `masks_${label}` : 'annotations';
         const baseName = image.substring(0, image.lastIndexOf('.')) || image;
-        await artifactManager.remove_file({
-          artifact_id: dataArtifactId,
-          file_path: `${maskFolder}/${baseName}.png`,
-          _rkwargs: true
-        });
+        // Remove every annotator's mask + geojson for this stem. annotationsList
+        // entries may be either flat ("img.png") or per-user ("user-X/img.png").
+        const matching = annotationsList.filter(ann => stemOf(ann) === baseName);
+        await Promise.all(
+          matching.map(rel =>
+            artifactManager.remove_file({
+              artifact_id: dataArtifactId,
+              file_path: `${maskFolder}/${rel}`,
+              _rkwargs: true,
+            }).catch(() => {})
+          )
+        );
         setDeletedAnnotations(prev => { const next = new Set(prev); next.add(baseName); return next; });
       }
 
@@ -293,13 +300,26 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
+  // annotationsList entries may be either flat-layout filenames ("img.png")
+  // or per-user paths ("user-X/img.png"). Strip any leading subfolder and
+  // the extension before comparing to the image stem.
+  const stemOf = (annPath: string): string => {
+    const leaf = annPath.includes('/') ? annPath.substring(annPath.lastIndexOf('/') + 1) : annPath;
+    return leaf.substring(0, leaf.lastIndexOf('.')) || leaf;
+  };
+
   const isAnnotated = (imageName: string) => {
     const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
     if (deletedAnnotations.has(baseName)) return false;
-    return annotationsList.some(ann => {
-      const annBaseName = ann.substring(0, ann.lastIndexOf('.')) || ann;
-      return annBaseName === baseName;
-    });
+    return annotationsList.some(ann => stemOf(ann) === baseName);
+  };
+
+  // Return the relative-to-maskFolder path of the first annotation file that
+  // matches the given image stem, e.g. "user-X/img.png" or "img.png".
+  const findAnnotationRelPath = (imageName: string): string | null => {
+    const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
+    const hit = annotationsList.find(ann => stemOf(ann) === baseName && ann.endsWith('.png'));
+    return hit || null;
   };
 
   // Load image URLs when selected
@@ -367,7 +387,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
         if (annotated) {
           const maskFolder = label ? `masks_${label}` : 'annotations';
-          const annUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/${maskFolder}/${baseName}.png`;
+          const relPath = findAnnotationRelPath(selectedImage) || `${baseName}.png`;
+          const annUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/${maskFolder}/${relPath}`;
           setAnnotationUrl(annUrl);
         } else {
           setAnnotationUrl('');

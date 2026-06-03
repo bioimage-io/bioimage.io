@@ -156,6 +156,11 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       console.log('Starting training with artifact:', dataArtifactId);
 
       const maskFolder = label ? `masks_${label}` : 'annotations';
+      // Match both flat (legacy) and per-user (user-X/) layouts in one
+      // glob. cellpose-finetuning >= 0.1.0 accepts comma-separated
+      // patterns and walks recursively, so masks_{label}/user-X/{stem}.png
+      // gets picked up alongside the flat masks_{label}/{stem}.png.
+      const trainPattern = `${maskFolder}/*.png,${maskFolder}/*.geojson,${maskFolder}/*/*.png,${maskFolder}/*/*.geojson`;
 
       const hasTestSplit = splitInfo?.applied && splitInfo.testImages.length > 0;
 
@@ -163,7 +168,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         artifact: String(dataArtifactId),
         model: String(selectedModel),
         train_images: 'train_images/*.png',
-        train_annotations: `${maskFolder}/*.png`,
+        train_annotations: trainPattern,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
         weight_decay: Number(weightDecay),
@@ -176,8 +181,8 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       // Auto-set test data from split info; fall back to manual input
       const resolvedTestImages = hasTestSplit ? 'test_images/*.png' : testImages.trim();
       const resolvedTestAnnotations = hasTestSplit
-        ? `${maskFolder}/*.png`
-        : (testAnnotations.trim() || `${maskFolder}/*.png`);
+        ? trainPattern
+        : (testAnnotations.trim() || trainPattern);
 
       if (resolvedTestImages) {
         trainingParams.test_images = resolvedTestImages;

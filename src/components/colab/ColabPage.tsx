@@ -305,7 +305,9 @@ service_info = await register_service(
     label="${sessionLabel}",
     client_id="${clientId}",
     service_id="${serviceId}",
-    cellpose_model="${storedModelForResume}"
+    cellpose_model="${storedModelForResume}",
+    user_id="${user?.id || ''}",
+    user_email="${user?.email || ''}"
 )
 print("Service registered successfully", end='')
 `;
@@ -606,13 +608,51 @@ print("Service registered successfully", end='')
       setIsLoadingAnnotations(true);
       try {
         const dirPath = label ? `masks_${label}` : "annotations";
-        const files = await artifactManager.list_files({
+        const entries = await artifactManager.list_files({
             artifact_id: dataArtifactId,
             dir_path: dirPath,
-            _rkwargs: true
+            _rkwargs: true,
         });
-        const fileNames = files.map((f: any) => f.name).sort();
-        setAnnotationsList(fileNames);
+        // Per-user layout: top-level entries are user subfolders. Walk one
+        // level deep and concatenate every mask filename so the global
+        // is_annotated check sees a coverage list across all annotators.
+        // Legacy flat-layout files at the top level still work.
+        const collected: string[] = [];
+        const subdirs: string[] = [];
+        for (const entry of entries || []) {
+          const name = entry?.name || '';
+          if (!name) continue;
+          const isDir = entry?.type === 'directory' || entry?.is_dir === true ||
+            !(name.endsWith('.png') || name.endsWith('.geojson'));
+          if (isDir) {
+            subdirs.push(name);
+          } else {
+            collected.push(name);
+          }
+        }
+        // Fetch each subdir in parallel; preserve the subdir prefix so the
+        // ImageViewer can construct a working mask URL pointing into the
+        // per-user folder (and so the legacy flat-layout entries above
+        // still uniquely identify themselves by absence of a slash).
+        const subResults = await Promise.all(
+          subdirs.map(async (sub) => {
+            try {
+              const subFiles = await artifactManager.list_files({
+                artifact_id: dataArtifactId,
+                dir_path: `${dirPath}/${sub}`,
+                _rkwargs: true,
+              });
+              return (subFiles || [])
+                .map((f: any) => f?.name)
+                .filter(Boolean)
+                .map((n: string) => `${sub}/${n}`);
+            } catch {
+              return [];
+            }
+          })
+        );
+        for (const r of subResults) collected.push(...r);
+        setAnnotationsList(collected.sort());
       } catch (error: any) {
         const msg = (error?.message || String(error)).toLowerCase();
         if (!msg.includes('does not exist') && !msg.includes('not found') && !msg.includes('keyerror')) {

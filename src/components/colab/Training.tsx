@@ -456,11 +456,17 @@ const Training: React.FC<TrainingProps> = ({
         console.log(`Starting new training with model: ${selectedModel}`);
       }
 
+      // Match both flat (legacy) and per-user (user-X/) layouts in one
+      // glob. cellpose-finetuning >= 0.1.0 accepts comma-separated
+      // patterns and walks recursively, so masks_{label}/user-X/{stem}.png
+      // gets picked up alongside the flat masks_{label}/{stem}.png.
+      const trainPattern = `${maskFolder}/*.png,${maskFolder}/*.geojson,${maskFolder}/*/*.png,${maskFolder}/*/*.geojson`;
+
       const trainingParams: any = {
         artifact: String(artifactToUse),
         model: String(modelParam),
         train_images: 'train_images/*.png',
-        train_annotations: `${maskFolder}/*.png`,
+        train_annotations: trainPattern,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
         weight_decay: Number(weightDecay),
@@ -473,7 +479,7 @@ const Training: React.FC<TrainingProps> = ({
       // Add optional test data parameters
       if (testImages.trim()) {
         trainingParams.test_images = testImages.trim();
-        trainingParams.test_annotations = testAnnotations.trim() || `${maskFolder}/*.png`;
+        trainingParams.test_annotations = testAnnotations.trim() || trainPattern;
       }
 
       // Add validation interval

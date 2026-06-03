@@ -52,7 +52,10 @@ export interface ImageInfo {
   name: string;
   stem: string;
   source: 'local' | 'remote';
+  /** Whether the *current annotator* has saved both PNG + GeoJSON for this image. */
   is_annotated: boolean;
+  /** Whether *any* annotator has saved this image (used for global progress). */
+  annotated_by_any?: boolean;
 }
 
 export interface ImageNotFoundResult {
@@ -267,6 +270,30 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = server;
         console.log('[useHyphaService] Connected to workspace:', server.config.workspace);
 
+        // Derive a stable per-annotator id. Logged-in users get their Hypha
+        // user id (workspace shape ws-user-<id>). Anonymous booth visitors
+        // get a localStorage-backed uuid that persists across reloads on
+        // the same browser, so their per-user mask folder stays consistent.
+        const workspaceName: string = server.config?.workspace || '';
+        let resolvedUserId = '';
+        if (workspaceName.startsWith('ws-user-')) {
+          resolvedUserId = workspaceName.substring('ws-user-'.length);
+        } else {
+          try {
+            const stored = window.localStorage.getItem('bioimage_annot_anon_id');
+            if (stored) {
+              resolvedUserId = stored;
+            } else {
+              const fresh = 'anon-' + Math.random().toString(36).slice(2, 12);
+              window.localStorage.setItem('bioimage_annot_anon_id', fresh);
+              resolvedUserId = fresh;
+            }
+          } catch {
+            resolvedUserId = 'anon-' + Math.random().toString(36).slice(2, 12);
+          }
+        }
+        console.log('[useHyphaService] Resolved annotator user_id:', resolvedUserId);
+
         const dataService = await server.getService(config.imageProviderId);
         if (cancelled) return;
         console.log('[useHyphaService] Got data service:', dataService);
@@ -285,7 +312,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
         const wrappedService: AnnotationDataService = {
           getImage: async () => {
-            const result = await dataService.get_image();
+            const result = await dataService.get_image({
+              user_id: resolvedUserId,
+              _rkwargs: true,
+            });
             // Service returns a dict with status field for terminal states
             if (result && typeof result === 'object') {
               const status = (result as any).status;
@@ -308,10 +338,11 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             return result as ImageResult;
           },
           getImageByStem: async (stem: string) => {
-            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label);
+            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label, 'user:', resolvedUserId);
             const result = await dataService.get_image_by_stem({
               image_stem: stem,
               label: config.label,
+              user_id: resolvedUserId,
               _rkwargs: true,
             });
             if (result && typeof result === 'object' && (result as any).status === 'not_found') {
@@ -321,12 +352,20 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             return result as ImageResult;
           },
           listImages: async () => {
-            const result = await dataService.list_images();
+            const result = await dataService.list_images({
+              user_id: resolvedUserId,
+              _rkwargs: true,
+            });
             return (result || []) as ImageInfo[];
           },
           getSaveUrls: async (imageName: string) => {
-            console.log('[useHyphaService] Getting save URLs for:', imageName);
-            const urls = await dataService.get_save_urls(imageName);
+            console.log('[useHyphaService] Getting save URLs for:', imageName, 'user:', resolvedUserId);
+            const urls = await dataService.get_save_urls({
+              image_name: imageName,
+              label: config.label,
+              user_id: resolvedUserId,
+              _rkwargs: true,
+            });
             return urls as SaveUrls;
           },
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {

@@ -32,9 +32,23 @@ remotely and locally, the remote entry is used.
 
 Annotation status
 -----------------
-An image is considered **annotated** only when **both** the mask PNG
-(``masks_{label}/{stem}.png``) **and** the GeoJSON
-(``masks_{label}/{stem}.geojson``) are present in the artifact.
+Masks are stored under per-user subfolders to preserve every annotator's
+contribution at the ELMI 2026 booth and in any future multi-annotator
+session:
+
+    masks_{label}/user-{user_id}/{stem}.png
+    masks_{label}/user-{user_id}/{stem}.geojson
+
+An image is **annotated for a given user** when **both** the PNG and the
+GeoJSON exist under that user's subfolder. The any-user check (used for
+the global progress meter) recursively walks every subfolder under
+``masks_{label}/`` and also accepts the legacy flat layout
+``masks_{label}/{stem}.png`` for backwards compatibility.
+
+The trainer (``bioimage-io/cellpose-finetuning`` >= 0.1.0) accepts the
+per-user layout and treats each (image, mask) pair as a separate
+training example, so multiple annotators on the same image multiply the
+training data instead of overwriting each other.
 
 Supported image formats
 -----------------------
@@ -374,22 +388,111 @@ class AnnotationSession:
 
         return registry
 
-    async def _get_annotated_stems(self) -> Set[str]:
-        """Return stems where **both** mask PNG and GeoJSON are present."""
+    @staticmethod
+    def _user_folder(user_id: Optional[str]) -> str:
+        """Return the subfolder name for a user.
+
+        Strips path-unsafe characters (``|``, ``/``, whitespace) so the
+        folder name is valid in artifact storage. ``github|49943582`` is a
+        common Hypha user id shape and is normalised to
+        ``github-49943582``.
+        """
+        raw = (user_id or "anonymous").strip()
+        if not raw:
+            raw = "anonymous"
+        safe = "".join(
+            c if c.isalnum() or c in "-_." else "-"
+            for c in raw
+        )
+        return f"user-{safe}"
+
+    async def _list_files_safe(self, dir_path: str) -> List[dict]:
+        """``list_files`` wrapper that returns ``[]`` on any error."""
         try:
             files = await self.artifact_manager.list_files(
-                self.artifact_id,
-                dir_path=f"masks_{self.label}",
-                stage=True,
+                self.artifact_id, dir_path=dir_path, stage=True
             )
-            if not files:
-                return set()
-            names = [f["name"] for f in files]
-            png_stems = {Path(n).stem for n in names if n.endswith(".png")}
-            geojson_stems = {Path(n).stem for n in names if n.endswith(".geojson")}
-            return png_stems & geojson_stems  # annotated = BOTH files present
+            return files or []
         except Exception:
+            return []
+
+    @staticmethod
+    def _is_directory_entry(entry: dict) -> bool:
+        """Best-effort directory check across artifact-manager variants.
+
+        Hypha exposes the entry type as ``type`` (``"directory"``) on some
+        backends and as ``is_dir`` on others; we accept either.
+        """
+        if entry.get("type") == "directory":
+            return True
+        if entry.get("is_dir") is True:
+            return True
+        return False
+
+    async def _get_annotated_stems_for_user(self, user_id: Optional[str]) -> Set[str]:
+        """Return stems annotated by ``user_id`` (PNG + GeoJSON both present).
+
+        Looks in ``masks_{label}/user-{user_id}/`` only. If the user has
+        never annotated, returns an empty set.
+        """
+        folder = self._user_folder(user_id)
+        files = await self._list_files_safe(f"masks_{self.label}/{folder}")
+        if not files:
             return set()
+        names = [f.get("name", "") for f in files]
+        png_stems = {Path(n).stem for n in names if n.endswith(".png")}
+        geojson_stems = {Path(n).stem for n in names if n.endswith(".geojson")}
+        return png_stems & geojson_stems
+
+    async def _get_any_user_annotated_stems(self) -> Set[str]:
+        """Return stems annotated by anyone, across all per-user subfolders
+        and the legacy flat layout.
+
+        Used for the global progress meter so the presenter can see overall
+        annotation coverage independent of who annotated each image.
+        """
+        entries = await self._list_files_safe(f"masks_{self.label}")
+        if not entries:
+            return set()
+
+        all_pngs: Set[str] = set()
+        all_geojsons: Set[str] = set()
+
+        for entry in entries:
+            name = entry.get("name", "")
+            if not name:
+                continue
+            if self._is_directory_entry(entry) or not (
+                name.endswith(".png") or name.endswith(".geojson")
+            ):
+                # Subfolder: list its files
+                sub_files = await self._list_files_safe(
+                    f"masks_{self.label}/{name}"
+                )
+                for sf in sub_files:
+                    sn = sf.get("name", "")
+                    if sn.endswith(".png"):
+                        all_pngs.add(Path(sn).stem)
+                    elif sn.endswith(".geojson"):
+                        all_geojsons.add(Path(sn).stem)
+            else:
+                # Legacy flat layout: file directly under masks_{label}/
+                if name.endswith(".png"):
+                    all_pngs.add(Path(name).stem)
+                elif name.endswith(".geojson"):
+                    all_geojsons.add(Path(name).stem)
+
+        return all_pngs & all_geojsons
+
+    async def _get_annotated_stems(self, user_id: Optional[str] = None) -> Set[str]:
+        """Return annotated stems.
+
+        With ``user_id``: only stems annotated by that user (per-user view).
+        Without ``user_id``: stems annotated by anyone (any-user view).
+        """
+        if user_id is not None:
+            return await self._get_annotated_stems_for_user(user_id)
+        return await self._get_any_user_annotated_stems()
 
     async def _upload_image(self, info: dict) -> bool:
         """Upload one local image to ``train_images/`` in the artifact.
@@ -447,20 +550,26 @@ class AnnotationSession:
         self._cellpose_model = model
         return True
 
-    async def get_image(self, context=None) -> dict:
-        """Return a presigned download URL for the next unannotated image.
+    async def get_image(self, user_id: Optional[str] = None, context=None) -> dict:
+        """Return a presigned download URL for the next image this user has
+        not yet annotated.
 
         Ensures the artifact exists first (lazy creation).  If the chosen
-        image is only available locally it is uploaded on demand.
+        image is only available locally it is uploaded on demand.  Per-user
+        ``is_annotated`` means an image is "done" only when the caller's
+        own ``masks_{label}/user-{user_id}/`` folder contains both the PNG
+        and the GeoJSON for that stem — other annotators' contributions do
+        not block this user from also annotating the same image.
 
         Return dict shapes
         ------------------
         - ``{"url": ..., "name": ..., "cellpose_model": ...}``  — normal case
         - ``{"status": "no_images", "message": ...}``           — nothing available
-        - ``{"status": "all_annotated", ...}``                  — all done
+        - ``{"status": "all_annotated", ...}``                  — all done for this user
         - ``{"status": "error", "message": ...}``               — upload failed
         """
-        console.log("get_image called")
+        effective_user = user_id or self.user_id
+        console.log(f"get_image called (user={effective_user!r})")
         await self._ensure_artifact_exists()
 
         registry = await self._build_registry()
@@ -474,11 +583,11 @@ class AnnotationSession:
                 ),
             }
 
-        annotated = await self._get_annotated_stems()
+        annotated = await self._get_annotated_stems(effective_user)
         unannotated = {s: v for s, v in registry.items() if s not in annotated}
         console.log(
-            f"Registry: {len(registry)} total, {len(annotated)} annotated, "
-            f"{len(unannotated)} remaining"
+            f"Registry: {len(registry)} total, {len(annotated)} annotated by "
+            f"{effective_user!r}, {len(unannotated)} remaining"
         )
 
         if not unannotated:
@@ -527,15 +636,21 @@ class AnnotationSession:
         self,
         image_stem: str,
         label: Optional[str] = None,
+        user_id: Optional[str] = None,
         context=None,
     ) -> dict:
-        """Return URL for a specific image plus any existing annotation GeoJSON.
+        """Return URL for a specific image plus the caller's existing GeoJSON
+        for it, if any.
 
         Used when refining a previously-saved annotation: the call bypasses
         the unannotated-image filter from :meth:`get_image` so the UI can
         re-open an image even when every entry in the artifact is already
-        annotated.  Local-only images are uploaded on demand, mirroring the
-        behaviour of :meth:`get_image`.
+        annotated by this user. Local-only images are uploaded on demand,
+        mirroring the behaviour of :meth:`get_image`.
+
+        ``existing_geojson_url`` is fetched from the caller's per-user
+        subfolder. If the caller has not annotated this stem before, the
+        URL is ``None`` and the user starts from a blank canvas.
 
         Return dict shapes
         ------------------
@@ -543,7 +658,11 @@ class AnnotationSession:
         - ``{"status": "not_found", "message": ...}``                         -- missing stem
         - ``{"status": "error", "message": ...}``                             -- upload failed
         """
-        console.log(f"get_image_by_stem: stem={image_stem!r}, label={label!r}")
+        effective_user = user_id or self.user_id
+        console.log(
+            f"get_image_by_stem: stem={image_stem!r}, label={label!r}, "
+            f"user={effective_user!r}"
+        )
         await self._ensure_artifact_exists()
 
         registry = await self._build_registry()
@@ -570,11 +689,12 @@ class AnnotationSession:
         url = await self._get_download_url(info["name"])
 
         effective_label = label or self.label
+        folder = self._user_folder(effective_user)
         existing_geojson_url: Optional[str] = None
         try:
             existing_geojson_url = await self.artifact_manager.get_file(
                 self.artifact_id,
-                file_path=f"masks_{effective_label}/{image_stem}.geojson",
+                file_path=f"masks_{effective_label}/{folder}/{image_stem}.geojson",
                 stage=True,
             )
         except Exception:
@@ -699,40 +819,64 @@ class AnnotationSession:
 
         return {"total": total, "success": success, "failed": failed, "errors": errors}
 
-    async def get_save_urls(self, image_name: str, label: str = None, context=None) -> dict:
-        """Return presigned PUT URLs for saving annotation files.
+    async def get_save_urls(
+        self,
+        image_name: str,
+        label: Optional[str] = None,
+        user_id: Optional[str] = None,
+        context=None,
+    ) -> dict:
+        """Return presigned PUT URLs for saving annotation files into the
+        caller's per-user subfolder.
 
-        ``label`` overrides the session label when provided (allows the
-        annotation UI to specify which label it is saving for).
+        ``label`` overrides the session label when provided. ``user_id``
+        identifies the annotator (browser anonymous id or Hypha user id);
+        falls back to the session owner's id.
 
         Returns ``{"png_url": ..., "geojson_url": ..., "image_stem": ...}``
         """
         effective_label = label if label else self.label
+        effective_user = user_id or self.user_id
+        folder = self._user_folder(effective_user)
         stem = Path(image_name).stem
-        console.log(f"get_save_urls for {stem}, label={effective_label!r}")
+        console.log(
+            f"get_save_urls for {stem}, label={effective_label!r}, "
+            f"user={effective_user!r} -> {folder}/"
+        )
         await self._ensure_artifact_exists()
         png_url = await self.artifact_manager.put_file(
-            self.artifact_id, file_path=f"masks_{effective_label}/{stem}.png"
+            self.artifact_id,
+            file_path=f"masks_{effective_label}/{folder}/{stem}.png",
         )
         geojson_url = await self.artifact_manager.put_file(
-            self.artifact_id, file_path=f"masks_{effective_label}/{stem}.geojson"
+            self.artifact_id,
+            file_path=f"masks_{effective_label}/{folder}/{stem}.geojson",
         )
         return {"png_url": png_url, "geojson_url": geojson_url, "image_stem": stem}
 
-    async def list_images(self, context=None) -> List[dict]:
-        """List all images with their annotation status.
+    async def list_images(
+        self,
+        user_id: Optional[str] = None,
+        context=None,
+    ) -> List[dict]:
+        """List all images with both per-user and any-user annotation status.
 
-        Returns a list of dicts: ``name``, ``stem``, ``source``,
-        ``is_annotated``.
+        ``is_annotated`` reflects the caller's own contribution (true if
+        this user annotated the stem). ``annotated_by_any`` reflects
+        whether any user has annotated the stem (used by the global
+        progress meter).
         """
+        effective_user = user_id or self.user_id
         registry = await self._build_registry()
-        annotated = await self._get_annotated_stems()
+        per_user = await self._get_annotated_stems(effective_user)
+        any_user = await self._get_any_user_annotated_stems()
         return [
             {
                 "name": info["name"],
                 "stem": stem,
                 "source": info["source"],
-                "is_annotated": stem in annotated,
+                "is_annotated": stem in per_user,
+                "annotated_by_any": stem in any_user,
             }
             for stem, info in sorted(registry.items())
         ]
