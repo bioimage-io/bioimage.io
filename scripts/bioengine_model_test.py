@@ -248,9 +248,19 @@ def analyze_existing_test_reports(reports_dir: Path) -> None:
             elif status == "service-error":
                 error += 1
 
-            report_runner_version = test_report.get("runner_version")
-            if report_runner_version:
-                runner_versions.add(str(report_runner_version))
+            # The runner records its own artifact version inside test_report["env"]
+            # as a row ["bioimage-io/model-runner", "<version>", "", ""], alongside
+            # rows for bioimageio.core, bioimageio.spec, and bioengine. Rows added
+            # before the runner started stamping itself do not contain that name.
+            for row in test_report.get("env", []) or []:
+                if (
+                    isinstance(row, (list, tuple))
+                    and len(row) >= 2
+                    and row[0] == "bioimage-io/model-runner"
+                    and row[1]
+                ):
+                    runner_versions.add(str(row[1]))
+                    break
 
         except Exception as e:
             print(f"Error processing {json_file}: {e}", file=sys.stderr)
