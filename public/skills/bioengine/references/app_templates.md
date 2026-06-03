@@ -354,6 +354,15 @@ class RuntimeC:
 
 ## Frontend UI template
 
+This template matches the bioimage.io front-end convention: a fixed
+**top-right Login / profile widget** instead of an inline "Connect"
+button, a localStorage-cached token so reloads keep the session, and a
+defensive CSS guard so the Login button actually disappears once the
+user is signed in. Drop the `<style>` block, `<div id="topbar">`, and
+the `<script>` body into any BioEngine app frontend and fill in the
+service-specific cards (image picker, instruction input, result panel,
+etc.) between them.
+
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -362,67 +371,221 @@ class RuntimeC:
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>My BioEngine App</title>
   <style>
-    body { font-family: system-ui; background: #0f172a; color: #e2e8f0;
-           min-height: 100vh; display: flex; flex-direction: column;
-           align-items: center; padding: 2rem 1rem; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* The user-agent rule `[hidden] { display: none }` loses to any class
+       that sets `display: inline-flex` (e.g. .topbar-btn). Force-override
+       so JS `el.hidden = true` actually hides those elements. */
+    [hidden] { display: none !important; }
+    body { font-family: system-ui, -apple-system, sans-serif;
+           background: #0f172a; color: #e2e8f0; min-height: 100vh;
+           display: flex; flex-direction: column; align-items: center;
+           padding: 2rem 1rem; }
+
+    /* Top-right login / profile widget. */
+    #topbar { position: fixed; top: 1rem; right: 1rem; z-index: 50;
+              display: flex; align-items: center; gap: 0.5rem; }
+    .topbar-btn { display: inline-flex; align-items: center; gap: 0.4rem;
+                  background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+                  border-radius: 0.5rem; padding: 0.45rem 0.9rem;
+                  font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+    .topbar-btn:hover { background: #334155; }
+    .topbar-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .topbar-btn svg { width: 1.1rem; height: 1.1rem; flex-shrink: 0; }
+    .topbar-iconbtn { background: #1e293b; border: 1px solid #334155; border-radius: 999px;
+                      width: 2.25rem; height: 2.25rem; display: inline-flex;
+                      align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+    .topbar-iconbtn:hover { background: #334155; }
+    .topbar-iconbtn svg { width: 1.4rem; height: 1.4rem; color: #cbd5e1; }
+    #userMenu { position: absolute; top: 2.6rem; right: 0; min-width: 16rem;
+                background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
+                padding: 0.4rem 0; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
+    #userMenu .item { display: block; padding: 0.5rem 0.9rem; color: #e2e8f0;
+                      font-size: 0.85rem; background: none; border: 0; width: 100%;
+                      text-align: left; cursor: pointer; }
+    #userMenu .item:hover { background: #0f172a; }
+    #userMenu .info { padding: 0.45rem 0.9rem; border-bottom: 1px solid #334155;
+                      font-size: 0.78rem; color: #94a3b8; word-break: break-all; }
+    #userMenu .info strong { color: #e2e8f0; font-weight: 600; }
+
     .card { background: #1e293b; border: 1px solid #334155; border-radius: .75rem;
             padding: 1.5rem; width: 100%; max-width: 640px; margin-bottom: 1rem; }
-    button { background: #0284c7; color: #fff; border: none; border-radius: .5rem;
-             padding: .5rem 1.25rem; cursor: pointer; font-weight: 600; }
-    button:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
-    pre { background: #0f172a; border-radius: .5rem; padding: 1rem;
-          font-size: .8rem; white-space: pre-wrap; min-height: 3rem;
-          color: #94a3b8; overflow-y: auto; max-height: 16rem; }
   </style>
 </head>
 <body>
-<div class="card">
-  <h2>My BioEngine App</h2>
-  <button id="connectBtn" onclick="connect()">Connect</button>
-  <p id="status">Not connected</p>
+
+<!-- Top-right login / profile widget. Both children start hidden in HTML;
+     the boot script reveals exactly one (or neither, during auto-connect)
+     so the Login button never flashes when a cached token is still valid. -->
+<div id="topbar">
+  <!-- Logged-out: Login button -->
+  <button id="loginBtn" class="topbar-btn" type="button" aria-label="Sign in to Hypha" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+      <polyline points="10 17 15 12 10 7"/>
+      <line x1="15" y1="12" x2="3" y2="12"/>
+    </svg>
+    <span>Login</span>
+  </button>
+
+  <!-- Logged-in: user-circle icon + dropdown -->
+  <div id="userWrap" style="position: relative;" hidden>
+    <button id="userBtn" class="topbar-iconbtn" type="button" aria-label="Account menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="10" r="3.4"/>
+        <path d="M5.5 19a7 7 0 0 1 13 0"/>
+      </svg>
+    </button>
+    <div id="userMenu" hidden>
+      <div class="info">
+        <div><strong id="userEmail">…</strong></div>
+        <div>workspace <strong id="userWs">…</strong></div>
+      </div>
+      <button class="item" id="logoutBtn" type="button">Sign out</button>
+    </div>
+  </div>
 </div>
+
+<!-- App-specific UI goes here, e.g. <div class="card">…</div>. The qcSvc
+     handle is wired in connectWithToken() below; gate any RPC-driven UI
+     on `!!svc` (or your equivalent) to keep it disabled until login. -->
 <div class="card">
-  <button id="pingBtn" onclick="callPing()" disabled>Ping</button>
-  <pre id="result">—</pre>
+  <h2 style="margin-bottom:.75rem">My BioEngine App</h2>
+  <p id="appStatus">Sign in (top right) to start calling the service.</p>
 </div>
 
 <script type="module">
-import { connectToServer }
+import { login, connectToServer }
   from "https://cdn.jsdelivr.net/npm/hypha-rpc@0.20.54/dist/hypha-rpc-websocket.mjs";
 
-const p          = new URLSearchParams(window.location.search);
-const SERVER_URL = p.get("server")        || "https://hypha.aicell.io";
-const SERVICE_ID = p.get("ws_service_id") || "";
+// URL params:
+//   ?server=<hypha-server>              — Hypha base URL (default aicell.io)
+//   ?ws_service_id=<full-service-id>    — pinned target service id
+//   ?token=<hypha-token>                — TESTING-ONLY auto-connect bypass.
+//                                          Tokens land in browser history;
+//                                          do not paste production tokens.
+const params     = new URLSearchParams(window.location.search);
+const SERVER_URL = params.get("server")        || "https://hypha.aicell.io";
+const SERVICE_ID = params.get("ws_service_id") || "";
+const URL_TOKEN  = params.get("token")          || "";
 
-let svc = null;
+// Token cache (mirrors bioimage.io's LoginButton: 3 h TTL).
+const TOKEN_KEY    = "my-app:token";           // ← change per-app
+const TOKEN_EXPIRY = "my-app:tokenExpiry";
+const TOKEN_TTL_MS = 3 * 60 * 60 * 1000;
 
-window.connect = async () => {
-  document.getElementById("status").textContent = "Connecting…";
+let server = null, svc = null, userWorkspace = null, userEmail = null;
+const $ = id => document.getElementById(id);
+
+function loadSavedToken() {
   try {
-    const server = await connectToServer({ server_url: SERVER_URL });
-    svc = await server.getService(SERVICE_ID, { _rkwargs: true });
-    document.getElementById("status").textContent = "Connected ✓";
-    document.getElementById("pingBtn").disabled = false;
-  } catch (e) {
-    document.getElementById("status").textContent = "Error: " + e.message;
-  }
-};
-
-window.callPing = async () => {
-  document.getElementById("result").textContent = "Loading…";
+    const t = localStorage.getItem(TOKEN_KEY);
+    const e = localStorage.getItem(TOKEN_EXPIRY);
+    if (t && e && new Date(e) > new Date()) return t;
+  } catch (_) {}
+  return null;
+}
+function saveToken(t) {
   try {
-    const r = await svc.ping({ _rkwargs: true });
-    document.getElementById("result").textContent = JSON.stringify(r, null, 2);
-  } catch (e) {
-    document.getElementById("result").textContent = "Error: " + e.message;
+    localStorage.setItem(TOKEN_KEY, t);
+    localStorage.setItem(TOKEN_EXPIRY, new Date(Date.now() + TOKEN_TTL_MS).toISOString());
+  } catch (_) {}
+}
+function clearSavedToken() {
+  try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(TOKEN_EXPIRY); } catch (_) {}
+}
+
+function setLoggedOutUI() {
+  $("loginBtn").hidden = false;
+  $("loginBtn").disabled = false;
+  $("userWrap").hidden = true;
+  $("userMenu").hidden = true;
+}
+function setLoggingInUI()  { $("loginBtn").disabled = true; }
+function setLoggedInUI() {
+  $("loginBtn").hidden = true;
+  $("userWrap").hidden = false;
+  $("userEmail").textContent = userEmail || "(unknown)";
+  $("userWs").textContent    = userWorkspace || "—";
+}
+
+$("userBtn").addEventListener("click", () => {
+  $("userMenu").hidden = !$("userMenu").hidden;
+});
+document.addEventListener("mousedown", (e) => {
+  if (!$("userMenu").hidden && !$("userMenu").contains(e.target)
+      && !$("userBtn").contains(e.target)) {
+    $("userMenu").hidden = true;
   }
-};
+});
+
+async function connectWithToken(token) {
+  setLoggingInUI();
+  server = await connectToServer({ server_url: SERVER_URL, token });
+  userWorkspace = server.config.workspace;
+  userEmail = (server.config.user && server.config.user.email) || userWorkspace;
+  setLoggedInUI();
+  // Replace this block with your app's service resolution + UI enable.
+  if (SERVICE_ID) svc = await server.getService(SERVICE_ID, { _rkwargs: true });
+}
+
+$("loginBtn").addEventListener("click", async () => {
+  setLoggingInUI();
+  try {
+    const token = await login({
+      server_url: SERVER_URL,
+      // Open the Hypha login URL in a new tab. window.open is OK here
+      // because we're inside a real user-gesture (the click handler).
+      login_callback: (ctx) => { window.open(ctx.login_url); },
+    });
+    saveToken(token);
+    await connectWithToken(token);
+  } catch (err) {
+    console.error(err);
+    setLoggedOutUI();
+  }
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+  clearSavedToken();
+  svc = null; userWorkspace = null; userEmail = null;
+  try { if (server?.disconnect) await server.disconnect(); } catch (_) {}
+  server = null;
+  setLoggedOutUI();
+});
+
+// Boot: prefer URL token (testing), else cached token, else stay logged out.
+// When a token is available, leave BOTH topbar buttons hidden until the
+// WebSocket connect resolves — that way the Login button never flashes
+// during the cached-token auto-reconnect.
+(async () => {
+  const cached = URL_TOKEN || loadSavedToken();
+  if (!cached) { setLoggedOutUI(); return; }
+  try {
+    await connectWithToken(cached);
+  } catch (err) {
+    if (!URL_TOKEN) clearSavedToken();
+    setLoggedOutUI();
+  }
+})();
 </script>
 </body>
 </html>
 ```
 
+**Why each piece is there:**
+
+- **`[hidden] { display: none !important }`** — the user-agent `[hidden] { display: none }` rule loses to any class that sets `display: inline-flex` (e.g. `.topbar-btn`). Without this override, setting `el.hidden = true` in JS flips the attribute but the element keeps rendering. Easy to miss; ship the override every time.
+- **Both topbar buttons start `hidden` in HTML, JS reveals one synchronously on boot.** Otherwise the Login button visibly flashes for the duration of the WebSocket connect when a returning user reloads the page.
+- **`login_callback: (ctx) => window.open(ctx.login_url)`** — `window.open` succeeds here because we're inside the click handler's user-gesture context. Don't await the URL and then open — by then the gesture has expired and the popup is blocked.
+- **localStorage cache with 3 h TTL** — mirrors `bioimage.io`'s `LoginButton` so users move between apps without re-authenticating.
+- **`?token=` URL param** — testing-only path. Documented in the source as such because tokens in URLs are visible in browser history.
+- **`{ _rkwargs: true }` on every `getService(...)` and RPC call** — required in JavaScript; not needed in Python.
+
 **Key points:**
-- Import `connectToServer` from CDN — no npm needed.
-- `server_url` and `ws_service_id` come from URL query params injected by BioEngine.
-- Always pass `{ _rkwargs: true }` to service calls in **JavaScript**. Not needed in Python.
+- Import `login` and `connectToServer` from the same CDN module — no npm needed.
+- `server_url` and `ws_service_id` come from URL query params injected by BioEngine when the page is served via the artifact's `static_site_url`.
+- `frontend_entry: "frontend/index.html"` in `manifest.yaml` is what causes BioEngine to populate `static_site_url` and the dashboard's "Open UI" button. The artifact's `view_config` (`root_directory: "frontend"`, `index: "index.html"`) is configured automatically by `upload_app`.
+- Change `TOKEN_KEY` / `TOKEN_EXPIRY` constants per app so apps share a Hypha session origin but keep separate localStorage entries.
