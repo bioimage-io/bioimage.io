@@ -10,6 +10,7 @@ import TrainingModal from './TrainingModal';
 import ImageViewer, { SplitInfo } from './ImageViewer';
 import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
+import LoginButton from '../LoginButton';
 
 const ColabPageContent: React.FC = () => {
   const navigate = useNavigate();
@@ -43,6 +44,7 @@ const ColabPageContent: React.FC = () => {
   const [sessionName, setSessionName] = useState<string>('');
   const [dataSourceType, setDataSourceType] = useState<'local' | 'upload' | 'resume'>('upload');
   const [showSessionModal, setShowSessionModal] = useState(false);
+  const [showLoginRequiredDialog, setShowLoginRequiredDialog] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
@@ -656,7 +658,7 @@ print("Service registered successfully", end='')
 
   const createAnnotationSession = () => {
     if (!user?.email) {
-      alert('Please login first');
+      setShowLoginRequiredDialog(true);
       return;
     }
     // Kick off the Python kernel boot (idempotent — no-op if already running)
@@ -666,6 +668,16 @@ print("Service registered successfully", end='')
     requestKernel();
     setShowSessionModal(true);
   };
+
+  // Once the user logs in (via the dialog or the navbar), close the
+  // login-required dialog and continue into the session-modal flow.
+  useEffect(() => {
+    if (user?.email && showLoginRequiredDialog) {
+      setShowLoginRequiredDialog(false);
+      requestKernel();
+      setShowSessionModal(true);
+    }
+  }, [user?.email, showLoginRequiredDialog, requestKernel]);
 
   const handleDeleteSuccess = () => {
     setDataArtifactId(null);
@@ -741,9 +753,6 @@ print("Service registered successfully", end='')
     ? Math.round((annotationsList.length / imageList.length) * 100)
     : 0;
 
-  // Check if we're loading a session from URL
-  const isLoadingSession = sessionId && (!isReady || !user?.email || !artifactManager);
-
   if (isTrainingRoute) {
     return (
       <Routes>
@@ -798,52 +807,8 @@ print("Service registered successfully", end='')
           </div>
         </div>
 
-        {/* Loading Session Overlay */}
-        {isLoadingSession && (
-          <div className="max-w-3xl mx-auto mb-6">
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200/60 rounded-xl p-6 shadow-md">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-purple-900 mb-2">Loading Session...</h3>
-                  <p className="text-sm text-gray-700 mb-3">
-                    Session ID: <code className="bg-white/60 px-2 py-0.5 rounded text-xs font-mono">{sessionId}</code>
-                  </p>
-                  <div className="space-y-1.5 text-sm">
-                    <div className="flex items-center gap-2">
-                      {kernelStatus === 'idle' ? (
-                        <span className="text-emerald-600">✓ Python kernel ready</span>
-                      ) : kernelStatus === 'starting' ? (
-                        <span className="text-blue-600">⏳ Starting Python kernel...</span>
-                      ) : (
-                        <span className="text-gray-600">○ Python kernel</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {user?.email ? (
-                        <span className="text-emerald-600">✓ User logged in</span>
-                      ) : (
-                        <span className="text-amber-600">⏳ Please log in...</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {artifactManager ? (
-                        <span className="text-emerald-600">✓ Artifact manager connected</span>
-                      ) : (
-                        <span className="text-blue-600">⏳ Connecting to server...</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Login Info - Vibrant */}
-        {!user?.email && !isLoadingSession && (
+        {!user?.email && (
           <div className="max-w-3xl mx-auto mb-6">
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 rounded-xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
@@ -876,24 +841,16 @@ print("Service registered successfully", end='')
             <div className={`max-w-4xl mx-auto ${containerMargin}`}>
               <div className={`bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md ${containerPad}`}>
                 <div className="grid grid-cols-3 gap-4">
-                  {/* Step 1 — only gated on login. The Python kernel is booted
-                      on click (idempotent) and the modal surfaces its progress,
-                      so the user is never blocked from opening the dialog. */}
+                  {/* Step 1 - always clickable. When logged out, clicking shows
+                      the login dialog instead of the session modal. The Python
+                      kernel boots in the background as soon as the user logs in
+                      and the modal opens. */}
                   <button
                     onClick={createAnnotationSession}
-                    disabled={!user?.email}
-                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
-                      user?.email
-                        ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
-                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                    }`}
+                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30`}
                   >
                     <div className={`flex items-center gap-3 ${headerMargin}`}>
-                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
-                        user?.email
-                          ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                          : 'bg-gray-200 text-gray-500'
-                      }`}>
+                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110`}>
                         1
                       </div>
                       <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Start Session</h3>
@@ -1064,6 +1021,41 @@ print("Service registered successfully", end='')
       )}
 
       {/* Modals */}
+      {showLoginRequiredDialog && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+          onClick={() => setShowLoginRequiredDialog(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-semibold text-gray-900">Log in to continue</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  You need to be logged in to create or resume an annotation session.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowLoginRequiredDialog(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <LoginButton />
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSessionModal && (
         <SessionModal
           setShowSessionModal={setShowSessionModal}
