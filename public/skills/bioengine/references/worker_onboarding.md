@@ -38,12 +38,20 @@ If unsure, ask explicitly:
 
 ## 2. Get a Hypha token
 
-The worker authenticates to https://hypha.aicell.io with a JWT. Two paths:
+The worker authenticates to https://hypha.aicell.io with a JWT. The full login + workspace + token-minting recipes (browser login flow, `create_workspace`, the BioEngine worker's own admin / read_write / 30-day expiration conventions) live in [SKILL.md → "If you don't have a Hypha token yet"](../SKILL.md). Read that subsection if you're bootstrapping a new user from zero — it covers:
 
-1. **Interactive (preferred for humans)**: tell the user to visit https://bioimage.io/#/bioengine and click "Launch Your Own BioEngine Instance" — the page auto-generates a 30-day admin token after Hypha login. They paste it back to you.
-2. **Programmatic**: `python -c "import asyncio; from hypha_rpc import login; print(asyncio.run(login({'server_url':'https://hypha.aicell.io'})))"` — opens a browser, returns the token.
+- `hypha_rpc.login()` browser flow with `login_callback` for headless agents
+- `server.create_workspace({"id": "...", "persistent": True})` for lab/facility deployments
+- `server.generate_token({"permission": "admin", "expires_in": 3600*24*30})` for the worker's bootstrap token
+- `server.generate_token({"permission": "read_write", "expires_in": 3600*24*30})` for app tokens
 
-Store the token in an environment variable: `export HYPHA_TOKEN=<token>`. The workspace name is encoded in the JWT and is auto-detected by the worker.
+For the worker specifically:
+
+- Use an **admin** token (the worker mints app + service tokens internally; needs admin to do that).
+- 30-day expiration is the BioEngine default — long enough that the worker doesn't need re-bootstrapping during normal operation, short enough to bound the blast radius if leaked.
+- Store as `export HYPHA_TOKEN=<token>`. The workspace name is encoded in the JWT and is auto-detected by the worker on startup.
+
+If the user has already done the login and has a token, skip the whole flow and just collect the env var from them.
 
 ---
 
