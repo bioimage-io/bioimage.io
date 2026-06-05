@@ -299,6 +299,13 @@ class MyDeployment:
 - `Field(None)` not `Field([...])` for mutable defaults — mutable defaults crash at startup.
 - Never return raw numpy arrays over RPC — call `.tolist()` first.
 - **Don't pin `pydantic` yourself unless you have to.** BioEngine auto-injects the driver's pydantic into your `runtime_env.pip` so the deployment unpickles cleanly on the Ray Serve replica. If you *do* pin pydantic explicitly, it must resolve to the same `pydantic-core` as the driver — otherwise the pre-flight check refuses to deploy. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important).
+- **If your app imports `torch` (>=2.5), set `USER`/`LOGNAME` defaults at the very top of the module.** `torch._dynamo` calls `getpass.getuser()` at import time, which raises `KeyError: getpwuid(): uid not found` when the actor runs as a host uid that has no `/etc/passwd` entry (the default for slim Docker images launched with `--user $(id -u):$(id -g)`). `setdefault` preserves the real identity wherever it's already set (HPC apptainer, K8s pods with a populated passwd) and only injects a placeholder when nothing else exists:
+  ```python
+  import os
+  os.environ.setdefault("USER", "bioengine")
+  os.environ.setdefault("LOGNAME", "bioengine")
+  import torch  # or anything that transitively imports torch
+  ```
 
 ### Composition apps and frontends
 
