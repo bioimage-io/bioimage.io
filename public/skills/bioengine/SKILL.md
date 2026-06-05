@@ -1,6 +1,6 @@
 ---
 name: bioengine
-description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service.
+description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report at the public Hypha collection `bioimage-io/bioengine-skill-issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
 license: MIT
 metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
@@ -218,6 +218,8 @@ If the user runs a **core facility, lab, or institutional deployment** that want
 
 > **What a custom dashboard is for, and what it isn't.** It is **read/render** — list workers, show cluster stats, list deployed apps, link to app frontends. It is **not** the BioEngine setup wizard (https://bioimage.io/#/bioengine has an interactive Docker/SLURM/K8s installer; do **not** rebuild that into a custom dashboard — facility admins use the canonical setup tool or the worker_onboarding flow above).
 
+> **After the worker is ready: leave a feedback report.** Worker setup is the single richest source of gaps in this skill — cluster-specific gotchas, undocumented flags, broken paths. If bringing your worker up required reading source, working around a bug, or more than ~3 trial-and-error cycles, file a report — see [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
+
 ---
 
 ## 2. Develop an app
@@ -341,6 +343,8 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 
 After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 
+> **After your first live deploy of a new app: leave a feedback report.** If `runtime_env`, RPC schema, composition wiring, or anything in `app_templates.md` / `model_serving.md` tripped you up, see [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file. The first agent to write a fresh app for a domain almost always has the most valuable feedback.
+
 ---
 
 ## 3. Deploy an existing app
@@ -448,6 +452,8 @@ Always clean up test deployments on shared production workers — they consume s
 
 For the full CLI flag reference: [references/cli_reference.md](references/cli_reference.md).
 
+> **After deploying an existing app: leave a feedback report.** Especially if the app's subskill (e.g. `apps/model-runner/`) was missing a flag, a service-ID quirk, or a required `--hypha-token`. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
+
 ---
 
 ## 4. Call an app
@@ -504,6 +510,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models |
 | Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
 
+> **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
+
 ---
 
 ## Common pitfalls (across all four tasks)
@@ -545,29 +553,89 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 ## Leave a feedback report
 
-Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles — **leave a structured feedback report** in the public collection `bioimage-io/bioengine-skill-issues`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
+Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the public collection `bioimage-io/bioengine-skill-issues`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
 
-**When to file a report (any of these):**
+**When to file a report (any of these is a trigger):**
 
+- The task took more than ~3 trial-and-error cycles.
 - You had to read source code or inspect RPC schemas because the skill did not cover something.
 - Something in the skill is wrong, stale, or contradicts the live system.
 - You worked around an undocumented bug.
 - A required flag, env var, or RPC method was undocumented.
 - An app's behaviour differed from its subskill.
 
-**How to file:**
+If unsure, file it. A two-paragraph report flagging one undocumented flag is more useful than a polished report that never gets written.
 
-1. Resolve the collection's manifest first — it carries the canonical template, the recommended `tags`, and an up-to-date upload snippet:
-   ```python
-   from hypha_rpc import connect_to_server
-   s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
-   am = await s.get_service("public/artifact-manager")
-   guide = (await am.read("bioimage-io/bioengine-skill-issues")).manifest
-   # guide["report_structure"]    → report template + recommended tags
-   # guide["upload_instructions"] → ready-to-paste submission snippet
-   ```
-2. Write `report.md` following `report_structure.report_markdown_template`. The four sections the team relies on are: **Summary**, **A. Gaps the skill did not cover**, **B. Bugs or contradictions in the documented tooling**, **C. Environment-specific gotchas**, then **Suggested skill changes**.
-3. Submit it as a new **child artifact** of the collection (one report = one child). Alias format: `report-YYYY-MM-DD-<short-slug>` (e.g. `report-2026-06-05-slurm-onboarding-berzelius`). Any authenticated Hypha token is sufficient — the collection grants `@: r+` so anyone logged in can submit, no `bioimage-io` permission required.
-4. **Do not include secrets** (tokens, raw chat logs, PII). Reports are public once committed.
+### Report contents
 
-If you're not sure whether your experience is worth reporting, submit it. A two-paragraph report flagging one undocumented flag is more useful than a polished report that never gets written.
+Write `report.md` with these sections (the bioengine team relies on this exact structure):
+
+```markdown
+# <title>
+
+## Summary
+One paragraph: what task you were doing, how many trial-and-error cycles, the headline blocker.
+
+## A. Gaps the skill did not cover
+What was missing and where you eventually found the answer (source file, RPC schema, support chat).
+
+## B. Bugs or contradictions in the documented tooling
+What the skill says vs what the live system does.
+
+## C. Environment-specific gotchas
+HPC / cloud / OS specifics. Note which apply broadly vs which are local to your site.
+
+## Suggested skill changes
+Concrete patches — paragraphs to add, tables to extend, sections to reorganise. The team treats this as the change list.
+
+## What worked well
+(Optional but useful — prevents refactoring of things that already serve agents well.)
+```
+
+**Do not include secrets** (tokens, raw chat logs, PII). Reports are public once committed.
+
+### Submit
+
+Any authenticated Hypha token works — the collection grants `@: r+` so any logged-in user can submit child reports. No `bioimage-io` permission required.
+
+```python
+import datetime, os, httpx
+from hypha_rpc import connect_to_server
+
+async def submit_feedback(report_md_path: str, slug: str, title: str,
+                          summary: str, tags: list[str] | None = None):
+    server = await connect_to_server({
+        "server_url": "https://hypha.aicell.io",
+        "token": os.environ["HYPHA_TOKEN"],
+    })
+    am = await server.get_service("public/artifact-manager")
+
+    date = datetime.date.today().isoformat()
+    report = await am.create(
+        parent_id="bioimage-io/bioengine-skill-issues",
+        alias=f"report-{date}-{slug}",            # e.g. report-2026-06-05-slurm-berzelius
+        type="report",
+        manifest={
+            "name": title,
+            "description": summary,
+            "tags": tags or [],                   # e.g. ["worker-setup", "slurm", "cluster:berzelius"]
+        },
+        stage=True,
+    )
+    put_url = await am.put_file(report.id, file_path="report.md")
+    async with httpx.AsyncClient() as c:
+        with open(report_md_path, "rb") as f:
+            (await c.put(put_url, content=f.read())).raise_for_status()
+    await am.commit(report.id)
+    return report.id
+
+# await submit_feedback(
+#     "./report.md", "slurm-onboarding-berzelius",
+#     "SLURM worker onboarding on Berzelius",
+#     "Setup took ~10 cycles; main blocker was undocumented --sandbox + ptrace_scope=2.",
+#     tags=["worker-setup", "slurm", "cluster:berzelius"])
+```
+
+Useful tags for triage: `worker-setup`, `slurm`, `single-machine`, `external-cluster`, `app:model-runner`, `app:cellpose-finetuning`, `cli`, `docs`, `bug-launcher`, `bug-worker`, `undocumented-flag`, `cluster:<name>`. Add more freely.
+
+The same snippet + the full template + the latest tag list are also stored on the collection's manifest (`am.read("bioimage-io/bioengine-skill-issues").manifest`) — fetch from there if you suspect this section is stale.

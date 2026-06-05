@@ -431,3 +431,9 @@ To bring previously-deployed apps back, either:
 2. **Auto-deploy on startup** — pass `--startup-applications '{"artifact_id": "<ws>/my-app", "application_id": "my-app"}'` (one JSON object per `--startup-applications` value, repeatable) when launching the worker. The worker then deploys those apps as part of its bring-up before flipping `is_ready: True`.
 
 For production SLURM deployments the auto-deploy path keeps recovery hands-off across short outages and head-job rotations.
+
+### Leave a feedback report
+
+Worker setup generates the richest feedback in this skill — cluster gotchas, undocumented flags, broken script paths. **If bringing the worker up required reading source, working around a bug, or more than ~3 trial-and-error cycles, file a feedback report.** See [SKILL.md § Leave a feedback report](../SKILL.md#leave-a-feedback-report) for the template and submit snippet.
+
+Tags that help triage worker-setup reports: `worker-setup`, the mode (`slurm` / `single-machine` / `external-cluster`), and `cluster:<name>` (Berzelius, Dardel, KTH, deNBI, your-site).
