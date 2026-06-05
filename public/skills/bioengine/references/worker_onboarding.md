@@ -117,18 +117,75 @@ docker run -d --name bioengine-worker \
 
 ### 3b. SLURM
 
+The launcher script `start_hpc_worker.sh` wraps a `python -m bioengine.worker --mode slurm` invocation: it loads the apptainer/singularity image, binds SLURM binaries and the workspace dir, then submits Ray-worker jobs via `sbatch` on demand. Everything after the script name is forwarded straight to the worker's argparse, **except** for two launcher-only flags (`--sandbox`, `--apptainer-cachedir` / `--singularity-cachedir`) handled by the script itself.
+
+Minimal invocation (downloads + runs the script from `main`):
+
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/refs/heads/main/scripts/start_hpc_worker.sh)
+export HYPHA_TOKEN=<admin-token>
+
+bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scripts/start_hpc_worker.sh) \
+    --mode slurm \
+    --workspace-dir $HOME/.bioengine \
+    --client-id bioengine-worker-<facility> \
+    --head-num-cpus 4 \
+    --head-num-gpus 0 \
+    --head-memory-in-gb 16 \
+    --default-num-gpus 1 \
+    --default-num-cpus 8 \
+    --default-mem-in-gb-per-cpu 8 \
+    --default-time-limit 04:00:00 \
+    --min-workers 0 \
+    --max-workers 4 \
+    --scale-down-threshold-seconds 300 \
+    --further-slurm-args "-A <project> -C thin"
 ```
 
-The script downloads an Apptainer image, starts the Ray head inside Apptainer on the login node, and submits Ray-worker jobs via `sbatch` on demand. Key knobs (set via env vars or pass on the command line):
+Key knobs (most are forwarded directly to `python -m bioengine.worker` — see [cli_reference.md → `python -m bioengine.worker`](cli_reference.md#python--m-bioengineworker--worker-process) for the full list):
 
-- `--workspace-dir PATH` — shared filesystem path mounted on all SLURM jobs.
-- `--default-num-gpus N` — GPUs per SLURM job.
-- `--default-time-limit HH:MM:SS` — wall time per SLURM job.
-- `--max-workers N` — cap on auto-scaling.
+| Flag | Purpose | Notes |
+|---|---|---|
+| `--workspace-dir PATH` | Shared FS path the head binds and mounts on every SLURM job | Must be on a filesystem readable from compute nodes. Default `$HOME/.bioengine`. |
+| `--client-id NAME` | Stable Hypha client_id (and therefore stable service ID across restarts) | Without it, the service ID changes every restart. **Always set for persistent SLURM deployments.** |
+| `--head-num-cpus / --head-num-gpus / --head-memory-in-gb` | Resources Ray pretends the head has (it runs on the login node) | Login-node policy usually forbids long-running compute, so the head is coordination-only: keep `--head-num-gpus 0`. |
+| `--default-num-gpus / --default-num-cpus / --default-mem-in-gb-per-cpu / --default-time-limit` | Defaults baked into every `sbatch` Ray-worker submission | Per-deployment overrides are possible later but these are the cluster's "house" allocations. |
+| `--min-workers / --max-workers / --scale-down-threshold-seconds` | Autoscaler bounds | `--min-workers 0` keeps the cluster idle until a deploy_app request comes in. |
+| `--further-slurm-args "<one quoted string>"` | Extra `sbatch` directives appended to every Ray-worker job | **One quoted string, not multiple tokens** (argparse rejects flag-shaped tokens). Use for `-A <project>` (account), `-C thin` (constraint), `-p <partition>`, `--qos=<qos>`. |
+| `--gpu-slurm-flag '--gres=gpu:{n}'` | Use `--gres=gpu:N` instead of `--gpus=N` for the sbatch GPU directive | Default `--gpus={n}` works on Berzelius and generic clusters; switch to `--gres=gpu:{n}` for clusters that require it (some Slurm setups). Pass `''` to omit entirely when GPUs are requested via `--further-slurm-args`. |
+| `--further-apptainer-args "<one quoted string>"` | Extra flags forwarded to `apptainer exec` inside each worker job | Useful for `--bind /proj/<lab>:/proj/<lab>` to expose extra filesystems. |
+| `--sandbox` | **Launcher-only.** Build/reuse an apptainer sandbox dir instead of pulling a SIF | See below; required on most RHEL-8 HPC systems. |
 
-Tell the user: their SLURM account must have allocation for the requested GPUs and time.
+#### `--sandbox` — required on most HPC systems
+
+Most RHEL-8 / Rocky-8 HPC systems set `kernel.yama.ptrace_scope = 2`, which breaks the default `apptainer pull` → SIF path (`proot` / `mksquashfs` can't trace inside themselves). Symptoms during script startup: an opaque `apptainer build` failure under `~/.apptainer/cache` or a hang.
+
+**Fix:** pass `--sandbox` to the launcher. The script then `apptainer build --sandbox <dir> docker://...` once into `<workspace-dir>/images/<image>-sandbox/` and reuses that directory on subsequent starts. The first build is ~10 min and ~10 GB; pre-stage it before submitting if start-up time matters. The `--sandbox` flag is stripped before the args are forwarded to the Python worker.
+
+Both `--apptainer-cachedir` and `--singularity-cachedir` are similarly launcher-only and are stripped from the forwarded args. Use them to redirect the cache off the default `<workspace-dir>/images/` (e.g. onto a faster local scratch).
+
+#### Running the head from inside `sbatch`
+
+Login-node policy on most HPC sites forbids long-running processes, so the head itself should run as an sbatch job on the CPU partition (the head is coordination-only — `--head-num-gpus 0`). Wrap the `bash <(curl …)` line in a script and submit it:
+
+```bash
+#!/bin/bash
+#SBATCH -A <project>
+#SBATCH -p <cpu-partition>
+#SBATCH -c 4
+#SBATCH --mem=16G
+#SBATCH -t 72:00:00
+#SBATCH -J bioengine-head
+
+source ~/.env   # loads HYPHA_TOKEN
+bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scripts/start_hpc_worker.sh) \
+    --mode slurm \
+    --client-id bioengine-worker-<facility> \
+    --sandbox \
+    --further-slurm-args "-A <project> -C thin" \
+    # … rest of the knobs above
+```
+
+Tell the user: their SLURM account must hold allocation for the head job **and** the Ray-worker jobs it spawns. Multi-project users should pass the right `-A` explicitly via `--further-slurm-args` (use `projinfo` to enumerate accounts).
 
 ### 3c. External-cluster (KubeRay or any existing Ray cluster)
 
@@ -152,10 +209,12 @@ Then run the worker (locally or as a Kubernetes `Deployment`):
 ```bash
 python -m bioengine.worker \
   --mode external-cluster \
-  --connection-address ray://<head-svc>:10001
+  --head-node-address ray://<head-svc> \
+  --client-server-port 10001 \
+  --client-id bioengine-worker-k8s
 ```
 
-Recommended for production: deploy as a Kubernetes Deployment with a 10 Gi PVC mounted at `/.bioengine`. See the BioEngine README for a complete YAML.
+`--head-node-address` accepts the bare `ray://<host>` form; the port comes from `--client-server-port` (default `10001`). Recommended for production: deploy as a Kubernetes Deployment with a 10 Gi PVC mounted at `/.bioengine`. See the BioEngine README for a complete YAML.
 
 ---
 
@@ -184,9 +243,16 @@ If this hangs or errors, the worker has not finished registering — wait 30 sec
 
 Run all seven before telling the user "your worker is ready." Each is a single Python snippet you can execute with `hypha-rpc`.
 
+> **`run_code` API contract — read before writing any check.** `run_code(code=..., remote_options={...})` schedules a Ray task that imports the code string, looks up a top-level function named **`analyze`** (literal), calls it with no arguments, and returns its value in `result["result"]`. Three rules that catch every agent the first time:
+> 1. The function MUST be named `analyze`. Anything else raises `Object 'analyze' is not callable: None` — a misleading error that does not name the missing symbol.
+> 2. The function MUST return a JSON-serialisable value. `print(...)` lands in the worker logs, not the return.
+> 3. Ray resource options go through `remote_options={"num_cpus": ..., "num_gpus": ...}`, **not** as direct kwargs.
+>
+> All seven checks below follow this contract.
+
 ```python
 # Common setup for all checks
-import asyncio
+import asyncio, os
 from hypha_rpc import connect_to_server
 
 SERVER = "https://hypha.aicell.io"
@@ -210,15 +276,6 @@ async def c1():
 ```
 
 **Expected**: `is_ready == True`. If `False`, the worker process is up but the Ray cluster has not finished registering — wait, retry, then inspect logs.
-
-> **`run_code` API contract.** The `code` parameter must define a function (default name `analyze`); the worker calls it on a Ray task and returns its return value in `result["result"]`. Ray resource options go through `remote_options={...}`, **not** as direct kwargs. The shape is:
->
-> ```python
-> code = "def analyze():\n    return {'sum': 2 + 2}"
-> result = await w.run_code(code=code, remote_options={"num_cpus": 1})
-> # result == {"result": {"sum": 4}, ...}
-> ```
-> A `print(...)` from inside `analyze` ends up in the worker logs, not in the return value — return your result instead. (The skill examples below all follow this pattern.)
 
 ### C2 — CPU compute
 
@@ -343,9 +400,14 @@ After all checks pass, present a short summary table to the user with the worker
 | C3 returns `cuda_available: false` | No `--gpus=all`, or no NVIDIA Container Toolkit, or wrong CUDA driver | Add `--gpus=all` (Docker) or `--nv` (Apptainer); install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
 | `Permission denied` on C5 | Mount path owned by root or PVC not attached | Run docker with `--user $(id -u):$(id -g)`; verify PVC binding in Kubernetes |
 | C7 returns `403 Forbidden` | Token has insufficient permissions | Re-issue token with `permission='admin'` and 30-day expiry |
-| SLURM job pending forever | No allocation for requested GPU/time | Lower `--default-num-gpus` or `--default-time-limit`; check `sinfo` for partition |
+| SLURM job pending forever | No allocation for requested GPU/time | Lower `--default-num-gpus` or `--default-time-limit`; check `sinfo` for partition; verify the right `-A <project>` via `--further-slurm-args` |
 | `Multiple services found` when calling worker | More than one worker registered with the same alias | Pass the full service ID `<workspace>/<client-id>:bioengine-worker`, not just the alias |
 | `get_status()` reports `total_memory: 0` in single-machine Docker mode | Ray's auto-detection mis-reads cgroups in some Docker setups (other resource fields are fine) | Cosmetic; not a worker fault. The CPU and GPU counts in the same payload are still correct, so the dashboard / scheduler aren't affected — only the memory card on the dashboard renders as `0 GB / 0 GB`. |
+| SLURM launcher fails during `apptainer pull` or hangs in `apptainer build` (RHEL-8 / Rocky-8) | Kernel `yama.ptrace_scope=2` breaks the default `proot/mksquashfs` SIF build path | Add `--sandbox` to the launcher invocation; it builds an apptainer sandbox dir (no proot needed) and caches it at `<workspace-dir>/images/`. See §3b. |
+| `--further-slurm-args` raises `expected one argument` or `unrecognized arguments` | Multi-token args are not quoted | Pass as a **single quoted string**, e.g. `--further-slurm-args "-A <project> -C thin"`. Internally `shlex.split` re-tokenises. |
+| Worker exits cleanly after a brief Hypha 503 / upstream outage | WebSocket reconnect timeout is ~100 s; longer Hypha blips trigger a clean shutdown | Re-submit the sbatch / restart the process. Hypha artifacts persist, but Ray Serve deployments **do not auto-recover** — see §7. |
+| `am.get_file(path=...)` raises `unexpected keyword argument 'path'` | The artifact-manager API uses `file_path=`, not `path=` | Call `await am.get_file(artifact_id=..., file_path="manifest.yaml")`. |
+| `list_services({"type": "bioengine-apps"})` returns 0 entries despite a running app | Service type is **singular** `bioengine-app` (worker is `bioengine-worker`) | Use `{"type": "bioengine-app"}`. To enumerate apps on a specific worker, prefer `worker.get_app_status(None)`. |
 
 ---
 
@@ -358,3 +420,14 @@ Once all 7 checks pass:
 - If they want to deploy an app, load the matching app subskill in `apps/` or follow the main SKILL.md app development sections.
 
 Always remind the user to keep their `HYPHA_TOKEN` private and to rotate it before expiry.
+
+### Worker restarts and app recovery
+
+The Hypha artifact-manager persists every uploaded app artifact, so artifacts survive a worker restart. **Ray Serve deployments do not.** When the worker comes back up it logs `No existing Ray Serve applications needed recovery.` and registers `<workspace>/bioengine-worker` with no apps running.
+
+To bring previously-deployed apps back, either:
+
+1. **Manual re-deploy** — call `worker.deploy_app(artifact_id=..., application_id=..., version=..., hypha_token=...)` (or `bioengine apps run …`) again, passing the **same `application_id`** as before so the service ID resolves to the same name.
+2. **Auto-deploy on startup** — pass `--startup-applications '{"artifact_id": "<ws>/my-app", "application_id": "my-app"}'` (one JSON object per `--startup-applications` value, repeatable) when launching the worker. The worker then deploys those apps as part of its bring-up before flipping `is_ready: True`.
+
+For production SLURM deployments the auto-deploy path keeps recovery hands-off across short outages and head-job rotations.

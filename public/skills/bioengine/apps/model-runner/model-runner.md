@@ -532,21 +532,90 @@ For Human Protein Atlas fluorescence images, use these keywords in order of reli
 
 `conscientious-seashell` = HPA nucleus model (3-channel). `loyal-parrot` = HPA cell body model (3-channel).
 
+## Canonical model IDs
+
+`infer()` and the other lookup methods take a model **nickname** (the `id` field in the RDF). A few high-value defaults to short-circuit `search_models` when the user names a model family:
+
+| User says | `model_id` | Notes |
+|---|---|---|
+| "Cellpose" / "cyto" | `famous-fish` | Cellpose `cyto3` base model — generalist cell segmentation. Returns `outputs[0].id == "masks"`. |
+| "StarDist nuclei (fluorescence)" | `fearless-crab` | StarDist single-channel fluorescence nucleus model. See [StarDist postprocessing](#stardist-postprocessing). |
+| "StarDist nuclei (brightfield / H&E)" | `chatty-frog` | StarDist RGB whole-slide-imaging model. **Do not use for fluorescence** (zero overlap, F1=0). |
+| "HPA nucleus" | `conscientious-seashell` | 3-channel HPA nucleus model. See [HPA multi-channel models](#hpa-multi-channel-models-conscientious-seashell-loyal-parrot). |
+| "HPA cell body" | `loyal-parrot` | 3-channel HPA whole-cell model. |
+| "BBBC-style nucleus segmentation" | `affable-shark` | UNet 2-channel (foreground + boundary). |
+| "Denoising / restoration" | `dazzling-spider` | Output key is `"prediction"`, not `"output0"`. |
+
+When in doubt, call `search_models(keywords=[...])` first — these IDs are stable but the zoo evolves and fine-tuned variants of cellpose are published as their own nicknames.
+
+## `infer()` input convention
+
+`mr.infer(model_id, inputs)` accepts:
+
+| `inputs` type | Behaviour |
+|---|---|
+| `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
+| `numpy.ndarray` | Sent over RPC. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
+| `dict[str, np.ndarray]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
+
+Return value is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read it from the RDF; do **not** hard-code `"output0"`:
+
+```python
+rdf = await mr.get_model_rdf(model_id=model_id)
+out_key = rdf["outputs"][0]["id"]
+result = await mr.infer(model_id=model_id, inputs=image)
+masks = np.asarray(result[out_key])
+```
+
 ## Deploying and updating the model-runner app
 
-The `model-runner` service is deployed on the BioEngine worker (`bioimage-io/bioengine-worker`) and runs in the `bioimage-io` workspace. It requires a `HYPHA_TOKEN` that has write access to that workspace. Pass it on first deployment:
+You only need this section if you're **bringing model-runner up on a new worker** (e.g. running BioEngine in your own workspace). For everyday inference, point at an already-deployed model-runner using the discovery recipe above — no deploy step needed.
+
+### Deploy an already-published artifact (most common — operators)
+
+If `bioimage-io/model-runner` exists in the artifact manager and you just want to run it on your worker, use the worker's `deploy_app` RPC. No local clone of the app source is required:
+
+```python
+from hypha_rpc import connect_to_server
+
+s = await connect_to_server({"server_url": "https://hypha.aicell.io",
+                             "token": admin_token,
+                             "workspace": my_workspace})
+worker = await s.get_service(f"{my_workspace}/bioengine-worker")
+
+app_id = await worker.deploy_app(
+    artifact_id="bioimage-io/model-runner",
+    application_id="model-runner",            # stable app id ⇒ stable service id
+    hypha_token=admin_token,                  # required: model-runner registers Hypha services internally
+    # version="1.2.3",                        # optional: pin a specific artifact version (default: latest)
+)
+```
+
+Or via the CLI:
+
+```bash
+export BIOENGINE_WORKER_SERVICE_ID=<my-workspace>/bioengine-worker
+bioengine apps run bioimage-io/model-runner --app-id model-runner --hypha-token $HYPHA_TOKEN
+```
+
+The `application_id` **must** be passed for any kind of update — omitting it always spawns a brand-new random instance. See the SKILL.md "Deploy an existing app" section for the full rationale.
+
+### Develop and publish a new model-runner version (app authors)
+
+This is the path used by maintainers of the `bioimage-io/model-runner` artifact itself — it requires a local clone of `aicell-lab/bioengine` and write access to the `bioimage-io` workspace:
 
 ```bash
 export BIOENGINE_WORKER_SERVICE_ID=bioimage-io/bioengine-worker
-bioengine apps deploy ./bioengine_apps/model-runner/ \
-  --env _HYPHA_TOKEN=<bioimage-io-scoped-token>
+bioengine apps deploy ./apps/model-runner/ \
+  --app-id model-runner \
+  --hypha-token $HYPHA_TOKEN
 ```
 
-**When updating an existing deployment**, the new version automatically inherits all env vars (including `HYPHA_TOKEN`) and all init args/kwargs from the previous app — do **not** pass `--env` again unless intentionally rotating a secret:
+`bioengine apps deploy` uploads the local directory as a new artifact version AND deploys it in one step. When updating an existing deployment, the new version automatically inherits all env vars and init args/kwargs from the previous app — do **not** pass `--env` again unless intentionally rotating a secret:
 
 ```bash
-bioengine apps upload ./bioengine_apps/model-runner/
-bioengine apps run bioimage-io/model-runner --app-id <existing-app-id>
+bioengine apps upload ./apps/model-runner/
+bioengine apps run bioimage-io/model-runner --app-id model-runner
 # HYPHA_TOKEN and all other env vars are carried over automatically
 ```
 

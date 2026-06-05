@@ -157,6 +157,13 @@ BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are
 
 > ⚠️ **`<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) is NOT the callable app service.** That short form exists as a WebRTC offer endpoint registered by the proxy, and calling it returns only `{offer}`, not the app methods. **Always use the per-worker per-replica form above when calling an app.**
 
+**Service types** (use with `list_services({"type": ...})`):
+
+| Type | Registered by | Selects |
+|---|---|---|
+| `bioengine-worker` | the worker itself | one entry per worker |
+| `bioengine-app` | the proxy deployment of each running app | one entry per running app (singular — `bioengine-apps` returns 0 results) |
+
 **Discovery recipe** (one ready-to-paste block):
 ```python
 from hypha_rpc import connect_to_server
@@ -169,6 +176,9 @@ workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"}
 # 2. For a chosen worker, ask which apps it has running AND get their concrete service IDs:
 worker = await s.get_service(workers[0])
 status = await worker.get_app_status(None)            # None / no args = all running apps
+#   ALWAYS a dict keyed by app id, even when one app is queried (the
+#   docstring's "single app returns directly" claim is stale — treat the
+#   return as a dict in every case).
 for app_id, info in status.items():
     if info.get("status") == "RUNNING":
         ws_sid  = info["service_ids"]["websocket_service_id"]   # concrete; this is what you call
@@ -179,6 +189,10 @@ for app_id, info in status.items():
 app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<replica>:model-runner"
 result = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
+
+> **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).
+
+> **Replica suffix in the service ID** — the worker mints a fresh Hypha sub-client for every Ray Serve replica (so each replica can register its own services). That's why the app's service ID is `<workspace>/<worker_client_id>-<replica_id>:<app_id>` (e.g. `…-v6qq1k45:model-runner`) instead of just `<workspace>/<worker_client_id>:<app_id>`. The suffix is stable for the lifetime of the replica and changes on every redeploy — always re-resolve via `get_app_status` rather than caching the full service ID across deploys.
 
 A user who deployed their own worker in workspace `<ws>` has the same pattern: a `<ws>/bioengine-worker-*:bioengine-worker` for the worker and `<ws>/<worker_client_id>-<replica_id>:<app_id>` per app instance.
 
@@ -309,8 +323,11 @@ bioengine apps deploy ./my-app/ --app-id my-app --hypha-token $HYPHA_TOKEN
 # 2. Monitor (wait for all deployments to reach HEALTHY)
 bioengine apps status my-app --logs 50
 
-# 3. Call
-bioengine call <workspace>/my-app ping --json
+# 3. Call — resolve the concrete per-replica service ID first (see "Service IDs" above),
+#    then call it. Calling <workspace>/my-app directly returns only {offer}, not the methods.
+bioengine apps status my-app --json
+#   → find result["my-app"]["service_ids"]["websocket_service_id"]
+bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 ```
 
 > **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...` — it is silently ignored by the app builder.
@@ -322,6 +339,8 @@ After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 ## 3. Deploy an existing app
 
 You have an artifact ID (e.g. `bioimage-io/model-runner`) and a worker you have access to. You don't need the app's source — just deploy the artifact.
+
+### CLI
 
 ```bash
 # First check what's already running:
@@ -339,6 +358,22 @@ bioengine apps run bioimage-io/cellpose-finetuning \
     --app-id cellpose-finetuning \
     --hypha-token $HYPHA_TOKEN
 ```
+
+### Python — `worker.deploy_app(...)`
+
+Equivalent path when you already have a Hypha client open (no separate CLI process). Use this from agents that resolve the worker via `list_services` rather than via the `BIOENGINE_WORKER_SERVICE_ID` env var:
+
+```python
+worker = await server.get_service(f"{workspace}/bioengine-worker")
+app_id = await worker.deploy_app(
+    artifact_id="bioimage-io/cellpose-finetuning",
+    application_id="cellpose-finetuning",   # stable id ⇒ stable, addressable service
+    hypha_token=token,                      # apps that register back to Hypha need this
+    # version="0.0.28",                     # optional pin; default = latest version of the artifact
+)
+```
+
+`deploy_app` returns the resolved `application_id`. The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
 
 > **`--hypha-token` is required for any app that calls back into Hypha** — model-runner, cellpose-finetuning, anything that registers services or reads datasets via Hypha RPC. Without it the deployment fails inside the actor with `RuntimeError: HYPHA_TOKEN environment variable is not set.` (you'll find this in `deployments[<name>].message`, not the top-level error). If you don't know whether an app needs it: pass it anyway, it's harmless.
 
@@ -480,6 +515,10 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `DEPLOY_FAILED` with generic top-level message | Read `deployments[<name>].message` via `apps status --json` or SDK — it carries the real pip/runtime_env/import error |
 | Deploy fails with `RuntimeError: pydantic-core version mismatch` | Pin `pydantic==2.11.0` (or whatever the driver runs) in `runtime_env.pip`. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important) |
 | Ray Serve replica crashes with `'FieldInfo' object has no attribute 'exclude_if'` | Same root cause — driver/runtime_env pydantic-core mismatch. Pin `pydantic` in the app's `runtime_env.pip` |
+| `am.get_file(path=...)` raises `unexpected keyword argument 'path'` | The artifact-manager API is `await am.get_file(artifact_id=..., file_path=...)` — kwarg is `file_path`, not `path` |
+| `list_services({"type": "bioengine-apps"})` returns nothing | Service type for apps is singular: `bioengine-app`. Workers use `bioengine-worker` |
+| `get_app_status` returns a dict when you expected a single object | It always returns a dict keyed by app id, regardless of how many IDs you passed. Index it: `status[app_id]` |
+| App vanishes after a worker restart | Hypha artifacts persist, Ray Serve deployments do not. Either re-deploy with the same `application_id`, or boot the worker with `--startup-applications '{"artifact_id": "...", "application_id": "..."}'` so it auto-deploys on startup |
 
 ---
 
@@ -494,3 +533,34 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |
+
+---
+
+## Leave a feedback report
+
+Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles — **leave a structured feedback report** in the public collection `bioimage-io/bioengine-skill-issues`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
+
+**When to file a report (any of these):**
+
+- You had to read source code or inspect RPC schemas because the skill did not cover something.
+- Something in the skill is wrong, stale, or contradicts the live system.
+- You worked around an undocumented bug.
+- A required flag, env var, or RPC method was undocumented.
+- An app's behaviour differed from its subskill.
+
+**How to file:**
+
+1. Resolve the collection's manifest first — it carries the canonical template, the recommended `tags`, and an up-to-date upload snippet:
+   ```python
+   from hypha_rpc import connect_to_server
+   s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
+   am = await s.get_service("public/artifact-manager")
+   guide = (await am.read("bioimage-io/bioengine-skill-issues")).manifest
+   # guide["report_structure"]    → report template + recommended tags
+   # guide["upload_instructions"] → ready-to-paste submission snippet
+   ```
+2. Write `report.md` following `report_structure.report_markdown_template`. The four sections the team relies on are: **Summary**, **A. Gaps the skill did not cover**, **B. Bugs or contradictions in the documented tooling**, **C. Environment-specific gotchas**, then **Suggested skill changes**.
+3. Submit it as a new **child artifact** of the collection (one report = one child). Alias format: `report-YYYY-MM-DD-<short-slug>` (e.g. `report-2026-06-05-slurm-onboarding-berzelius`). Any authenticated Hypha token is sufficient — the collection grants `@: r+` so anyone logged in can submit, no `bioimage-io` permission required.
+4. **Do not include secrets** (tokens, raw chat logs, PII). Reports are public once committed.
+
+If you're not sure whether your experience is worth reporting, submit it. A two-paragraph report flagging one undocumented flag is more useful than a polished report that never gets written.
