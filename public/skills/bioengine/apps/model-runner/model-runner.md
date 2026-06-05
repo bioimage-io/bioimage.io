@@ -600,6 +600,8 @@ bioengine apps run bioimage-io/model-runner --app-id model-runner --hypha-token 
 
 The `application_id` **must** be passed for any kind of update — omitting it always spawns a brand-new random instance. See the SKILL.md "Deploy an existing app" section for the full rationale.
 
+> **`hypha_token` trap on cross-worker deploys.** When `application_id` matches an existing running instance on a worker, `deploy_app` silently reuses the previously stored token if `--hypha-token` is omitted. So a redeploy on a worker that already has `model-runner` running will "succeed" without it — while the same call on a worker without a prior instance fails inside the actor (model-runner registers Hypha services in `__init__`, so it dies hard without `HYPHA_TOKEN`). Always pass it.
+
 ### Develop and publish a new model-runner version (app authors)
 
 This is the path used by maintainers of the `bioimage-io/model-runner` artifact itself — it requires a local clone of `aicell-lab/bioengine` and write access to the `bioimage-io` workspace:

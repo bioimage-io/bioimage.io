@@ -387,6 +387,8 @@ app_id = await worker.deploy_app(
 `deploy_app` returns the resolved `application_id`. The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
 
 > **`--hypha-token` is required for any app that calls back into Hypha** — model-runner, cellpose-finetuning, anything that registers services or reads datasets via Hypha RPC. Without it the deployment fails inside the actor with `RuntimeError: HYPHA_TOKEN environment variable is not set.` (you'll find this in `deployments[<name>].message`, not the top-level error). If you don't know whether an app needs it: pass it anyway, it's harmless.
+>
+> **Subtle trap: the "previous-token" fallback.** When `application_id` matches an already-running instance, `deploy_app` silently reuses the previously stored token if `--hypha-token` is omitted. So a redeploy on a worker that *already has the app running* will "succeed" without it — while the same redeploy on a worker *without a prior instance* fails. **Always pass it.** Don't rely on the fallback; agents that test on one worker and then deploy to another get bitten by exactly this.
 
 > **CRITICAL — artifact ≠ app, `--app-id` is required to update.** One artifact can be deployed many times with different `--app-id`s. Running `bioengine apps run <artifact>` **without `--app-id` always creates a new instance with a random ID** — it never updates an existing running one. To update a running app, you MUST pass `--app-id <running-app-id>` (which you find via `bioengine apps status`).
 >

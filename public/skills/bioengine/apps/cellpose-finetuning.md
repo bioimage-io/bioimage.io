@@ -334,11 +334,13 @@ result = await worker.deploy_app(
 )
 ```
 
-The `hypha_token` parameter sets `HYPHA_TOKEN` in the Ray actor environment. Store it in `.env` as `BIOIMAGE_IO_TOKEN`.
+The `hypha_token` parameter sets `HYPHA_TOKEN` in the Ray actor environment. Store it in `.env` as `BIOIMAGE_IO_TOKEN`. **cellpose-finetuning REQUIRES this token** — it raises `RuntimeError: HYPHA_TOKEN environment variable is not set.` at `__init__` without it. Pass `hypha_token=` on every `deploy_app` call; do not rely on the "previous-token preserved" fallback (see trap below).
 
 ### Updating an existing deployment — ALWAYS use `--app-id`
 
 > **CRITICAL**: `bioengine apps run` without `--app-id` creates a **brand-new** deployment with **no env vars** — `HYPHA_TOKEN` will be missing and the app will fail to start (UNHEALTHY). You MUST pass `--app-id <existing-app-id>` to update in-place and inherit credentials.
+
+> **CRITICAL — `--app-id` is necessary but not sufficient.** When `--app-id` matches an existing running instance, `deploy_app` silently reuses the previously stored `hypha_token` if you omit `--hypha-token`. So a redeploy on a worker that *already has cellpose-finetuning running* will "succeed" without the token — while the same redeploy on a worker *without a prior instance* fails at `__init__`. Always pass `--hypha-token $HYPHA_TOKEN` (or `hypha_token=token` in Python). Don't rely on the fallback; this is the failure mode that bites cross-worker deploys.
 
 ```bash
 # Step 1: Upload the new code
