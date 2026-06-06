@@ -183,7 +183,9 @@ const BioEngineWorker: React.FC = () => {
 
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const [workerMcpCopied, setWorkerMcpCopied] = useState(false);
+  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const [isGeneratingAgentPrompt, setIsGeneratingAgentPrompt] = useState(false);
+  const [agentPromptError, setAgentPromptError] = useState<string | null>(null);
   const [showDeployConfig, setShowDeployConfig] = useState(false);
   const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string, manifest?: any} | null>(null);
 
@@ -865,34 +867,50 @@ const BioEngineWorker: React.FC = () => {
     return null;
   };
 
-  // Helper function to get worker MCP URL
-  const getWorkerMcpUrl = (): string | null => {
-    if (!serviceId) return null;
+  // Worker admin membership: only admins can deploy/undeploy apps, read logs,
+  // or stop the worker. Non-admins can still call get_status, list datasets,
+  // list deployed apps, and any deployed app service that includes them in
+  // its authorized_users. The prompt scope below branches on this.
+  // The worker stores both user_id and user_email in admin_users (worker.py
+  // 596-597); '*' means everyone.
+  const isWorkerAdmin = (() => {
+    const admins = status?.admin_users ?? [];
+    if (admins.includes('*')) return true;
+    const identifiers = [user?.id, user?.email].filter(Boolean) as string[];
+    return identifiers.some(id => admins.includes(id));
+  })();
 
-    const baseUrl = server.config.publicBaseUrl;
-
-    // Parse the service ID to get workspace and service identifier
-    // Format: "workspace/client_id:service_name"
-    const slashIndex = serviceId.indexOf('/');
-    if (slashIndex !== -1) {
-      const workspace = serviceId.substring(0, slashIndex);
-      const serviceIdentifier = serviceId.substring(slashIndex + 1); // client_id:service_name
-      return `${baseUrl}/${workspace}/mcp/${serviceIdentifier}/mcp`;
+  // Build a one-shot AI-agent setup prompt that loads the BioEngine skill,
+  // pins the agent to this worker's service id, and (when logged in) embeds a
+  // freshly generated 30-day read+write workspace token so the agent can act
+  // without an extra auth round-trip. The prompt's scope adapts to whether
+  // the current user has admin rights on this worker.
+  const handleCopyAgentSetupPrompt = async () => {
+    if (!serviceId) return;
+    if (!isLoggedIn || !server) {
+      setAgentPromptError('Log in to generate a workspace token for the prompt.');
+      return;
     }
+    setIsGeneratingAgentPrompt(true);
+    setAgentPromptError(null);
+    try {
+      const thirtyDays = 30 * 24 * 3600;
+      const token = await server.generateToken({ permission: 'read_write', expires_in: thirtyDays });
+      const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
+      const scope = isWorkerAdmin
+        ? `Connect to my BioEngine worker at service id \`${serviceId}\`. You can inspect the cluster, manage deployed apps, and call services on those apps.`
+        : `Connect to the BioEngine worker at service id \`${serviceId}\` to discover the apps and datasets it hosts, and call services on those apps.`;
+      const prompt = `Read ${skillUrl} to learn how to use the BioEngine API. ${scope}
 
-    return null;
-  };
-
-  const handleCopyWorkerMcpUrl = async () => {
-    const mcpUrl = getWorkerMcpUrl();
-    if (mcpUrl) {
-      try {
-        await navigator.clipboard.writeText(mcpUrl);
-        setWorkerMcpCopied(true);
-        setTimeout(() => setWorkerMcpCopied(false), 2000);
-      } catch (err) {
-        console.error('Failed to copy MCP URL:', err);
-      }
+Use this Hypha read+write token for my workspace (expires in 30 days):
+${token}`;
+      await navigator.clipboard.writeText(prompt);
+      setAgentPromptCopied(true);
+      setTimeout(() => setAgentPromptCopied(false), 2000);
+    } catch (err) {
+      setAgentPromptError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsGeneratingAgentPrompt(false);
     }
   };
 
@@ -1144,9 +1162,9 @@ const BioEngineWorker: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {/* Service Info and Copy Worker MCP URL buttons */}
-                {(getWorkerServiceInfoUrl() || getWorkerMcpUrl()) && (
-                  <div className="md:col-span-2 pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+                {/* Service Info + Copy AI Agent Setup Prompt */}
+                {(getWorkerServiceInfoUrl() || serviceId) && (
+                  <div className="md:col-span-2 pt-3 border-t border-gray-100 flex flex-wrap gap-2 items-center">
                     {getWorkerServiceInfoUrl() && (
                       <a
                         href={getWorkerServiceInfoUrl()!}
@@ -1164,32 +1182,52 @@ const BioEngineWorker: React.FC = () => {
                         </svg>
                       </a>
                     )}
-                    {getWorkerMcpUrl() && (
+                    {serviceId && (
                       <button
-                        onClick={handleCopyWorkerMcpUrl}
+                        onClick={handleCopyAgentSetupPrompt}
+                        disabled={!isLoggedIn || isGeneratingAgentPrompt}
                         className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 ${
-                          workerMcpCopied
+                          agentPromptCopied
                             ? 'bg-green-50 text-green-700 border-green-200'
-                            : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300'
+                            : isLoggedIn
+                              ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300'
+                              : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
                         }`}
-                        title="Copy MCP Server URL for this worker"
+                        title={
+                          isLoggedIn
+                            ? 'Copy a one-shot AI agent prompt that loads the BioEngine skill, pins the agent to this worker, and embeds a fresh 30-day read+write workspace token.'
+                            : 'Log in to generate a workspace token for the prompt.'
+                        }
                       >
-                        {workerMcpCopied ? (
+                        {agentPromptCopied ? (
                           <>
                             <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Copied!
+                            Copied to clipboard
+                          </>
+                        ) : isGeneratingAgentPrompt ? (
+                          <>
+                            <svg className="w-3.5 h-3.5 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Generating token...
                           </>
                         ) : (
                           <>
                             <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                             </svg>
-                            Copy Worker MCP URL
+                            Copy AI Agent Prompt
                           </>
                         )}
                       </button>
+                    )}
+                    {agentPromptError && (
+                      <span className="text-xs text-red-600 ml-1" role="alert">
+                        {agentPromptError}
+                      </span>
                     )}
                   </div>
                 )}
