@@ -65,23 +65,6 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
 
   const resources = deployment.resources ?? null;
 
-  // Distinct nodes hosting RUNNING replicas. Each entry carries the best
-  // human-readable label available (node_instance_id, e.g. a KubeRay pod
-  // name on K8s) plus a tooltip with the full 56-char node_id. Single-machine
-  // mode may leave node_instance_id empty, in which case we fall back to
-  // the first 8 chars of node_id.
-  type RunningNode = { label: string; nodeId: string };
-  const runningNodes: RunningNode[] = (() => {
-    const seen = new Map<string, RunningNode>();
-    for (const r of deployment.replicas ?? []) {
-      if (!r?.node_id || r.state !== 'RUNNING') continue;
-      if (seen.has(r.node_id)) continue;
-      const label = (r.node_instance_id && r.node_instance_id.trim()) || r.node_id.slice(0, 8);
-      seen.set(r.node_id, { label, nodeId: r.node_id });
-    }
-    return Array.from(seen.values()).sort((a, b) => a.label.localeCompare(b.label));
-  })();
-
   // Get MCP URL from websocket service ID
   const getMcpUrl = (): string | null => {
     const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
@@ -160,25 +143,9 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               </span>
             )}
 
-            <div className="flex items-center ml-3">
-              <button
-                type="button"
-                onClick={() => onStatusClick?.(deployment.application_id || deployment.artifact_id)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shadow-sm transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${deployment.status === "HEALTHY" || deployment.status === "RUNNING"
-                  ? "bg-green-100 text-green-800 border-green-300 hover:bg-green-200 hover:border-green-400"
-                  : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 hover:border-gray-400"
-                  }`}
-                title="Click to view deployment status, logs, and replica details"
-              >
-                {deployment.status}
-                <svg className="w-3 h-3 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              {deployment.status === "UPDATING" && (
-                <div className="ml-2 w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-              )}
-            </div>
+            {deployment.status === "UPDATING" && (
+              <div className="ml-3 w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+            )}
           </div>
 
           {deployment.description && (
@@ -219,6 +186,25 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
+          {/* Application Status: clickable badge opens the deployment status dialog */}
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Application Status:</span>
+            <button
+              type="button"
+              onClick={() => onStatusClick?.(deployment.application_id || deployment.artifact_id)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shadow-sm transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${deployment.status === "HEALTHY" || deployment.status === "RUNNING"
+                ? "bg-green-100 text-green-800 border-green-300 hover:bg-green-200 hover:border-green-400"
+                : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 hover:border-gray-400"
+                }`}
+              title="Click to view deployment status, logs, and replica details"
+            >
+              {deployment.status}
+              <svg className="w-3 h-3 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+
           {deployment.start_time && formatTimeInfo && (
             <div className="mb-3">
               <p className="text-sm text-gray-600">
@@ -232,64 +218,6 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                   <span className="font-medium">Last Update:</span> {formatTimeInfo(deployment.last_updated_at).formattedTime}
                 </p>
               )}
-              {deployment.static_site_url && (
-                <div className="mt-2">
-                  <button
-                    type="button"
-                    onClick={() => window.open(deployment.static_site_url!, "_blank", "noopener,noreferrer")}
-                    disabled={!isAppRunning}
-                    className={`inline-flex items-center px-3 py-1.5 rounded text-xs font-medium border transition-colors ${isAppRunning
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 cursor-pointer"
-                      : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                      }`}
-                    title={isAppRunning ? "Open app in a new tab" : "App must be RUNNING to open"}
-                  >
-                    <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H10a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5m-9-4.5L21 3m0 0v6m0-6h-6" />
-                    </svg>
-                    Open App
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {deployment.replica_states && Object.keys(deployment.replica_states).length > 0 && (
-            <div className="mb-3">
-              <p className="text-sm font-medium text-gray-700 mb-2">Replica States:</p>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(deployment.replica_states).map(([state, count]) => (
-                  <span
-                    key={state}
-                    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${state === "RUNNING"
-                      ? "bg-green-50 text-green-700 border-green-200"
-                      : "bg-gray-50 text-gray-700 border-gray-200"
-                      }`}
-                  >
-                    {state}: {count}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {runningNodes.length > 0 && (
-            <div className="mb-3">
-              <p className="text-sm font-medium text-gray-700 mb-2">Running on:</p>
-              <div className="flex flex-wrap gap-2">
-                {runningNodes.map(n => (
-                  <span
-                    key={n.nodeId}
-                    className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-indigo-50 text-indigo-700 border-indigo-200 font-mono break-all"
-                    title={n.nodeId}
-                  >
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M5 12l7-7 7 7" />
-                    </svg>
-                    {n.label}
-                  </span>
-                ))}
-              </div>
             </div>
           )}
 
@@ -427,6 +355,27 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {deployment.static_site_url && (
+            <div className="mt-3">
+              <p className="text-sm font-medium text-gray-700 mb-2">App UI:</p>
+              <button
+                type="button"
+                onClick={() => window.open(deployment.static_site_url!, "_blank", "noopener,noreferrer")}
+                disabled={!isAppRunning}
+                className={`inline-flex items-center px-3 py-1.5 rounded text-xs font-medium border transition-colors ${isAppRunning
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 cursor-pointer"
+                  : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                  }`}
+                title={isAppRunning ? "Open app in a new tab" : "App must be RUNNING to open"}
+              >
+                <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H10a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5m-9-4.5L21 3m0 0v6m0-6h-6" />
+                </svg>
+                Open App
+              </button>
             </div>
           )}
         </div>

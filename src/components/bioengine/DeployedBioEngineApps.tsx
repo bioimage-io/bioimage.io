@@ -35,6 +35,33 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
       ...(value as any)
     }));
 
+  // Build a {node_id -> "Head Node (...)"|"Worker Node N (...)"} map that
+  // matches the numbering shown in the cluster-resources view. Head first,
+  // then workers in their natural object order; the parenthesised label is
+  // the node_instance_id (pod name on KubeRay) when present, otherwise the
+  // first 8 chars of the 56-char node_id.
+  const nodeLabels: Record<string, string> = (() => {
+    const out: Record<string, string> = {};
+    const rayNodes = status?.ray_cluster?.nodes;
+    if (!rayNodes || typeof rayNodes !== 'object') return out;
+    const entries = Object.entries(rayNodes as Record<string, any>).sort(([, a], [, b]) => {
+      if ((a?.head ?? false) === (b?.head ?? false)) return 0;
+      return a?.head ? -1 : 1;
+    });
+    let workerNumber = 0;
+    for (const [nodeId, node] of entries) {
+      const role = node?.head ? 'Head Node' : `Worker Node ${++workerNumber}`;
+      // node_instance_id lives on each replica in bioengine 0.10.12+. The
+      // cluster status payload doesn't carry it, so we fall back to a short
+      // hex prefix here. The dialog overrides with the replica's own
+      // node_instance_id when it is present (matching the user's intent
+      // "Worker Node 2 (raycluster-kuberay-worker-workergroup-d7rwg)").
+      out[nodeId] = `${role} (${nodeId.slice(0, 8)})`;
+      out[`__role__:${nodeId}`] = role;
+    }
+    return out;
+  })();
+
   const hasDeployments = deployments.length > 0;
   const deploymentNote = status?.bioengine_apps?.note;
   const deploymentServiceId = status?.bioengine_apps?.service_id;
@@ -159,6 +186,7 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           applicationId={selectedAppId}
           initialStatus={status?.bioengine_apps?.[selectedAppId]}
           fetchApplicationStatus={fetchApplicationStatus}
+          nodeLabels={nodeLabels}
         />
       )}
 

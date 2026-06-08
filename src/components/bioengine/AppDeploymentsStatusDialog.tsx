@@ -10,6 +10,10 @@ interface AppDeploymentsStatusDialogProps {
     logs_tail?: number;
     n_previous_replica?: number;
   }) => Promise<any>;
+  // {node_id -> "Head Node (short_hex)" | "Worker Node N (short_hex)"} +
+  // {"__role__:<node_id>" -> "Head Node" | "Worker Node N"}.
+  // Numbering matches the cluster-resources view's worker numbering.
+  nodeLabels?: Record<string, string>;
 }
 
 const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
@@ -18,7 +22,22 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   applicationId,
   initialStatus,
   fetchApplicationStatus,
+  nodeLabels,
 }) => {
+  // Format a replica's node placement using the cluster-view-consistent
+  // role label, plus the replica's own node_instance_id when available
+  // (e.g. "Worker Node 2 (raycluster-kuberay-worker-workergroup-d7rwg)"),
+  // falling back to the short hex prefix label from nodeLabels.
+  const formatReplicaNode = (replica: any): string | null => {
+    const nodeId: string | undefined = replica?.node_id;
+    if (!nodeId) return null;
+    const role = nodeLabels?.[`__role__:${nodeId}`];
+    const instanceId: string | undefined = replica?.node_instance_id;
+    if (role && instanceId && instanceId.trim()) return `${role} (${instanceId})`;
+    if (nodeLabels?.[nodeId]) return nodeLabels[nodeId];
+    if (instanceId && instanceId.trim()) return instanceId;
+    return nodeId.slice(0, 8);
+  };
   const [logsTail, setLogsTail] = useState<number>(30);
   const [nPreviousReplica, setNPreviousReplica] = useState<number>(0);
   const [status, setStatus] = useState<any>(initialStatus || null);
@@ -183,6 +202,41 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                                 {state}: {String(count)}
                               </span>
                             ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Per-deployment node placement. One badge per
+                          distinct (node_id) pair across RUNNING replicas;
+                          shows the cluster-view's Head/Worker N role plus
+                          the node_instance_id when present. */}
+                      {Array.isArray(data?.replicas) && data.replicas.some((r: any) => r?.node_id && r?.state === 'RUNNING') && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-1">Running on</p>
+                          <div className="flex flex-wrap gap-2">
+                            {(() => {
+                              const seen = new Set<string>();
+                              const rows: Array<{ key: string; label: string; tooltip: string }> = [];
+                              for (const r of data.replicas as any[]) {
+                                if (!r?.node_id || r.state !== 'RUNNING') continue;
+                                if (seen.has(r.node_id)) continue;
+                                seen.add(r.node_id);
+                                const label = formatReplicaNode(r) ?? r.node_id;
+                                rows.push({ key: r.node_id, label, tooltip: r.node_id });
+                              }
+                              return rows.map(row => (
+                                <span
+                                  key={row.key}
+                                  className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-indigo-50 text-indigo-700 border-indigo-200 font-mono break-all"
+                                  title={row.tooltip}
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M5 12l7-7 7 7" />
+                                  </svg>
+                                  {row.label}
+                                </span>
+                              ));
+                            })()}
                           </div>
                         </div>
                       )}
