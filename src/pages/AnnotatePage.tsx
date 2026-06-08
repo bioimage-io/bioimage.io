@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip, useMediaQuery, useTheme } from '@mui/material';
+import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip, useMediaQuery, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText, ListItemIcon } from '@mui/material';
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
@@ -12,7 +12,7 @@ import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo } from '../components/annotate/hooks/useHyphaService';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
@@ -197,6 +197,28 @@ print('CLAHE packages ready')
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
+  // Current annotation round for this user. Initialised from
+  // service.initialRound once the connection is up (see effect below).
+  // The "Start Round N+1" CTA in the empty state bumps this; every
+  // subsequent save targets the new round folder.
+  const [currentRound, setCurrentRound] = useState<number>(1);
+
+  // Refine flow: when a user picks a previously-annotated image to refine,
+  // we load that image and any existing GeoJSON into the vector source. The
+  // pending GeoJSON lands here first because the vector source ref may not
+  // be available until AnnotationViewer remounts with the new image.
+  const [refinePickerOpen, setRefinePickerOpen] = useState(false);
+  const [refineImageList, setRefineImageList] = useState<ImageInfo[]>([]);
+  const [refineLoadingList, setRefineLoadingList] = useState(false);
+  const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
+
+  // Keep currentRound in sync with the latest service connection.
+  useEffect(() => {
+    if (service?.initialRound && service.initialRound > 0) {
+      setCurrentRound(service.initialRound);
+    }
+  }, [service]);
+
   // Detect low contrast by sampling luminance values from the loaded image.
   // Returns true when the 5th–95th percentile luminance range is below 60/255.
   const detectLowContrast = useCallback((img: HTMLImageElement): boolean => {
@@ -233,10 +255,10 @@ print('CLAHE packages ready')
     setIsCLAHEActive(false);
     setIsLowContrast(false);
     setOriginalImageUrl(null);
-    console.log('[AnnotatePage] Loading new image...');
+    console.log('[AnnotatePage] Loading new image for round', currentRound);
     const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
     try {
-      const result = await service.getImage();
+      const result = await service.getImage(currentRound);
 
       // Check for terminal status responses
       if (result && typeof result === 'object' && 'status' in result) {
@@ -283,7 +305,7 @@ print('CLAHE packages ready')
       setIsLoadingImage(false);
       if (bannerId) removeBanner(bannerId);
     }
-  }, [service, setImageInfo, setError, addBanner, removeBanner]);
+  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
   // Load the first image once the service is ready
   useEffect(() => {
@@ -291,6 +313,111 @@ print('CLAHE packages ready')
     setIsLoading(true);
     loadNewImage(false).finally(() => setIsLoading(false));
   }, [service, hasLoadedOnce, loadNewImage, setIsLoading]);
+
+  // Load a specific image (by stem) for refinement. Replaces the current
+  // image and stages any existing GeoJSON so it can be re-applied to the
+  // vector source once AnnotationViewer remounts.
+  const loadSpecificImage = useCallback(async (stem: string) => {
+    if (!service) return;
+    setIsLoadingImage(true);
+    setError(null);
+    setAllAnnotatedInfo(null);
+    setNoImagesInfo(null);
+    setIsCLAHEActive(false);
+    setIsLowContrast(false);
+    setOriginalImageUrl(null);
+    setPendingGeoJSON(null);
+    const bannerId = addBanner('Loading image for refinement...', 'loading', 0);
+    try {
+      const result = await service.getImageByStem(stem, currentRound);
+      if ('status' in result && result.status === 'not_found') {
+        addBanner(result.message, 'warning', 5000);
+        return;
+      }
+      const imageResult = result as { url: string; name: string; existing_geojson_url?: string | null; cellpose_model?: string };
+      const url = imageResult.url;
+      const imageName = imageResult.name || stem;
+
+      if (imageResult.cellpose_model) {
+        setDynamicCellposeModel(imageResult.cellpose_model);
+      }
+
+      setCurrentImageName(imageName);
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load image'));
+      });
+      setIsLowContrast(detectLowContrast(img));
+      setImageInfo(url, img.naturalWidth, img.naturalHeight);
+      setHasLoadedOnce(true);
+
+      // Pre-fetch existing GeoJSON so it can be applied once the vector
+      // source is ready (see effect below).
+      if (imageResult.existing_geojson_url) {
+        try {
+          const res = await fetch(imageResult.existing_geojson_url);
+          if (res.ok) {
+            const data = await res.json();
+            setPendingGeoJSON(data);
+          } else {
+            console.warn('[AnnotatePage] Could not fetch existing GeoJSON:', res.status);
+          }
+        } catch (err) {
+          console.warn('[AnnotatePage] Error fetching existing GeoJSON:', err);
+        }
+      }
+    } catch (err: any) {
+      console.error('[AnnotatePage] loadSpecificImage failed:', err);
+      setError(err.message || 'Failed to load image');
+    } finally {
+      setIsLoadingImage(false);
+      removeBanner(bannerId);
+    }
+  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+
+  // Apply pending GeoJSON once both the data and the vector source are ready.
+  useEffect(() => {
+    if (!pendingGeoJSON || !getVectorSource || imageHeight <= 0) return;
+    const vs = getVectorSource();
+    if (!vs) return;
+    try {
+      vs.clear();
+      useAnnotationStore.setState({ undoStack: [], canUndo: false });
+      importGeoJSON(vs, pendingGeoJSON, imageHeight, activeLabel);
+      const count = vs.getFeatures().length;
+      addBanner(`Loaded ${count} existing mask${count !== 1 ? 's' : ''} for refinement`, 'success', 5000);
+    } catch (err: any) {
+      console.warn('[AnnotatePage] Failed to apply pending GeoJSON:', err);
+      addBanner('Failed to load existing annotation: ' + (err.message || 'unknown error'), 'error', 8000);
+    } finally {
+      setPendingGeoJSON(null);
+    }
+  }, [pendingGeoJSON, getVectorSource, imageHeight, activeLabel, addBanner]);
+
+  // Open the refine picker and fetch the image list.
+  const handleOpenRefinePicker = useCallback(async () => {
+    if (!service) return;
+    setRefinePickerOpen(true);
+    setRefineLoadingList(true);
+    try {
+      const list = await service.listImages(currentRound);
+      setRefineImageList(list);
+    } catch (err: any) {
+      console.error('[AnnotatePage] Failed to list images:', err);
+      addBanner('Failed to load image list: ' + (err.message || 'unknown error'), 'error', 8000);
+    } finally {
+      setRefineLoadingList(false);
+    }
+  }, [service, currentRound, addBanner]);
+
+  const handlePickRefineImage = useCallback((stem: string) => {
+    setRefinePickerOpen(false);
+    loadSpecificImage(stem);
+  }, [loadSpecificImage]);
 
   const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
     const cfg = cfgOverride || cellposeConfig;
@@ -375,7 +502,7 @@ print('CLAHE packages ready')
       const imageName = currentImageName || imageUrl?.split('/').pop()?.split('?')[0] || 'annotation.png';
 
       if (service) {
-        const saveUrls = await service.getSaveUrls(imageName);
+        const saveUrls = await service.getSaveUrls(imageName, currentRound);
         console.log('[AnnotatePage] Got save URLs for:', saveUrls.image_stem);
 
         const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
@@ -404,7 +531,7 @@ print('CLAHE packages ready')
     } finally {
       setIsSaving(false);
     }
-  }, [service, imageUrl, originalImageUrl, imageWidth, imageHeight, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
+  }, [service, currentRound, imageUrl, originalImageUrl, imageWidth, imageHeight, currentImageName, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
 
   const handleUndo = useCallback(() => {
     console.log('[AnnotatePage] Undo triggered');
@@ -731,7 +858,7 @@ print("CLAHE_RESULT:" + result_b64)
       >
         <div className="flex items-center gap-2 z-10 flex-shrink-0">
           {sessionUrl && (
-            <Tooltip title="Go back to the Colab session — view all images, annotation progress, and training">
+            <Tooltip title="Go back to the Colab session: view all images, annotation progress, and training">
               <MuiButton
                 size="small"
                 variant="outlined"
@@ -775,6 +902,11 @@ print("CLAHE_RESULT:" + result_b64)
               {serviceConfig.label}
             </span>
           )}
+          <Tooltip title="Annotation round. Each round saves to its own subfolder so multiple passes never overwrite each other.">
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300 tracking-wide">
+              Round {currentRound}
+            </span>
+          </Tooltip>
         </div>
 
         <div className="z-10 flex-shrink-0">
@@ -886,11 +1018,35 @@ print("CLAHE_RESULT:" + result_b64)
             >
               <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={600} gutterBottom>
-                All Images Annotated
+                All Images Annotated for Round {currentRound}
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
               </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <MuiButton
+                  variant="contained"
+                  color="primary"
+                  onClick={() => {
+                    const nextRound = currentRound + 1;
+                    setCurrentRound(nextRound);
+                    setAllAnnotatedInfo(null);
+                    addBanner(`Starting round ${nextRound}`, 'info', 4000);
+                    loadNewImage(false);
+                  }}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Start Round {currentRound + 1}
+                </MuiButton>
+                <MuiButton
+                  variant="outlined"
+                  color="primary"
+                  onClick={handleOpenRefinePicker}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Refine round {currentRound}
+                </MuiButton>
+              </Box>
             </Box>
           </Box>
         )}
@@ -992,6 +1148,57 @@ print("CLAHE_RESULT:" + result_b64)
       />
 
       <HelpTutorial open={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      <Dialog
+        open={refinePickerOpen}
+        onClose={() => setRefinePickerOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Pick an annotated image to refine
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {refineLoadingList ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : refineImageList.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                No images in this session.
+              </Typography>
+            </Box>
+          ) : (
+            <List dense sx={{ maxHeight: 360, overflowY: 'auto' }}>
+              {refineImageList.map((img) => (
+                <ListItemButton
+                  key={img.stem}
+                  onClick={() => handlePickRefineImage(img.stem)}
+                  disabled={!img.is_annotated}
+                >
+                  <ListItemIcon sx={{ minWidth: 36 }}>
+                    {img.is_annotated ? (
+                      <CheckCircleOutlineIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                    ) : (
+                      <Box sx={{ width: 20, height: 20 }} />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={img.name}
+                    secondary={img.is_annotated ? 'Annotated' : 'Not annotated'}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <MuiButton onClick={() => setRefinePickerOpen(false)} sx={{ textTransform: 'none' }}>
+            Cancel
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
       </Box>
     </Box>
   );

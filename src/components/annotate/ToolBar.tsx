@@ -188,7 +188,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             {/* AI Segmentation sits right after Draw Mask */}
             {tool.id === 'polygon' && (
               <Tooltip
-                title={cellposeAvailable ? `AI Segmentation — ${modelLabel}` : 'AI Segmentation unavailable — cellpose service is offline'}
+                title={cellposeAvailable ? `AI Segmentation: ${modelLabel}` : 'AI Segmentation unavailable (cellpose service is offline)'}
                 placement="right"
               >
                 <span>
@@ -255,7 +255,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           </IconButton>
         </Tooltip>
 
-        <Tooltip title={isCLAHEActive ? 'Restore Original Image' : isLowContrast && !isCLAHEActive ? 'Low contrast detected — Enhance Contrast (CLAHE)' : 'Enhance Contrast (CLAHE)'} placement="right">
+        <Tooltip title={isCLAHEActive ? 'Restore Original Image' : isLowContrast && !isCLAHEActive ? 'Low contrast detected. Enhance Contrast (CLAHE)' : 'Enhance Contrast (CLAHE)'} placement="right">
           <IconButton size={btnSize} data-tool="clahe" onClick={onToggleCLAHE}
             sx={isCLAHEActive ? { ...collapsedBtnSx(true), ...touchSx } : isLowContrast ? {
               ...collapsedBtnSx(),
@@ -273,7 +273,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
         <Divider flexItem sx={{ my: 0.25, opacity: 0.35 }} />
 
-        <Tooltip title={`${imageName || 'No image'} — ${imageWidth}×${imageHeight} px`} placement="right">
+        <Tooltip title={`${imageName || 'No image'} (${imageWidth}×${imageHeight} px)`} placement="right">
           <IconButton size={btnSize} data-tool="info" sx={{ ...collapsedBtnSx(), ...touchSx }}>
             <InfoIcon fontSize="small" />
           </IconButton>
@@ -287,7 +287,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {fileInput}
 
         {sessionUrl && (
-          <Tooltip title="Session overview — view all images, annotation progress & training" placement="right">
+          <Tooltip title="Session overview: view all images, annotation progress & training" placement="right">
             <IconButton size={btnSize} data-tool="session"
               onClick={() => window.open(sessionUrl, '_blank', 'noopener,noreferrer')}
               sx={{ ...collapsedBtnSx(), color: 'info.main', ...touchSx }}>
@@ -561,7 +561,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, py: 0.4 }}>
             <InfoIcon sx={{ fontSize: '0.85rem', color: 'text.disabled' }} />
             <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem' }} noWrap>
-              {imageName}{imageWidth && imageHeight ? ` — ${imageWidth}×${imageHeight} px` : ''}
+              {imageName}{imageWidth && imageHeight ? ` (${imageWidth}×${imageHeight} px)` : ''}
             </Typography>
           </Box>
         )}

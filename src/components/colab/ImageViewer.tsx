@@ -276,11 +276,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       if (hasMasks) {
         const maskFolder = label ? `masks_${label}` : 'annotations';
         const baseName = image.substring(0, image.lastIndexOf('.')) || image;
-        await artifactManager.remove_file({
-          artifact_id: dataArtifactId,
-          file_path: `${maskFolder}/${baseName}.png`,
-          _rkwargs: true
-        });
+        // Remove every annotator's mask + geojson for this stem. annotationsList
+        // entries may be either flat ("img.png") or per-user ("user-X/img.png").
+        const matching = annotationsList.filter(ann => stemOf(ann) === baseName);
+        await Promise.all(
+          matching.map(rel =>
+            artifactManager.remove_file({
+              artifact_id: dataArtifactId,
+              file_path: `${maskFolder}/${rel}`,
+              _rkwargs: true,
+            }).catch(() => {})
+          )
+        );
         setDeletedAnnotations(prev => { const next = new Set(prev); next.add(baseName); return next; });
       }
 
@@ -293,13 +300,43 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
+  // annotationsList entries may be any of:
+  //   - flat:           "img.png"
+  //   - per-user:       "user-X/img.png"
+  //   - per-user-round: "user-X/rN/img.png"
+  // Strip subfolders + extension before comparing to the image stem.
+  const stemOf = (annPath: string): string => {
+    const leaf = annPath.includes('/') ? annPath.substring(annPath.lastIndexOf('/') + 1) : annPath;
+    return leaf.substring(0, leaf.lastIndexOf('.')) || leaf;
+  };
+
+  // Pull the round number out of a path like "user-X/r3/img.png" -> 3.
+  // Returns 0 when no rN segment is present (flat or per-user-only layouts).
+  const roundOf = (annPath: string): number => {
+    for (const part of annPath.split('/')) {
+      if (/^r\d+$/.test(part)) return parseInt(part.slice(1), 10);
+    }
+    return 0;
+  };
+
   const isAnnotated = (imageName: string) => {
     const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
     if (deletedAnnotations.has(baseName)) return false;
-    return annotationsList.some(ann => {
-      const annBaseName = ann.substring(0, ann.lastIndexOf('.')) || ann;
-      return annBaseName === baseName;
-    });
+    return annotationsList.some(ann => stemOf(ann) === baseName);
+  };
+
+  // Return the path (relative to maskFolder) of the LATEST mask matching the
+  // image stem. "Latest" = highest rN; among equal rN, last in alpha order.
+  // Flat-layout matches (rN=0) win only when no per-user/per-round entry
+  // exists.
+  const findAnnotationRelPath = (imageName: string): string | null => {
+    const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
+    const matches = annotationsList.filter(
+      ann => stemOf(ann) === baseName && ann.endsWith('.png')
+    );
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => roundOf(b) - roundOf(a) || (a < b ? 1 : -1));
+    return matches[0];
   };
 
   // Load image URLs when selected
@@ -367,7 +404,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
         if (annotated) {
           const maskFolder = label ? `masks_${label}` : 'annotations';
-          const annUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/${maskFolder}/${baseName}.png`;
+          const relPath = findAnnotationRelPath(selectedImage) || `${baseName}.png`;
+          const annUrl = `${serverUrl}/bioimage-io/artifacts/${artifactAlias}/files/${maskFolder}/${relPath}`;
           setAnnotationUrl(annUrl);
         } else {
           setAnnotationUrl('');

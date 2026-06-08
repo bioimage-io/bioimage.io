@@ -45,11 +45,44 @@ export interface ImageResult {
   url: string;
   name: string;
   cellpose_model?: string;
+  existing_geojson_url?: string | null;
+  round?: number;
+}
+
+export interface CurrentRoundResult {
+  current_round: number;
+  max_existing_round: number;
+}
+
+export interface ImageInfo {
+  name: string;
+  stem: string;
+  source: 'local' | 'remote';
+  /** Whether the *current annotator* has saved both PNG + GeoJSON for this image. */
+  is_annotated: boolean;
+  /** Whether *any* annotator has saved this image (used for global progress). */
+  annotated_by_any?: boolean;
+}
+
+export interface ImageNotFoundResult {
+  status: 'not_found';
+  message: string;
 }
 
 export interface AnnotationDataService {
-  getImage: () => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
-  getSaveUrls: (imageName: string) => Promise<SaveUrls>;
+  /** The annotator id resolved at connect time (Hypha workspace user id, or
+   *  a localStorage anon uuid for booth visitors). Surfaced for diagnostic
+   *  banners and as the key for round-state storage. */
+  userId: string;
+  /** Highest existing round number for this user when the connection was
+   *  established. Returned by the colab service's get_current_round. The
+   *  React component holds the live current round in its own state and
+   *  passes it to every call below. */
+  initialRound: number;
+  getImage: (round: number) => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
+  getImageByStem: (stem: string, round: number) => Promise<ImageResult | ImageNotFoundResult>;
+  listImages: (round: number) => Promise<ImageInfo[]>;
+  getSaveUrls: (imageName: string, round: number) => Promise<SaveUrls>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
 }
 
@@ -242,9 +275,23 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
       setError(null);
 
       try {
-        const server = await hyphaWebsocketClient.connectToServer({
-          server_url: config.serverUrl,
-        });
+        // Pull the user's auth token from localStorage so logged-in users
+        // connect into their own Hypha workspace (ws-user-<id>). The
+        // workspace shape is what useHyphaService uses to resolve a stable
+        // per-annotator user_id below. Anonymous booth visitors fall back
+        // to a localStorage anon uuid.
+        let storedToken: string | undefined;
+        try {
+          const t = window.localStorage.getItem('token');
+          const expiryRaw = window.localStorage.getItem('tokenExpiry');
+          const stillValid = !expiryRaw || new Date(expiryRaw).getTime() > Date.now();
+          if (t && stillValid) storedToken = t;
+        } catch {
+          // localStorage may be unavailable in private modes; carry on anonymous.
+        }
+        const connectCfg: any = { server_url: config.serverUrl };
+        if (storedToken) connectCfg.token = storedToken;
+        const server = await hyphaWebsocketClient.connectToServer(connectCfg);
         if (cancelled) {
           await server.disconnect();
           return;
@@ -252,9 +299,51 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = server;
         console.log('[useHyphaService] Connected to workspace:', server.config.workspace);
 
+        // Derive a stable per-annotator id. Logged-in users get their Hypha
+        // user id (workspace shape ws-user-<id>). Anonymous booth visitors
+        // get a localStorage-backed uuid that persists across reloads on
+        // the same browser, so their per-user mask folder stays consistent.
+        const workspaceName: string = server.config?.workspace || '';
+        let resolvedUserId = '';
+        if (workspaceName.startsWith('ws-user-')) {
+          resolvedUserId = workspaceName.substring('ws-user-'.length);
+        } else {
+          try {
+            const stored = window.localStorage.getItem('bioimage_annot_anon_id');
+            if (stored) {
+              resolvedUserId = stored;
+            } else {
+              const fresh = 'anon-' + Math.random().toString(36).slice(2, 12);
+              window.localStorage.setItem('bioimage_annot_anon_id', fresh);
+              resolvedUserId = fresh;
+            }
+          } catch {
+            resolvedUserId = 'anon-' + Math.random().toString(36).slice(2, 12);
+          }
+        }
+        console.log('[useHyphaService] Resolved annotator user_id:', resolvedUserId);
+
         const dataService = await server.getService(config.imageProviderId);
         if (cancelled) return;
         console.log('[useHyphaService] Got data service:', dataService);
+
+        // Ask the data service which round this user is on. New users get 1;
+        // returning users pick up where they left off.
+        let resolvedInitialRound = 1;
+        try {
+          const cr = await dataService.get_current_round({
+            user_id: resolvedUserId,
+            _rkwargs: true,
+          });
+          const n = cr && (cr.current_round as number);
+          if (typeof n === 'number' && n > 0) {
+            resolvedInitialRound = n;
+          }
+          console.log('[useHyphaService] Initial round:', resolvedInitialRound,
+            '(max existing:', cr?.max_existing_round, ')');
+        } catch (err) {
+          console.warn('[useHyphaService] get_current_round failed, defaulting to 1:', err);
+        }
 
         // Get cellpose service — use mode:"random" for load-balanced selection
         // across multiple registered workers with the same service id
@@ -269,8 +358,14 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         }
 
         const wrappedService: AnnotationDataService = {
-          getImage: async () => {
-            const result = await dataService.get_image();
+          userId: resolvedUserId,
+          initialRound: resolvedInitialRound,
+          getImage: async (round: number) => {
+            const result = await dataService.get_image({
+              user_id: resolvedUserId,
+              round_n: round,
+              _rkwargs: true,
+            });
             // Service returns a dict with status field for terminal states
             if (result && typeof result === 'object') {
               const status = (result as any).status;
@@ -292,9 +387,38 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.log('[useHyphaService] Image Info:', result);
             return result as ImageResult;
           },
-          getSaveUrls: async (imageName: string) => {
-            console.log('[useHyphaService] Getting save URLs for:', imageName);
-            const urls = await dataService.get_save_urls(imageName);
+          getImageByStem: async (stem: string, round: number) => {
+            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label, 'user:', resolvedUserId, 'round:', round);
+            const result = await dataService.get_image_by_stem({
+              image_stem: stem,
+              label: config.label,
+              user_id: resolvedUserId,
+              round_n: round,
+              _rkwargs: true,
+            });
+            if (result && typeof result === 'object' && (result as any).status === 'not_found') {
+              console.warn('[useHyphaService] Image not found:', result);
+              return result as ImageNotFoundResult;
+            }
+            return result as ImageResult;
+          },
+          listImages: async (round: number) => {
+            const result = await dataService.list_images({
+              user_id: resolvedUserId,
+              round_n: round,
+              _rkwargs: true,
+            });
+            return (result || []) as ImageInfo[];
+          },
+          getSaveUrls: async (imageName: string, round: number) => {
+            console.log('[useHyphaService] Getting save URLs for:', imageName, 'user:', resolvedUserId, 'round:', round);
+            const urls = await dataService.get_save_urls({
+              image_name: imageName,
+              label: config.label,
+              user_id: resolvedUserId,
+              round_n: round,
+              _rkwargs: true,
+            });
             return urls as SaveUrls;
           },
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
