@@ -608,51 +608,44 @@ print("Service registered successfully", end='')
       setIsLoadingAnnotations(true);
       try {
         const dirPath = label ? `masks_${label}` : "annotations";
-        const entries = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: dirPath,
-            _rkwargs: true,
-        });
-        // Per-user layout: top-level entries are user subfolders. Walk one
-        // level deep and concatenate every mask filename so the global
-        // is_annotated check sees a coverage list across all annotators.
-        // Legacy flat-layout files at the top level still work.
-        const collected: string[] = [];
-        const subdirs: string[] = [];
-        for (const entry of entries || []) {
-          const name = entry?.name || '';
-          if (!name) continue;
-          const isDir = entry?.type === 'directory' || entry?.is_dir === true ||
-            !(name.endsWith('.png') || name.endsWith('.geojson'));
-          if (isDir) {
-            subdirs.push(name);
-          } else {
-            collected.push(name);
-          }
-        }
-        // Fetch each subdir in parallel; preserve the subdir prefix so the
-        // ImageViewer can construct a working mask URL pointing into the
-        // per-user folder (and so the legacy flat-layout entries above
-        // still uniquely identify themselves by absence of a slash).
-        const subResults = await Promise.all(
-          subdirs.map(async (sub) => {
-            try {
-              const subFiles = await artifactManager.list_files({
-                artifact_id: dataArtifactId,
-                dir_path: `${dirPath}/${sub}`,
-                _rkwargs: true,
-              });
-              return (subFiles || [])
-                .map((f: any) => f?.name)
-                .filter(Boolean)
-                .map((n: string) => `${sub}/${n}`);
-            } catch {
-              return [];
+        // Walk up to two levels of subfolders below masks_{label}/ so we
+        // cover every layout produced over time:
+        //   - flat:           masks_{label}/{stem}.png
+        //   - per-user:       masks_{label}/user-X/{stem}.png
+        //   - per-user-round: masks_{label}/user-X/rN/{stem}.png
+        // Entries are stored relative to masks_{label}/, with subfolders
+        // preserved, so the ImageViewer can pick the latest-round path.
+        const isFile = (e: any, name: string): boolean =>
+          !(e?.type === 'directory' || e?.is_dir === true ||
+            !(name.endsWith('.png') || name.endsWith('.geojson')));
+
+        const walk = async (sub: string): Promise<string[]> => {
+          const collected: string[] = [];
+          try {
+            const entries = await artifactManager.list_files({
+              artifact_id: dataArtifactId,
+              dir_path: sub ? `${dirPath}/${sub}` : dirPath,
+              _rkwargs: true,
+            });
+            for (const e of entries || []) {
+              const name = e?.name || '';
+              if (!name) continue;
+              const rel = sub ? `${sub}/${name}` : name;
+              if (isFile(e, name)) {
+                collected.push(rel);
+              } else {
+                const deeper = await walk(rel);
+                collected.push(...deeper);
+              }
             }
-          })
-        );
-        for (const r of subResults) collected.push(...r);
-        setAnnotationsList(collected.sort());
+          } catch {
+            // ignore missing directories
+          }
+          return collected;
+        };
+
+        const all = await walk('');
+        setAnnotationsList(all.sort());
       } catch (error: any) {
         const msg = (error?.message || String(error)).toLowerCase();
         if (!msg.includes('does not exist') && !msg.includes('not found') && !msg.includes('keyerror')) {

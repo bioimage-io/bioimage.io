@@ -456,11 +456,17 @@ const Training: React.FC<TrainingProps> = ({
         console.log(`Starting new training with model: ${selectedModel}`);
       }
 
-      // Match both flat (legacy) and per-user (user-X/) layouts in one
-      // glob. cellpose-finetuning >= 0.1.0 accepts comma-separated
-      // patterns and walks recursively, so masks_{label}/user-X/{stem}.png
-      // gets picked up alongside the flat masks_{label}/{stem}.png.
-      const trainPattern = `${maskFolder}/*.png,${maskFolder}/*.geojson,${maskFolder}/*/*.png,${maskFolder}/*/*.geojson`;
+      // Match every layout variant we have written over time. cellpose-
+      // finetuning >= 0.1.0 accepts comma-separated patterns and walks
+      // recursively, so we list all three depths explicitly:
+      //   - flat:           masks_{label}/{stem}.{png,geojson}
+      //   - per-user:       masks_{label}/user-X/{stem}.{png,geojson}
+      //   - per-user-round: masks_{label}/user-X/rN/{stem}.{png,geojson}
+      const trainPattern = [
+        `${maskFolder}/*.png`,           `${maskFolder}/*.geojson`,
+        `${maskFolder}/*/*.png`,         `${maskFolder}/*/*.geojson`,
+        `${maskFolder}/*/*/*.png`,       `${maskFolder}/*/*/*.geojson`,
+      ].join(',');
 
       const trainingParams: any = {
         artifact: String(artifactToUse),

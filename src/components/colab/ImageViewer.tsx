@@ -300,12 +300,23 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
-  // annotationsList entries may be either flat-layout filenames ("img.png")
-  // or per-user paths ("user-X/img.png"). Strip any leading subfolder and
-  // the extension before comparing to the image stem.
+  // annotationsList entries may be any of:
+  //   - flat:           "img.png"
+  //   - per-user:       "user-X/img.png"
+  //   - per-user-round: "user-X/rN/img.png"
+  // Strip subfolders + extension before comparing to the image stem.
   const stemOf = (annPath: string): string => {
     const leaf = annPath.includes('/') ? annPath.substring(annPath.lastIndexOf('/') + 1) : annPath;
     return leaf.substring(0, leaf.lastIndexOf('.')) || leaf;
+  };
+
+  // Pull the round number out of a path like "user-X/r3/img.png" -> 3.
+  // Returns 0 when no rN segment is present (flat or per-user-only layouts).
+  const roundOf = (annPath: string): number => {
+    for (const part of annPath.split('/')) {
+      if (/^r\d+$/.test(part)) return parseInt(part.slice(1), 10);
+    }
+    return 0;
   };
 
   const isAnnotated = (imageName: string) => {
@@ -314,12 +325,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     return annotationsList.some(ann => stemOf(ann) === baseName);
   };
 
-  // Return the relative-to-maskFolder path of the first annotation file that
-  // matches the given image stem, e.g. "user-X/img.png" or "img.png".
+  // Return the path (relative to maskFolder) of the LATEST mask matching the
+  // image stem. "Latest" = highest rN; among equal rN, last in alpha order.
+  // Flat-layout matches (rN=0) win only when no per-user/per-round entry
+  // exists.
   const findAnnotationRelPath = (imageName: string): string | null => {
     const baseName = imageName.substring(0, imageName.lastIndexOf('.')) || imageName;
-    const hit = annotationsList.find(ann => stemOf(ann) === baseName && ann.endsWith('.png'));
-    return hit || null;
+    const matches = annotationsList.filter(
+      ann => stemOf(ann) === baseName && ann.endsWith('.png')
+    );
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => roundOf(b) - roundOf(a) || (a < b ? 1 : -1));
+    return matches[0];
   };
 
   // Load image URLs when selected

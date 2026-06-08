@@ -197,6 +197,12 @@ print('CLAHE packages ready')
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
+  // Current annotation round for this user. Initialised from
+  // service.initialRound once the connection is up (see effect below).
+  // The "Start Round N+1" CTA in the empty state bumps this; every
+  // subsequent save targets the new round folder.
+  const [currentRound, setCurrentRound] = useState<number>(1);
+
   // Refine flow: when a user picks a previously-annotated image to refine,
   // we load that image and any existing GeoJSON into the vector source. The
   // pending GeoJSON lands here first because the vector source ref may not
@@ -205,6 +211,13 @@ print('CLAHE packages ready')
   const [refineImageList, setRefineImageList] = useState<ImageInfo[]>([]);
   const [refineLoadingList, setRefineLoadingList] = useState(false);
   const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
+
+  // Keep currentRound in sync with the latest service connection.
+  useEffect(() => {
+    if (service?.initialRound && service.initialRound > 0) {
+      setCurrentRound(service.initialRound);
+    }
+  }, [service]);
 
   // Detect low contrast by sampling luminance values from the loaded image.
   // Returns true when the 5th–95th percentile luminance range is below 60/255.
@@ -242,10 +255,10 @@ print('CLAHE packages ready')
     setIsCLAHEActive(false);
     setIsLowContrast(false);
     setOriginalImageUrl(null);
-    console.log('[AnnotatePage] Loading new image...');
+    console.log('[AnnotatePage] Loading new image for round', currentRound);
     const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
     try {
-      const result = await service.getImage();
+      const result = await service.getImage(currentRound);
 
       // Check for terminal status responses
       if (result && typeof result === 'object' && 'status' in result) {
@@ -292,7 +305,7 @@ print('CLAHE packages ready')
       setIsLoadingImage(false);
       if (bannerId) removeBanner(bannerId);
     }
-  }, [service, setImageInfo, setError, addBanner, removeBanner]);
+  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
   // Load the first image once the service is ready
   useEffect(() => {
@@ -316,7 +329,7 @@ print('CLAHE packages ready')
     setPendingGeoJSON(null);
     const bannerId = addBanner('Loading image for refinement...', 'loading', 0);
     try {
-      const result = await service.getImageByStem(stem);
+      const result = await service.getImageByStem(stem, currentRound);
       if ('status' in result && result.status === 'not_found') {
         addBanner(result.message, 'warning', 5000);
         return;
@@ -364,7 +377,7 @@ print('CLAHE packages ready')
       setIsLoadingImage(false);
       removeBanner(bannerId);
     }
-  }, [service, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
   // Apply pending GeoJSON once both the data and the vector source are ready.
   useEffect(() => {
@@ -391,7 +404,7 @@ print('CLAHE packages ready')
     setRefinePickerOpen(true);
     setRefineLoadingList(true);
     try {
-      const list = await service.listImages();
+      const list = await service.listImages(currentRound);
       setRefineImageList(list);
     } catch (err: any) {
       console.error('[AnnotatePage] Failed to list images:', err);
@@ -399,7 +412,7 @@ print('CLAHE packages ready')
     } finally {
       setRefineLoadingList(false);
     }
-  }, [service, addBanner]);
+  }, [service, currentRound, addBanner]);
 
   const handlePickRefineImage = useCallback((stem: string) => {
     setRefinePickerOpen(false);
@@ -489,7 +502,7 @@ print('CLAHE packages ready')
       const imageName = currentImageName || imageUrl?.split('/').pop()?.split('?')[0] || 'annotation.png';
 
       if (service) {
-        const saveUrls = await service.getSaveUrls(imageName);
+        const saveUrls = await service.getSaveUrls(imageName, currentRound);
         console.log('[AnnotatePage] Got save URLs for:', saveUrls.image_stem);
 
         const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
@@ -518,7 +531,7 @@ print('CLAHE packages ready')
     } finally {
       setIsSaving(false);
     }
-  }, [service, imageUrl, originalImageUrl, imageWidth, imageHeight, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
+  }, [service, currentRound, imageUrl, originalImageUrl, imageWidth, imageHeight, currentImageName, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
 
   const handleUndo = useCallback(() => {
     console.log('[AnnotatePage] Undo triggered');
@@ -889,6 +902,11 @@ print("CLAHE_RESULT:" + result_b64)
               {serviceConfig.label}
             </span>
           )}
+          <Tooltip title="Annotation round. Each round saves to its own subfolder so multiple passes never overwrite each other.">
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300 tracking-wide">
+              Round {currentRound}
+            </span>
+          </Tooltip>
         </div>
 
         <div className="z-10 flex-shrink-0">
@@ -1000,19 +1018,35 @@ print("CLAHE_RESULT:" + result_b64)
             >
               <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={600} gutterBottom>
-                All Images Annotated
+                All Images Annotated for Round {currentRound}
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
               </Typography>
-              <MuiButton
-                variant="contained"
-                color="primary"
-                onClick={handleOpenRefinePicker}
-                sx={{ textTransform: 'none' }}
-              >
-                Refine an annotated image
-              </MuiButton>
+              <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <MuiButton
+                  variant="contained"
+                  color="primary"
+                  onClick={() => {
+                    const nextRound = currentRound + 1;
+                    setCurrentRound(nextRound);
+                    setAllAnnotatedInfo(null);
+                    addBanner(`Starting round ${nextRound}`, 'info', 4000);
+                    loadNewImage(false);
+                  }}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Start Round {currentRound + 1}
+                </MuiButton>
+                <MuiButton
+                  variant="outlined"
+                  color="primary"
+                  onClick={handleOpenRefinePicker}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Refine round {currentRound}
+                </MuiButton>
+              </Box>
             </Box>
           </Box>
         )}

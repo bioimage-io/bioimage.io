@@ -406,6 +406,22 @@ class AnnotationSession:
         )
         return f"user-{safe}"
 
+    @staticmethod
+    def _round_folder(round_n: Optional[int]) -> str:
+        """Return the round subfolder name (``rN``) for the given round
+        number. Defaults to ``r1`` when ``round_n`` is missing, zero, or
+        non-positive.
+        """
+        n = round_n if isinstance(round_n, int) and round_n > 0 else 1
+        return f"r{n}"
+
+    @classmethod
+    def _user_round_folder(
+        cls, user_id: Optional[str], round_n: Optional[int]
+    ) -> str:
+        """``user-{id}/rN`` — the leaf annotation folder for one user-round."""
+        return f"{cls._user_folder(user_id)}/{cls._round_folder(round_n)}"
+
     async def _list_files_safe(self, dir_path: str) -> List[dict]:
         """``list_files`` wrapper that returns ``[]`` on any error."""
         try:
@@ -429,14 +445,18 @@ class AnnotationSession:
             return True
         return False
 
-    async def _get_annotated_stems_for_user(self, user_id: Optional[str]) -> Set[str]:
-        """Return stems annotated by ``user_id`` (PNG + GeoJSON both present).
+    async def _get_annotated_stems_for_user(
+        self,
+        user_id: Optional[str],
+        round_n: Optional[int] = None,
+    ) -> Set[str]:
+        """Return stems annotated by ``user_id`` in ``round_n``.
 
-        Looks in ``masks_{label}/user-{user_id}/`` only. If the user has
-        never annotated, returns an empty set.
+        Looks in ``masks_{label}/user-{user_id}/r{N}/`` (PNG + GeoJSON both
+        present). When ``round_n`` is missing, falls back to round 1.
         """
-        folder = self._user_folder(user_id)
-        files = await self._list_files_safe(f"masks_{self.label}/{folder}")
+        leaf = self._user_round_folder(user_id, round_n)
+        files = await self._list_files_safe(f"masks_{self.label}/{leaf}")
         if not files:
             return set()
         names = [f.get("name", "") for f in files]
@@ -444,54 +464,100 @@ class AnnotationSession:
         geojson_stems = {Path(n).stem for n in names if n.endswith(".geojson")}
         return png_stems & geojson_stems
 
-    async def _get_any_user_annotated_stems(self) -> Set[str]:
-        """Return stems annotated by anyone, across all per-user subfolders
-        and the legacy flat layout.
+    async def _get_max_round_for_user(self, user_id: Optional[str]) -> int:
+        """Return the highest existing round number for this user.
 
-        Used for the global progress meter so the presenter can see overall
-        annotation coverage independent of who annotated each image.
+        Scans ``masks_{label}/user-{user_id}/`` for ``r{N}`` subfolders and
+        returns the largest ``N`` it finds. Returns ``0`` if the user has
+        no rounds yet (callers can interpret as "no annotation history").
         """
-        entries = await self._list_files_safe(f"masks_{self.label}")
-        if not entries:
+        folder = self._user_folder(user_id)
+        entries = await self._list_files_safe(f"masks_{self.label}/{folder}")
+        max_round = 0
+        for e in entries:
+            name = e.get("name", "")
+            if not name or not self._is_directory_entry(e):
+                continue
+            if name.startswith("r") and name[1:].isdigit():
+                n = int(name[1:])
+                if n > max_round:
+                    max_round = n
+        return max_round
+
+    async def _get_any_user_annotated_stems(self) -> Set[str]:
+        """Return stems annotated by anyone, across all per-user/per-round
+        subfolders, the legacy per-user-only layout, and the original flat
+        layout.
+
+        Walks up to two levels of subfolders under ``masks_{label}/`` so a
+        stem counts as annotated when it appears at any of:
+            masks_{label}/{stem}.png                   (legacy flat)
+            masks_{label}/user-X/{stem}.png            (per-user no round)
+            masks_{label}/user-X/rN/{stem}.png         (per-user per-round)
+        """
+        top = await self._list_files_safe(f"masks_{self.label}")
+        if not top:
             return set()
 
         all_pngs: Set[str] = set()
         all_geojsons: Set[str] = set()
 
-        for entry in entries:
-            name = entry.get("name", "")
-            if not name:
+        def _accumulate(file_name: str) -> None:
+            if file_name.endswith(".png"):
+                all_pngs.add(Path(file_name).stem)
+            elif file_name.endswith(".geojson"):
+                all_geojsons.add(Path(file_name).stem)
+
+        for top_entry in top:
+            top_name = top_entry.get("name", "")
+            if not top_name:
                 continue
-            if self._is_directory_entry(entry) or not (
-                name.endswith(".png") or name.endswith(".geojson")
-            ):
-                # Subfolder: list its files
-                sub_files = await self._list_files_safe(
-                    f"masks_{self.label}/{name}"
+            top_is_dir = self._is_directory_entry(top_entry) or not (
+                top_name.endswith(".png") or top_name.endswith(".geojson")
+            )
+            if not top_is_dir:
+                _accumulate(top_name)
+                continue
+            # Descend one level (per-user folder)
+            second = await self._list_files_safe(
+                f"masks_{self.label}/{top_name}"
+            )
+            for sec_entry in second:
+                sec_name = sec_entry.get("name", "")
+                if not sec_name:
+                    continue
+                sec_is_dir = self._is_directory_entry(sec_entry) or not (
+                    sec_name.endswith(".png") or sec_name.endswith(".geojson")
                 )
-                for sf in sub_files:
-                    sn = sf.get("name", "")
-                    if sn.endswith(".png"):
-                        all_pngs.add(Path(sn).stem)
-                    elif sn.endswith(".geojson"):
-                        all_geojsons.add(Path(sn).stem)
-            else:
-                # Legacy flat layout: file directly under masks_{label}/
-                if name.endswith(".png"):
-                    all_pngs.add(Path(name).stem)
-                elif name.endswith(".geojson"):
-                    all_geojsons.add(Path(name).stem)
+                if not sec_is_dir:
+                    # File directly under per-user folder (no round)
+                    _accumulate(sec_name)
+                    continue
+                # Descend one more level (per-round folder)
+                third = await self._list_files_safe(
+                    f"masks_{self.label}/{top_name}/{sec_name}"
+                )
+                for third_entry in third:
+                    third_name = third_entry.get("name", "")
+                    if not third_name:
+                        continue
+                    _accumulate(third_name)
 
         return all_pngs & all_geojsons
 
-    async def _get_annotated_stems(self, user_id: Optional[str] = None) -> Set[str]:
+    async def _get_annotated_stems(
+        self,
+        user_id: Optional[str] = None,
+        round_n: Optional[int] = None,
+    ) -> Set[str]:
         """Return annotated stems.
 
-        With ``user_id``: only stems annotated by that user (per-user view).
-        Without ``user_id``: stems annotated by anyone (any-user view).
+        With ``user_id``: stems annotated by that user in ``round_n``
+        (defaults to round 1 when missing). Without ``user_id``: stems
+        annotated by anyone, anywhere in the masks tree.
         """
         if user_id is not None:
-            return await self._get_annotated_stems_for_user(user_id)
+            return await self._get_annotated_stems_for_user(user_id, round_n)
         return await self._get_any_user_annotated_stems()
 
     async def _upload_image(self, info: dict) -> bool:
@@ -550,26 +616,35 @@ class AnnotationSession:
         self._cellpose_model = model
         return True
 
-    async def get_image(self, user_id: Optional[str] = None, context=None) -> dict:
+    async def get_image(
+        self,
+        user_id: Optional[str] = None,
+        round_n: Optional[int] = None,
+        context=None,
+    ) -> dict:
         """Return a presigned download URL for the next image this user has
-        not yet annotated.
+        not yet annotated **in the given round**.
 
         Ensures the artifact exists first (lazy creation).  If the chosen
         image is only available locally it is uploaded on demand.  Per-user
         ``is_annotated`` means an image is "done" only when the caller's
-        own ``masks_{label}/user-{user_id}/`` folder contains both the PNG
-        and the GeoJSON for that stem — other annotators' contributions do
-        not block this user from also annotating the same image.
+        own ``masks_{label}/user-{user_id}/r{N}/`` folder contains both
+        the PNG and the GeoJSON for that stem — other annotators'
+        contributions and the same user's *other* rounds do not block this
+        user from annotating the same image in the current round.
 
         Return dict shapes
         ------------------
-        - ``{"url": ..., "name": ..., "cellpose_model": ...}``  — normal case
+        - ``{"url": ..., "name": ..., "cellpose_model": ..., "round": N}``   — normal case
         - ``{"status": "no_images", "message": ...}``           — nothing available
-        - ``{"status": "all_annotated", ...}``                  — all done for this user
+        - ``{"status": "all_annotated", "round": N, ...}``      — all done for this user in round N
         - ``{"status": "error", "message": ...}``               — upload failed
         """
         effective_user = user_id or self.user_id
-        console.log(f"get_image called (user={effective_user!r})")
+        effective_round = round_n if isinstance(round_n, int) and round_n > 0 else 1
+        console.log(
+            f"get_image called (user={effective_user!r}, round={effective_round})"
+        )
         await self._ensure_artifact_exists()
 
         registry = await self._build_registry()
@@ -583,11 +658,11 @@ class AnnotationSession:
                 ),
             }
 
-        annotated = await self._get_annotated_stems(effective_user)
+        annotated = await self._get_annotated_stems(effective_user, effective_round)
         unannotated = {s: v for s, v in registry.items() if s not in annotated}
         console.log(
             f"Registry: {len(registry)} total, {len(annotated)} annotated by "
-            f"{effective_user!r}, {len(unannotated)} remaining"
+            f"{effective_user!r} in r{effective_round}, {len(unannotated)} remaining"
         )
 
         if not unannotated:
@@ -596,9 +671,10 @@ class AnnotationSession:
                 "total": len(registry),
                 "annotated": len(annotated),
                 "label": self.label,
+                "round": effective_round,
                 "message": (
                     f"All {len(registry)} images have been annotated for label "
-                    f"'{self.label}'."
+                    f"'{self.label}' in round {effective_round}."
                 ),
             }
 
@@ -630,6 +706,7 @@ class AnnotationSession:
             "url": url,
             "name": chosen["name"],
             "cellpose_model": self._cellpose_model,
+            "round": effective_round,
         }
 
     async def get_image_by_stem(
@@ -637,6 +714,7 @@ class AnnotationSession:
         image_stem: str,
         label: Optional[str] = None,
         user_id: Optional[str] = None,
+        round_n: Optional[int] = None,
         context=None,
     ) -> dict:
         """Return URL for a specific image plus the caller's existing GeoJSON
@@ -659,9 +737,10 @@ class AnnotationSession:
         - ``{"status": "error", "message": ...}``                             -- upload failed
         """
         effective_user = user_id or self.user_id
+        effective_round = round_n if isinstance(round_n, int) and round_n > 0 else 1
         console.log(
             f"get_image_by_stem: stem={image_stem!r}, label={label!r}, "
-            f"user={effective_user!r}"
+            f"user={effective_user!r}, round={effective_round}"
         )
         await self._ensure_artifact_exists()
 
@@ -689,12 +768,12 @@ class AnnotationSession:
         url = await self._get_download_url(info["name"])
 
         effective_label = label or self.label
-        folder = self._user_folder(effective_user)
+        leaf = self._user_round_folder(effective_user, effective_round)
         existing_geojson_url: Optional[str] = None
         try:
             existing_geojson_url = await self.artifact_manager.get_file(
                 self.artifact_id,
-                file_path=f"masks_{effective_label}/{folder}/{image_stem}.geojson",
+                file_path=f"masks_{effective_label}/{leaf}/{image_stem}.geojson",
                 stage=True,
             )
         except Exception:
@@ -703,6 +782,7 @@ class AnnotationSession:
         return {
             "url": url,
             "name": info["name"],
+            "round": effective_round,
             "existing_geojson_url": existing_geojson_url,
             "cellpose_model": self._cellpose_model,
         }
@@ -824,51 +904,63 @@ class AnnotationSession:
         image_name: str,
         label: Optional[str] = None,
         user_id: Optional[str] = None,
+        round_n: Optional[int] = None,
         context=None,
     ) -> dict:
         """Return presigned PUT URLs for saving annotation files into the
-        caller's per-user subfolder.
+        caller's per-user, per-round subfolder.
 
         ``label`` overrides the session label when provided. ``user_id``
         identifies the annotator (browser anonymous id or Hypha user id);
-        falls back to the session owner's id.
+        falls back to the session owner's id. ``round_n`` is the round
+        index (defaults to 1).
 
-        Returns ``{"png_url": ..., "geojson_url": ..., "image_stem": ...}``
+        Returns ``{"png_url": ..., "geojson_url": ..., "image_stem": ...,
+        "round": N}``.
         """
         effective_label = label if label else self.label
         effective_user = user_id or self.user_id
-        folder = self._user_folder(effective_user)
+        effective_round = round_n if isinstance(round_n, int) and round_n > 0 else 1
+        leaf = self._user_round_folder(effective_user, effective_round)
         stem = Path(image_name).stem
         console.log(
             f"get_save_urls for {stem}, label={effective_label!r}, "
-            f"user={effective_user!r} -> {folder}/"
+            f"user={effective_user!r}, round={effective_round} -> {leaf}/"
         )
         await self._ensure_artifact_exists()
         png_url = await self.artifact_manager.put_file(
             self.artifact_id,
-            file_path=f"masks_{effective_label}/{folder}/{stem}.png",
+            file_path=f"masks_{effective_label}/{leaf}/{stem}.png",
         )
         geojson_url = await self.artifact_manager.put_file(
             self.artifact_id,
-            file_path=f"masks_{effective_label}/{folder}/{stem}.geojson",
+            file_path=f"masks_{effective_label}/{leaf}/{stem}.geojson",
         )
-        return {"png_url": png_url, "geojson_url": geojson_url, "image_stem": stem}
+        return {
+            "png_url": png_url,
+            "geojson_url": geojson_url,
+            "image_stem": stem,
+            "round": effective_round,
+        }
 
     async def list_images(
         self,
         user_id: Optional[str] = None,
+        round_n: Optional[int] = None,
         context=None,
     ) -> List[dict]:
-        """List all images with both per-user and any-user annotation status.
+        """List all images with per-user-per-round and any-user annotation
+        status.
 
-        ``is_annotated`` reflects the caller's own contribution (true if
-        this user annotated the stem). ``annotated_by_any`` reflects
-        whether any user has annotated the stem (used by the global
-        progress meter).
+        ``is_annotated`` reflects the caller's contribution in the given
+        round (true if this user annotated the stem in ``r{round_n}``).
+        ``annotated_by_any`` reflects whether *any* user has annotated the
+        stem in *any* round (used by the global progress meter).
         """
         effective_user = user_id or self.user_id
+        effective_round = round_n if isinstance(round_n, int) and round_n > 0 else 1
         registry = await self._build_registry()
-        per_user = await self._get_annotated_stems(effective_user)
+        per_user = await self._get_annotated_stems(effective_user, effective_round)
         any_user = await self._get_any_user_annotated_stems()
         return [
             {
@@ -880,6 +972,29 @@ class AnnotationSession:
             }
             for stem, info in sorted(registry.items())
         ]
+
+    async def get_current_round(
+        self,
+        user_id: Optional[str] = None,
+        context=None,
+    ) -> dict:
+        """Return the user's highest existing round number.
+
+        The frontend calls this at session load to initialise its local
+        ``currentRound`` state. When the user has no rounds yet, this
+        returns ``current_round: 1`` (the default round all callers start
+        on).
+
+        Returns ``{"current_round": N, "max_existing_round": M}`` where
+        ``M`` is 0 when the user has never annotated.
+        """
+        effective_user = user_id or self.user_id
+        await self._ensure_artifact_exists()
+        max_existing = await self._get_max_round_for_user(effective_user)
+        return {
+            "current_round": max_existing if max_existing > 0 else 1,
+            "max_existing_round": max_existing,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1054,6 +1169,7 @@ async def register_service(
                 "upload_images_from_temp": session.upload_images_from_temp,
                 "get_save_urls": session.get_save_urls,
                 "list_images": session.list_images,
+                "get_current_round": session.get_current_round,
                 "set_cellpose_model": session.set_cellpose_model,
                 "write_file_to_temp": write_file_to_temp,
             }
