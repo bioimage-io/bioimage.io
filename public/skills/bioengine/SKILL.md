@@ -501,7 +501,7 @@ result  = await app.infer(model_id="affable-shark", inputs="<url>")
 
 ### Apps that take dataset URIs
 
-Some apps (e.g. cellpose-finetuning) take HTTPS URIs of OME-Zarr datasets as input rather than streaming through the worker. Discover candidate datasets via the BioImage Archive search API or any other public catalogue — see [references/data_sources.md](references/data_sources.md) for the BIA query patterns and how to extract `.ome.zarr` URIs from the response.
+Some apps (e.g. cellpose-finetuning) take HTTPS URIs of OME-Zarr datasets as input rather than streaming through the worker. Discover candidate datasets via the BioImage Archive search API, the IDR OME-NGFF samples catalogue, or any other public source — see [references/data_sources.md](references/data_sources.md) for the BIA, IDR / OMERO query patterns and how to extract `.ome.zarr` URIs from the response.
 
 ### App-specific subskills
 
@@ -547,7 +547,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
 | [references/model_serving.md](references/model_serving.md) | Multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
-| [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive and any HTTPS source (Tasks 2 & 4) |
+| [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive, IDR / OMERO, and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |
 

@@ -6,6 +6,7 @@ BioEngine apps can stream image data on-demand from any HTTPS-served Zarr (typic
 - [Architecture: BioEngine streams, you discover](#architecture-bioengine-streams-you-discover)
 - [Two ways to stream a Zarr: pick one](#two-ways-to-stream-a-zarr-pick-one)
 - [Worked example: BioImage Archive](#worked-example-bioimage-archive)
+- [Worked example: OMERO servers (incl. IDR)](#worked-example-omero-servers-incl-idr)
 - [Adapting to other repositories](#adapting-to-other-repositories)
 - [Caveats](#caveats)
 
@@ -213,18 +214,208 @@ arr = zarr.open(zarr_root, mode="r")                 # Option A: fsspec-managed
 
 ---
 
+## Worked example: OMERO servers (incl. IDR)
+
+[OMERO](https://www.openmicroscopy.org/omero/) is the image-server framework that many imaging facilities run. The [Image Data Resource (IDR)](https://idr.openmicroscopy.org/) is the largest public OMERO instance. Public OMERO deployments increasingly expose their images as OME-Zarr alongside the native OMERO API, which means the same streaming primitives used for BIA also work here. No ICE C++ client needed.
+
+### Three access paths, in recommended order
+
+| Path | When to use | What it needs |
+|---|---|---|
+| **OME-Zarr export over HTTPS** (recommended) | Primary pixel access for inference, viz, analysis | Just the Zarr root URL. Same `zarr.open(uri)` / `datasets.open_remote_zarr(uri)` you already use. |
+| **OMERO web JSON API** (`/api/v0/m/...`) | Metadata discovery: project / dataset / image listings, channels, ROIs, map-annotations | HTTPS + optional `X-OMERO-Session-Key` for private servers. Public projects on IDR need no auth. |
+| **`omero-py` / BlitzGateway** | Last resort, only when neither of the above covers what you need | OS-level dependencies on the Ice C++ library; see the caveat below. |
+
+The first two cover ~all bioimage workflows on IDR and on any modern OMERO deployment that runs the [omero-ms-zarr](https://github.com/glencoesoftware/omero-ms-zarr) microservice or has otherwise published OME-Zarr exports. Reach for the third path only when you genuinely need primary-pixel access to a non-zarr-exported OMERO server.
+
+### IDR discovery: the OME-NGFF samples catalogue
+
+IDR curates a public CSV of every image that has been re-exported as OME-Zarr. It is the single most reliable way to discover IDR Zarr URLs:
+
+| Endpoint | Returns |
+|---|---|
+| `GET https://raw.githubusercontent.com/IDR/ome-ngff-samples/main/_data/table.csv` | One row per OME-Zarr export. Columns: `OME-NGFF version`, `File Path` (the absolute HTTPS Zarr root URL), `SizeX/Y/Z/C/T`, `Axes`, `License`, `Study`, `Representative Image ID`, `Thumbnail`. |
+| Human-readable browser view | https://idr.github.io/ome-ngff-samples/ |
+
+Most rows now live at `https://livingobjects.ebi.ac.uk/idr/zarr/v<ver>/idr<study>A/<image>.zarr`; older entries used `https://uk1s3.embassy.ebi.ac.uk/idr/zarr/...`. Both hosts serve byte-range-able Zarr.
+
+### IDR JSON API for metadata (no auth on public projects)
+
+Independent of the Zarr catalogue, the OMERO JSON API on `https://idr.openmicroscopy.org/api/v0/` lets you walk the project/dataset/image hierarchy programmatically. Useful when you have an image name or study accession and want to map it to an image id, or when you want channel / ROI metadata.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/v0/m/projects/?limit=N&offset=M` | Studies (paginated). `data[].@id` is the project id; `data[].Name` looks like `idr0018-...` mapping back to the IDR accession. |
+| `GET /api/v0/m/projects/<id>/datasets/?limit=N` | Datasets in a study. |
+| `GET /api/v0/m/datasets/<id>/images/?limit=N` | Images in a dataset. `data[].@id` is the OMERO image id. |
+| `GET /api/v0/m/images/<id>/` | Pixel metadata, channel info, links to ROIs. Does **not** carry the OME-Zarr URL directly. |
+
+If you need the Zarr URL for an arbitrary IDR image id, the canonical path is to filter `_data/table.csv` by `Representative Image ID` (or by `Study`).
+
+### Search + stream from an app deployment
+
+```python
+import csv, io, httpx, zarr
+from ray import serve
+from hypha_rpc.utils.schema import schema_method
+from pydantic import Field
+
+@serve.deployment(
+    ray_actor_options={
+        "num_cpus": 2,
+        "num_gpus": 1,
+        "runtime_env": {
+            "pip": [
+                "cellpose>=4.0",
+                "httpx>=0.28",
+                "zarr>=3.0.8",
+                "numpy==1.26.4",  # match the worker's numpy ABI to avoid Zarr import-time crashes
+            ],
+        },
+    },
+)
+class CellposeOnIDR:
+    def __init__(self, datasets):
+        # 'datasets' is a BioEngineDatasets instance injected by BioEngine.
+        self.datasets = datasets
+
+    @schema_method
+    async def segment_idr_image(
+        self,
+        study: str = Field("idr0062", description="IDR study accession, e.g. 'idr0062'"),
+        ngff_version: str = Field("0.4", description="OME-NGFF version row to filter to"),
+    ) -> dict:
+        # 1. Pull the IDR OME-NGFF samples catalogue (CSV; ~16 KB) and filter.
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                "https://raw.githubusercontent.com/IDR/ome-ngff-samples/main/_data/table.csv"
+            )
+            r.raise_for_status()
+            rows = list(csv.DictReader(io.StringIO(r.text)))
+        matches = [
+            row for row in rows
+            if row["Study"] == study and row["OME-NGFF version"] == ngff_version
+        ]
+        if not matches:
+            return {"status": "no_match", "study": study, "ngff_version": ngff_version}
+
+        # 2. Take the first matching Zarr URL.
+        first = matches[0]
+        uri = first["File Path"]
+
+        # 3. Stream the OME-Zarr. Option B (BioEngine-managed, shared cache):
+        store = self.datasets.open_remote_zarr(uri)
+        # Option A (vanilla zarr+fsspec): replace the line above with `store = uri`
+        # and add "fsspec", "aiohttp" to runtime_env.pip. See "Two ways to stream a Zarr".
+
+        # Move blocking zarr.open + slicing off the event loop.
+        import asyncio
+        img = await asyncio.to_thread(self._fetch_2d, store)
+
+        # 4. Run inference (Cellpose example; import in-method to keep cold start clean).
+        from cellpose import models
+        model = models.Cellpose(model_type="cyto")
+        masks, *_ = model.eval(img, channels=[0, 0])
+        return {
+            "study": study,
+            "image_id": first["Representative Image ID"],
+            "uri": uri,
+            "n_objects": int(masks.max()),
+            "image_shape": list(img.shape),
+        }
+
+    def _fetch_2d(self, store):
+        """Open the multiscale group and read a 2D slab from scale 0."""
+        root = zarr.open(store, mode="r")
+        # IDR OME-NGFF v0.4 axes are typically (c, z, y, x) or (t, c, z, y, x);
+        # navigate to scale-0 by name and pick the first 2D plane.
+        arr = root["0"]
+        if arr.ndim == 5:
+            return arr[0, 0, 0, :, :]
+        if arr.ndim == 4:
+            return arr[0, 0, :, :]
+        return arr[:]
+```
+
+The same code path with most other accessions in the catalogue (`idr0047`, `idr0054`, `idr0101`, `idr0138`, ...) Just Works. The URI is opaque to the inference logic.
+
+### Mapping an IDR Zarr URI to scale 0
+
+IDR OME-Zarr exports follow the same multiscale layout as BIA: the URL in the `File Path` column points at the multiscale **group**, with scale arrays at `0/`, `1/`, `2/` underneath. Either of these gets you the scale-0 array:
+
+```python
+root = zarr.open(uri, mode="r")
+arr  = root["0"]                          # navigate by name (works for v0.4 and v0.5)
+
+# Or, equivalently, open the array directly:
+arr  = zarr.open(uri.rstrip("/") + "/0", mode="r")
+```
+
+For HCS plate layouts (v0.4 entries with `Wells` populated), the layout is well/field-of-view nested; consult the [OME-NGFF HCS spec](https://ngff.openmicroscopy.org/0.4/#hcs-layout) for the path under the plate root.
+
+### IDR Zarr gotchas worth knowing about
+
+A handful of catalogue entries fail to open with current `zarr>=3.0.8`. None of these are bugs in your code; they are quirks of the upstream export:
+
+1. **Big-endian dtypes (`>u1`, `>u2`) in older v0.4 exports.** Zarr v3 raises `ValueError: No Zarr data type found that matches {'name': '>u1', ...}`. Observed on `idr0073A` and similar early conversions. Pick a different study or pin to `zarr>=3.1,<3.2` only if the upstream fix lands.
+2. **Bioformats2raw nested layout.** A few older entries (e.g. `idr0001A/2551.zarr`, `idr0013A/3451.zarr`, `idr0056B/7361.zarr`) put the multiscale group one level deeper, so `root["0"]` raises `KeyError: '0'`. Open `uri + "/0"` instead. Same gotcha already noted for the BioImage Archive layout above.
+3. **Plate / collection roots.** Some entries (`idr0079A/idr0079_images.zarr`, `idr0048A/9846151.zarr/`) resolve to a Group of sub-images rather than a multiscale image. `root.ndim` raises `AttributeError`. Walk `root.group_keys()` to pick a child image, then take its `["0"]`.
+
+If your discovery code needs to be robust to all 100+ catalogue entries, wrap `root["0"]` in a try/except for the first two cases, and fall back to `list(root.group_keys())` for the third.
+
+### OMERO authentication
+
+Public IDR endpoints (everything under `https://idr.openmicroscopy.org/api/v0/m/...` and the Zarr URLs in the catalogue) need no authentication. Calls from inside a Ray actor go straight through.
+
+**Private OMERO servers** (institutional or lab instances) speak the same JSON API behind a session login:
+
+```python
+import httpx
+
+async def omero_session(host: str, username: str, password: str) -> tuple[httpx.AsyncClient, str]:
+    """Log into a private OMERO server and return a client primed with the session token."""
+    client = httpx.AsyncClient(base_url=host, timeout=30, follow_redirects=True)
+    # 1. Fetch CSRF token (issued as a cookie).
+    await (await client.get("/api/v0/token/")).raise_for_status()
+    csrf = client.cookies["csrftoken"]
+    # 2. Login. Server returns sessionid in cookies plus an "eventContext" object.
+    r = await client.post(
+        "/api/v0/login/",
+        data={"username": username, "password": password, "server": "1"},
+        headers={"X-CSRFToken": csrf, "Referer": host},
+    )
+    r.raise_for_status()
+    session_key = r.json()["eventContext"]["sessionUuid"]
+    # 3. All subsequent calls include the session key explicitly.
+    client.headers["X-OMERO-Session-Key"] = session_key
+    return client, session_key
+```
+
+`X-OMERO-Session-Key` then authorises both subsequent JSON-API calls and, if the deployment runs `omero-ms-zarr`, the Zarr chunk URLs. The session key behaves like a bearer token for the lifetime of the OMERO session; pass it to `datasets.open_remote_zarr(uri, token=...)` if and only if the Zarr microservice consumes it as a `?token=` query param (some deployments do; most use cookies). For cookie-based Zarr microservices you need Option A with a custom `httpx` client, or a small `HttpZarrStore` extension; open a feedback report if you hit one.
+
+### Caveat: `omero-py` and the Ice C++ dependency
+
+`omero-py` (the official Python client, including `omero.gateway.BlitzGateway`) does not ship a pure-Python wheel. It depends on the [ZeroC Ice](https://zeroc.com/ice) C++ runtime via the `zeroc-ice` Python bindings, which is notoriously brittle across glibc versions and Linux distributions. Wheels are not available on PyPI for every Python/glibc combination, and source-building Ice inside a Ray actor's `runtime_env.pip` will fail on most worker images.
+
+Symptoms when this goes wrong: `pip install omero-py` hangs for minutes during Ice compilation, then dies with a C++ error mentioning `Ice.h` or `slice2py`; or the install succeeds but `import omero` raises `ImportError: libIce.so.X.Y: cannot open shared object file`.
+
+If you genuinely need primary-pixel access to a non-zarr OMERO instance, do it outside the BioEngine app: fetch the data once on a host that already has Ice installed, re-publish as OME-Zarr on any HTTPS-reachable bucket, then stream from BioEngine the normal way. Treat `omero-py` inside a deployment's `runtime_env` as a last resort and expect to pin the worker's base image to match the Ice wheel.
+
+---
+
 ## Adapting to other repositories
 
 The pattern is identical for any HTTPS-served Zarr:
 
-| Repository | Search API | OME-Zarr URI field |
+| Repository | Search / discovery API | OME-Zarr URI field |
 |---|---|---|
 | BioImage Archive (beta) | `beta.bioimagearchive.org/search/v1/search/fts/image` | `_source.representation[].file_uri[0]` |
-| IDR (Image Data Resource) | OMERO JSON API + direct OME-Zarr at `idr.openmicroscopy.org/zarr/...` | per-image direct URL |
+| IDR (Image Data Resource) | OME-NGFF samples CSV at `raw.githubusercontent.com/IDR/ome-ngff-samples/main/_data/table.csv` + JSON API at `idr.openmicroscopy.org/api/v0/m/...`. See [Worked example: OMERO servers](#worked-example-omero-servers-incl-idr). | `File Path` column in the catalogue |
+| Other OMERO servers | omero-ms-zarr export URL + `/api/v0/m/...` JSON API (optionally with `X-OMERO-Session-Key`). See [Worked example: OMERO servers](#worked-example-omero-servers-incl-idr). | per-image direct URL |
 | Allen Brain Observatory | dataset manifest CSV + S3 OME-Zarr | per-experiment S3 path |
-| Generic OME-Zarr S3 bucket | bucket listing → choose a `.ome.zarr/` prefix | the prefix itself |
+| Generic OME-Zarr S3 bucket | bucket listing, then choose a `.ome.zarr/` prefix | the prefix itself |
 
-In every case the recipe is: agent code calls the repository's API → extracts the OME-Zarr URI → passes it to either `datasets.open_remote_zarr(uri)` (Option B, shared cache) or directly to `zarr.open(uri, mode="r")` (Option A, vanilla fsspec). The URI is the same; pick the streaming layer per the trade-off table above.
+In every case the recipe is: agent code calls the repository's API, extracts the OME-Zarr URI, and passes it to either `datasets.open_remote_zarr(uri)` (Option B, shared cache) or directly to `zarr.open(uri, mode="r")` (Option A, vanilla fsspec). The URI is the same; pick the streaming layer per the trade-off table above.
 
 ---
 
