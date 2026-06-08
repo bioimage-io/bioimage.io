@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 interface ClusterData {
   head_address?: string;
@@ -69,12 +69,50 @@ interface BioEngineClusterResourcesProps {
   workerMode?: string;
   currentTime: number;
   formatTimeInfo: (timestamp: number) => { formattedTime: string, uptime: string };
+  // Map of application_id -> app status. The parent component aggregates
+  // `deployments[*].replicas[]` from worker.get_app_status (bioengine 0.10.12+)
+  // into a flat `replicas` array on each app. Empty / missing while an app
+  // is DEPLOYING or DEPLOY_FAILED, or while a worker on an older bioengine
+  // version hasn't shipped the field yet — in either case the badge silently
+  // skips that node.
+  bioengineApps?: Record<string, {
+    application_id?: string;
+    status?: string;
+    replicas?: Array<{
+      replica_id?: string;
+      node_id?: string;
+      node_ip?: string;
+      node_instance_id?: string;
+      state?: string;
+      pid?: number;
+      start_time_s?: number;
+    }>;
+  }>;
 }
 
-const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, workerMode, currentTime, formatTimeInfo }) => {
+const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ rayCluster, workerMode, currentTime, formatTimeInfo, bioengineApps }) => {
   const [nodesExpanded, setNodesExpanded] = useState(false);
   const [pendingExpanded, setPendingExpanded] = useState(false);
   const [slurmJobsExpanded, setSlurmJobsExpanded] = useState(false);
+
+  // Build a {node_id -> [app_id, ...]} index by inverting the per-app
+  // replica placements. Only RUNNING replicas contribute, so apps in
+  // DEPLOYING / DEPLOY_FAILED / NOT_STARTED don't get a phantom badge.
+  const nodeApps = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const [appId, app] of Object.entries(bioengineApps ?? {})) {
+      const nodeIds = new Set<string>();
+      for (const r of app?.replicas ?? []) {
+        if (r?.node_id && r?.state === 'RUNNING') nodeIds.add(r.node_id);
+      }
+      nodeIds.forEach(n => {
+        if (!out[n]) out[n] = [];
+        if (!out[n].includes(appId)) out[n].push(appId);
+      });
+    }
+    Object.keys(out).forEach(n => out[n].sort());
+    return out;
+  }, [bioengineApps]);
 
   if (!rayCluster?.cluster && !rayCluster?.nodes) return null;
 
@@ -315,6 +353,22 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                             <div className="flex justify-between">
                               <span className="text-gray-600">Accelerator Type:</span>
                               <span className="text-gray-900 font-semibold">{node.accelerator_type}</span>
+                            </div>
+                          )}
+                          {nodeApps[nodeId] && nodeApps[nodeId].length > 0 && (
+                            <div className="flex flex-col">
+                              <span className="text-gray-600">Running Apps:</span>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {nodeApps[nodeId].map(appId => (
+                                  <span
+                                    key={appId}
+                                    className="inline-block px-2 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 rounded font-mono break-all"
+                                    title={appId}
+                                  >
+                                    {appId}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                           )}
                           {node.slurm_job_id && (

@@ -340,14 +340,21 @@ const BioEngineWorker: React.FC = () => {
               // the worker hasn't returned anything yet.
               const serviceIds = app.service_ids || {};
 
-              // Aggregate replica_states across all deployments (not a top-level field)
+              // Aggregate replica_states + replicas across all deployments
+              // (neither is a top-level field — both live on each deployment).
+              // bioengine 0.10.12+ ships replicas[*] with node_id /
+              // node_instance_id so the dashboard can place apps on nodes.
               const aggregatedReplicaStates: Record<string, number> = {};
+              const aggregatedReplicas: Array<any> = [];
               if (app.deployments && typeof app.deployments === 'object') {
                 for (const deployment of Object.values(app.deployments) as any[]) {
                   if (deployment?.replica_states) {
                     for (const [state, count] of Object.entries(deployment.replica_states)) {
                       aggregatedReplicaStates[state] = (aggregatedReplicaStates[state] || 0) + (count as number);
                     }
+                  }
+                  if (Array.isArray(deployment?.replicas)) {
+                    aggregatedReplicas.push(...deployment.replicas);
                   }
                 }
               }
@@ -363,6 +370,7 @@ const BioEngineWorker: React.FC = () => {
                 service_ids: serviceIds,
                 available_methods: app.available_methods || app.methods,
                 replica_states: Object.keys(aggregatedReplicaStates).length > 0 ? aggregatedReplicaStates : undefined,
+                replicas: aggregatedReplicas.length > 0 ? aggregatedReplicas : undefined,
                 static_site_url: app.static_site_url,
                 resources: app.application_resources,
               };
@@ -1243,6 +1251,7 @@ ${token}`;
             workerMode={status.worker_mode}
             currentTime={currentTime}
             formatTimeInfo={formatTimeInfo}
+            bioengineApps={status?.bioengine_apps}
           />
         )}
 

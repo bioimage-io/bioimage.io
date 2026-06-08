@@ -14,6 +14,18 @@ interface DeploymentCardProps {
     static_site_url?: string | null;
     available_methods?: string[];
     replica_states?: Record<string, number>;
+    // Flat union of `deployments[*].replicas[]` from worker.get_app_status
+    // (aggregated by BioEngineWorker). Each replica carries node placement
+    // info as of bioengine 0.10.12+. May be missing on older workers.
+    replicas?: Array<{
+      replica_id?: string;
+      node_id?: string;
+      node_ip?: string;
+      node_instance_id?: string;
+      state?: string;
+      pid?: number;
+      start_time_s?: number;
+    }>;
     resources?: {
       num_cpus?: number;
       num_gpus?: number;
@@ -52,6 +64,23 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   };
 
   const resources = deployment.resources ?? null;
+
+  // Distinct nodes hosting RUNNING replicas. Each entry carries the best
+  // human-readable label available (node_instance_id, e.g. a KubeRay pod
+  // name on K8s) plus a tooltip with the full 56-char node_id. Single-machine
+  // mode may leave node_instance_id empty, in which case we fall back to
+  // the first 8 chars of node_id.
+  type RunningNode = { label: string; nodeId: string };
+  const runningNodes: RunningNode[] = (() => {
+    const seen = new Map<string, RunningNode>();
+    for (const r of deployment.replicas ?? []) {
+      if (!r?.node_id || r.state !== 'RUNNING') continue;
+      if (seen.has(r.node_id)) continue;
+      const label = (r.node_instance_id && r.node_instance_id.trim()) || r.node_id.slice(0, 8);
+      seen.set(r.node_id, { label, nodeId: r.node_id });
+    }
+    return Array.from(seen.values()).sort((a, b) => a.label.localeCompare(b.label));
+  })();
 
   // Get MCP URL from websocket service ID
   const getMcpUrl = (): string | null => {
@@ -238,6 +267,26 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                       }`}
                   >
                     {state}: {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {runningNodes.length > 0 && (
+            <div className="mb-3">
+              <p className="text-sm font-medium text-gray-700 mb-2">Running on:</p>
+              <div className="flex flex-wrap gap-2">
+                {runningNodes.map(n => (
+                  <span
+                    key={n.nodeId}
+                    className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-indigo-50 text-indigo-700 border-indigo-200 font-mono break-all"
+                    title={n.nodeId}
+                  >
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M5 12l7-7 7 7" />
+                    </svg>
+                    {n.label}
                   </span>
                 ))}
               </div>
