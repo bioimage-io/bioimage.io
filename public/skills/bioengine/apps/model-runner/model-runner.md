@@ -363,6 +363,210 @@ fig.savefig("illustration2_montage.png", bbox_inches="tight", dpi=300, facecolor
 }
 ```
 
+## Unsupervised screening workflow (no ground truth)
+
+Use this when the user has unlabelled images and wants to rank candidate models without ground truth. Implements **Consistency-based Model Ranking (CMR-NHD)** from Talks et al. 2026 (arXiv:2503.00450) entirely as a client-side loop over `mr.infer()` — no worker changes.
+
+**Method.** For each `(model, image)` pair: run `infer()` on the clean image, run it again on a Gaussian-perturbed copy, then score the agreement between the two binary foreground masks as **IoU restricted to the union of foreground pixels** (Eq. 2 in the paper). The per-model score is the **median across images** (Eq. 5). Rank models by descending CMR.
+
+**Use only with ≥ 5 images.** Per-model CMR on a single image is dominated by which model has the smoothest decision surface, not which is most accurate. The paper aggregates as median across the dataset; respect that.
+
+```text
+- [ ] Step 1: Clarify task type (currently only semantic-segmentation models supported; instance models need v2)
+- [ ] Step 2: Search models — use keywords from assets/search_keywords.yaml
+- [ ] Step 3: For each candidate — call get_model_documentation to read the README, exclude domain mismatches
+- [ ] Step 4: Run all suitable models on each image, both clean and perturbed — 2·K·N infer() calls
+- [ ] Step 5: Compute per-(model, image) CMR-NHD; aggregate as median across images per model
+- [ ] Step 6: Flag mode-collapse models (mean foreground fraction <1% or >95%)
+- [ ] Step 7: Save artifacts to comparison_results/
+- [ ] Step 8: Generate Illustration 1 (CMR per-model bar chart), Illustration 2 (clean/perturbed prediction montage)
+- [ ] Step 9: Write comparison_summary.json
+- [ ] Step 10: Generate HTML report
+```
+
+```python
+# Assumes `mr` is the resolved model-runner handle and `infer_with_retry` is in scope
+# (see "Direct Python — the actual API" and "Inference retry on OOM" above).
+import numpy as np
+
+def add_gaussian_noise(img, sigma_frac=0.10, seed=0):
+    """Additive Gaussian noise scaled to sigma_frac * (p99 - p1) of the input."""
+    p1, p99 = np.percentile(img, [1, 99])
+    sigma = sigma_frac * max(p99 - p1, 1e-6)
+    rng = np.random.default_rng(seed)
+    return (img + rng.normal(0.0, sigma, size=img.shape)).astype(img.dtype)
+
+def cmr_nhd_binary(y_clean_bin, y_pert_bin):
+    """Foreground-restricted normalised Hamming distance (Eq. 2). Returns NaN if both masks empty."""
+    union = y_clean_bin | y_pert_bin
+    n_union = int(union.sum())
+    if n_union == 0:
+        return float("nan")
+    n_disagree = int((y_clean_bin != y_pert_bin)[union].sum())
+    return 1.0 - n_disagree / n_union
+
+def per_image_cmr(clean_out, pert_out, threshold=0.5):
+    """Reduce two raw model outputs to one CMR-NHD score (mean across output channels)."""
+    ca, pa = np.asarray(clean_out), np.asarray(pert_out)
+    while ca.ndim > 3 and ca.shape[0] == 1:
+        ca, pa = ca[0], pa[0]
+    if ca.ndim == 2:
+        ca, pa = ca[None], pa[None]
+    scores, fg_clean, fg_pert = [], [], []
+    for c in range(ca.shape[0]):
+        yh, yt = ca[c] >= threshold, pa[c] >= threshold
+        scores.append(cmr_nhd_binary(yh, yt))
+        fg_clean.append(float(yh.mean()))
+        fg_pert.append(float(yt.mean()))
+    valid = [s for s in scores if not np.isnan(s)]
+    return {
+        "cmr": float(np.mean(valid)) if valid else float("nan"),
+        "per_channel": scores,
+        "fg_clean": fg_clean,   # foreground fraction, for mode-collapse detection
+        "fg_pert": fg_pert,
+    }
+
+# ---- driver loop --------------------------------------------------------------
+model_ids = ["affable-shark", "resourceful-otter", "stupendous-blowfish"]
+images    = [np.load(p).astype(np.float32) for p in image_paths]   # N images
+SIGMA_FRAC, THRESHOLD = 0.10, 0.5
+
+per_model = {}    # model_id -> list[per-image CMR]
+fg_track  = {}    # model_id -> list[mean foreground fraction across (clean, pert)]
+failed    = {}    # model_id -> error string
+
+for mid in model_ids:
+    try:
+        rdf = await mr.get_model_rdf(model_id=mid)
+        out_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
+    except Exception as e:
+        failed[mid] = f"RDF lookup failed: {e}"
+        continue
+    cmr_list, fg_list = [], []
+    for i, img in enumerate(images):
+        img_pert = add_gaussian_noise(img, SIGMA_FRAC, seed=i)
+        try:
+            r_clean = await infer_with_retry(mr, mid, img)
+            r_pert  = await infer_with_retry(mr, mid, img_pert)
+        except Exception as e:
+            failed[mid] = f"inference failed on image {i}: {e}"
+            cmr_list = []   # discard partial
+            break
+        scored = per_image_cmr(r_clean[out_key], r_pert[out_key], THRESHOLD)
+        if not np.isnan(scored["cmr"]):
+            cmr_list.append(scored["cmr"])
+        fg_list.extend(scored["fg_clean"] + scored["fg_pert"])
+    if cmr_list:
+        per_model[mid] = cmr_list
+        fg_track[mid] = fg_list
+
+# ---- aggregate, flag mode collapse, rank --------------------------------------
+MODE_COLLAPSE_LO, MODE_COLLAPSE_HI = 0.01, 0.95
+scores = {m: float(np.median(v)) for m, v in per_model.items()}
+fg_mean = {m: float(np.mean(fg_track[m])) for m in per_model}
+collapsed = {m: fg_mean[m] for m in per_model
+             if fg_mean[m] < MODE_COLLAPSE_LO or fg_mean[m] > MODE_COLLAPSE_HI}
+ranking = sorted(scores, key=scores.get, reverse=True)   # best → worst
+
+print(f"Median CMR ranking (n={len(images)} images, sigma_frac={SIGMA_FRAC}):")
+for r, m in enumerate(ranking, 1):
+    flag = "  ⚠ MODE-COLLAPSE" if m in collapsed else ""
+    print(f"  {r}. {m:32s} CMR={scores[m]:.4f}  fg={fg_mean[m]:.3f}{flag}")
+```
+
+### Mode collapse — the main failure mode
+
+A model that predicts entirely foreground or entirely background under both clean and perturbed inputs gets an **artificially high CMR** (the perturbation can't disagree with the empty/saturated mask). The paper flags this as the primary failure mode (Sec 5.1).
+
+Detect it by tracking the **mean foreground fraction** across all `(image, clean+perturbed, channel)` combinations:
+- `< 1%` → near-background-collapse (model is predicting nothing)
+- `> 95%` → saturation (model is predicting everything as foreground)
+
+Surface flagged models in the ranking output **and** in `comparison_summary.json` under `"mode_collapse"`. **Do not silently drop them** — the user needs to see why a model is suspect. A model can be number 1 by CMR and still be useless because it predicts all-zeros.
+
+### Perturbation tuning
+
+| `sigma_frac` | Effect |
+|---|---|
+| `0.02–0.05` | Almost no signal — CMR clusters near 1.0, ranking is dominated by quantisation noise. |
+| **`0.10`** | **Default.** Paper's recommended starting point; CMR-NHD drops to 0.5–0.9 for typical models — good dynamic range. |
+| `0.20–0.40` | Aggressive — CMR collapses toward 0; only useful if all models score ≥ 0.95 at 0.10. |
+
+If models cluster tightly within ±0.02 of each other at `sigma_frac=0.10`, double it. If they cluster near 0, halve it. The metric is monotonic in perturbation strength (validated on the live worker, 2026-06-10).
+
+### Illustration 1 — CMR per-model bar chart (unsupervised variant)
+
+Replaces "F1 vs IoU threshold" — there is no labelled threshold sweep.
+
+- Horizontal bar chart, models sorted **worst → best** on y-axis (so the best model is on top in the visual reading order)
+- One bar per model, error bar = MAD (median absolute deviation) across images
+- Mode-collapse models drawn in **red** with a `⚠` annotation; non-collapsed in the standard COLOR_MAP palette
+- x-axis: `0` to `1`; vertical reference line at the **lowest CMR among non-collapsed models** as the "credible floor"
+- figsize=(6.5, max(2.5, 0.35 * n_models))
+
+```python
+import numpy as np, matplotlib.pyplot as plt
+plot_order = sorted(ranking, key=lambda m: scores[m])   # worst → best (bottom → top)
+mads = {m: float(np.median(np.abs(np.array(per_model[m]) - scores[m]))) for m in ranking}
+colors = ["#C0392B" if m in collapsed else "#5B8DB8" for m in plot_order]
+
+fig, ax = plt.subplots(figsize=(6.5, max(2.5, 0.35 * len(ranking))))
+y = np.arange(len(plot_order))
+ax.barh(y, [scores[m] for m in plot_order],
+        xerr=[mads[m] for m in plot_order],
+        color=colors, edgecolor="#222", lw=0.4, error_kw=dict(lw=0.6))
+for i, m in enumerate(plot_order):
+    if m in collapsed:
+        ax.text(scores[m] + 0.01, i, "⚠ mode collapse", va="center", fontsize=6, color="#C0392B")
+ax.set_yticks(y); ax.set_yticklabels(plot_order)
+ax.set_xlabel("Median CMR-NHD across images"); ax.set_xlim(0, 1.0)
+ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+ax.xaxis.grid(True, color="#e0e0e0", lw=0.5, zorder=0); ax.set_axisbelow(True)
+fig.savefig("illustration1_cmr_ranking.pdf", bbox_inches="tight")
+fig.savefig("illustration1_cmr_ranking.png", bbox_inches="tight", dpi=300)
+```
+
+### Illustration 2 — Clean / Perturbed prediction montage (unsupervised variant)
+
+Same layout rules as the supervised montage (#141414 panel background, white scale bar, dark titles outside panels), but **two columns per model** (clean prediction | perturbed prediction) instead of one. This makes the consistency the metric measures visually obvious to the reader.
+
+- Row 1: Input image (clean) | Input image (perturbed) — leftmost image is the actual input, rightmost shows the noise applied
+- Remaining rows: one row per model in ranked order; col 1 = clean prediction, col 2 = perturbed prediction
+- Each model's row gets a subtitle: `"CMR = 0.84"` or `"CMR = 0.99 (⚠ mode collapse)"` between the two panels
+
+### comparison_summary.json schema (unsupervised variant)
+
+```json
+{
+  "task": "nuclei segmentation",
+  "dataset": "user-supplied unlabelled images (n=12)",
+  "evaluation_method": "CMR-NHD (Talks et al. 2026, arXiv:2503.00450); Gaussian perturbation sigma_frac=0.10; median across images",
+  "candidates": ["model-id-1", "model-id-2"],
+  "excluded": {"model-id-x": "domain mismatch: trained on H&E brightfield"},
+  "cmr_scores": {
+    "model-id-1": {"median": 0.843, "mad": 0.021, "per_image": [0.81, 0.86, ...]}
+  },
+  "mode_collapse": {
+    "model-id-3": {"mean_foreground_fraction": 0.998, "reason": "saturated foreground predictions"}
+  },
+  "failed_models": {"model-id-4": "shape mismatch error"},
+  "best_model": "model-id-1",
+  "ranking": ["model-id-1", "model-id-2"],
+  "perturbation": {"type": "gaussian", "sigma_frac": 0.10, "threshold": 0.5},
+  "notes": {}
+}
+```
+
+### Combining with the supervised workflow
+
+If the user has ground truth for **some** images, run both: report supervised mAP on labelled images **and** unsupervised CMR on the full set. Spearman ρ between the two rankings on the overlap is a useful sanity check — if `ρ < 0.3` on n ≥ 10 models, treat the CMR ranking with skepticism and surface the disagreement in the report.
+
+### Known limitations
+
+- **Single-image runs are unreliable.** With N=1 image and tightly-clustered models (e.g. 5 UNets trained on near-identical nucleus datasets), per-image CMR is dominated by decision-surface smoothness, not accuracy. Validated on the live worker, 2026-06-10: 5 nucleus models on `affable-shark`'s test tensor gave Spearman ρ(CMR, true IoU) = −0.50 (n.s.). **The paper aggregates across ≥ 50 images per dataset; respect that floor.**
+- **Instance segmentation not supported by this code.** Use CMR-ARS (Eq. 3) for instance models — requires `sklearn.metrics.adjusted_rand_score` and per-model instance postprocessing (NMS / watershed). Defer to v2.
+- **Feature-space perturbations (CMR-DropOut) are stronger** in the paper but require reaching into the model's intermediate layers — not implementable as a black-box client wrapper. Input perturbations are paper-equivalent in most settings (Tab. 1).
+
 ## Validation / testing workflow
 
 ```text
