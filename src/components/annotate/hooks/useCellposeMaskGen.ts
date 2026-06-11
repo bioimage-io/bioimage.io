@@ -32,6 +32,23 @@ await micropip.install(['scipy'])
 print('cellpose mask-gen deps ready')
 `;
 
+/**
+ * Wrap the fetched ``cellpose_mask_gen.py`` source in a one-shot ``exec``
+ * inside an ad-hoc ``cellpose_mask_gen`` module so the per-compute snippet
+ * below can do ``from cellpose_mask_gen import compute_masks_np`` without
+ * fighting Pyodide's module loader. ``executeCode(src)`` would otherwise
+ * just dump the helpers into ``__main__``, which the import statement
+ * can't reach.
+ */
+const buildModuleInstaller = (src: string): string => `
+import sys, types
+_mod = types.ModuleType('cellpose_mask_gen')
+_src = ${JSON.stringify(src)}
+exec(compile(_src, 'cellpose_mask_gen.py', 'exec'), _mod.__dict__)
+sys.modules['cellpose_mask_gen'] = _mod
+print('cellpose_mask_gen module ready')
+`;
+
 function bytesToBase64(buf: Uint8Array): string {
   // Avoid String.fromCharCode.apply blowing the stack on big buffers; chunk it.
   const CHUNK = 0x8000;
@@ -94,8 +111,8 @@ export function useCellposeMaskGen(
           throw new Error(`failed to load ${url}: ${resp.status}`);
         }
         const src = await resp.text();
-        // Wrap exec so we can capture errors cleanly.
-        await executeCode(src, {
+        // Install as a real module (see buildModuleInstaller).
+        await executeCode(buildModuleInstaller(src), {
           onOutput: (o) => {
             if (o.type === 'error' || o.type === 'stderr') stderr += o.content;
           },

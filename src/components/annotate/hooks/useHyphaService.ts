@@ -397,17 +397,34 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           console.warn('[useHyphaService] get_current_round failed, defaulting to 1:', err);
         }
 
-        // Get cellpose service — use mode:"random" for load-balanced selection
-        // across multiple registered workers with the same service id
-        let cellposeService: any = null;
+        // Cellpose service: probe once at connect time so the toolbar can
+        // disable the AI button when the service is offline. Hypha service
+        // handles can expire mid-session, so individual ``infer`` calls
+        // re-resolve via ``resolveCellposeService`` below instead of
+        // capturing this handle.
         try {
-          cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
-          console.log('[useHyphaService] Got cellpose service');
+          await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
+          console.log('[useHyphaService] cellpose-finetuning reachable');
           if (!cancelled) setCellposeAvailable(true);
         } catch (err) {
-          console.warn('[useHyphaService] Cellpose service not available:', err);
+          console.warn('[useHyphaService] cellpose-finetuning not reachable:', err);
           if (!cancelled) setCellposeAvailable(false);
         }
+
+        /** Resolve a fresh cellpose-finetuning handle per call. Hypha
+         *  service handles expire after a few minutes of inactivity; the
+         *  symptom is ``Method expired or not found`` on the next infer.
+         *  Cheap to resolve (one websocket round-trip) so we re-resolve
+         *  unconditionally instead of caching + retrying. */
+        const resolveCellposeService = async () => {
+          try {
+            return await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
+          } catch (err) {
+            throw new Error(
+              `Cellpose service is not available (${(err as Error)?.message || err})`,
+            );
+          }
+        };
 
         const wrappedService: AnnotationDataService = {
           userId: resolvedUserId,
@@ -474,9 +491,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             return urls as SaveUrls;
           },
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
-            if (!cellposeService) {
-              throw new Error('Cellpose service is not available');
-            }
+            const cellposeService = await resolveCellposeService();
             const p = params || {};
             console.log('[useHyphaService] Running cellpose inference with params:', p);
 
@@ -609,9 +624,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             height: number,
             params?: CellposeParams,
           ): Promise<CellposeFlowsResult> => {
-            if (!cellposeService) {
-              throw new Error('Cellpose service is not available');
-            }
+            const cellposeService = await resolveCellposeService();
             const p = params || {};
             console.log('[useHyphaService] Running cellpose flows-only inference:', p);
 
