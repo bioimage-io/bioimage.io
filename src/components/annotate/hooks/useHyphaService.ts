@@ -28,6 +28,26 @@ export interface CellposeParams {
   enable_clahe?: boolean;
 }
 
+/**
+ * Raw network outputs returned by the cellpose-finetuning service when
+ * called with ``return_flows_only=True`` (>= 0.1.5). The annotate page
+ * caches this so mask-gen parameters (flow_threshold, cellprob_threshold,
+ * niter, min_mask_area) can be tuned client-side via Pyodide without a
+ * GPU round-trip. See public/cellpose_mask_gen.py for the local compute.
+ */
+export interface CellposeFlowsResult {
+  /** Flat float32 buffer of length ``2 * scaledH * scaledW`` (dy plane then dx plane). */
+  dP: Float32Array;
+  /** Flat float32 buffer of length ``scaledH * scaledW``. */
+  cellprob: Float32Array;
+  /** Size of the (already downsampled) network output. */
+  scaledH: number;
+  scaledW: number;
+  /** Display-space size of the source image, so the caller can rescale the masks back. */
+  displayW: number;
+  displayH: number;
+}
+
 export interface AllAnnotatedResult {
   status: 'all_annotated';
   total: number;
@@ -84,6 +104,38 @@ export interface AnnotationDataService {
   listImages: (round: number) => Promise<ImageInfo[]>;
   getSaveUrls: (imageName: string, round: number) => Promise<SaveUrls>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+  /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
+   *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
+   *  network output; the mask-gen knobs are ignored and consumed by the
+   *  client-side compute_masks_np instead. */
+  runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeFlowsResult>;
+}
+
+/** Convert raw cellpose mask data into ``CellposeMask`` polygons, rescaled
+ *  back to display coordinates. Exported so the annotate page can reuse
+ *  the polygonisation pass after a local Pyodide compute_masks_np run. */
+export function maskDataToPolygons(
+  maskData: Uint16Array | Uint32Array | Int32Array | Float32Array | number[],
+  scaledW: number,
+  scaledH: number,
+  displayW: number,
+  displayH: number,
+  minMaskAreaDisplayPx: number = 0,
+): CellposeMask[] {
+  let polygons = maskToPolygons(maskData, scaledW, scaledH);
+  const areaScale = (scaledW / displayW) * (scaledH / displayH);
+  polygons = filterByArea(polygons, minMaskAreaDisplayPx * areaScale);
+  const scaleX = displayW / scaledW;
+  const scaleY = displayH / scaledH;
+  if (scaleX !== 1 || scaleY !== 1) {
+    polygons = polygons.map((poly) => ({
+      ...poly,
+      coordinates: poly.coordinates.map((ring) =>
+        ring.map(([px, py]) => [px * scaleX, py * scaleY]),
+      ),
+    }));
+  }
+  return polygons;
 }
 
 /** Extract image pixel data as a Uint8Array in CHW RGB format (3, H, W) for cellpose */
@@ -550,6 +602,109 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
             console.warn('[useHyphaService] Unknown mask format:', typeof maskResult, maskResult);
             return [];
+          },
+          runCellposeFlows: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+            params?: CellposeParams,
+          ): Promise<CellposeFlowsResult> => {
+            if (!cellposeService) {
+              throw new Error('Cellpose service is not available');
+            }
+            const p = params || {};
+            console.log('[useHyphaService] Running cellpose flows-only inference:', p);
+
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+
+            const inferArgs: Record<string, any> = {
+              input_arrays: [inputArray],
+              return_flows_only: true,
+              _rkwargs: true,
+            };
+            if (p.model) inferArgs.model = p.model;
+            if (p.diameter != null && p.diameter > 0) {
+              const diameterScale = scaledW / width;
+              inferArgs.diameter = p.diameter * diameterScale;
+            }
+            if (p.enable_clahe) inferArgs.enable_clahe = true;
+
+            const result = await cellposeService.infer(inferArgs);
+            if (!result || !Array.isArray(result) || result.length === 0) {
+              throw new Error('Cellpose service returned no items');
+            }
+            const item = result[0];
+            const output = item?.output;
+            if (!output || typeof output !== 'object') {
+              throw new Error(
+                'Cellpose service did not return a flows payload (expected output={dP, cellprob}). '
+                  + 'Is the deployed version >= 0.1.5?',
+              );
+            }
+
+            const decodeFloat32 = (nd: any, fieldName: string): { data: Float32Array; shape: number[] } => {
+              if (!nd || nd._rtype !== 'ndarray') {
+                throw new Error(`${fieldName} is not an ndarray (got ${typeof nd})`);
+              }
+              let buffer = nd._rvalue;
+              const shape = nd._rshape as number[];
+              if (buffer instanceof Uint8Array) {
+                buffer = buffer.buffer.slice(
+                  buffer.byteOffset,
+                  buffer.byteOffset + buffer.byteLength,
+                );
+              }
+              // float16 wire option is not part of v1; the server sends float32.
+              if (nd._rdtype !== 'float32') {
+                console.warn(
+                  `[useHyphaService] ${fieldName} dtype is ${nd._rdtype}, converting`,
+                );
+              }
+              const data = new Float32Array(buffer);
+              return { data, shape };
+            };
+
+            const dPDecoded = decodeFloat32(output.dP, 'dP');
+            const cellprobDecoded = decodeFloat32(output.cellprob, 'cellprob');
+
+            // Sanity-check shapes match what the network was asked to produce.
+            if (dPDecoded.shape.length !== 3 || dPDecoded.shape[0] !== 2) {
+              throw new Error(
+                `dP shape ${JSON.stringify(dPDecoded.shape)} not (2, H, W)`,
+              );
+            }
+            if (
+              cellprobDecoded.shape.length !== 2
+              || cellprobDecoded.shape[0] !== dPDecoded.shape[1]
+              || cellprobDecoded.shape[1] !== dPDecoded.shape[2]
+            ) {
+              throw new Error(
+                `cellprob shape ${JSON.stringify(cellprobDecoded.shape)} disagrees with dP ${JSON.stringify(dPDecoded.shape)}`,
+              );
+            }
+
+            const outH = dPDecoded.shape[1];
+            const outW = dPDecoded.shape[2];
+            console.log(
+              '[useHyphaService] Got flows: dP (2,%d,%d) cellprob (%d,%d), %d KB',
+              outH, outW, outH, outW,
+              Math.round((dPDecoded.data.byteLength + cellprobDecoded.data.byteLength) / 1024),
+            );
+
+            return {
+              dP: dPDecoded.data,
+              cellprob: cellprobDecoded.data,
+              scaledH: outH,
+              scaledW: outW,
+              displayW: width,
+              displayH: height,
+            };
           },
         };
 

@@ -12,7 +12,8 @@ import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
+import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
@@ -72,13 +73,20 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const { service, loading: serviceLoading, error: serviceError, cellposeAvailable } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
+  const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
+  const [livePreviewReady, setLivePreviewReady] = useState(false);
 
   const [dynamicCellposeModel, setDynamicCellposeModel] = useState<string | undefined>(undefined);
-  
+
   const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
+    // The flows + Pyodide path keeps the dialog open so the instant sliders
+    // can keep tweaking the preview without forcing the user to re-open it.
+    keepOpenAfterApply: true,
+    livePreviewReady,
+    onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
       measureCallbackRef.current = (px: number) => {
@@ -113,7 +121,24 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const kernel = sharedKernel || localKernel;
   const kernelReady = kernel.isReady;
   const executeCode = kernel.executeCode;
-  
+
+  // Pyodide-side mask gen — only used when the server returns flows-only.
+  // The hook lazily installs scipy + execs public/cellpose_mask_gen.py on the
+  // first compute. While the kernel boots silently, the AI tool stays on the
+  // existing server path (runCellpose) automatically — see handleRunCellpose.
+  const maskGen = useCellposeMaskGen(executeCode, kernelReady);
+
+  // Cache for the network's raw (dP, cellprob). One entry per unique
+  // (image, model, diameter, clahe) combination — any change there needs a
+  // fresh GPU round-trip. The instant sliders read this cache and never hit
+  // the network.
+  const flowsCacheRef = useRef<({ cacheKey: string } & CellposeFlowsResult) | null>(null);
+  // OL features added by the latest Cellpose run. Replaced wholesale on each
+  // instant-slider recompute so the preview stays in sync.
+  const previewFeaturesRef = useRef<Feature[]>([]);
+  // Debounce timer for instant-config slider drags.
+  const instantRecomputeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
 
   // Install scikit-image in the kernel once it's ready
@@ -419,6 +444,130 @@ print('CLAHE packages ready')
     loadSpecificImage(stem);
   }, [loadSpecificImage]);
 
+  // Cellpose feature-replacement helper: removes everything we added on the
+  // previous run/preview and stamps in the new polygons. Non-Cellpose
+  // features (user-drawn polygons, Cellpose masks the user *accepted* and
+  // re-labelled, GeoJSON imports) are untouched because they're tracked by
+  // identity in `previewFeaturesRef`.
+  const applyPolygonsAsPreview = useCallback(
+    (vs: VectorSource | null, polygons: { label: number; coordinates: number[][][] }[]): number => {
+      if (!vs) return 0;
+      for (const f of previewFeaturesRef.current) {
+        try { vs.removeFeature(f); } catch { /* feature may already be gone */ }
+      }
+      previewFeaturesRef.current = [];
+
+      const added: Feature[] = [];
+      for (const m of polygons) {
+        const polygon = new OlPolygon(m.coordinates);
+        const feature = new Feature({ geometry: polygon });
+        feature.setProperties({
+          label: `cell_${m.label}`,
+          edge_color: '#0084ff',
+          face_color: '#0084ff',
+          edge_width: 2,
+          _cellpose_preview: true,
+        });
+        vs.addFeature(feature);
+        added.push(feature);
+      }
+      previewFeaturesRef.current = added;
+      return added.length;
+    },
+    [],
+  );
+
+  // Drop any cached flows: every server-affecting param change must trigger a
+  // fresh GPU round-trip. Cache eviction also resets livePreviewReady so the
+  // dialog goes back to "click Run to fetch".
+  const invalidateFlowsCache = useCallback(() => {
+    if (flowsCacheRef.current) {
+      console.log('[AnnotatePage] Flows cache invalidated');
+    }
+    flowsCacheRef.current = null;
+    setLivePreviewReady(false);
+  }, []);
+
+  // Cellpose can return a fresh (dP, cellprob) over the wire when the
+  // image/model/diameter/CLAHE flag changed, OR we can recompute locally
+  // from the cached flows when only the instant-group sliders moved. Both
+  // paths converge in the same polygon-replacement logic below.
+  const runCellposeFlowsPipeline = useCallback(
+    async (cfg: CellposeConfig, sourceUrl: string) => {
+      if (!service || !imageWidth || !imageHeight) return;
+
+      // Server-affecting params decide whether the cache is still valid.
+      const cacheKey = JSON.stringify({
+        u: sourceUrl,
+        m: cfg.model || 'cpsam',
+        d: cfg.diameter ?? null,
+        c: isCLAHEActive ? 1 : 0,
+      });
+
+      let cached = flowsCacheRef.current;
+      if (!cached || cached.cacheKey !== cacheKey) {
+        const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
+        try {
+          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
+            model: cfg.model,
+            diameter: cfg.diameter,
+            enable_clahe: isCLAHEActive || undefined,
+          });
+          cached = { cacheKey, ...flows };
+          flowsCacheRef.current = cached;
+        } finally {
+          removeBanner(fetchBanner);
+        }
+      }
+
+      // Local mask gen via Pyodide.
+      const mask = await maskGen.compute(
+        cached.dP,
+        cached.cellprob,
+        cached.scaledH,
+        cached.scaledW,
+        {
+          niter: cfg.niter && cfg.niter > 0 ? cfg.niter : 200,
+          cellprob_threshold: cfg.cellprob_threshold,
+          flow_threshold: cfg.flow_threshold,
+          // Cellpose's min_size is in (downsampled) network-space pixels.
+          // The colab UI's min_mask_area is in display-space pixels²; the
+          // polygonisation pass below also filters by display area, so the
+          // network-space drop here is intentionally permissive.
+          min_size: 1,
+          max_size_fraction: 0.4,
+        },
+      );
+
+      const polygons = maskDataToPolygons(
+        mask.data,
+        cached.scaledW,
+        cached.scaledH,
+        cached.displayW,
+        cached.displayH,
+        cfg.min_mask_area ?? 0,
+      );
+
+      const vs = getVectorSource?.();
+      if (vs && !livePreviewReady) {
+        // Only the first server-fetched run snapshots undo. Subsequent live
+        // recomputes replace the preview features in place; user can still
+        // get back to pre-Cellpose state via Ctrl+Z.
+        const GeoJSON = (await import('ol/format/GeoJSON')).default;
+        const fmt = new GeoJSON();
+        const baseline = vs.getFeatures().filter((f) => !f.get('_cellpose_preview'));
+        pushUndo({ geojson: fmt.writeFeatures(baseline) });
+      }
+      const n = applyPolygonsAsPreview(vs ?? null, polygons);
+      return n;
+    },
+    [
+      service, imageWidth, imageHeight, isCLAHEActive,
+      addBanner, removeBanner, maskGen, getVectorSource,
+      pushUndo, applyPolygonsAsPreview, livePreviewReady,
+    ],
+  );
+
   const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
     const cfg = cfgOverride || cellposeConfig;
     if (!service || !imageUrl) return;
@@ -427,47 +576,55 @@ print('CLAHE packages ready')
     setIsRunningCellpose(true);
     const bannerId = addBanner('Running Cellpose segmentation...', 'loading', 0);
     try {
-      const masks = await service.runCellpose(sourceUrl, imageWidth, imageHeight, {
-        model: cfg.model,
-        diameter: cfg.diameter,
-        flow_threshold: cfg.flow_threshold,
-        cellprob_threshold: cfg.cellprob_threshold,
-        niter: cfg.niter,
-        min_mask_area: cfg.min_mask_area,
-        enable_clahe: isCLAHEActive || undefined,
-      });
+      // Prefer the flows + Pyodide path when the kernel is healthy. If
+      // anything throws, fall back to the all-server path so the user
+      // always gets a result.
+      let n: number | undefined;
+      let usedLocalPath = false;
+      if (kernelReady) {
+        try {
+          n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+          usedLocalPath = true;
+        } catch (flowsErr: any) {
+          console.warn(
+            '[AnnotatePage] Flows-path failed, falling back to server mask-gen:',
+            flowsErr,
+          );
+        }
+      }
+
+      if (!usedLocalPath) {
+        const masks = await service.runCellpose(sourceUrl, imageWidth, imageHeight, {
+          model: cfg.model,
+          diameter: cfg.diameter,
+          flow_threshold: cfg.flow_threshold,
+          cellprob_threshold: cfg.cellprob_threshold,
+          niter: cfg.niter,
+          min_mask_area: cfg.min_mask_area,
+          enable_clahe: isCLAHEActive || undefined,
+        });
+        if (masks && masks.length > 0) {
+          const vs = getVectorSource?.();
+          if (vs) {
+            const GeoJSON = (await import('ol/format/GeoJSON')).default;
+            const fmt = new GeoJSON();
+            pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+            n = applyPolygonsAsPreview(vs, masks);
+          }
+        } else {
+          n = 0;
+        }
+      }
 
       removeBanner(bannerId);
 
-      if (!masks || masks.length === 0) {
-        console.log('[AnnotatePage] Cellpose returned no masks');
+      if (n === undefined || n === 0) {
         addBanner('No masks detected by Cellpose', 'warning', 5000);
         return;
       }
-
-      console.log('[AnnotatePage] Cellpose returned', masks.length, 'masks');
-
-      const vs = getVectorSource?.();
-      if (vs) {
-        const GeoJSON = (await import('ol/format/GeoJSON')).default;
-        const fmt = new GeoJSON();
-        pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
-
-        for (const mask of masks) {
-          const polygon = new OlPolygon(mask.coordinates);
-          const feature = new Feature({ geometry: polygon });
-          feature.setProperties({
-            label: `cell_${mask.label}`,
-            edge_color: '#0084ff',
-            face_color: '#0084ff',
-            edge_width: 2,
-          });
-          vs.addFeature(feature);
-        }
-        console.log('[AnnotatePage] Added', masks.length, 'cellpose masks to canvas');
-      }
-
-      addBanner(`Added ${masks.length} mask${masks.length !== 1 ? 's' : ''} from Cellpose`, 'success', 5000);
+      console.log('[AnnotatePage] Cellpose added', n, 'masks (local=' + usedLocalPath + ')');
+      if (usedLocalPath) setLivePreviewReady(true);
+      addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from Cellpose`, 'success', 5000);
     } catch (err: any) {
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Cellpose failed:', fullError);
@@ -476,12 +633,53 @@ print('CLAHE packages ready')
     } finally {
       setIsRunningCellpose(false);
     }
-  }, [service, imageUrl, originalImageUrl, imageWidth, imageHeight, cellposeConfig, getVectorSource, pushUndo, addBanner, removeBanner]);
+  }, [
+    service, imageUrl, originalImageUrl, imageWidth, imageHeight,
+    cellposeConfig, isCLAHEActive, kernelReady,
+    runCellposeFlowsPipeline, applyPolygonsAsPreview,
+    getVectorSource, pushUndo, addBanner, removeBanner,
+  ]);
 
-  // Keep ref in sync so the config dialog's Run button can trigger cellpose
+  // Re-run mask gen using the cached flows on every instant-config drag.
+  // Debounced so a fast slider sweep only fires one Pyodide call.
+  const handleInstantConfigChange = useCallback((cfg: CellposeConfig) => {
+    if (!flowsCacheRef.current) return;
+    if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
+    instantRecomputeTimerRef.current = setTimeout(async () => {
+      try {
+        const sourceUrl = originalImageUrl || imageUrl;
+        if (!sourceUrl) return;
+        const n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+        if (n !== undefined) {
+          console.log('[AnnotatePage] Live preview: %d masks', n);
+        }
+      } catch (err: any) {
+        console.warn('[AnnotatePage] Live preview failed:', err);
+      }
+    }, 150);
+  }, [imageUrl, originalImageUrl, runCellposeFlowsPipeline]);
+
+  // Keep refs in sync so the config dialog's Run button + instant-config
+  // callback can trigger the latest closures without a re-render of the dialog.
   React.useEffect(() => {
     runCellposeRef.current = handleRunCellpose;
   }, [handleRunCellpose]);
+  React.useEffect(() => {
+    instantConfigChangeRef.current = handleInstantConfigChange;
+  }, [handleInstantConfigChange]);
+
+  // Invalidate the flows cache whenever the source image changes — different
+  // image, the cached network outputs no longer apply.
+  React.useEffect(() => {
+    invalidateFlowsCache();
+    previewFeaturesRef.current = [];
+  }, [imageUrl, invalidateFlowsCache]);
+
+  // CLAHE toggling changes what the server sees, so the cached flows go
+  // stale too.
+  React.useEffect(() => {
+    invalidateFlowsCache();
+  }, [isCLAHEActive, invalidateFlowsCache]);
 
   const handleSave = useCallback(async () => {
     const vs = getVectorSource?.();

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -84,7 +84,66 @@ interface CellposeConfigDialogProps {
   isRunning?: boolean;
   /** Called when user wants to measure a cell diameter in the image. */
   onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
+  /** When true, the parent has already cached (dP, cellprob) for the current
+   *  image and the instant-group sliders re-run mask gen locally in Pyodide.
+   *  In that mode each instant slider drag debounce-fires
+   *  ``onInstantConfigChange`` and the dialog stays open after Run. */
+  livePreviewReady?: boolean;
+  /** Fires on every instant-group slider change while ``livePreviewReady``;
+   *  callers are expected to debounce + run compute_masks_np locally. */
+  onInstantConfigChange?: (config: CellposeConfig) => void;
 }
+
+/** Tiny "server" / "instant" group badge that sits next to each field label. */
+const GroupChip: React.FC<{ kind: 'server' | 'instant'; livePreviewReady?: boolean }> = ({
+  kind,
+  livePreviewReady,
+}) => {
+  const isInstantActive = kind === 'instant' && livePreviewReady;
+  const isInstantIdle = kind === 'instant' && !livePreviewReady;
+  const bg = kind === 'server'
+    ? 'rgba(255,167,38,0.12)'
+    : isInstantActive ? 'rgba(76,175,80,0.16)' : 'rgba(120,120,120,0.10)';
+  const fg = kind === 'server'
+    ? 'warning.main'
+    : isInstantActive ? 'success.main' : 'text.disabled';
+  const label = kind === 'server' ? 'server' : isInstantActive ? 'live' : 'after run';
+  const tip = kind === 'server'
+    ? 'Affects the network output. Changing this needs another GPU round-trip via Run.'
+    : isInstantActive
+      ? 'Live preview is active — the polygon overlay updates as you drag.'
+      : isInstantIdle
+        ? 'Mask-gen knob. Click Run once; afterwards this slider updates the preview without a server hit.'
+        : '';
+  return (
+    <Tooltip title={tip} placement="top" arrow>
+      <Box
+        component="span"
+        sx={{
+          ml: 0.75, px: 0.7, py: 0.05,
+          borderRadius: 0.75,
+          bgcolor: bg,
+          color: fg,
+          fontSize: '0.62rem',
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          lineHeight: 1.35,
+          verticalAlign: 'middle',
+        }}
+      >
+        {label}
+      </Box>
+    </Tooltip>
+  );
+};
+
+const INSTANT_KEYS: (keyof CellposeConfig)[] = [
+  'flow_threshold',
+  'cellprob_threshold',
+  'niter',
+  'min_mask_area',
+];
 
 const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   open,
@@ -94,6 +153,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onRun,
   isRunning,
   onMeasureDiameter,
+  livePreviewReady,
+  onInstantConfigChange,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
 
@@ -103,8 +164,20 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
     }
   }, [open, initialConfig]);
 
+  // Fire instant-group updates back to the caller (debounced by the caller's
+  // own debouncer; we just propagate every state change). React batches the
+  // setState above so we read the latest config from the next render.
+  const instantConfigChangeRef = useRef(onInstantConfigChange);
+  instantConfigChangeRef.current = onInstantConfigChange;
+
   const update = <K extends keyof CellposeConfig>(key: K, value: CellposeConfig[K]) => {
-    setConfig((prev) => ({ ...prev, [key]: value }));
+    setConfig((prev) => {
+      const next = { ...prev, [key]: value };
+      if (livePreviewReady && INSTANT_KEYS.includes(key)) {
+        instantConfigChangeRef.current?.(next);
+      }
+      return next;
+    });
   };
 
   const handleReset = () => {
@@ -130,6 +203,35 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
 
+          {/* Live preview status row */}
+          {onInstantConfigChange && (
+            <Grid item xs={12}>
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 1,
+                px: 1.25, py: 0.6,
+                borderRadius: 1.5,
+                bgcolor: livePreviewReady ? 'rgba(76,175,80,0.10)' : 'rgba(120,120,120,0.06)',
+                border: '1px solid',
+                borderColor: livePreviewReady ? 'rgba(76,175,80,0.35)' : 'divider',
+              }}>
+                <Box sx={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  bgcolor: livePreviewReady ? 'success.main' : 'text.disabled',
+                  boxShadow: livePreviewReady ? '0 0 0 3px rgba(76,175,80,0.15)' : 'none',
+                  flexShrink: 0,
+                }} />
+                <Typography variant="caption" sx={{ fontWeight: 600, color: livePreviewReady ? 'success.main' : 'text.secondary' }}>
+                  {livePreviewReady ? 'Live preview is active' : 'Live preview will activate after Run'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto', fontStyle: 'italic', display: { xs: 'none', sm: 'inline' } }}>
+                  {livePreviewReady
+                    ? 'instant sliders update without a server hit'
+                    : 'one server call caches the flows; then sliders are local'}
+                </Typography>
+              </Box>
+            </Grid>
+          )}
+
           {/* Model info */}
           <Grid item xs={12}>
             <Box sx={{
@@ -154,6 +256,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
+                  {onInstantConfigChange && <GroupChip kind="server" livePreviewReady={livePreviewReady} />}
                   <InfoTip text="Cellpose-SAM was trained on cell diameters from 7.5 to 120 px. When set, the image is rescaled so cells appear ~30 px (scale = 30 ÷ diameter). Leave empty to run at original scale: safe when cells are roughly in the 7.5 to 120 px range. Set this if your cells are outside that range." />
                 </Box>
                 {onMeasureDiameter && (
@@ -198,6 +301,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               <Typography variant="body2" fontWeight={500}>
                 Flow Threshold
               </Typography>
+              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                 {config.flow_threshold.toFixed(1)}
               </Typography>
@@ -220,6 +324,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               <Typography variant="body2" fontWeight={500}>
                 Cell Probability Threshold
               </Typography>
+              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                 {config.cellprob_threshold.toFixed(1)}
               </Typography>
@@ -240,6 +345,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           <Grid item xs={6}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body2" fontWeight={500}>Iterations (niter)</Typography>
+              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
               <InfoTip text="Number of flow dynamics iterations. Leave empty for the default (200). Increase to ~250 for complex or concave cell shapes where the default may fragment masks." />
             </Box>
             <TextField
@@ -261,6 +367,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           <Grid item xs={6}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
+              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
               <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
             </Box>
             <TextField
@@ -283,6 +390,11 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Button>
         )}
         <Button onClick={onClose} color="inherit">Cancel</Button>
+        {onInstantConfigChange && livePreviewReady && (
+          <Button onClick={handleApply} color="primary" variant="outlined">
+            Done
+          </Button>
+        )}
         {onRun && (
           <Button
             onClick={() => { handleApply(); onRun(config); }}
@@ -290,7 +402,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             color="secondary"
             disabled={isRunning}
           >
-            Run Segmentation
+            {livePreviewReady ? 'Re-run (server)' : 'Run Segmentation'}
           </Button>
         )}
       </DialogActions>
@@ -302,9 +414,19 @@ export function useCellposeConfig(opts?: {
   onRun?: (config: CellposeConfig) => void;
   isRunning?: boolean;
   onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
+  /** When true, the dialog keeps the (dP, cellprob) flows path active: the
+   *  Apply / Run path does NOT close the dialog so the instant-group
+   *  sliders can keep updating the preview. ``Done`` saves + closes;
+   *  Cancel closes without saving. Pass this when the parent has wired
+   *  the Pyodide compute_masks call back through onInstantConfigChange. */
+  keepOpenAfterApply?: boolean;
+  livePreviewReady?: boolean;
+  onInstantConfigChange?: (config: CellposeConfig) => void;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
+  closeDialog: () => void;
+  dialogOpen: boolean;
   dialogElement: React.ReactNode;
   setConfig: React.Dispatch<React.SetStateAction<CellposeConfig>>;
 } {
@@ -315,11 +437,17 @@ export function useCellposeConfig(opts?: {
     setDialogOpen(true);
   }, []);
 
+  const closeDialog = useCallback(() => {
+    setDialogOpen(false);
+  }, []);
+
   const handleApply = useCallback((newConfig: CellposeConfig) => {
     setConfig(newConfig);
     saveConfig(newConfig);
-    setDialogOpen(false);
-  }, []);
+    if (!opts?.keepOpenAfterApply) {
+      setDialogOpen(false);
+    }
+  }, [opts?.keepOpenAfterApply]);
 
   const handleClose = useCallback(() => {
     setDialogOpen(false);
@@ -341,10 +469,12 @@ export function useCellposeConfig(opts?: {
       onRun={opts?.onRun}
       isRunning={opts?.isRunning}
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
+      livePreviewReady={opts?.livePreviewReady}
+      onInstantConfigChange={opts?.onInstantConfigChange}
     />
   );
 
-  return { config, openDialog, dialogElement, setConfig };
+  return { config, openDialog, closeDialog, dialogOpen, dialogElement, setConfig };
 }
 
 export default CellposeConfigDialog;
