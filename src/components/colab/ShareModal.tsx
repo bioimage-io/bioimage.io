@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
 
 interface ShareModalProps {
   annotationURL: string;
@@ -141,7 +142,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
         // 1. Fetch dataset-specific training sessions.
         if (server && dataArtifactId) {
           try {
-            const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+            const cellposeService = await resolvePinnedCellposeService(server);
             const sessionsDict = await cellposeService.list_training_sessions({
               dataset_artifact_ids: [dataArtifactId],
               labels: label ? [label] : undefined,

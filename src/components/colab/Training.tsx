@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
 
 // Declare Plotly as a global variable
 declare const Plotly: any;
@@ -176,7 +177,7 @@ const Training: React.FC<TrainingProps> = ({
 
     const fetchStatus = async () => {
       try {
-        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+        const cellposeService = await resolvePinnedCellposeService(server);
         const status = await cellposeService.get_training_status(sessionId);
 
         setStatusType(status.status_type);
@@ -415,7 +416,7 @@ const Training: React.FC<TrainingProps> = ({
 
     try {
       console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+      const cellposeService = await resolvePinnedCellposeService(server);
 
       console.log('Committing data artifact before training...');
       const artifactManager = await server.getService('public/artifact-manager');
@@ -573,7 +574,7 @@ const Training: React.FC<TrainingProps> = ({
 
     try {
       console.log('Exporting model from session:', sessionId);
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+      const cellposeService = await resolvePinnedCellposeService(server);
 
       const exportParams: any = {
         session_id: sessionId,
@@ -605,7 +606,7 @@ const Training: React.FC<TrainingProps> = ({
 
     setIsStopping(true);
     try {
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+      const cellposeService = await resolvePinnedCellposeService(server);
       await cellposeService.stop_training(sessionId);
       console.log('Stop training requested for session:', sessionId);
     } catch (error) {
@@ -622,7 +623,7 @@ const Training: React.FC<TrainingProps> = ({
     setIsDeleting(true);
     setShowDeleteConfirm(false);
     try {
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'last' });
+      const cellposeService = await resolvePinnedCellposeService(server);
       await cellposeService.delete_training_session(sessionId);
       console.log('Training session deleted:', sessionId);
       // Navigate back after deletion

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
+import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
 
 export interface AnnotationServiceConfig {
   serverUrl: string;
@@ -397,13 +398,14 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           console.warn('[useHyphaService] get_current_round failed, defaulting to 1:', err);
         }
 
-        // Cellpose service: probe once at connect time so the toolbar can
-        // disable the AI button when the service is offline. Hypha service
-        // handles can expire mid-session, so individual ``infer`` calls
-        // re-resolve via ``resolveCellposeService`` below instead of
-        // capturing this handle.
+        // Cellpose service: probe once at connect time. The probe
+        // intentionally pins the replica id in sessionStorage so every
+        // subsequent call (here and from the colab Training UI) lands on
+        // the same worker. That matters because cellpose-finetuning
+        // persists training state to local disk — see
+        // utils/cellposeServicePin.ts for the rationale.
         try {
-          await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
+          await resolvePinnedCellposeService(server);
           console.log('[useHyphaService] cellpose-finetuning reachable');
           if (!cancelled) setCellposeAvailable(true);
         } catch (err) {
@@ -411,14 +413,15 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           if (!cancelled) setCellposeAvailable(false);
         }
 
-        /** Resolve a fresh cellpose-finetuning handle per call. Hypha
-         *  service handles expire after a few minutes of inactivity; the
-         *  symptom is ``Method expired or not found`` on the next infer.
-         *  Cheap to resolve (one websocket round-trip) so we re-resolve
-         *  unconditionally instead of caching + retrying. */
+        /** Resolve a fresh handle to the *pinned* cellpose-finetuning
+         *  replica per call. Hypha service handles expire after a few
+         *  minutes of inactivity; the symptom is ``Method expired or not
+         *  found`` on the next infer. Cheap to resolve (one websocket
+         *  round-trip) so we re-resolve unconditionally instead of
+         *  caching + retrying. */
         const resolveCellposeService = async () => {
           try {
-            return await server.getService('bioimage-io/cellpose-finetuning', { mode: 'random' });
+            return await resolvePinnedCellposeService(server);
           } catch (err) {
             throw new Error(
               `Cellpose service is not available (${(err as Error)?.message || err})`,

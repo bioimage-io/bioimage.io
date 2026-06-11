@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
 
 interface TrainingModalProps {
   setShowTrainingModal: (show: boolean) => void;
@@ -90,7 +91,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
     try {
       if (server) {
-        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+        const cellposeService = await resolvePinnedCellposeService(server);
         const sessions = await cellposeService.list_training_sessions({
           dataset_artifact_ids: [dataArtifactId],
           labels: label ? [label] : undefined,
@@ -135,7 +136,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
     try {
       console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', {mode: "last"});
+      const cellposeService = await resolvePinnedCellposeService(server);
 
       console.log('Committing data artifact before training...');
       const artifactManager = await server.getService('public/artifact-manager');
@@ -243,7 +244,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
 
       // Probe status for each candidate and pick the most plausible training session.
       if (server && candidateList.length > 1) {
-        const cellposeService = await server.getService('bioimage-io/cellpose-finetuning', { mode: 'last' });
+        const cellposeService = await resolvePinnedCellposeService(server);
 
         let bestScore = -1;
         for (const candidate of candidateList) {
