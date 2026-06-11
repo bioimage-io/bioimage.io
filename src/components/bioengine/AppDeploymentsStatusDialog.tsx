@@ -38,6 +38,30 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     if (instanceId && instanceId.trim()) return instanceId;
     return nodeId.slice(0, 8);
   };
+
+  // Tailwind classes for the replica-state badge tint. Diagnostics use:
+  // healthy/RUNNING reads cool (indigo), in-flight states read warm (amber),
+  // terminal failure reads red, otherwise neutral gray. Unknown / empty
+  // states fall through to neutral so the badge still renders.
+  const stateClasses = (state?: string): string => {
+    switch (state) {
+      case 'RUNNING':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'STARTING':
+      case 'UPDATING':
+      case 'PENDING_ALLOCATION':
+      case 'RECOVERING':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'DEPLOY_FAILED':
+      case 'FAILED':
+        return 'bg-red-50 text-red-700 border-red-200';
+      case 'STOPPING':
+      case 'STOPPED':
+        return 'bg-gray-100 text-gray-600 border-gray-300';
+      default:
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    }
+  };
   const [logsTail, setLogsTail] = useState<number>(30);
   const [nPreviousReplica, setNPreviousReplica] = useState<number>(0);
   const [status, setStatus] = useState<any>(initialStatus || null);
@@ -207,33 +231,39 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                       )}
 
                       {/* Per-deployment node placement. One badge per
-                          distinct (node_id) pair across RUNNING replicas;
-                          shows the cluster-view's Head/Worker N role plus
-                          the node_instance_id when present. */}
-                      {Array.isArray(data?.replicas) && data.replicas.some((r: any) => r?.node_id && r?.state === 'RUNNING') && (
+                          distinct (node_id, state) pair across all replicas
+                          that have a node_id — so STARTING and DEPLOY_FAILED
+                          replicas show up too, not just RUNNING. The badge
+                          tint encodes the replica state for diagnostics. */}
+                      {Array.isArray(data?.replicas) && data.replicas.some((r: any) => r?.node_id) && (
                         <div>
-                          <p className="text-sm font-medium text-gray-700 mb-1">Running on</p>
+                          <p className="text-sm font-medium text-gray-700 mb-1">Replica placement</p>
                           <div className="flex flex-wrap gap-2">
                             {(() => {
                               const seen = new Set<string>();
-                              const rows: Array<{ key: string; label: string; tooltip: string }> = [];
+                              const rows: Array<{ key: string; label: string; state?: string; tooltip: string }> = [];
                               for (const r of data.replicas as any[]) {
-                                if (!r?.node_id || r.state !== 'RUNNING') continue;
-                                if (seen.has(r.node_id)) continue;
-                                seen.add(r.node_id);
+                                if (!r?.node_id) continue;
+                                const key = `${r.node_id}::${r.state ?? ''}`;
+                                if (seen.has(key)) continue;
+                                seen.add(key);
                                 const label = formatReplicaNode(r) ?? r.node_id;
-                                rows.push({ key: r.node_id, label, tooltip: r.node_id });
+                                const tooltipState = r.state ? `${r.state} on ${r.node_id}` : r.node_id;
+                                rows.push({ key, label, state: r.state, tooltip: tooltipState });
                               }
                               return rows.map(row => (
                                 <span
                                   key={row.key}
-                                  className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-indigo-50 text-indigo-700 border-indigo-200 font-mono break-all"
+                                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border font-mono break-all ${stateClasses(row.state)}`}
                                   title={row.tooltip}
                                 >
-                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M5 12l7-7 7 7" />
                                   </svg>
                                   {row.label}
+                                  {row.state && (
+                                    <span className="opacity-80 font-normal">{row.state}</span>
+                                  )}
                                 </span>
                               ));
                             })()}

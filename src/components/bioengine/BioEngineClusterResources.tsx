@@ -95,24 +95,66 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
   const [pendingExpanded, setPendingExpanded] = useState(false);
   const [slurmJobsExpanded, setSlurmJobsExpanded] = useState(false);
 
-  // Build a {node_id -> [app_id, ...]} index by inverting the per-app
-  // replica placements. Only RUNNING replicas contribute, so apps in
-  // DEPLOYING / DEPLOY_FAILED / NOT_STARTED don't get a phantom badge.
+  // Build a {node_id -> [{appId, state}, ...]} index by inverting the per-app
+  // replica placements. All replica states contribute so STARTING /
+  // DEPLOY_FAILED apps still surface on the node where they're placed,
+  // which is what an operator needs when debugging a stuck deployment.
+  // When an app has replicas in multiple states on the same node, the
+  // worst non-healthy state wins so the tint is honest about trouble:
+  // failure beats in-flight beats running.
+  const STATE_RANK: Record<string, number> = {
+    DEPLOY_FAILED: 3,
+    FAILED: 3,
+    STARTING: 2,
+    UPDATING: 2,
+    PENDING_ALLOCATION: 2,
+    RECOVERING: 2,
+    RUNNING: 1,
+    STOPPING: 0,
+    STOPPED: 0,
+  };
   const nodeApps = useMemo(() => {
-    const out: Record<string, string[]> = {};
+    const out: Record<string, Array<{ appId: string; state?: string }>> = {};
     for (const [appId, app] of Object.entries(bioengineApps ?? {})) {
-      const nodeIds = new Set<string>();
+      const perNode: Record<string, string | undefined> = {};
       for (const r of app?.replicas ?? []) {
-        if (r?.node_id && r?.state === 'RUNNING') nodeIds.add(r.node_id);
+        if (!r?.node_id) continue;
+        const prev = perNode[r.node_id];
+        if (prev === undefined || (STATE_RANK[r.state ?? ''] ?? -1) > (STATE_RANK[prev ?? ''] ?? -1)) {
+          perNode[r.node_id] = r.state;
+        }
       }
-      nodeIds.forEach(n => {
-        if (!out[n]) out[n] = [];
-        if (!out[n].includes(appId)) out[n].push(appId);
+      Object.entries(perNode).forEach(([nodeId, state]) => {
+        if (!out[nodeId]) out[nodeId] = [];
+        if (!out[nodeId].some(x => x.appId === appId)) {
+          out[nodeId].push({ appId, state });
+        }
       });
     }
-    Object.keys(out).forEach(n => out[n].sort());
+    Object.keys(out).forEach(n => out[n].sort((a, b) => a.appId.localeCompare(b.appId)));
     return out;
   }, [bioengineApps]);
+
+  // Match the dialog's tint scheme so the two views read the same.
+  const nodeAppStateClasses = (state?: string): string => {
+    switch (state) {
+      case 'RUNNING':
+        return 'bg-purple-50 text-purple-700 border-purple-200';
+      case 'STARTING':
+      case 'UPDATING':
+      case 'PENDING_ALLOCATION':
+      case 'RECOVERING':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'DEPLOY_FAILED':
+      case 'FAILED':
+        return 'bg-red-50 text-red-700 border-red-200';
+      case 'STOPPING':
+      case 'STOPPED':
+        return 'bg-gray-100 text-gray-600 border-gray-300';
+      default:
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    }
+  };
 
   if (!rayCluster?.cluster && !rayCluster?.nodes) return null;
 
@@ -357,15 +399,15 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                           )}
                           {nodeApps[nodeId] && nodeApps[nodeId].length > 0 && (
                             <div className="flex flex-col">
-                              <span className="text-gray-600">Running Apps:</span>
+                              <span className="text-gray-600">Apps placed here:</span>
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {nodeApps[nodeId].map(appId => (
+                                {nodeApps[nodeId].map(({ appId, state }) => (
                                   <span
                                     key={appId}
-                                    className="inline-block px-2 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 rounded font-mono break-all"
-                                    title={appId}
+                                    className={`inline-block px-2 py-0.5 text-xs font-medium rounded font-mono break-all border ${nodeAppStateClasses(state)}`}
+                                    title={state ? `${appId} — ${state}` : appId}
                                   >
-                                    {appId}
+                                    {appId}{state && state !== 'RUNNING' ? ` (${state})` : ''}
                                   </span>
                                 ))}
                               </div>
