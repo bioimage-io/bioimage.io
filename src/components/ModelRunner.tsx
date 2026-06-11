@@ -10,6 +10,8 @@ import {
 } from '../utils/modelRun';
 import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, processForShow } from '../utils/imgProcess';
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
+import { useModelRunners } from '../hooks/useModelRunners';
+import RunnerSiteToggle from './RunnerSiteToggle';
 import ModelTester from './ModelTester';
 
 // Extend the ModelRunnerEngine type to properly type the runTiles method
@@ -115,6 +117,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 }) => {
   const { hyphaCoreAPI, isHyphaCoreReady } = useHyphaContext();
   const { isLoggedIn } = useHyphaStore();
+  // One probe for both KTH and deNBI; the selected site drives the service
+  // id passed to ModelRunnerEngine.init below. The advanced "Service ID"
+  // text input below still overrides this when an operator types a value.
+  const modelRunners = useModelRunners();
   const [isLoading, setIsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [currentWindowId, setCurrentWindowId] = useState<string | null>(null);
@@ -131,8 +137,18 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
   const [serverUrl, setServerUrl] = useState<string>("https://hypha.aicell.io");
-  const [serviceId, setServiceId] = useState<string>(BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID);
+  // serviceIdOverride empty => let the runner-site toggle decide. Set this
+  // (via the advanced settings text input) to point at a non-production
+  // worker without disabling the toggle.
+  const [serviceIdOverride, setServiceIdOverride] = useState<string>("");
   const [token, setToken] = useState<string>("");
+
+  // Effective service id used for the next ModelRunnerEngine.init() call.
+  // Resolution order: explicit override > toggle's active site > KTH constant
+  // (legacy fallback so this component never produces an empty serviceId).
+  const serviceId = serviceIdOverride.trim()
+    || modelRunners.activeServiceId
+    || BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID;
   
   // Button states
   const [buttonEnabledRun, setButtonEnabledRun] = useState<boolean>(false);
@@ -141,12 +157,23 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [modelInitialized, setModelInitialized] = useState<boolean>(false);
   const initializingRef = useRef<boolean>(false);
 
-  // Auto-initialize when component mounts
+  // Auto-initialize when component mounts. We also wait until the runner
+  // probe has settled so the FIRST init uses the toggle's resolved
+  // activeServiceId (KTH if reachable, deNBI fallback otherwise). Without
+  // this gate the effect fires with the KTH constant and surfaces a
+  // "Service not found" error before useModelRunners has a chance to pick
+  // deNBI when KTH is unreachable (the situation an anonymous viewer hits
+  // when the production KTH worker is down or restricted).
   useEffect(() => {
-    if (artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn && !isRunning && !isLoading && !initializingRef.current) {
+    if (
+      artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
+      && !isRunning && !isLoading && !initializingRef.current
+      && !modelRunners.loading
+      && modelRunners.activeServiceId
+    ) {
       setupRunner();
     }
-  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn]);
+  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId]);
 
   // Add spinner animation CSS
   useEffect(() => {
@@ -202,6 +229,19 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       setButtonEnabledOutput(false);
     }
   }, [modelInitialized]);
+
+  // Surface a clear empty-state once the probe completes with nothing
+  // reachable, so an anonymous viewer (or a logged-in user during a real
+  // outage) sees an actionable message instead of a stalled spinner.
+  useEffect(() => {
+    if (!modelRunners.loading && !modelRunners.activeServiceId && isLoggedIn) {
+      setInfoPanel(
+        'No model-runner cluster is reachable from this account. Try logging in if you are not, or check back later.',
+        false,
+        true,
+      );
+    }
+  }, [modelRunners.loading, modelRunners.activeServiceId, isLoggedIn]);
 
   const initModel = async (modelId: string, modelRunner = runner) => {
     if (!modelRunner) return;
@@ -382,9 +422,12 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
     } catch (error) {
       console.error('Failed to setup runner:', error);
-      const errorMessage = error instanceof Error && error.message.includes('Container element') 
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errorMessage = errMsg.includes('Container element')
         ? "Failed to create container element. Please make sure the container callback is properly implemented."
-        : "Failed to setup the model runner. See console for details.";
+        : errMsg.includes('Service not found')
+          ? `The selected model-runner cluster does not currently expose a service for this account. Try switching the slider to the other cluster.`
+          : "Failed to setup the model runner. See console for details.";
       setInfoPanel(errorMessage, false, true);
       setIsLoading(false);
       initializingRef.current = false;
@@ -671,7 +714,22 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           isDisabled={false}
           skipCache={false}
           className="flex-shrink-0"
+          modelRunners={modelRunners}
+          hideRunnerToggle
         />
+
+        {/* Runner-site toggle. Drives both the Run Model engine and the
+            nested ModelTester so a visitor only chooses once. */}
+        {isLoggedIn && (
+          <div className="flex items-center">
+            <RunnerSiteToggle
+              selected={modelRunners.selected}
+              onSelect={modelRunners.setSelected}
+              available={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
+              loading={modelRunners.loading}
+            />
+          </div>
+        )}
       </div>
 
       {/* Advanced Settings Panel */}
@@ -737,11 +795,14 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               </label>
               <input
                 type="text"
-                value={serviceId}
-                onChange={(e) => setServiceId(e.target.value)}
-                placeholder={BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
+                value={serviceIdOverride}
+                onChange={(e) => setServiceIdOverride(e.target.value)}
+                placeholder={modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
               />
+              <span className="text-xs text-gray-500">
+                Leave empty to use the cluster selected by the slider above.
+              </span>
             </div>
             
             <div>

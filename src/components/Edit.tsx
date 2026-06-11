@@ -7,6 +7,8 @@ import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
 import ModelTester from './ModelTester';
 import ModelValidator from './ModelValidator';
+import RunnerSiteToggle from './RunnerSiteToggle';
+import { useModelRunners } from '../hooks/useModelRunners';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
@@ -179,6 +181,9 @@ const Edit: React.FC = () => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn, server, user} = useHyphaStore();
+  // One shared runner-site selection lives here so the Save→Validate→Test
+  // row renders a single toggle and both children act on the same choice.
+  const modelRunners = useModelRunners();
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
     severity: 'info' | 'success' | 'error';
@@ -2383,6 +2388,20 @@ const Edit: React.FC = () => {
           </button>
         )}
 
+        {/* Shared runner-site toggle (between Save and Validate) — drives
+            which BioEngine model-runner site both the Validate and Test
+            buttons use. */}
+        {isLoggedIn && (isRdfFile || (artifactType === 'model' && artifactId)) && (
+          <div className="w-full sm:w-auto flex items-center justify-center sm:justify-start">
+            <RunnerSiteToggle
+              selected={modelRunners.selected}
+              onSelect={modelRunners.setSelected}
+              available={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
+              loading={modelRunners.loading}
+            />
+          </div>
+        )}
+
         {/* Validator button */}
         {isRdfFile && (
           <div className="w-full sm:w-auto" title={`Run Validator (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+R)`}>
@@ -2399,6 +2418,8 @@ const Edit: React.FC = () => {
               }}
               data-testid="model-validator-button"
               className="w-full sm:w-auto"
+              modelRunners={modelRunners}
+              hideRunnerToggle
             />
           </div>
         )}
@@ -2440,6 +2461,8 @@ const Edit: React.FC = () => {
                 await loadArtifactFiles();
               }}
               className="w-full sm:w-auto"
+              modelRunners={modelRunners}
+              hideRunnerToggle
             />
           </div>
         )}

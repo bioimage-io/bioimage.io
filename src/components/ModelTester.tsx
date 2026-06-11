@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
+import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
+import RunnerSiteToggle from './RunnerSiteToggle';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Menu } from '@headlessui/react';
@@ -31,6 +32,15 @@ interface ModelTesterProps {
   skipCache?: boolean;
   publishTestReport?: boolean;
   onTestComplete?: () => void | Promise<void>;
+  /**
+   * When provided, use this caller-owned runner state instead of the
+   * component's internal `useModelRunners()` instance. Lets a parent share
+   * one runner selection across multiple sibling components (e.g. the
+   * Edit page sharing one toggle with ModelValidator).
+   */
+  modelRunners?: UseModelRunnersResult;
+  /** Hide the inline runner toggle. Use when a parent renders a shared toggle. */
+  hideRunnerToggle?: boolean;
 }
 
 const ModelTester: React.FC<ModelTesterProps> = ({
@@ -41,8 +51,12 @@ const ModelTester: React.FC<ModelTesterProps> = ({
   publishTestReport = false,
   onTestComplete,
   className = '',
+  modelRunners,
+  hideRunnerToggle = false,
 }) => {
   const { server, isLoggedIn } = useHyphaStore();
+  const internalRunners = useModelRunners({ skip: !!modelRunners });
+  const { kth, denbi, selected, setSelected, activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -111,8 +125,10 @@ const ModelTester: React.FC<ModelTesterProps> = ({
     
     try {
       setLoadingStep('Connecting to model runner service...');
-      // const runner = await server.getService('bioimage-io/bioimageio-model-runner', {mode: "last"});
-      const runner = await server.getService(BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, {mode: "select:min:get_load"});
+      const runner = activeRunner;
+      if (!runner) {
+        throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
+      }
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
@@ -233,32 +249,50 @@ Please keep this window open while the test is running.`;
     </div>
   );
 
+  // Button is disabled if the caller disabled it, if a test is already in
+  // flight, if the user isn't logged in, or if neither runner answered the
+  // probe. The last case is the new failure mode from this PR — both KTH
+  // and deNBI being unreachable shouldn't surface as a generic "test"
+  // error after the click; it should be visible up-front in the button.
+  const noRunner = !runnersLoading && !hasAny;
+  const buttonDisabled = isDisabled || isLoading || !isLoggedIn || noRunner;
+
+  const buttonLabel = !isLoggedIn
+    ? 'Login to Test'
+    : noRunner
+      ? 'Runners unavailable'
+      : 'Test Model';
+
   return (
     <div className={`relative ${className}`}>
-      <div className="flex h-[40px]" ref={buttonRef}>
+      <div className="flex items-center gap-2">
+        <div className="flex h-[40px]" ref={buttonRef}>
         <button
           onClick={runTest}
-          disabled={isDisabled || isLoading || !isLoggedIn}
+          disabled={buttonDisabled}
+          title={noRunner
+            ? 'Both KTH and deNBI model-runner services failed to respond.'
+            : undefined}
           className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-            ${isDisabled || !isLoggedIn
+            ${buttonDisabled
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
             }`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span className="hidden sm:inline">{!isLoggedIn ? 'Login to Test' : 'Test Model'}</span>
+          <span className="hidden sm:inline">{buttonLabel}</span>
         </button>
 
         <Menu as="div" className="relative h-full">
           <Menu.Button
             onClick={() => setIsOpen(!isOpen)}
             className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l
-              ${isDisabled || !isLoggedIn
+              ${buttonDisabled
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : isLoading
                   ? 'bg-blue-600 text-white'
@@ -268,7 +302,7 @@ Please keep this window open while the test is running.`;
                       : 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
               }`}
-            disabled={isDisabled || !isLoggedIn}
+            disabled={buttonDisabled}
           >
             {isLoading ? (
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
@@ -314,9 +348,18 @@ Please keep this window open while the test is running.`;
             )
           )}
         </Menu>
+        </div>
+        {isLoggedIn && !hideRunnerToggle && (
+          <RunnerSiteToggle
+            selected={selected}
+            onSelect={setSelected}
+            available={{ kth: kth.available, denbi: denbi.available }}
+            loading={runnersLoading}
+          />
+        )}
       </div>
     </div>
   );
 };
 
-export default ModelTester; 
+export default ModelTester;
