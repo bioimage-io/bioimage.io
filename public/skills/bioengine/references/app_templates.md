@@ -712,4 +712,29 @@ try {
 await refreshTests({ popupOnError: true });   // its own popup if it fails
 ```
 
-**Don't pop a modal per item inside a batch loop** (e.g. one tile fails in a 50-tile run). Surface per-item failures inline on the tile's UI state; reserve the modal for the single button-triggered RPC.
+**For batch buttons, aggregate failures into a single end-of-run popup.** A 50-tile loop that pops a modal per failure is hostile. The correct shape: keep marking per-item failures inline on the tile (so they're visible while the batch is still running), collect each error into an array, and at the end fire exactly one `showError()` with the aggregated detail. That way the literal "every button-driven RPC failure goes to a modal" rule holds without spamming the user.
+
+```javascript
+const batchErrors = [];
+for (const item of items) {
+  try { await svc.process({ image_ref: item.url, _rkwargs: true }); item.state = "done"; }
+  catch (err) {
+    item.state = "error"; item.error = err.message || String(err);
+    batchErrors.push({ stage: "process", file: item.name, detail: formatErr(err) });
+  }
+  render();   // per-tile state surfaces in the inline UI immediately
+}
+
+if (batchErrors.length) {
+  const detail = batchErrors
+    .map(e => `[${e.stage}] ${e.file}\n${e.detail}`)
+    .join("\n\n----------\n\n");
+  showError({
+    title: `Batch finished with ${batchErrors.length} error${batchErrors.length === 1 ? "" : "s"}`,
+    message: `${batchErrors.length} of ${items.length} item${items.length === 1 ? "" : "s"} failed. Full traces below.`,
+    detail,
+  });
+}
+```
+
+The scrollable `.dialog-detail` block makes this scale: 50 separate stack traces fit fine because the user can scroll, copy them all at once, and the rest of the UI is not blocked.
