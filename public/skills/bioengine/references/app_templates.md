@@ -589,3 +589,127 @@ $("logoutBtn").addEventListener("click", async () => {
 - `server_url` and `ws_service_id` come from URL query params injected by BioEngine when the page is served via the artifact's `static_site_url`.
 - `frontend_entry: "frontend/index.html"` in `manifest.yaml` is what causes BioEngine to populate `static_site_url` and the dashboard's "Open UI" button. The artifact's `view_config` (`root_directory: "frontend"`, `index: "index.html"`) is configured automatically by `upload_app`.
 - Change `TOKEN_KEY` / `TOKEN_EXPIRY` constants per app so apps share a Hypha session origin but keep separate localStorage entries.
+
+### Error popups for button-driven failures
+
+When a button handler triggers a Hypha RPC and it fails, surface the failure as a **modal error dialog with a scrollable detail block** — not a silent console log, and not `window.alert()`. Users need to see *what* broke (server message, stack) to file a useful bug, and `alert()` truncates long stacks and blocks the event loop.
+
+The rule applies to **user-initiated** RPCs (button clicks, form submits). Background / boot-time refreshes (page-load auto-connect, pre-fetching dropdown contents) should keep failing silently with a log line — popping a modal on page load is hostile. The pattern below is a single shared helper plus a `popupOnError` flag so refresh functions can be reused from both contexts.
+
+```html
+<!-- Error dialog (placed next to the confirm dialog if you have one). Reuses
+     the same .dialog-backdrop / .dialog styles; .dialog-wide widens it and
+     .dialog-detail adds a scrollable monospace block for stack traces. -->
+<div id="errorDialog" class="dialog-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="errorTitle" hidden>
+  <div class="dialog dialog-wide">
+    <div class="dialog-title">
+      <span class="dialog-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="13"/>
+          <line x1="12" y1="16.5" x2="12" y2="16.5"/>
+        </svg>
+      </span>
+      <span id="errorTitle">Something went wrong</span>
+    </div>
+    <div class="dialog-message" id="errorMessage"></div>
+    <pre class="dialog-detail" id="errorDetail"></pre>
+    <div class="dialog-actions">
+      <button class="dialog-btn cancel" type="button" id="errorCopy">Copy</button>
+      <button class="dialog-btn danger" type="button" id="errorClose">Close</button>
+    </div>
+  </div>
+</div>
+```
+
+```css
+/* Wider variant + scrollable monospace block for stack traces. */
+.dialog.dialog-wide { max-width: 36rem; }
+.dialog .dialog-detail {
+  margin: 0 0 1.1rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--fg-dim);
+  max-height: 50vh; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
+.dialog .dialog-detail:empty { display: none; }
+```
+
+```javascript
+// Stack → message → JSON, so the user gets the most useful representation
+// of whatever the RPC layer surfaces.
+function formatErr(err) {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+  return err.stack || err.message || (() => {
+    try { return JSON.stringify(err, null, 2); } catch { return String(err); }
+  })();
+}
+function showError({ title = "Something went wrong", message = "", detail = "" } = {}) {
+  $("errorTitle").textContent = title;
+  $("errorMessage").innerHTML = message;     // HTML so callers can <strong> the resource name
+  $("errorDetail").textContent = detail;     // textContent: never inject server output as HTML
+  $("errorDialog").hidden = false;
+  setTimeout(() => $("errorClose").focus(), 0);
+}
+function closeError() { $("errorDialog").hidden = true; }
+$("errorClose").addEventListener("click", closeError);
+$("errorDialog").addEventListener("click", (e) => {
+  if (e.target === $("errorDialog")) closeError();
+});
+$("errorCopy").addEventListener("click", async () => {
+  const text = [$("errorTitle").textContent, $("errorMessage").textContent, $("errorDetail").textContent]
+    .filter(Boolean).join("\n\n");
+  try {
+    await navigator.clipboard?.writeText(text);
+    $("errorCopy").textContent = "Copied";
+    setTimeout(() => { $("errorCopy").textContent = "Copy"; }, 1200);
+  } catch (_) {}
+});
+// Esc closes the topmost open dialog (error first, then confirm).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("errorDialog").hidden) { closeError(); return; }
+  if (!$("confirmDialog").hidden) closeConfirm(false);
+});
+```
+
+**Apply to button handlers, not background loaders.** Refresh functions called from both boot and a button should accept `{ popupOnError = false }` so the boot caller stays quiet:
+
+```javascript
+async function refreshTests({ popupOnError = false } = {}) {
+  try { cachedTests = await svc.list_visual_tests({ _rkwargs: true }); }
+  catch (err) {
+    cachedTests = [];
+    log("list_visual_tests failed: " + err.message, "err");
+    if (popupOnError) showError({
+      title: "Could not refresh visual tests",
+      message: "<code>list_visual_tests</code> failed on the worker.",
+      detail: formatErr(err),
+    });
+  }
+  renderTestList();
+}
+// boot: silent
+refreshTests();
+// button: popup on failure
+$("refreshBtn").addEventListener("click", () => refreshTests({ popupOnError: true }));
+```
+
+**Split a button's try blocks per RPC** so a failure in a follow-up call (e.g. a refresh after a delete) isn't attributed to the primary action:
+
+```javascript
+try {
+  await svc.delete_visual_test({ name, _rkwargs: true });
+} catch (err) {
+  showError({ title: "Delete failed", message: `Could not delete <strong>${escapeHTML(name)}</strong>.`, detail: formatErr(err) });
+  return;
+}
+await refreshTests({ popupOnError: true });   // its own popup if it fails
+```
+
+**Don't pop a modal per item inside a batch loop** (e.g. one tile fails in a 50-tile run). Surface per-item failures inline on the tile's UI state; reserve the modal for the single button-triggered RPC.
