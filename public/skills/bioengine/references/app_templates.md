@@ -461,13 +461,20 @@ import { login, connectToServer }
   from "https://cdn.jsdelivr.net/npm/hypha-rpc@0.20.54/dist/hypha-rpc-websocket.mjs";
 
 // URL params:
-//   ?server=<hypha-server>              — Hypha base URL (default aicell.io)
+//   ?server=<hypha-server>              — Hypha base URL. Defaults to the
+//                                          page's own origin (the Hypha
+//                                          instance hosting this artifact);
+//                                          falls back to hypha.aicell.io
+//                                          for non-http(s) dev origins.
 //   ?ws_service_id=<full-service-id>    — pinned target service id
 //   ?token=<hypha-token>                — TESTING-ONLY auto-connect bypass.
 //                                          Tokens land in browser history;
 //                                          do not paste production tokens.
 const params     = new URLSearchParams(window.location.search);
-const SERVER_URL = params.get("server")        || "https://hypha.aicell.io";
+const PAGE_ORIGIN =
+  (window.location.protocol === "http:" || window.location.protocol === "https:")
+    ? window.location.origin : null;
+const SERVER_URL = params.get("server") || PAGE_ORIGIN || "https://hypha.aicell.io";
 const SERVICE_ID = params.get("ws_service_id") || "";
 const URL_TOKEN  = params.get("token")          || "";
 
@@ -581,6 +588,7 @@ $("logoutBtn").addEventListener("click", async () => {
 - **Both topbar buttons start `hidden` in HTML, JS reveals one synchronously on boot.** Otherwise the Login button visibly flashes for the duration of the WebSocket connect when a returning user reloads the page.
 - **`login_callback: (ctx) => window.open(ctx.login_url)`** — `window.open` succeeds here because we're inside the click handler's user-gesture context. Don't await the URL and then open — by then the gesture has expired and the popup is blocked.
 - **localStorage cache with 3 h TTL** — mirrors `bioimage.io`'s `LoginButton` so users move between apps without re-authenticating.
+- **`SERVER_URL` defaults to `window.location.origin`** — when the page is served from a Hypha instance (e.g. `https://hypha.aicell.io/...`), the same instance is the right RPC target by default, so the user never has to pass `?server=`. The `http(s):` protocol check guards against `file://` and other non-http origins falling through into `connectToServer`, in which case the hardcoded `https://hypha.aicell.io` fallback kicks in. Still allow `?server=` to override (e.g. for cross-instance development).
 - **`?token=` URL param** — testing-only path. Documented in the source as such because tokens in URLs are visible in browser history.
 - **`{ _rkwargs: true }` on every `getService(...)` and RPC call** — required in JavaScript; not needed in Python.
 
