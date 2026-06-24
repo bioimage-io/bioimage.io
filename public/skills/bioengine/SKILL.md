@@ -244,57 +244,69 @@ id_emoji: "🔬"
 description: "..."
 type: ray-serve
 version: 1.0.0
-format_version: 0.5.0
+format_version: 0.6.0
 license: MIT
-deployments:
-  - my_deployment:MyDeployment   # python_filename_without_py:ClassName
+entry: my_deployment:MyDeployment   # python_filename_without_py:ClassName
 authorized_users:
   - "*"
 ```
 
-Full field reference: [references/manifest_reference.md](references/manifest_reference.md).
+Full field reference: [references/manifest_reference.md](references/manifest_reference.md). (The `deployments:` list and `format_version: 0.5.0` from earlier releases are no longer supported — bump to 0.6.0 and use the single `entry:` field instead. Multi-deployment composition is now wired via Python type hints on `__init__`; see [references/app_templates.md](references/app_templates.md).)
+
+> **Version bumps are now strictly enforced.** As of bioengine 0.11.7, `upload_app` rejects any artifact whose manifest `version` is not strictly greater than every existing version of the artifact (PEP 440 ordering). Re-uploading the same version raises with a clear "must be strictly greater" message. Bump `manifest.yaml` `version` on every change.
 
 ### Minimal deployment class
 
 ```python
-import asyncio, logging, time
-from ray import serve
-from hypha_rpc.utils.schema import schema_method
-from pydantic import Field
+import time
+from typing import Dict, Union
 
-logger = logging.getLogger("ray.serve")  # never use print()
+import bioengine
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 1,
-        "num_gpus": 1,           # 1 for GPU, 0 for CPU-only; never fractional
-        "memory": 4 * 1024**3,
-        "runtime_env": {
-            "pip": ["numpy==1.26.4"],  # pin exact versions — any change = full rebuild
-        },
-    },
+logger = bioengine.logger  # never use print()
+
+
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=1,                  # 1 for GPU, 0 for CPU-only; never fractional
+    memory_mb=4096,
+    pip=["numpy==1.26.4"],       # pin exact versions — any change = full rebuild
     max_ongoing_requests=10,
 )
 class MyDeployment:
     def __init__(self) -> None:
         self.start_time = time.time()
 
-    async def async_init(self) -> None:
-        """Called once before accepting requests. Load models here."""
+    @bioengine.async_init
+    async def load(self) -> None:
+        """Optional — runs once before traffic is admitted. Load models here."""
         import numpy as np  # third-party: always import inside methods
 
-    async def test_deployment(self) -> None:
-        """Smoke test — raise to fail startup."""
+    @bioengine.smoke_test
+    async def smoke(self) -> None:
+        """Optional startup smoke test — raise to fail the replica."""
         assert (await self.ping())["status"] == "ok"
 
-    @schema_method
-    async def ping(self) -> dict:
+    @bioengine.method
+    async def ping(self) -> Dict[str, Union[str, float]]:
         """Return service status."""
         return {"status": "ok", "uptime": time.time() - self.start_time}
+
+    @bioengine.method(context=True)
+    async def whoami(self, context) -> str:
+        """Receive the Hypha caller's context as a plain dict.
+
+        The `context` parameter is auto-injected by Hypha and hidden from
+        the public schema — clients can't supply or spoof it.
+        """
+        return context["user"]["id"]
 ```
 
 ### Key rules
 
+- Use `@bioengine.app(num_cpus=..., num_gpus=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- Lifecycle hooks are decorators with **free method names**: `@bioengine.async_init`, `@bioengine.smoke_test`, `@bioengine.health_check`, `@bioengine.multiplexed(max_models=N)`. The reserved names `async_init` / `test_deployment` / `check_health` no longer work as plain methods.
+- API methods: `@bioengine.method` (basic) or `@bioengine.method(context=True)` (opt-in caller-context injection — the user method must declare a `context` parameter; arrives as a plain dict, never a Hypha proxy).
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.
 - `num_gpus: 1` for GPU, `num_gpus: 0` for CPU-only; never use fractional values.
 - Entry/orchestrator deployments in composition apps: `num_cpus: 0, num_gpus: 0`.
@@ -385,6 +397,46 @@ app_id = await worker.deploy_app(
 ```
 
 `deploy_app` returns the resolved `application_id`. The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
+
+### Per-deployment scaling
+
+Pass `scaling={class_name: {num_replicas | autoscaling_config}}` to fix or autoscale each user `@bioengine.app` deployment independently. The map key is the **class name** as shown under `deployments` in `get_app_status`; the ProxyDeployment (WebSocket/WebRTC bridge) is always one replica and not addressable:
+
+```python
+await worker.deploy_app(
+    artifact_id="bioimage-io/my-app",
+    application_id="my-app",
+    scaling={
+        "EntryDeployment": {
+            "autoscaling_config": {
+                "min_replicas": 1, "max_replicas": 8,
+                "target_num_ongoing_requests_per_replica": 4,
+            },
+        },
+        "RuntimeDeployment": {"num_replicas": 1},
+    },
+)
+```
+
+Each entry sets exactly one of `num_replicas` or `autoscaling_config` (Ray Serve's own constraint). Classes not in the map run at one fixed replica. On update with a matching `application_id`, the full scaling map replaces the previous one — pass the previous value back unmodified for any deployment you don't want to change. Omitting `scaling` on an update preserves the prior map; passing `scaling={}` resets every deployment to defaults. The map round-trips through worker restarts via `app_data["scaling"]`.
+
+### App-cache inspection (`list_app_directories`, `clear_app_directory`)
+
+For dashboards and disk-cleanup automation. The worker exposes two on-demand admin methods that walk the Ray actor pods' `apps_workdir` (where v0.11.4+ replica caches actually live — the worker pod itself is FS-thin):
+
+```python
+dirs = await worker.list_app_directories()
+# → [{name, application_id, path, is_running, size_bytes, last_used_unix, node_id}, ...]
+# `last_used_unix` is the latest mtime in the cache tree (proxy for "last used");
+# `node_id` identifies which Ray node holds each entry (per-node FS topologies show
+# the same application once per node that cached it).
+
+# Refuses if the app is still RUNNING; stop_app first.
+await worker.clear_app_directory(application_id="model-runner")
+# → {mode: "shared"|"per_node", deleted_on: [node_ids], not_found_on: [node_ids]}
+```
+
+The first call probes whether `apps_workdir` is shared across Ray nodes (writes a marker, reads from every node, deletes); the result is cached for the worker's lifetime. **The worker never triggers these calls automatically — they are dashboard-only.**
 
 > **`--hypha-token` is required for any app that calls back into Hypha** — model-runner, cellpose-finetuning, anything that registers services or reads datasets via Hypha RPC. Without it the deployment fails inside the actor with `RuntimeError: HYPHA_TOKEN environment variable is not set.` (you'll find this in `deployments[<name>].message`, not the top-level error). If you don't know whether an app needs it: pass it anyway, it's harmless.
 >
