@@ -1,9 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
 import DeploymentConfigModal from './DeploymentConfigModal';
+import AppDiskCache from './AppDiskCache';
+
+// Returns true when `actual` is >= `required` under loose semver-by-parts
+// comparison. Handles pre-release suffixes by stripping anything past the
+// first non-numeric character in each component. Falls back to false for
+// missing or unparseable inputs so unknown / pre-0.11.6 workers stay gated.
+const meetsVersion = (actual: string | undefined, required: string): boolean => {
+  if (!actual) return false;
+  const parse = (v: string): number[] =>
+    v
+      .split('.')
+      .map(part => parseInt(part.replace(/[^0-9].*$/, ''), 10))
+      .map(n => (Number.isFinite(n) ? n : 0));
+  const a = parse(actual);
+  const r = parse(required);
+  const len = Math.max(a.length, r.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = a[i] ?? 0;
+    const rv = r[i] ?? 0;
+    if (av > rv) return true;
+    if (av < rv) return false;
+  }
+  return true;
+};
 
 
 // Add custom animations
@@ -875,6 +899,40 @@ const BioEngineWorker: React.FC = () => {
     return null;
   };
 
+  // A short, deterministic signature of the currently deployed app set.
+  // AppDiskCache refetches whenever this string changes (deploy / undeploy /
+  // status flip), which is the only event that affects the "Status" column —
+  // we deliberately don't run another auto-poll loop in the cache component.
+  const cacheRefreshKey = useMemo(() => {
+    const apps = status?.bioengine_apps;
+    if (!apps) return '';
+    return Object.entries(apps)
+      .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
+      .map(([key, value]: any) => `${key}:${value?.status ?? ''}`)
+      .sort()
+      .join('|');
+  }, [status]);
+
+  // Build the same {node_id -> "Head Node (...)"|"Worker Node N (...)"} map
+  // DeployedBioEngineApps builds for the placement badges. Used by
+  // AppDiskCache's Node column on per-node FS topologies — keeping the
+  // numbering consistent across the dashboard.
+  const cacheNodeLabels = useMemo(() => {
+    const out: Record<string, string> = {};
+    const rayNodes = status?.ray_cluster?.nodes;
+    if (!rayNodes || typeof rayNodes !== 'object') return out;
+    const entries = Object.entries(rayNodes as Record<string, any>).sort(([, a], [, b]) => {
+      if ((a?.head ?? false) === (b?.head ?? false)) return 0;
+      return a?.head ? -1 : 1;
+    });
+    let workerNumber = 0;
+    for (const [nodeId, node] of entries) {
+      const role = node?.head ? 'Head Node' : `Worker Node ${++workerNumber}`;
+      out[nodeId] = `${role} (${nodeId.slice(0, 8)})`;
+    }
+    return out;
+  }, [status]);
+
   // Worker admin membership: only admins can deploy/undeploy apps, read logs,
   // or stop the worker. Non-admins can still call get_status, list datasets,
   // list deployed apps, and any deployed app service that includes them in
@@ -1283,6 +1341,19 @@ ${token}`;
           server={server}
           fetchApplicationStatus={fetchApplicationStatus}
         />
+
+        {/* App Disk Cache — admin-only API, gated on bioengine 0.11.6+ which
+            ships the enriched list_app_directories / clear_app_directory
+            surface used here. Older workers silently omit this section. */}
+        {isWorkerAdmin && meetsVersion(status?.bioengine_version, '0.11.6') && (
+          <AppDiskCache
+            serviceId={serviceId}
+            server={server}
+            isLoggedIn={isLoggedIn}
+            refreshKey={cacheRefreshKey}
+            nodeLabels={cacheNodeLabels}
+          />
+        )}
 
         {pendingDeployment && (
           <DeploymentConfigModal
