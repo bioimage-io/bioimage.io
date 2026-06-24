@@ -33,6 +33,12 @@ interface BioEngineAppsProps {
     logs_tail?: number;
     n_previous_replica?: number;
   }) => Promise<any>;
+  updateAppScaling?: (params: {
+    application_id: string;
+    artifact_id: string;
+    scaling: Record<string, any>;
+  }) => Promise<void>;
+  bioengineVersion?: string;
 }
 
 const BioEngineApps: React.FC<BioEngineAppsProps> = ({
@@ -58,7 +64,9 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   setUndeploymentError,
   formatTimeInfo,
   server,
-  fetchApplicationStatus
+  fetchApplicationStatus,
+  updateAppScaling,
+  bioengineVersion,
 }) => {
   const { server: hyphaServer, isLoggedIn } = useHyphaStore();
   const activeServer = server || hyphaServer;
@@ -75,6 +83,8 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
           undeploymentError={undeploymentError}
           setUndeploymentError={setUndeploymentError}
           fetchApplicationStatus={fetchApplicationStatus}
+          updateAppScaling={updateAppScaling}
+          bioengineVersion={bioengineVersion}
         />
       )}
 

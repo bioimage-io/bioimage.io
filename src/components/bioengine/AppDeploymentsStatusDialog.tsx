@@ -14,7 +14,111 @@ interface AppDeploymentsStatusDialogProps {
   // {"__role__:<node_id>" -> "Head Node" | "Worker Node N"}.
   // Numbering matches the cluster-resources view's worker numbering.
   nodeLabels?: Record<string, string>;
+  // When present + bioengine_version >= 0.11.6 the dialog renders an inline
+  // scaling editor that calls deploy_app({application_id, artifact_id,
+  // scaling}) to roll new replica counts. Omitted when the parent doesn't
+  // know how to perform the update (read-only contexts).
+  updateAppScaling?: (params: {
+    application_id: string;
+    artifact_id: string;
+    scaling: Record<string, any>;
+  }) => Promise<void>;
+  bioengineVersion?: string;
 }
+
+// Per-deployment form state. Two mutually-exclusive modes mirror the
+// worker's scaling validator (manager.py:2086-2097): either a fixed
+// num_replicas, or an autoscaling_config bag with min/max + the (optional)
+// Ray Serve tuning knobs we expose. Storing both inactive sides lets the
+// user toggle the switch without losing partially-entered values.
+type DeploymentScalingState = {
+  mode: 'fixed' | 'autoscale';
+  num_replicas: number;
+  min_replicas: number;
+  max_replicas: number;
+  target: number;
+  upscale_delay_s: number | null;
+  downscale_delay_s: number | null;
+};
+
+const DEFAULT_AUTOSCALE: Pick<
+  DeploymentScalingState,
+  'min_replicas' | 'max_replicas' | 'target' | 'upscale_delay_s' | 'downscale_delay_s'
+> = {
+  min_replicas: 1,
+  max_replicas: 2,
+  target: 2,
+  upscale_delay_s: null,
+  downscale_delay_s: null,
+};
+
+// Translate a scaling-map entry into the form's state shape. Missing
+// entries default to a fixed 1 replica (matches Ray Serve's default and
+// the worker's "classes not in the map run at 1 fixed replica" contract).
+const entryToState = (entry?: any): DeploymentScalingState => {
+  if (entry && typeof entry === 'object') {
+    const ascRaw = entry.autoscaling_config;
+    if (ascRaw && typeof ascRaw === 'object') {
+      return {
+        mode: 'autoscale',
+        num_replicas: 1,
+        min_replicas: typeof ascRaw.min_replicas === 'number' ? ascRaw.min_replicas : DEFAULT_AUTOSCALE.min_replicas,
+        max_replicas: typeof ascRaw.max_replicas === 'number' ? ascRaw.max_replicas : DEFAULT_AUTOSCALE.max_replicas,
+        target: typeof ascRaw.target_num_ongoing_requests_per_replica === 'number'
+          ? ascRaw.target_num_ongoing_requests_per_replica
+          : DEFAULT_AUTOSCALE.target,
+        upscale_delay_s: typeof ascRaw.upscale_delay_s === 'number' ? ascRaw.upscale_delay_s : null,
+        downscale_delay_s: typeof ascRaw.downscale_delay_s === 'number' ? ascRaw.downscale_delay_s : null,
+      };
+    }
+    if (typeof entry.num_replicas === 'number') {
+      return {
+        mode: 'fixed',
+        num_replicas: entry.num_replicas,
+        ...DEFAULT_AUTOSCALE,
+      };
+    }
+  }
+  return { mode: 'fixed', num_replicas: 1, ...DEFAULT_AUTOSCALE };
+};
+
+// Translate a form state back into the wire shape the worker validates.
+const stateToEntry = (state: DeploymentScalingState): Record<string, any> => {
+  if (state.mode === 'fixed') {
+    return { num_replicas: state.num_replicas };
+  }
+  const asc: Record<string, any> = {
+    min_replicas: state.min_replicas,
+    max_replicas: state.max_replicas,
+    target_num_ongoing_requests_per_replica: state.target,
+  };
+  if (state.upscale_delay_s !== null && state.upscale_delay_s !== undefined) {
+    asc.upscale_delay_s = state.upscale_delay_s;
+  }
+  if (state.downscale_delay_s !== null && state.downscale_delay_s !== undefined) {
+    asc.downscale_delay_s = state.downscale_delay_s;
+  }
+  return { autoscaling_config: asc };
+};
+
+const meetsVersion = (actual: string | undefined, required: string): boolean => {
+  if (!actual) return false;
+  const parse = (v: string): number[] =>
+    v
+      .split('.')
+      .map(part => parseInt(part.replace(/[^0-9].*$/, ''), 10))
+      .map(n => (Number.isFinite(n) ? n : 0));
+  const a = parse(actual);
+  const r = parse(required);
+  const len = Math.max(a.length, r.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = a[i] ?? 0;
+    const rv = r[i] ?? 0;
+    if (av > rv) return true;
+    if (av < rv) return false;
+  }
+  return true;
+};
 
 const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   isOpen,
@@ -23,6 +127,8 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   initialStatus,
   fetchApplicationStatus,
   nodeLabels,
+  updateAppScaling,
+  bioengineVersion,
 }) => {
   // Format a replica's node placement using the cluster-view-consistent
   // role label, plus the replica's own node_instance_id when available
@@ -69,6 +175,17 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Scaling form state: keyed by user @bioengine.app class name (i.e. the
+  // keys of get_app_status().deployments minus ProxyDeployment). Persists
+  // across status refreshes; resets when the dialog opens or the live
+  // scaling map changes due to a successful Save.
+  const [scalingForm, setScalingForm] = useState<Record<string, DeploymentScalingState>>({});
+  const [scalingInitial, setScalingInitial] = useState<string>('{}');
+  const [savingScaling, setSavingScaling] = useState<boolean>(false);
+  const [scalingSubmitError, setScalingSubmitError] = useState<string | null>(null);
+  const [scalingSubmitOk, setScalingSubmitOk] = useState<boolean>(false);
+  const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     setStatus(initialStatus || null);
   }, [initialStatus]);
@@ -113,6 +230,133 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
       data,
     }));
   }, [status]);
+
+  // User-facing deployments (excludes ProxyDeployment, which always runs at
+  // one fixed replica per app and is intentionally not addressable by the
+  // scaling map — see bioengine/apps/manager.py:749-754 + 2068).
+  const userDeployments = useMemo(
+    () => deployments.filter(d => d.name !== 'ProxyDeployment'),
+    [deployments],
+  );
+
+  // Pending-replica detector. Either deployment status DEPLOYING (Ray
+  // Serve is still reconciling) or a replica stuck in PENDING_ALLOCATION
+  // (resource queue) means the user just submitted a change that exceeds
+  // free cluster capacity. Surfaced as a banner so the user understands
+  // why the live counts haven't moved yet.
+  const hasPendingReplicas = useMemo(() => {
+    for (const { data } of deployments) {
+      const dStatus = String(data?.status ?? '').toUpperCase();
+      if (dStatus === 'DEPLOYING' || dStatus === 'UPDATING') return true;
+      const replicas = Array.isArray(data?.replicas) ? data.replicas : [];
+      for (const r of replicas) {
+        const rs = String(r?.state ?? '').toUpperCase();
+        if (rs === 'PENDING_ALLOCATION') return true;
+      }
+    }
+    return false;
+  }, [deployments]);
+
+  // Live scaling map from the worker. Always treated as authoritative —
+  // form deltas overlay this on Save so deployments the user didn't touch
+  // keep their existing values (Replacement semantics: passing
+  // scaling={...} replaces the previous map, so omitting an entry would
+  // accidentally reset that deployment to default).
+  const liveScaling = useMemo<Record<string, any>>(() => {
+    const raw = status?.scaling;
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      out[k] = v;
+    }
+    return out;
+  }, [status]);
+
+  // Re-seed the form whenever the dialog opens or the live scaling map
+  // changes after a successful Save. We snapshot the JSON shape so the
+  // dirty check is a plain string equality.
+  useEffect(() => {
+    if (!isOpen) return;
+    const seeded: Record<string, DeploymentScalingState> = {};
+    for (const dep of userDeployments) {
+      seeded[dep.name] = entryToState(liveScaling[dep.name]);
+    }
+    setScalingForm(seeded);
+    setScalingInitial(JSON.stringify(seeded));
+    setScalingSubmitError(null);
+    setScalingSubmitOk(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, JSON.stringify(liveScaling), JSON.stringify(userDeployments.map(d => d.name))]);
+
+  const isScalingDirty = JSON.stringify(scalingForm) !== scalingInitial;
+  const scalingEnabled =
+    !!updateAppScaling && meetsVersion(bioengineVersion, '0.11.6') && userDeployments.length > 0;
+
+  // Per-deployment validity check — the form's numeric inputs are unbounded,
+  // so guard against the user typing nonsense before we enable Save.
+  const scalingValidation = useMemo(() => {
+    const errors: Record<string, string> = {};
+    for (const [name, s] of Object.entries(scalingForm)) {
+      if (s.mode === 'fixed') {
+        if (!Number.isFinite(s.num_replicas) || s.num_replicas < 0) {
+          errors[name] = 'Replicas must be 0 or more.';
+        }
+      } else {
+        if (!Number.isFinite(s.min_replicas) || s.min_replicas < 0) {
+          errors[name] = 'Min replicas must be 0 or more.';
+        } else if (!Number.isFinite(s.max_replicas) || s.max_replicas < 1) {
+          errors[name] = 'Max replicas must be at least 1.';
+        } else if (s.max_replicas < s.min_replicas) {
+          errors[name] = 'Max replicas must be greater than or equal to min replicas.';
+        } else if (!Number.isFinite(s.target) || s.target < 1) {
+          errors[name] = 'Target ongoing requests must be at least 1.';
+        }
+      }
+    }
+    return errors;
+  }, [scalingForm]);
+
+  const scalingHasErrors = Object.keys(scalingValidation).length > 0;
+
+  const handleSaveScaling = async () => {
+    if (!updateAppScaling) return;
+    const artifactId = status?.artifact_id;
+    if (!artifactId) {
+      setScalingSubmitError('Cannot determine artifact_id for this app.');
+      return;
+    }
+
+    // Replacement semantics: start from the full live map (covers any
+    // deployments the dialog isn't editing — e.g. a future class added
+    // by the artifact but not yet in our form), overlay form deltas.
+    const fullScaling: Record<string, any> = { ...liveScaling };
+    for (const [name, s] of Object.entries(scalingForm)) {
+      fullScaling[name] = stateToEntry(s);
+    }
+
+    setScalingSubmitError(null);
+    setScalingSubmitOk(false);
+    setSavingScaling(true);
+    try {
+      await updateAppScaling({
+        application_id: applicationId,
+        artifact_id: artifactId,
+        scaling: fullScaling,
+      });
+      setScalingSubmitOk(true);
+      await loadStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setScalingSubmitError(`Save failed: ${msg}`);
+    } finally {
+      setSavingScaling(false);
+    }
+  };
+
+  const updateForm = (name: string, patch: Partial<DeploymentScalingState>) => {
+    setScalingForm(prev => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+    setScalingSubmitOk(false);
+  };
 
   if (!isOpen) return null;
 
@@ -173,6 +417,24 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
             </div>
           )}
 
+          {/* Pending-replica banner — Ray Serve queues replicas the cluster
+              can't yet schedule (no free CPU/GPU). Without this, a Save
+              that bumped max_replicas can look frozen because the new
+              replicas sit in PENDING_ALLOCATION until resources free up. */}
+          {hasPendingReplicas && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <svg className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+              </svg>
+              <div className="text-sm text-amber-800">
+                <p className="font-medium">Replica deployment pending</p>
+                <p className="text-amber-700 mt-0.5">
+                  Ray Serve queues replicas that exceed cluster capacity. Pending replicas will start as resources free up.
+                </p>
+              </div>
+            </div>
+          )}
+
           {(!hasLoaded || loading) ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-600">
               <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-4" />
@@ -196,6 +458,32 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
               Refreshing deployment status...
             </div>
           ) : null}
+
+          {scalingEnabled && hasLoaded && (
+            <ScalingSection
+              userDeployments={userDeployments}
+              scalingForm={scalingForm}
+              advancedOpen={advancedOpen}
+              setAdvancedOpen={setAdvancedOpen}
+              updateForm={updateForm}
+              validation={scalingValidation}
+              isDirty={isScalingDirty}
+              hasErrors={scalingHasErrors}
+              saving={savingScaling}
+              submitError={scalingSubmitError}
+              submitOk={scalingSubmitOk}
+              onSave={handleSaveScaling}
+              onReset={() => {
+                try {
+                  setScalingForm(JSON.parse(scalingInitial));
+                  setScalingSubmitError(null);
+                  setScalingSubmitOk(false);
+                } catch {
+                  /* shouldn't happen — scalingInitial is set from a stringify */
+                }
+              }}
+            />
+          )}
 
           {hasLoaded && !loading && deployments.length === 0 ? (
             <p className="text-sm text-gray-500">No deployment entries found for this application.</p>
@@ -307,5 +595,278 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     </div>
   );
 };
+
+// --- Scaling editor ---------------------------------------------------------
+
+interface ScalingSectionProps {
+  userDeployments: Array<{ name: string; data: any }>;
+  scalingForm: Record<string, DeploymentScalingState>;
+  advancedOpen: Record<string, boolean>;
+  setAdvancedOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  updateForm: (name: string, patch: Partial<DeploymentScalingState>) => void;
+  validation: Record<string, string>;
+  isDirty: boolean;
+  hasErrors: boolean;
+  saving: boolean;
+  submitError: string | null;
+  submitOk: boolean;
+  onSave: () => void;
+  onReset: () => void;
+}
+
+const numericInputClass =
+  'w-24 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
+
+const ScalingSection: React.FC<ScalingSectionProps> = ({
+  userDeployments,
+  scalingForm,
+  advancedOpen,
+  setAdvancedOpen,
+  updateForm,
+  validation,
+  isDirty,
+  hasErrors,
+  saving,
+  submitError,
+  submitOk,
+  onSave,
+  onReset,
+}) => {
+  return (
+    <div className="border border-gray-200 rounded-xl bg-white">
+      <style>{`
+        .scale-press { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+        .scale-press:active:not(:disabled) { transform: scale(0.97); }
+      `}</style>
+
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+        <h4 className="text-base font-semibold text-gray-800">Replica scaling</h4>
+        <span className="text-xs text-gray-500 ml-2">
+          ProxyDeployment runs at one fixed replica and is not editable.
+        </span>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {userDeployments.map(({ name }) => {
+          const state = scalingForm[name];
+          if (!state) return null;
+          const isAuto = state.mode === 'autoscale';
+          const adv = !!advancedOpen[name];
+          const err = validation[name];
+          return (
+            <div key={name} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="font-semibold text-gray-800">{name}</div>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <span>Enable autoscaling</span>
+                  <ScaleToggle
+                    checked={isAuto}
+                    onChange={(next) =>
+                      updateForm(name, next ? { mode: 'autoscale' } : { mode: 'fixed' })
+                    }
+                  />
+                </label>
+              </div>
+
+              {!isAuto ? (
+                <div>
+                  <label className="flex items-center gap-3 text-sm text-gray-700">
+                    <span className="w-32">Replicas</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={Number.isFinite(state.num_replicas) ? state.num_replicas : 0}
+                      onChange={(e) =>
+                        updateForm(name, { num_replicas: parseInt(e.target.value || '0', 10) })
+                      }
+                      className={numericInputClass}
+                    />
+                  </label>
+                  {state.num_replicas === 0 && (
+                    <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                      Setting 0 frees all replicas and pauses the app.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <label className="flex flex-col gap-1 text-sm text-gray-700">
+                      <span>Min replicas</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={Number.isFinite(state.min_replicas) ? state.min_replicas : 0}
+                        onChange={(e) =>
+                          updateForm(name, { min_replicas: parseInt(e.target.value || '0', 10) })
+                        }
+                        className={numericInputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm text-gray-700">
+                      <span>Max replicas</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Number.isFinite(state.max_replicas) ? state.max_replicas : 1}
+                        onChange={(e) =>
+                          updateForm(name, { max_replicas: parseInt(e.target.value || '1', 10) })
+                        }
+                        className={numericInputClass}
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAdvancedOpen(prev => ({ ...prev, [name]: !prev[name] }))
+                    }
+                    className="inline-flex items-center text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 mr-1 transition-transform ${adv ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      style={{ transitionDuration: '180ms', transitionTimingFunction: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    {adv ? 'Hide advanced' : 'Show advanced'}
+                  </button>
+
+                  {adv && (
+                    <div className="flex flex-wrap gap-4 items-end pt-1 pl-1 border-l-2 border-gray-200 ml-1">
+                      <label className="flex flex-col gap-1 text-sm text-gray-700">
+                        <span>Target ongoing requests / replica</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={Number.isFinite(state.target) ? state.target : 1}
+                          onChange={(e) =>
+                            updateForm(name, { target: parseInt(e.target.value || '1', 10) })
+                          }
+                          className={numericInputClass}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm text-gray-700">
+                        <span>Upscale delay (s)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="auto"
+                          value={state.upscale_delay_s ?? ''}
+                          onChange={(e) =>
+                            updateForm(name, {
+                              upscale_delay_s: e.target.value === '' ? null : parseFloat(e.target.value),
+                            })
+                          }
+                          className={numericInputClass}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm text-gray-700">
+                        <span>Downscale delay (s)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="auto"
+                          value={state.downscale_delay_s ?? ''}
+                          onChange={(e) =>
+                            updateForm(name, {
+                              downscale_delay_s: e.target.value === '' ? null : parseFloat(e.target.value),
+                            })
+                          }
+                          className={numericInputClass}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {err && (
+                <p className="mt-2 text-xs text-red-600">{err}</p>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="text-xs text-gray-500 min-h-[1.25rem]">
+            {submitError ? (
+              <span className="text-red-600">{submitError}</span>
+            ) : submitOk ? (
+              <span className="text-green-700">Scaling updated. Ray Serve is rolling the change.</span>
+            ) : isDirty ? (
+              <span>Unsaved changes</span>
+            ) : (
+              <span className="text-gray-400">No changes yet</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={!isDirty || saving}
+              className="scale-press px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={!isDirty || saving || hasErrors}
+              className="scale-press px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed inline-flex items-center"
+            >
+              {saving ? (
+                <>
+                  <svg className="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Saving...
+                </>
+              ) : (
+                'Save settings'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Small controlled switch matching the dashboard's blue accent. Uses
+// transform-only animation for the thumb so it stays smooth even when the
+// dialog body is re-rendering.
+const ScaleToggle: React.FC<{ checked: boolean; onChange: (next: boolean) => void }> = ({
+  checked,
+  onChange,
+}) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    onClick={() => onChange(!checked)}
+    className={`scale-press inline-flex items-center w-10 h-6 rounded-full p-0.5 ${
+      checked ? 'bg-blue-600' : 'bg-gray-300'
+    }`}
+    style={{ transition: 'background-color 180ms cubic-bezier(0.23, 1, 0.32, 1), transform 160ms cubic-bezier(0.23, 1, 0.32, 1)' }}
+  >
+    <span
+      aria-hidden
+      className="w-5 h-5 bg-white rounded-full shadow"
+      style={{
+        transform: checked ? 'translateX(16px)' : 'translateX(0px)',
+        transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)',
+      }}
+    />
+  </button>
+);
 
 export default AppDeploymentsStatusDialog;

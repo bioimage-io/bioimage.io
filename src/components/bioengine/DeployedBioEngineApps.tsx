@@ -14,6 +14,12 @@ interface DeployedBioEngineAppsProps {
     logs_tail?: number;
     n_previous_replica?: number;
   }) => Promise<any>;
+  updateAppScaling?: (params: {
+    application_id: string;
+    artifact_id: string;
+    scaling: Record<string, any>;
+  }) => Promise<void>;
+  bioengineVersion?: string;
 }
 
 const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
@@ -23,7 +29,9 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
   formatTimeInfo,
   undeploymentError,
   setUndeploymentError,
-  fetchApplicationStatus
+  fetchApplicationStatus,
+  updateAppScaling,
+  bioengineVersion,
 }) => {
   const [copySuccess, setCopySuccess] = React.useState(false);
   const [selectedAppId, setSelectedAppId] = React.useState<string | null>(null);
@@ -187,6 +195,8 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           initialStatus={status?.bioengine_apps?.[selectedAppId]}
           fetchApplicationStatus={fetchApplicationStatus}
           nodeLabels={nodeLabels}
+          updateAppScaling={updateAppScaling}
+          bioengineVersion={bioengineVersion}
         />
       )}
 

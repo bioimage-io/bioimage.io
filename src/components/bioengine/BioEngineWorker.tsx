@@ -856,6 +856,30 @@ const BioEngineWorker: React.FC = () => {
     fetchStatus(false);
   };
 
+  // Submit a scaling-only update for a running app. Calls deploy_app with
+  // just the {application_id, artifact_id, scaling} triple — every other
+  // deploy parameter (token, env vars, kwargs, GPU mode...) is preserved by
+  // the worker's is_update branch when the application_id already exists
+  // (bioengine/apps/manager.py:1910-1941). Ray Serve handles the new
+  // replica counts as a rolling reconfigure.
+  const updateAppScaling = async (params: {
+    application_id: string;
+    artifact_id: string;
+    scaling: Record<string, any>;
+  }) => {
+    if (!serviceId || !isLoggedIn) {
+      throw new Error('Service unavailable or user not logged in');
+    }
+    const bioengineWorker = await server.getService(serviceId);
+    await bioengineWorker.deploy_app({
+      application_id: params.application_id,
+      artifact_id: params.artifact_id,
+      scaling: params.scaling,
+      _rkwargs: true,
+    });
+    await fetchStatus(false);
+  };
+
   const fetchApplicationStatus = async (params: {
     application_ids?: string[];
     logs_tail?: number;
@@ -1340,6 +1364,8 @@ ${token}`;
           formatTimeInfo={formatTimeInfo}
           server={server}
           fetchApplicationStatus={fetchApplicationStatus}
+          updateAppScaling={updateAppScaling}
+          bioengineVersion={status?.bioengine_version}
         />
 
         {/* App Disk Cache — admin-only API, gated on bioengine 0.11.6+ which
