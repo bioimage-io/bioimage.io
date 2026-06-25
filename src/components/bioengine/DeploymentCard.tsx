@@ -1,4 +1,5 @@
 import React from 'react';
+import { HYPHA_SERVER_URL } from '../../config/hypha';
 
 interface DeploymentCardProps {
   deployment: {
@@ -74,7 +75,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     if (parts.length >= 2) {
       const workspace = parts[0];
       const serviceIdentifier = parts.slice(1).join('/');
-      return `https://hypha.aicell.io/${workspace}/mcp/${serviceIdentifier}`;
+      return `${HYPHA_SERVER_URL}/${workspace}/mcp/${serviceIdentifier}`;
     }
     return null;
   };
@@ -88,7 +89,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     if (parts.length >= 2) {
       const workspace = parts[0];
       const serviceIdentifier = parts.slice(1).join('/');
-      return `https://hypha.aicell.io/${workspace}/services/${serviceIdentifier}`;
+      return `${HYPHA_SERVER_URL}/${workspace}/services/${serviceIdentifier}`;
     }
     return null;
   };
@@ -358,7 +359,7 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                   return wsServiceId ? (
                     <a
                       key={method}
-                      href={`https://hypha.aicell.io/${wsServiceId.split('/')[0]}/services/${wsServiceId.split('/')[1]}/${method}`}
+                      href={`${HYPHA_SERVER_URL}/${wsServiceId.split('/')[0]}/services/${wsServiceId.split('/')[1]}/${method}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"

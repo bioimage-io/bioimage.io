@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 // import { hRPC } from 'hypha';
-import { ArtifactInfo } from '../types/artifact';;
+import { ArtifactInfo } from '../types/artifact';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 let pendingConnectPromise: Promise<any> | null = null;
 let activeConnectKey: string | null = null;
@@ -67,6 +68,16 @@ export interface HyphaState {
   setReviewArtifactsPage: (page: number) => void;
   setReviewArtifactsTotalItems: (total: number) => void;
   logout: () => Promise<void>;
+
+  // Hypha-reachability signal. Any service that observes a fetch failure
+  // calls `markHyphaUnreachable`; the global <HyphaStatusBanner /> polls
+  // for recovery and calls `markHyphaReachable` when the server is back.
+  // Per-section components defer their own error UI to the banner.
+  isHyphaUnreachable: boolean;
+  hyphaUnreachableSince: number | null;
+  hyphaUnreachableMessage: string | null;
+  markHyphaUnreachable: (errorMessage?: string | null) => void;
+  markHyphaReachable: () => void;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -89,6 +100,25 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   selectedResource: null,
   isLoading: false,
   error: null,
+  isHyphaUnreachable: false,
+  hyphaUnreachableSince: null,
+  hyphaUnreachableMessage: null,
+  markHyphaUnreachable: (errorMessage?: string | null) => set(state =>
+    state.isHyphaUnreachable
+      ? (errorMessage && errorMessage !== state.hyphaUnreachableMessage
+          ? { hyphaUnreachableMessage: errorMessage }
+          : state)
+      : {
+          isHyphaUnreachable: true,
+          hyphaUnreachableSince: Date.now(),
+          hyphaUnreachableMessage: errorMessage ?? null,
+        }
+  ),
+  markHyphaReachable: () => set(state =>
+    state.isHyphaUnreachable
+      ? { isHyphaUnreachable: false, hyphaUnreachableSince: null, hyphaUnreachableMessage: null }
+      : state
+  ),
   myArtifactsPage: 1,
   myArtifactsTotalItems: 0,
   reviewArtifactsPage: 1,
@@ -159,6 +189,10 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           isInitialized: true,
           isConnecting: false
         });
+        // A successful websocket connect is the strongest signal that
+        // Hypha is back; clear any stale unreachable flag the partner
+        // fetch (or another caller) may have set.
+        get().markHyphaReachable();
 
         return server;
       } catch (error) {
@@ -176,6 +210,12 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           isConnecting: false,
           error: (error instanceof Error) ? error.message : 'Connection failed'
         });
+        // Websocket connect failures look the same to the user as a REST
+        // outage; flip the global flag so the banner appears on pages that
+        // don't otherwise call a hard-coded Hypha endpoint.
+        get().markHyphaUnreachable(
+          error instanceof Error ? error.message : 'Failed to connect to Hypha'
+        );
         throw error;
       } finally {
         pendingConnectPromise = null;
@@ -191,7 +231,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const offset = (page - 1) * get().itemsPerPage;
       
       // Construct the base URL
-      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
+      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
       
       // Prepare filters object
       const filters: any = {};
@@ -251,7 +291,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         ? id.split('/')
         : ['bioimage-io', id];
 
-      const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
+      const url = `${HYPHA_SERVER_URL}/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -283,7 +323,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       // First step: Get the token through login
       const loginConfig: LoginConfig = {
-        server_url: 'https://hypha.aicell.io',
+        server_url: HYPHA_SERVER_URL,
       };
 
       const token = await client.login(loginConfig);
@@ -293,7 +333,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       // Use the new connect function with the token
       await get().connect({
-        server_url: 'https://hypha.aicell.io',
+        server_url: HYPHA_SERVER_URL,
         token: token,
         method_timeout: 300
       });

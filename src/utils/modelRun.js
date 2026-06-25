@@ -13,9 +13,10 @@ import {
   isImg2Img as checkImg2Img
 } from "./imgProcess";
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from "./bioengineService";
+import { HYPHA_SERVER_URL } from "../config/hypha";
 
 // Base URL for accessing artifact files
-const ARTIFACT_BASE_URL = "https://hypha.aicell.io/bioimage-io/artifacts";
+const ARTIFACT_BASE_URL = `${HYPHA_SERVER_URL}/bioimage-io/artifacts`;
 
 // Helper to construct artifact file URLs
 export const getArtifactFileUrl = (artifactId, filePath) => {
@@ -351,7 +352,7 @@ class BioEngineExecutor {
 }
 
 export class ModelRunnerEngine {
-  constructor(serverUrl = "https://hypha.aicell.io") {
+  constructor(serverUrl = HYPHA_SERVER_URL) {
     this.bioengineExecutor = new BioEngineExecutor(serverUrl);
     this.rdf = null;
     this.inputEndianness = null;

@@ -10,6 +10,7 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 
 import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
 import { useHyphaStore } from '../store/hyphaStore';
@@ -93,7 +94,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
     const id = artifact.id.split('/').pop();
-    window.open(`https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
+    window.open(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/create-zip-file`, '_blank');
   };
 
   const handleCopyId = (e: React.MouseEvent) => {

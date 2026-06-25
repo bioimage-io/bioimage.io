@@ -44,6 +44,7 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 let cachedInferenceResults: Record<string, any> | null = null;
 let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
@@ -421,7 +422,7 @@ const ArtifactDetails = () => {
   const handleDownload = () => {
     const artifactId = selectedResource?.id.split('/').pop();
     if (artifactId) {
-      let downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId}/create-zip-file`;
+      let downloadUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${artifactId}/create-zip-file`;
       if (version && version !== 'latest') {
         downloadUrl += `?version=${version}`;
       }
@@ -1106,7 +1107,7 @@ const ArtifactDetails = () => {
                 onRunStateChange={setShowModelRunner}
                 createContainerCallback={createModelRunnerContainer}
                 className="w-full"
-                modelUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
+                modelUrl={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/${selectedResource.id.split("/").pop()}/create-zip-file${version && version !== 'latest' ? `?version=${version}` : ''}`}
               />
             </Box>
           )}

@@ -24,6 +24,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 interface FileInfo {
   type: string;
@@ -42,7 +43,7 @@ interface ArtifactFilesProps {
 
 const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
   artifactId,
-  baseUrl = 'https://hypha.aicell.io',
+  baseUrl = HYPHA_SERVER_URL,
   workspace = 'bioimage-io',
   artifactInfo,
   version

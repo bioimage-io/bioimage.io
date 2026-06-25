@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation, Navigate, useParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
+import HyphaStatusBanner from './components/HyphaStatusBanner';
 
 import ArtifactGrid from './components/ArtifactGrid';
 import ArtifactDetails from './components/ArtifactDetails';
@@ -65,8 +66,9 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <HyphaStatusBanner />
       {!hideNavbar && <Navbar />}
-      <Snackbar 
+      <Snackbar
         isOpen={snackbarOpen}
         message={snackbarMessage}
         onClose={() => setSnackbarOpen(false)}

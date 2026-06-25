@@ -13,6 +13,7 @@ import { InformationCircleIcon } from '@heroicons/react/24/outline';
 import { Pagination } from './ArtifactGrid';
 import SearchBar from './SearchBar';
 import BookmarkedArtifacts from './BookmarkedArtifacts';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 interface Artifact {
   id: string;
@@ -413,7 +414,7 @@ const MyArtifacts: React.FC = () => {
                       ...(artifact.manifest?.tags || [])
                     ]}
                     image={artifact.manifest?.cover || undefined}
-                    downloadUrl={`https://hypha.aicell.io/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
+                    downloadUrl={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
                     onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}${artifact.staging ? '/stage' : ''}`)}
                     onDelete={() => {
                       setArtifactToDelete(artifact);

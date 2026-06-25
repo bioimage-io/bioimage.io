@@ -5,6 +5,7 @@ import { RiLoginBoxLine } from 'react-icons/ri';
 import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 interface User {
   email: string;
@@ -20,7 +21,7 @@ interface LoginConfig {
   login_callback: (context: { login_url: string }) => void;
 }
 
-const serverUrl = "https://hypha.aicell.io";
+const serverUrl = HYPHA_SERVER_URL;
 
 // Define key for sessionStorage
 const REDIRECT_PATH_KEY = 'redirectPath';
