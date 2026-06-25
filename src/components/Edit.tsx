@@ -13,6 +13,7 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 
 // Helper function to extract weight file paths from manifest
@@ -2275,7 +2276,7 @@ const Edit: React.FC = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
+                      const downloadUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${artifactId?.split('/').pop()}/files/${file.path}${editVersion && editVersion !== 'latest' ? `?version=${editVersion}` : ''}`;
                       window.open(downloadUrl, '_blank');
                     }}
                     title="Download file"
@@ -2894,7 +2895,7 @@ const Edit: React.FC = () => {
     
     const id = artifactInfo.id.split('/').pop() || '';
     const versionParam = isStaged ? '?version=stage' : '';
-    const downloadUrl = `https://hypha.aicell.io/bioimage-io/artifacts/${id}/create-zip-file${versionParam}`;
+    const downloadUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/create-zip-file${versionParam}`;
     
     window.open(downloadUrl, '_blank');
   };

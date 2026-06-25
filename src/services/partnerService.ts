@@ -1,4 +1,5 @@
 import { useHyphaStore } from '../store/hyphaStore';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 interface Partner {
   name: string;
@@ -57,7 +58,7 @@ class PartnerService {
 
   private async doFetch(): Promise<Partner[]> {
     try {
-      const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
+      const response = await fetch(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io`);
       if (!response.ok) {
         throw new Error(`Hypha returned HTTP ${response.status}`);
       }

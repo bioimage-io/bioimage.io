@@ -10,6 +10,7 @@ import {
 } from '../utils/modelRun';
 import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, processForShow } from '../utils/imgProcess';
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunners } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
 import ModelTester from './ModelTester';
@@ -136,7 +137,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
-  const [serverUrl, setServerUrl] = useState<string>("https://hypha.aicell.io");
+  const [serverUrl, setServerUrl] = useState<string>(HYPHA_SERVER_URL);
   // serviceIdOverride empty => let the runner-site toggle decide. Set this
   // (via the advanced settings text input) to point at a non-production
   // worker without disabling the toggle.
@@ -784,7 +785,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 type="url"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="https://hypha.aicell.io"
+                placeholder={HYPHA_SERVER_URL}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
               />
             </div>

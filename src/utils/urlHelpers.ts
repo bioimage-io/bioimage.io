@@ -1,3 +1,5 @@
+import { HYPHA_SERVER_URL } from '../config/hypha';
+
 /**
  * Resolves a relative URL to a full Hypha artifact URL
  * @param path - The relative path to resolve
@@ -6,7 +8,7 @@
  */
 export const resolveHyphaUrl = (path: string, resourceId: string, use_proxy: boolean = false): string => {
   if (!path) return '';
-  
+
   // If the path is already a full URL, return it as is
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
@@ -14,11 +16,11 @@ export const resolveHyphaUrl = (path: string, resourceId: string, use_proxy: boo
 
   // Extract the ID from the full artifact ID (removing any prefix like 'bioimage.io/')
   const id = resourceId.split('/').pop();
-  
+
   // Construct the full URL
   if (use_proxy) {
-    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
+    return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/files/${path}?use_proxy=true`;
   } else {
-    return `https://hypha.aicell.io/bioimage-io/artifacts/${id}/files/${path}`;
+    return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/files/${path}`;
   }
-}; 
+};

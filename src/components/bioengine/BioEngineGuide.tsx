@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
+import { HYPHA_SERVER_URL } from '../../config/hypha';
 
 type OSType = 'macos' | 'linux' | 'windows';
 
@@ -233,7 +234,7 @@ const BioEngineGuide: React.FC = () => {
     let cancelled = false;
     const resolveWorkspace = async () => {
       try {
-        const url = serverUrl || 'https://hypha.aicell.io';
+        const url = serverUrl || HYPHA_SERVER_URL;
         const tmpServer = await hyphaWebsocketClient.connectToServer({ server_url: url, token });
         if (!cancelled) {
           const ws = tmpServer?.config?.workspace as string | undefined;
@@ -557,7 +558,7 @@ DOCKERFILE`;
   };
 
   const getKubernetesWorkerYaml = () => {
-    const serverUrlVal = serverUrl || 'https://hypha.aicell.io';
+    const serverUrlVal = serverUrl || HYPHA_SERVER_URL;
     const workspaceVal = workspace || '<your-hypha-workspace>';
     const rayAddr = rayAddress || 'ray://raycluster-kuberay-head-svc.ray-cluster.svc.cluster.local';
     const ns = k8sNamespace || 'bioengine';
@@ -1064,9 +1065,9 @@ spec:
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
                       <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
-                        placeholder="https://hypha.aicell.io"
+                        placeholder={HYPHA_SERVER_URL}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use https://hypha.aicell.io.</p>
+                      <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use {HYPHA_SERVER_URL}.</p>
                     </div>
 
                     <div>
@@ -1655,9 +1656,9 @@ spec:
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
                     <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
-                      placeholder="https://hypha.aicell.io"
+                      placeholder={HYPHA_SERVER_URL}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use https://hypha.aicell.io.</p>
+                    <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use {HYPHA_SERVER_URL}.</p>
                   </div>
 
                   <div>

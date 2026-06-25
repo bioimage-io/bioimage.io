@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 // Wait 30s between recovery probes. KTH-K8s style outages we usually see
 // resolve in under a minute, so a fixed 30s tick is fast enough to feel
 // responsive without hammering the server during a real incident.
 const PROBE_INTERVAL_SEC = 30;
-const HEALTH_URL = 'https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io';
+const HEALTH_URL = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io`;
 
 /**
  * Single source of "Hypha is temporarily unreachable" UI. Sits sticky at the

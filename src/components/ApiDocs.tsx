@@ -4,6 +4,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useHyphaStore } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { useSearchParams } from 'react-router-dom';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 const ApiDocs: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -174,29 +175,29 @@ const ApiDocs: React.FC = () => {
           <div>
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">🔗 Useful Links</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <a 
-                href="https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children" 
-                target="_blank" 
+              <a
+                href={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children`}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
               >
                 <h4 className="font-medium text-gray-900 mb-1">📦 View All Models</h4>
                 <p className="text-sm text-gray-600">Browse the complete collection of models in the zoo</p>
                 <code className="text-xs text-blue-600 mt-2 block truncate">
-                  https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children
+                  {HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children
                 </code>
               </a>
-              
-              <a 
-                href="https://hypha.aicell.io/bioimage-io/artifacts/affable-shark" 
-                target="_blank" 
+
+              <a
+                href={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark`}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
               >
                 <h4 className="font-medium text-gray-900 mb-1">🔍 Example Model API</h4>
                 <p className="text-sm text-gray-600">See the API response for a specific model</p>
                 <code className="text-xs text-blue-600 mt-2 block truncate">
-                  https://hypha.aicell.io/bioimage-io/artifacts/affable-shark
+                  {HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark
                 </code>
               </a>
               
@@ -330,16 +331,16 @@ const ApiDocs: React.FC = () => {
                 >
                   {activeLanguageTab === 'curl' ? 
 `# List first 10 models
-curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10"
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?limit=10"
 
 # With search filter
-curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation&limit=5"` :
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation&limit=5"` :
                   activeLanguageTab === 'python' ?
 `import requests
 
 # List first 10 models
 response = requests.get(
-    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children",
     params={"limit": 10}
 )
 models = response.json()
@@ -348,7 +349,7 @@ models = response.json()
 for model in models:
     print(f"- {model['alias']}: {model['manifest'].get('name', 'N/A')}")` :
 `// List first 10 models
-fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=10')
+fetch('${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?limit=10')
   .then(res => res.json())
   .then(models => {
     models.forEach(model => {
@@ -378,17 +379,17 @@ fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?limit=
                 >
                   {activeLanguageTab === 'curl' ? 
 `# Get model metadata
-curl "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark"
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark"
 
 # Pretty print with jq (if installed)
-curl -s "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark" | jq .` :
+curl -s "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark" | jq .` :
                   activeLanguageTab === 'python' ?
 `import requests
 import json
 
 # Get model details
 response = requests.get(
-    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark"
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark"
 )
 model = response.json()
 
@@ -398,7 +399,7 @@ print(f"Description: {model['manifest']['description']}")
 print(f"Authors: {', '.join([a['name'] for a in model['manifest']['authors']])}")
 print(f"Tags: {', '.join(model['manifest'].get('tags', []))}")` :
 `// Get model details
-fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark')
+fetch('${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark')
   .then(res => res.json())
   .then(model => {
     console.log('Name:', model.manifest.name);
@@ -429,13 +430,13 @@ fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark')
                 >
                   {activeLanguageTab === 'curl' ? 
 `# List all files in a model
-curl "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/"` :
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/"` :
                   activeLanguageTab === 'python' ?
 `import requests
 
 # List model files
 response = requests.get(
-    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/"
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/"
 )
 files = response.json()
 
@@ -444,7 +445,7 @@ for file in files:
     size_mb = file['size'] / (1024 * 1024)
     print(f"{file['name']}: {size_mb:.2f} MB")` :
 `// List model files
-fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/')
+fetch('${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/')
   .then(res => res.json())
   .then(files => {
     files.forEach(file => {
@@ -475,13 +476,13 @@ fetch('https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/')
                 >
                   {activeLanguageTab === 'curl' ? 
 `# Download a specific file
-curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml"
+curl -O "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/rdf.yaml"
 
 # Download model weights
-curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/weights.pt"
+curl -O "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/weights.pt"
 
 # Download entire model as ZIP
-curl -O "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file"` :
+curl -O "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/create-zip-file"` :
                   activeLanguageTab === 'python' ?
 `import requests
 
@@ -495,13 +496,13 @@ def download_file(url, filename):
 
 # Download model specification
 download_file(
-    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml",
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/rdf.yaml",
     "rdf.yaml"
 )
 
 # Download entire model as ZIP
 download_file(
-    "https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file",
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/create-zip-file",
     "model.zip"
 )` :
 `// Download a file using fetch
@@ -518,13 +519,13 @@ async function downloadFile(url, filename) {
 
 // Download model specification
 downloadFile(
-  'https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/rdf.yaml',
+  '${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/files/rdf.yaml',
   'rdf.yaml'
 );
 
 // Download entire model as ZIP
 downloadFile(
-  'https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/create-zip-file',
+  '${HYPHA_SERVER_URL}/bioimage-io/artifacts/affable-shark/create-zip-file',
   'model.zip'
 );`}
                 </SyntaxHighlighter>
@@ -550,20 +551,20 @@ downloadFile(
                 >
                   {activeLanguageTab === 'curl' ? 
 `# Search by keywords
-curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation,unet&limit=5"
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?keywords=segmentation,unet&limit=5"
 
 # Search with filters (URL-encoded JSON)
-curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?filters=%7B%22type%22%3A%22model%22%7D&limit=10"
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?filters=%7B%22type%22%3A%22model%22%7D&limit=10"
 
 # Pagination
-curl "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?offset=10&limit=10"` :
+curl "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?offset=10&limit=10"` :
                   activeLanguageTab === 'python' ?
 `import requests
 import json
 
 # Search by keywords
 response = requests.get(
-    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children",
     params={
         "keywords": "segmentation,unet",
         "limit": 5
@@ -573,7 +574,7 @@ results = response.json()
 
 # Search with filters
 response = requests.get(
-    "https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children",
+    "${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children",
     params={
         "filters": json.dumps({"type": "model"}),
         "limit": 10
@@ -584,7 +585,7 @@ response = requests.get(
 for model in response.json():
     print(f"- {model['alias']}: {model['manifest'].get('name', 'N/A')}")` :
 `// Search by keywords
-fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?' + 
+fetch('${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?' + 
       new URLSearchParams({
         keywords: 'segmentation,unet',
         limit: 5
@@ -598,7 +599,7 @@ fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?' +
 
 // Search with filters
 const filters = JSON.stringify({ type: 'model' });
-fetch(\`https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?filters=\${encodeURIComponent(filters)}&limit=10\`)
+fetch(\`${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?filters=\${encodeURIComponent(filters)}&limit=10\`)
   .then(res => res.json())
   .then(console.log);`}
                 </SyntaxHighlighter>
@@ -636,7 +637,7 @@ import json
 
 # Configuration
 API_TOKEN = "your-api-token-here"  # Generate from the token section above
-BASE_URL = "https://hypha.aicell.io"
+BASE_URL = "${HYPHA_SERVER_URL}"
 
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",
@@ -1817,7 +1818,7 @@ from hypha_rpc import connect_to_server
 async def main():
     # Connect to the Hypha server
     server = await connect_to_server({
-        "server_url": "https://hypha.aicell.io",
+        "server_url": "${HYPHA_SERVER_URL}",
         "token": "your-api-token"  # Optional, for authenticated access
     })
     
@@ -1885,7 +1886,7 @@ if __name__ == "__main__":
 async function main() {
     // Connect to the Hypha server
     const server = await hyphaWebsocketClient.connectToServer({
-        server_url: "https://hypha.aicell.io",
+        server_url: "${HYPHA_SERVER_URL}",
         token: "your-api-token"  // Optional, for authenticated access
     });
     

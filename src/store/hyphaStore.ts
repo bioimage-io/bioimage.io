@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 // import { hRPC } from 'hypha';
-import { ArtifactInfo } from '../types/artifact';;
+import { ArtifactInfo } from '../types/artifact';
+import { HYPHA_SERVER_URL } from '../config/hypha';
 
 let pendingConnectPromise: Promise<any> | null = null;
 let activeConnectKey: string | null = null;
@@ -230,7 +231,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const offset = (page - 1) * get().itemsPerPage;
       
       // Construct the base URL
-      let url = `https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
+      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
       
       // Prepare filters object
       const filters: any = {};
@@ -290,7 +291,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         ? id.split('/')
         : ['bioimage-io', id];
 
-      const url = `https://hypha.aicell.io/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
+      const url = `${HYPHA_SERVER_URL}/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -322,7 +323,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       // First step: Get the token through login
       const loginConfig: LoginConfig = {
-        server_url: 'https://hypha.aicell.io',
+        server_url: HYPHA_SERVER_URL,
       };
 
       const token = await client.login(loginConfig);
@@ -332,7 +333,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
 
       // Use the new connect function with the token
       await get().connect({
-        server_url: 'https://hypha.aicell.io',
+        server_url: HYPHA_SERVER_URL,
         token: token,
         method_timeout: 300
       });

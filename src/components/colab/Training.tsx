@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
+import { HYPHA_SERVER_URL } from '../../config/hypha';
 
 // Declare Plotly as a global variable
 declare const Plotly: any;
@@ -1276,7 +1277,7 @@ const Training: React.FC<TrainingProps> = ({
 
                         <div className="grid grid-cols-2 gap-3">
                           <a
-                            href={exportResult?.download_url || `${server?.config?.publicBaseUrl || 'https://hypha.aicell.io'}/bioimage-io/artifacts/${exportedArtifactId.split('/').pop()}/create-zip-file`}
+                            href={exportResult?.download_url || `${server?.config?.publicBaseUrl || HYPHA_SERVER_URL}/bioimage-io/artifacts/${exportedArtifactId.split('/').pop()}/create-zip-file`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-200"
