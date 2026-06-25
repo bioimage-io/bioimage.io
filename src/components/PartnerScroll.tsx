@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import PartnerTooltip from './PartnerTooltip';
 import { partnerService, Partner } from '../services/partnerService';
+import { useHyphaStore } from '../store/hyphaStore';
 
 interface PartnerScrollProps {
   onPartnerClick?: (partnerId: string) => void;
@@ -24,6 +25,7 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   const [originalPartners, setOriginalPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isHyphaUnreachable = useHyphaStore(s => s.isHyphaUnreachable);
   const [tooltipState, setTooltipState] = useState<{
     show: boolean;
     partner: Partner | null;
@@ -43,21 +45,34 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   const autoReorderIntervalRef = useRef<NodeJS.Timeout>();
   const interactionTimeoutRef = useRef<NodeJS.Timeout>();
 
-  useEffect(() => {
-    const fetchPartners = async () => {
-      try {
-        const partnersList = await partnerService.fetchPartners();
-        setOriginalPartners(partnersList);
-        setPartners(partnersList);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load partners');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPartners();
+  // Single fetch attempt. On failure, `partnerService` flips the global
+  // `isHyphaUnreachable` flag in the store; the <HyphaStatusBanner /> at
+  // the layout root owns the recovery probe loop and the user-facing
+  // explanation, so this component does not duplicate either.
+  // When the banner's probe succeeds and flips the flag back to false, the
+  // effect below re-fires automatically and partners populate.
+  const attemptFetch = useCallback(async () => {
+    try {
+      partnerService.clearCache();
+      const partnersList = await partnerService.fetchPartners();
+      setOriginalPartners(partnersList);
+      setPartners(partnersList);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Partner data unreachable');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    // First mount: try once. When isHyphaUnreachable later flips back to
+    // false (the banner's probe succeeded), re-attempt to populate the
+    // partner list without the user having to refresh.
+    if (!isHyphaUnreachable || partners.length === 0) {
+      void attemptFetch();
+    }
+  }, [attemptFetch, isHyphaUnreachable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-reorder functionality
   useEffect(() => {
@@ -219,19 +234,10 @@ const PartnerScroll: React.FC<PartnerScrollProps> = ({ onPartnerClick }) => {
   }
 
   if (error) {
-    return (
-      <div className="max-w-[1400px] mx-auto px-6 mt-8 mb-8">
-        <div className="bg-red-50/80 backdrop-blur-sm rounded-2xl border border-red-200/50 p-6 text-center shadow-lg">
-          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold text-red-800 mb-2">Unable to Load Partners</h3>
-          <p className="text-red-600">{error}</p>
-        </div>
-      </div>
-    );
+    // Render nothing — the global <HyphaStatusBanner /> at the layout root
+    // carries the full explanation + retry, so this section stays out of
+    // the way until partners can load again.
+    return null;
   }
 
   return (

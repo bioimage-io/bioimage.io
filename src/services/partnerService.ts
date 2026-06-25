@@ -1,3 +1,5 @@
+import { useHyphaStore } from '../store/hyphaStore';
+
 interface Partner {
   name: string;
   icon: string;
@@ -54,19 +56,29 @@ class PartnerService {
   }
 
   private async doFetch(): Promise<Partner[]> {
-    const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
-    if (!response.ok) {
-      throw new Error('Failed to fetch partners');
+    try {
+      const response = await fetch('https://hypha.aicell.io/bioimage-io/artifacts/bioimage.io');
+      if (!response.ok) {
+        throw new Error(`Hypha returned HTTP ${response.status}`);
+      }
+      const data: ManifestResponse = await response.json();
+      // Any successful round-trip to Hypha is enough to clear a stale
+      // "unreachable" flag — the banner relies on this signal as well as
+      // its own probe loop.
+      useHyphaStore.getState().markHyphaReachable();
+      return data.manifest.config.partners.map(partner => ({
+        name: partner.name,
+        icon: partner.icon,
+        id: partner.id,
+        link: partner.docs,
+        tooltip: partner.splash_subtitle || partner.name
+      }));
+    } catch (err) {
+      useHyphaStore.getState().markHyphaUnreachable(
+        err instanceof Error ? err.message : 'Failed to fetch partners'
+      );
+      throw err;
     }
-    const data: ManifestResponse = await response.json();
-
-    return data.manifest.config.partners.map(partner => ({
-      name: partner.name,
-      icon: partner.icon,
-      id: partner.id,
-      link: partner.docs,
-      tooltip: partner.splash_subtitle || partner.name
-    }));
   }
 
   private buildPartnerMap() {
