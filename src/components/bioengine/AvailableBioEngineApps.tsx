@@ -42,8 +42,7 @@ interface AvailableBioEngineAppsProps {
   deployingArtifactId?: string | null;
   pendingDeploymentArtifactId?: string | null;
   artifactModes?: Record<string, string>;
-  deploymentError?: string | null;
-  setDeploymentError?: (error: string | null) => void;
+  // Deployment errors are surfaced via the worker-level ErrorDialog.
   // Deployment handlers
   onDeployArtifact?: (artifactId: string, mode?: string | null) => void;
   onUndeployArtifact?: (artifactId: string) => void;
@@ -65,8 +64,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   deployingArtifactId,
   pendingDeploymentArtifactId,
   artifactModes = {},
-  deploymentError,
-  setDeploymentError,
   onDeployArtifact,
   onUndeployArtifact,
   onModeChange,
@@ -404,23 +401,10 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         </div>
       </div>
 
-      {/* Deployment error */}
-      {deploymentError && setDeploymentError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex justify-between items-start">
-          <div className="flex gap-2">
-            <svg className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <h4 className="text-sm font-medium text-red-800">Deployment Error</h4>
-              <p className="text-sm text-red-700 mt-1">{deploymentError}</p>
-            </div>
-          </div>
-          <button onClick={() => setDeploymentError(null)} className="text-red-400 hover:text-red-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-      )}
+      {/* Deployment errors are now rendered by the worker-level
+          ErrorDialog (BioEngineWorker.tsx) so multi-line stack traces
+          stay readable. The internal "error" state below is for the
+          artifact-list fetch itself, which is a different code path. */}
 
       {/* Error */}
       {error && (

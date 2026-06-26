@@ -1,9 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
 import DeploymentConfigModal from './DeploymentConfigModal';
+import AppDiskCache from './AppDiskCache';
+import ErrorDialog from './ErrorDialog';
+
+// Returns true when `actual` is >= `required` under loose semver-by-parts
+// comparison. Handles pre-release suffixes by stripping anything past the
+// first non-numeric character in each component. Falls back to false for
+// missing or unparseable inputs so unknown / pre-0.11.6 workers stay gated.
+const meetsVersion = (actual: string | undefined, required: string): boolean => {
+  if (!actual) return false;
+  const parse = (v: string): number[] =>
+    v
+      .split('.')
+      .map(part => parseInt(part.replace(/[^0-9].*$/, ''), 10))
+      .map(n => (Number.isFinite(n) ? n : 0));
+  const a = parse(actual);
+  const r = parse(required);
+  const len = Math.max(a.length, r.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = a[i] ?? 0;
+    const rv = r[i] ?? 0;
+    if (av > rv) return true;
+    if (av < rv) return false;
+  }
+  return true;
+};
 
 
 // Add custom animations
@@ -173,8 +198,15 @@ const BioEngineWorker: React.FC = () => {
   // Deployment state
   const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
   const [undeployingArtifactId, setUndeployingArtifactId] = useState<string | null>(null);
-  const [deploymentError, setDeploymentError] = useState<string | null>(null);
-  const [undeploymentError, setUndeploymentError] = useState<string | null>(null);
+  // Bioengine worker / app errors get rendered in ErrorDialog (a scrollable
+  // modal) instead of an inline red panel — backend stack traces can run
+  // dozens of lines and were getting truncated / pushing other UI around.
+  // The downstream "setDeploymentError" / "setUndeploymentError" string
+  // props that BioEngineApps and its children still accept are stubs that
+  // wrap the message into the new dialog state for backwards compatibility.
+  type WorkerErrorState = { title: string; subtitle?: string; message: string } | null;
+  const [deploymentError, setDeploymentError] = useState<WorkerErrorState>(null);
+  const [undeploymentError, setUndeploymentError] = useState<WorkerErrorState>(null);
   const [artifactModes, setArtifactModes] = useState<Record<string, string>>({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
@@ -532,7 +564,11 @@ const BioEngineWorker: React.FC = () => {
         return;
       }
 
-      setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
+      setDeploymentError({
+        title: 'Deployment failed',
+        subtitle: artifactId,
+        message: errorMessage,
+      });
       setDeployingArtifactId(null);
     }
   };
@@ -650,7 +686,11 @@ const BioEngineWorker: React.FC = () => {
         return;
       }
 
-      setUndeploymentError(`Failed to stop application ${applicationId}: ${errorMessage}`);
+      setUndeploymentError({
+        title: 'Stop application failed',
+        subtitle: applicationId,
+        message: errorMessage,
+      });
       setUndeployingArtifactId(null);
     }
   };
@@ -832,6 +872,30 @@ const BioEngineWorker: React.FC = () => {
     fetchStatus(false);
   };
 
+  // Submit a scaling-only update for a running app. Calls deploy_app with
+  // just the {application_id, artifact_id, scaling} triple — every other
+  // deploy parameter (token, env vars, kwargs, GPU mode...) is preserved by
+  // the worker's is_update branch when the application_id already exists
+  // (bioengine/apps/manager.py:1910-1941). Ray Serve handles the new
+  // replica counts as a rolling reconfigure.
+  const updateAppScaling = async (params: {
+    application_id: string;
+    artifact_id: string;
+    scaling: Record<string, any>;
+  }) => {
+    if (!serviceId || !isLoggedIn) {
+      throw new Error('Service unavailable or user not logged in');
+    }
+    const bioengineWorker = await server.getService(serviceId);
+    await bioengineWorker.deploy_app({
+      application_id: params.application_id,
+      artifact_id: params.artifact_id,
+      scaling: params.scaling,
+      _rkwargs: true,
+    });
+    await fetchStatus(false);
+  };
+
   const fetchApplicationStatus = async (params: {
     application_ids?: string[];
     logs_tail?: number;
@@ -874,6 +938,40 @@ const BioEngineWorker: React.FC = () => {
 
     return null;
   };
+
+  // A short, deterministic signature of the currently deployed app set.
+  // AppDiskCache refetches whenever this string changes (deploy / undeploy /
+  // status flip), which is the only event that affects the "Status" column —
+  // we deliberately don't run another auto-poll loop in the cache component.
+  const cacheRefreshKey = useMemo(() => {
+    const apps = status?.bioengine_apps;
+    if (!apps) return '';
+    return Object.entries(apps)
+      .filter(([key, value]) => key !== 'service_id' && key !== 'note' && typeof value === 'object' && value !== null)
+      .map(([key, value]: any) => `${key}:${value?.status ?? ''}`)
+      .sort()
+      .join('|');
+  }, [status]);
+
+  // Build the same {node_id -> "Head Node (...)"|"Worker Node N (...)"} map
+  // DeployedBioEngineApps builds for the placement badges. Used by
+  // AppDiskCache's Node column on per-node FS topologies — keeping the
+  // numbering consistent across the dashboard.
+  const cacheNodeLabels = useMemo(() => {
+    const out: Record<string, string> = {};
+    const rayNodes = status?.ray_cluster?.nodes;
+    if (!rayNodes || typeof rayNodes !== 'object') return out;
+    const entries = Object.entries(rayNodes as Record<string, any>).sort(([, a], [, b]) => {
+      if ((a?.head ?? false) === (b?.head ?? false)) return 0;
+      return a?.head ? -1 : 1;
+    });
+    let workerNumber = 0;
+    for (const [nodeId, node] of entries) {
+      const role = node?.head ? 'Head Node' : `Worker Node ${++workerNumber}`;
+      out[nodeId] = `${role} (${nodeId.slice(0, 8)})`;
+    }
+    return out;
+  }, [status]);
 
   // Worker admin membership: only admins can deploy/undeploy apps, read logs,
   // or stop the worker. Non-admins can still call get_status, list datasets,
@@ -1274,15 +1372,29 @@ ${token}`;
           getDeploymentStatus={getDeploymentStatus}
           isDeployButtonDisabled={isDeployButtonDisabled}
           getDeployButtonText={getDeployButtonText}
-          // Pass error states and utility functions
-          deploymentError={deploymentError}
-          undeploymentError={undeploymentError}
-          setDeploymentError={setDeploymentError}
-          setUndeploymentError={setUndeploymentError}
+          // Deployment / undeployment errors are now surfaced at the
+          // worker level via ErrorDialog (see below); the inline red
+          // panels in Available / Deployed are gone, so the children
+          // don't need the error props any more.
           formatTimeInfo={formatTimeInfo}
           server={server}
           fetchApplicationStatus={fetchApplicationStatus}
+          updateAppScaling={updateAppScaling}
+          bioengineVersion={status?.bioengine_version}
         />
+
+        {/* App Disk Cache — admin-only API, gated on bioengine 0.11.6+ which
+            ships the enriched list_app_directories / clear_app_directory
+            surface used here. Older workers silently omit this section. */}
+        {isWorkerAdmin && meetsVersion(status?.bioengine_version, '0.11.6') && (
+          <AppDiskCache
+            serviceId={serviceId}
+            server={server}
+            isLoggedIn={isLoggedIn}
+            refreshKey={cacheRefreshKey}
+            nodeLabels={cacheNodeLabels}
+          />
+        )}
 
         {pendingDeployment && (
           <DeploymentConfigModal
@@ -1299,6 +1411,26 @@ ${token}`;
             manifest={pendingDeployment.manifest}
           />
         )}
+
+        {/* Worker-level error dialog. Renders for deployment failures and
+            for stop-application failures alike — both are bioengine worker
+            errors with the same scrollable-stack-trace shape. Only one
+            shows at a time (deployment > undeployment) since the two
+            workflows can't physically overlap. */}
+        <ErrorDialog
+          open={!!deploymentError}
+          title={deploymentError?.title ?? ''}
+          subtitle={deploymentError?.subtitle}
+          message={deploymentError?.message ?? ''}
+          onClose={() => setDeploymentError(null)}
+        />
+        <ErrorDialog
+          open={!!undeploymentError && !deploymentError}
+          title={undeploymentError?.title ?? ''}
+          subtitle={undeploymentError?.subtitle}
+          message={undeploymentError?.message ?? ''}
+          onClose={() => setUndeploymentError(null)}
+        />
       </div>
     </div>
   );
