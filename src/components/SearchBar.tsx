@@ -5,9 +5,15 @@ interface SearchBarProps {
   value: string;
   onSearchChange: (query: string) => void;
   onSearchConfirm: () => void;
+  placeholder?: string;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ value, onSearchChange, onSearchConfirm }) => {
+const SearchBar: React.FC<SearchBarProps> = ({
+  value,
+  onSearchChange,
+  onSearchConfirm,
+  placeholder = 'Search models, datasets, applications...',
+}) => {
   return (
     <div className="max-w-2xl mx-auto m-2 sm:m-4">
       <div className="relative group">
@@ -15,7 +21,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ value, onSearchChange, onSearchCo
         <input
           type="text"
           value={value}
-          placeholder="Search models, datasets, applications..."
+          placeholder={placeholder}
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && onSearchConfirm()}
           className="w-full h-12 px-3 sm:px-4 pl-10 sm:pl-12 pr-4 sm:pr-6 rounded-lg bg-white/80 backdrop-blur-sm border border-gray-200/70 hover:border-blue-200/60 focus:border-blue-300/70 focus:outline-none focus:ring-0 transition-all duration-300 text-gray-800 placeholder-gray-500 shadow-sm hover:shadow-md focus:shadow-md hover:bg-white/90 focus:bg-white/95 font-medium text-sm sm:text-base"

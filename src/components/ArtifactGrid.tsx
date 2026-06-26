@@ -28,6 +28,17 @@ const partnerLinkFromId = (partnerId: string): string => {
   return CENTRAL_HOSTED_PARTNERS.includes(id) ? `bioimageio/${id}` : `${id}/${id}`;
 };
 
+// Search-bar placeholder per resource type. The grid is rendered on
+// type-scoped routes (`/models`, `/datasets`, ...) so the hint should
+// reflect what is actually searchable on the current page rather than
+// promising every type.
+const SEARCH_PLACEHOLDER: Record<NonNullable<ResourceGridProps['type']>, string> = {
+  model: 'Search models...',
+  dataset: 'Search datasets...',
+  application: 'Search applications...',
+  notebook: 'Search notebooks...',
+};
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
@@ -368,6 +379,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
                   value={searchQuery}
                   onSearchChange={handleSearchChange}
                   onSearchConfirm={handleSearchConfirm}
+                  placeholder={type ? SEARCH_PLACEHOLDER[type] : undefined}
                 />
               </div>
               <div className="flex-none self-center sm:self-auto">
