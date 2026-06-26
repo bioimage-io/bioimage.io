@@ -11,6 +11,23 @@ interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
 }
 
+// Partners whose models live under the central `bioimageio/` workspace
+// instead of their own workspace. Resource links for these partners take
+// the form `bioimageio/<partner>` rather than `<partner>/<partner>`.
+//
+// TODO: drive this from the partner manifest itself rather than a
+// hard-coded list (tracked separately) so newly added central-hosted
+// partners don't need a code change here.
+const CENTRAL_HOSTED_PARTNERS = ['stardist', 'qupath'];
+
+// Build the link string a model declares to claim compatibility with the
+// given partner. Used both for the click handler and for restoring the
+// filter from a `?partner=...` URL param on first mount.
+const partnerLinkFromId = (partnerId: string): string => {
+  const id = partnerId.toLowerCase();
+  return CENTRAL_HOSTED_PARTNERS.includes(id) ? `bioimageio/${id}` : `${id}/${id}`;
+};
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
@@ -148,10 +165,11 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     }, { replace: true });
   }, [setSearchParams]);
 
-  // Initialize search query and tags from URL search params for back-navigation
+  // Initialize search query, tags, and partner filter from URL search
+  // params so back-navigation and shared links restore the same view.
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
   const [serverSearchQuery, setServerSearchQuery] = useState(() => searchParams.get('q') || '');
-  const [partnerLink, setPartnerLink] = useState<string>('');
+  const [partnerId, setPartnerId] = useState<string>(() => searchParams.get('partner') || '');
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     const tags = searchParams.get('tags');
     return tags ? tags.split(',').filter(Boolean) : [];
@@ -160,7 +178,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const isInitialMount = useRef(true);
 
-  // Sync search query and tags to URL search params
+  // Sync search query, tags, and partner filter to URL search params
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
@@ -178,9 +196,14 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
       } else {
         next.delete('tags');
       }
+      if (partnerId) {
+        next.set('partner', partnerId);
+      } else {
+        next.delete('partner');
+      }
       return next;
     }, { replace: true });
-  }, [serverSearchQuery, selectedTags, setSearchParams]);
+  }, [serverSearchQuery, selectedTags, partnerId, setSearchParams]);
 
   const getCurrentType = useCallback(() => {
     const path = location.pathname.split('/')[1];
@@ -211,7 +234,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
         setLoading(true);
         await fetchResources(currentPage, serverSearchQuery, {
           tags: selectedTags,
-          partnerLink: partnerLink || undefined
+          partnerLink: partnerId ? partnerLinkFromId(partnerId) : undefined
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
@@ -225,7 +248,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     };
 
     loadResources();
-  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, partnerLink, fetchResources]);
+  }, [location.pathname, currentPage, resourceType, serverSearchQuery, selectedTags, partnerId, fetchResources]);
 
   useEffect(() => {
     getCurrentType();
@@ -245,7 +268,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
       const timer = setTimeout(() => {
         setIsTyping(false);
         setServerSearchQuery(searchQuery);
-        setPartnerLink(''); // Clear partner link filter when doing text search
+        setPartnerId(''); // Clear partner filter when doing text search
         setCurrentPage(1);
       }, 800);
 
@@ -271,35 +294,21 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const handleSearchConfirm = () => {
     setIsTyping(false);
     setServerSearchQuery(searchQuery);
-    setPartnerLink(''); // Clear partner link filter when doing text search
+    setPartnerId(''); // Clear partner filter when doing text search
     setCurrentPage(1);
   };
 
-  // Issue #21 fix: Use partner link format (e.g. "deepimagej/deepimagej") as a keyword search
-  // to find models that declare actual compatibility via the links field. This searches for the
-  // specific partner link string in the model metadata, primarily matching the links array.
-  // Note: Different partners use different link formats:
-  // - Most use "partnerId/partnerId" (e.g., "ilastik/ilastik")
-  // - Some use "bioimageio/partnerId" (e.g., "bioimageio/stardist", "bioimageio/qupath")
-  const handlePartnerClick = useCallback((partnerId: string) => {
-    // Partner link strings are stored lowercase in the manifest, so we
-    // normalize once here and use the lowercase form for both the prefix
-    // lookup and the constructed query — anything else risks an
-    // asymmetry where a CamelCase input matches the prefix check but
-    // produces a query the backend never sees.
-    const id = partnerId.toLowerCase();
-    // List of partners that use bioimageio/ prefix instead of partnerId/partnerId
-    const bioimageioPartners = ['stardist', 'qupath'];
-
-    const partnerLinkQuery = bioimageioPartners.includes(id)
-      ? `bioimageio/${id}`
-      : `${id}/${id}`;
-
-    setSearchQuery(partnerId);
+  // Issue #21 fix: filter by the partner link string the model declares
+  // (e.g. "deepimagej/deepimagej") instead of keyword-matching on tags,
+  // which would include incompatible models. The actual link prefix is
+  // derived in `partnerLinkFromId` above; here we just store the raw
+  // partner id so it can be reflected in the URL as `?partner=<id>`.
+  const handlePartnerClick = useCallback((id: string) => {
+    const normalizedId = id.toLowerCase();
+    setSearchQuery(normalizedId);
     setIsTyping(false);
-    // Pass empty serverSearchQuery and use setPartnerLink instead
     setServerSearchQuery('');
-    setPartnerLink(partnerLinkQuery);
+    setPartnerId(normalizedId);
     setCurrentPage(1);
   }, []);
 
@@ -310,7 +319,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
     setSearchQuery(tag);
     setIsTyping(false);
     setServerSearchQuery(tag);
-    setPartnerLink(''); // Clear partner link filter when doing tag search
+    setPartnerId(''); // Clear partner filter when doing tag search
     setCurrentPage(1);
   };
 
