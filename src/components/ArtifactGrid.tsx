@@ -79,10 +79,11 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
           <button
             key={pageNum}
             onClick={() => onPageChange(pageNum as number)}
-            className={`px-3 py-2 rounded-lg border transition-colors ${currentPage === pageNum
+            className={`px-3 py-2 rounded-lg border transition-colors ${
+              currentPage === pageNum
                 ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+            }`}
           >
             {pageNum}
           </button>
@@ -281,12 +282,18 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   // - Most use "partnerId/partnerId" (e.g., "ilastik/ilastik")
   // - Some use "bioimageio/partnerId" (e.g., "bioimageio/stardist", "bioimageio/qupath")
   const handlePartnerClick = useCallback((partnerId: string) => {
+    // Partner link strings are stored lowercase in the manifest, so we
+    // normalize once here and use the lowercase form for both the prefix
+    // lookup and the constructed query — anything else risks an
+    // asymmetry where a CamelCase input matches the prefix check but
+    // produces a query the backend never sees.
+    const id = partnerId.toLowerCase();
     // List of partners that use bioimageio/ prefix instead of partnerId/partnerId
     const bioimageioPartners = ['stardist', 'qupath'];
 
-    const partnerLinkQuery = bioimageioPartners.includes(partnerId.toLowerCase())
-      ? `bioimageio/${partnerId}`
-      : `${partnerId}/${partnerId}`;
+    const partnerLinkQuery = bioimageioPartners.includes(id)
+      ? `bioimageio/${id}`
+      : `${id}/${id}`;
 
     setSearchQuery(partnerId);
     setIsTyping(false);
