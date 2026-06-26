@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ErrorDialog from './ErrorDialog';
 
 interface AppDirectoryEntry {
   name: string;
@@ -68,7 +69,10 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [clearingKey, setClearingKey] = useState<string | null>(null);
   const [confirmEntry, setConfirmEntry] = useState<AppDirectoryEntry | null>(null);
-  const [toast, setToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  // Only success toasts go here — failures route to ErrorDialog so a long
+  // stack trace stays readable.
+  const [toast, setToast] = useState<{ text: string } | null>(null);
+  const [clearError, setClearError] = useState<{ subtitle: string; message: string } | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn>('last_used_unix');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [now, setNow] = useState<number>(Date.now());
@@ -108,12 +112,15 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
     [serviceId, isLoggedIn, server],
   );
 
-  // Initial load + refresh whenever the parent's app status changes (deploy /
-  // undeploy is the main reason an app's is_running flag flips). We don't run
-  // a second auto-poll loop here; the worker's list_app_directories is a fan-
-  // out across Ray nodes on per-node FS topologies and is comparatively heavy.
+  // Refresh whenever the parent's app status changes (deploy / undeploy is
+  // the main reason an app's is_running flag flips), but ONLY after the
+  // operator has loaded the list at least once. list_app_directories fans
+  // out to every Ray node on per-node FS topologies and is genuinely
+  // expensive, so we never auto-load on mount — the operator has to opt
+  // in by clicking the load button.
   useEffect(() => {
-    fetchEntries(!hasLoaded);
+    if (!hasLoaded) return;
+    fetchEntries(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId, isLoggedIn, refreshKey]);
 
@@ -170,8 +177,8 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
     }
   };
 
-  const showToast = (kind: 'success' | 'error', text: string) => {
-    setToast({ kind, text });
+  const showToast = (text: string) => {
+    setToast({ text });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   };
@@ -198,11 +205,30 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
       });
       const deletedCount = Array.isArray(result?.deleted_on) ? result.deleted_on.length : 0;
       const noun = deletedCount === 1 ? 'directory' : 'directories';
-      showToast('success', `Cleared ${deletedCount} ${noun} for ${key}`);
-      await fetchEntries(false);
+      showToast(`Cleared ${deletedCount} ${noun} for ${key}`);
+      // Optimistic update — hide the cleared row(s) immediately so the
+      // operator doesn't see the just-deleted cache lingering until the
+      // next manual refresh. The worker raises ValueError when nothing
+      // was actually deleted, so reaching this branch guarantees at
+      // least one on-disk directory is gone. On multi-node FS, when
+      // `deleted_on` lists specific nodes, we drop rows by (key, node);
+      // otherwise we drop every row that matches the key.
+      setEntries(prev => {
+        const deletedNodes = new Set<string>(
+          Array.isArray(result?.deleted_on) ? result.deleted_on : [],
+        );
+        return prev.filter(e => {
+          const eKey = e.application_id ?? e.name;
+          if (eKey !== key) return true;
+          // Same key — drop if this specific node was in deleted_on, or
+          // if the worker returned no deleted_on list (treat as "all").
+          if (deletedNodes.size === 0) return false;
+          return !deletedNodes.has(e.node_id);
+        });
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      showToast('error', `Failed to clear ${key}: ${msg}`);
+      setClearError({ subtitle: key, message: msg });
     } finally {
       setClearingKey(null);
     }
@@ -227,6 +253,14 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
     );
   };
 
+  // Header button label flips from primary "Load app cache" (before first
+  // load) to a quieter "Refresh" once we have data. Mirrors the visual
+  // weight to the action: the first fetch is an explicit opt-in, the
+  // subsequent ones are housekeeping.
+  const loadButtonLabel = !hasLoaded
+    ? (loading ? 'Loading...' : 'Load app cache')
+    : (loading ? 'Refreshing' : 'Refresh');
+
   return (
     <div className="mb-8" style={{ animation: 'cacheFadeIn 220ms cubic-bezier(0.23, 1, 0.32, 1)' }}>
       <style>{`
@@ -238,6 +272,13 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
         .cache-press:active:not(:disabled) { transform: scale(0.97); }
         .cache-row { transition: background-color 150ms ease-out; }
       `}</style>
+
+      {/* Section divider — mirrors the trailing border at the end of
+          DeployedBioEngineApps (line 203) so each major section on the
+          worker dashboard is visually separated. Rendered as the first
+          child here so it only appears when the cache section actually
+          renders (admin + bioengine >= 0.11.6). */}
+      <div className="border-t border-gray-200 my-6" />
 
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center">
@@ -256,7 +297,11 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
         <button
           onClick={() => fetchEntries(true)}
           disabled={loading}
-          className="cache-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          className={`cache-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border disabled:opacity-60 disabled:cursor-not-allowed ${
+            !hasLoaded
+              ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700 hover:border-blue-700 disabled:bg-blue-400 disabled:border-blue-400'
+              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+          }`}
         >
           <svg
             className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`}
@@ -264,9 +309,13 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
             stroke="currentColor"
             viewBox="0 0 24 24"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5.07 9A8 8 0 0119 9M19 15a8 8 0 01-13.93 0" />
+            {!hasLoaded && !loading ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5.07 9A8 8 0 0119 9M19 15a8 8 0 01-13.93 0" />
+            )}
           </svg>
-          {loading ? 'Refreshing' : 'Refresh'}
+          {loadButtonLabel}
         </button>
       </div>
 
@@ -299,7 +348,14 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
             <div className="w-8 h-8 border-2 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-3" />
             <p className="text-sm">Loading cache entries...</p>
           </div>
-        ) : hasLoaded && entries.length === 0 ? (
+        ) : !hasLoaded ? (
+          // First-visit empty state. Listing the cache fans out a Ray task
+          // per node on per-node FS topologies, so we don't fetch on mount —
+          // the operator has to opt in via the header button above.
+          <div className="py-12 text-center text-sm text-gray-500">
+            Cache is not loaded yet. Click <span className="font-medium text-gray-700">Load app cache</span> to query the worker.
+          </div>
+        ) : entries.length === 0 ? (
           <div className="py-12 text-center text-sm text-gray-500">
             No cached app directories on this worker.
           </div>
@@ -501,22 +557,10 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
           className="fixed bottom-6 right-6 z-50"
           style={{ animation: 'cacheFadeIn 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
         >
-          <div
-            className={`px-4 py-3 rounded-lg shadow-lg border text-sm flex items-start gap-2 max-w-sm ${
-              toast.kind === 'success'
-                ? 'bg-white border-green-200 text-green-800'
-                : 'bg-white border-red-200 text-red-800'
-            }`}
-          >
-            {toast.kind === 'success' ? (
-              <svg className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            )}
+          <div className="px-4 py-3 rounded-lg shadow-lg border text-sm flex items-start gap-2 max-w-sm bg-white border-green-200 text-green-800">
+            <svg className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
             <span className="break-all">{toast.text}</span>
             <button
               onClick={() => setToast(null)}
@@ -530,6 +574,14 @@ const AppDiskCache: React.FC<AppDiskCacheProps> = ({
           </div>
         </div>
       )}
+
+      <ErrorDialog
+        open={!!clearError}
+        title="Cache delete failed"
+        subtitle={clearError?.subtitle}
+        message={clearError?.message ?? ''}
+        onClose={() => setClearError(null)}
+      />
     </div>
   );
 };

@@ -21,11 +21,10 @@ interface BioEngineAppsProps {
   getDeploymentStatus?: (artifactId: string) => string | null;
   isDeployButtonDisabled?: (artifactId: string) => boolean;
   getDeployButtonText?: (artifactId: string) => string;
-  // Error states and utility functions
-  deploymentError?: string | null;
-  undeploymentError?: string | null;
-  setDeploymentError?: (error: string | null) => void;
-  setUndeploymentError?: (error: string | null) => void;
+  // Worker errors are surfaced in a top-level ErrorDialog rendered by
+  // BioEngineWorker. Children no longer accept setDeploymentError /
+  // setUndeploymentError; this comment exists so a future refactor
+  // doesn't reintroduce them.
   formatTimeInfo?: (timestamp: number) => { formattedTime: string, uptime: string };
   server?: any;
   fetchApplicationStatus?: (params: {
@@ -58,10 +57,6 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   getDeploymentStatus,
   isDeployButtonDisabled,
   getDeployButtonText,
-  deploymentError,
-  undeploymentError,
-  setDeploymentError,
-  setUndeploymentError,
   formatTimeInfo,
   server,
   fetchApplicationStatus,
@@ -80,8 +75,6 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
           undeployingArtifactId={undeployingArtifactId}
           onUndeployArtifact={onUndeployArtifact!}
           formatTimeInfo={formatTimeInfo}
-          undeploymentError={undeploymentError}
-          setUndeploymentError={setUndeploymentError}
           fetchApplicationStatus={fetchApplicationStatus}
           updateAppScaling={updateAppScaling}
           bioengineVersion={bioengineVersion}
@@ -98,8 +91,6 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
         deployingArtifactId={deployingArtifactId}
         pendingDeploymentArtifactId={pendingDeploymentArtifactId}
         artifactModes={artifactModes}
-        deploymentError={deploymentError}
-        setDeploymentError={setDeploymentError}
         onDeployArtifact={onDeployArtifact}
         onUndeployArtifact={onUndeployArtifact}
         onModeChange={onModeChange}

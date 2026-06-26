@@ -7,8 +7,7 @@ interface DeployedBioEngineAppsProps {
   undeployingArtifactId?: string | null;  // Now actually application_id
   onUndeployArtifact: (applicationId: string) => void;  // Changed: uses application_id
   formatTimeInfo?: (timestamp: number) => { formattedTime: string; uptime: string };
-  undeploymentError?: string | null;
-  setUndeploymentError?: (error: string | null) => void;
+  // Undeployment errors are surfaced via the worker-level ErrorDialog.
   fetchApplicationStatus?: (params: {
     application_ids?: string[];
     logs_tail?: number;
@@ -27,8 +26,6 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
   undeployingArtifactId,
   onUndeployArtifact,
   formatTimeInfo,
-  undeploymentError,
-  setUndeploymentError,
   fetchApplicationStatus,
   updateAppScaling,
   bioengineVersion,
@@ -112,31 +109,9 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
         </div>
       </div>
 
-      {/* Undeployment Error Display */}
-      {undeploymentError && setUndeploymentError && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex justify-between items-start">
-            <div className="flex">
-              <svg className="w-5 h-5 text-red-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-red-800">Undeployment Error</h4>
-                <p className="text-sm text-red-700 mt-1">{undeploymentError}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setUndeploymentError(null)}
-              className="text-red-400 hover:text-red-600"
-              aria-label="Dismiss error"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Undeployment errors are now rendered by the worker-level
+          ErrorDialog (BioEngineWorker.tsx) so multi-line stack traces
+          stay readable. */}
 
       {deploymentServiceId && (
         <div className="mb-6">
@@ -178,8 +153,6 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
               key={deployment.application_id || index}
               deployment={deployment}
               serviceId={deploymentServiceId}
-              isUndeploying={undeployingArtifactId === (deployment.application_id || deployment.artifact_id)}
-              onUndeploy={onUndeployArtifact}
               formatTimeInfo={formatTimeInfo}
               onStatusClick={(applicationId) => setSelectedAppId(applicationId)}
             />
@@ -197,6 +170,8 @@ const DeployedBioEngineApps: React.FC<DeployedBioEngineAppsProps> = ({
           nodeLabels={nodeLabels}
           updateAppScaling={updateAppScaling}
           bioengineVersion={bioengineVersion}
+          onUndeploy={onUndeployArtifact}
+          isUndeploying={undeployingArtifactId === selectedAppId}
         />
       )}
 

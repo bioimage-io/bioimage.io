@@ -5,6 +5,7 @@ import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
 import DeploymentConfigModal from './DeploymentConfigModal';
 import AppDiskCache from './AppDiskCache';
+import ErrorDialog from './ErrorDialog';
 
 // Returns true when `actual` is >= `required` under loose semver-by-parts
 // comparison. Handles pre-release suffixes by stripping anything past the
@@ -197,8 +198,15 @@ const BioEngineWorker: React.FC = () => {
   // Deployment state
   const [deployingArtifactId, setDeployingArtifactId] = useState<string | null>(null);
   const [undeployingArtifactId, setUndeployingArtifactId] = useState<string | null>(null);
-  const [deploymentError, setDeploymentError] = useState<string | null>(null);
-  const [undeploymentError, setUndeploymentError] = useState<string | null>(null);
+  // Bioengine worker / app errors get rendered in ErrorDialog (a scrollable
+  // modal) instead of an inline red panel — backend stack traces can run
+  // dozens of lines and were getting truncated / pushing other UI around.
+  // The downstream "setDeploymentError" / "setUndeploymentError" string
+  // props that BioEngineApps and its children still accept are stubs that
+  // wrap the message into the new dialog state for backwards compatibility.
+  type WorkerErrorState = { title: string; subtitle?: string; message: string } | null;
+  const [deploymentError, setDeploymentError] = useState<WorkerErrorState>(null);
+  const [undeploymentError, setUndeploymentError] = useState<WorkerErrorState>(null);
   const [artifactModes, setArtifactModes] = useState<Record<string, string>>({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
@@ -556,7 +564,11 @@ const BioEngineWorker: React.FC = () => {
         return;
       }
 
-      setDeploymentError(`Failed to deploy ${artifactId}: ${errorMessage}`);
+      setDeploymentError({
+        title: 'Deployment failed',
+        subtitle: artifactId,
+        message: errorMessage,
+      });
       setDeployingArtifactId(null);
     }
   };
@@ -674,7 +686,11 @@ const BioEngineWorker: React.FC = () => {
         return;
       }
 
-      setUndeploymentError(`Failed to stop application ${applicationId}: ${errorMessage}`);
+      setUndeploymentError({
+        title: 'Stop application failed',
+        subtitle: applicationId,
+        message: errorMessage,
+      });
       setUndeployingArtifactId(null);
     }
   };
@@ -1356,11 +1372,10 @@ ${token}`;
           getDeploymentStatus={getDeploymentStatus}
           isDeployButtonDisabled={isDeployButtonDisabled}
           getDeployButtonText={getDeployButtonText}
-          // Pass error states and utility functions
-          deploymentError={deploymentError}
-          undeploymentError={undeploymentError}
-          setDeploymentError={setDeploymentError}
-          setUndeploymentError={setUndeploymentError}
+          // Deployment / undeployment errors are now surfaced at the
+          // worker level via ErrorDialog (see below); the inline red
+          // panels in Available / Deployed are gone, so the children
+          // don't need the error props any more.
           formatTimeInfo={formatTimeInfo}
           server={server}
           fetchApplicationStatus={fetchApplicationStatus}
@@ -1396,6 +1411,26 @@ ${token}`;
             manifest={pendingDeployment.manifest}
           />
         )}
+
+        {/* Worker-level error dialog. Renders for deployment failures and
+            for stop-application failures alike — both are bioengine worker
+            errors with the same scrollable-stack-trace shape. Only one
+            shows at a time (deployment > undeployment) since the two
+            workflows can't physically overlap. */}
+        <ErrorDialog
+          open={!!deploymentError}
+          title={deploymentError?.title ?? ''}
+          subtitle={deploymentError?.subtitle}
+          message={deploymentError?.message ?? ''}
+          onClose={() => setDeploymentError(null)}
+        />
+        <ErrorDialog
+          open={!!undeploymentError && !deploymentError}
+          title={undeploymentError?.title ?? ''}
+          subtitle={undeploymentError?.subtitle}
+          message={undeploymentError?.message ?? ''}
+          onClose={() => setUndeploymentError(null)}
+        />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ErrorDialog from './ErrorDialog';
 
 interface AppDeploymentsStatusDialogProps {
   isOpen: boolean;
@@ -24,6 +25,14 @@ interface AppDeploymentsStatusDialogProps {
     scaling: Record<string, any>;
   }) => Promise<void>;
   bioengineVersion?: string;
+  // Worker undeploy / cancel-deployment handler. When present the dialog
+  // renders an Undeploy button in the header (with an inline confirm step
+  // to avoid accidental deletion). When omitted, undeploy is disabled —
+  // e.g. for read-only viewers.
+  onUndeploy?: (applicationId: string) => void;
+  // True while the parent has a stop_app call in flight for this app —
+  // used to show a spinner on the undeploy button and prevent re-clicks.
+  isUndeploying?: boolean;
 }
 
 // Per-deployment form state. Two mutually-exclusive modes mirror the
@@ -129,6 +138,8 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   nodeLabels,
   updateAppScaling,
   bioengineVersion,
+  onUndeploy,
+  isUndeploying,
 }) => {
   // Format a replica's node placement using the cluster-view-consistent
   // role label, plus the replica's own node_instance_id when available
@@ -168,12 +179,28 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
         return 'bg-gray-50 text-gray-600 border-gray-200';
     }
   };
-  const [logsTail, setLogsTail] = useState<number>(30);
-  const [nPreviousReplica, setNPreviousReplica] = useState<number>(0);
+
+  // Top-level status state. The dialog seeds from `initialStatus` (the app
+  // status snapshot the parent already loaded), then refreshes on demand.
+  // Per-deployment log refetches mutate the `deployments` slice of this
+  // object so other deployments retain their last-loaded log buffer.
   const [status, setStatus] = useState<any>(initialStatus || null);
   const [loading, setLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-deployment "Log Lines" / "Previous Replicas" form values + an
+  // in-flight refresh marker, keyed by deployment name. The dialog seeds
+  // each block with the default (30 lines, 0 previous) on open. Each
+  // block has its own Refresh button so users can drill into one
+  // deployment's logs without disturbing the others' last-loaded buffer.
+  // See the feature request to bioengine session 96b34abe for the
+  // native per-deployment API ask that would let us drop the interim
+  // "fetch-all-then-merge-one" workaround.
+  type LogControls = { logsTail: number; nPrevious: number };
+  const DEFAULT_LOG_CONTROLS: LogControls = { logsTail: 30, nPrevious: 0 };
+  const [logControls, setLogControls] = useState<Record<string, LogControls>>({});
+  const [refreshingDeployment, setRefreshingDeployment] = useState<string | null>(null);
 
   // Scaling form state: keyed by user @bioengine.app class name (i.e. the
   // keys of get_app_status().deployments minus ProxyDeployment). Persists
@@ -186,9 +213,20 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   const [scalingSubmitOk, setScalingSubmitOk] = useState<boolean>(false);
   const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
 
+  // Two-step undeploy confirm state. First click flips the button into
+  // "Confirm undeploy" + a Cancel; second click fires the callback. The
+  // confirm state auto-resets after a few seconds so the destructive
+  // affordance doesn't sit armed indefinitely.
+  const [undeployConfirm, setUndeployConfirm] = useState<boolean>(false);
+  const undeployConfirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     setStatus(initialStatus || null);
   }, [initialStatus]);
+
+  useEffect(() => () => {
+    if (undeployConfirmTimer.current) clearTimeout(undeployConfirmTimer.current);
+  }, []);
 
   const loadStatus = async () => {
     if (!applicationId) return;
@@ -197,10 +235,13 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     setError(null);
 
     try {
+      // Top-level Refresh uses the lowest-cost defaults (30 lines, 0
+      // previous replicas). Per-deployment Refresh buttons handle the
+      // high-volume cases independently below.
       const result = await fetchApplicationStatus({
         application_ids: [applicationId],
-        logs_tail: logsTail,
-        n_previous_replica: nPreviousReplica,
+        logs_tail: DEFAULT_LOG_CONTROLS.logsTail,
+        n_previous_replica: DEFAULT_LOG_CONTROLS.nPrevious,
       });
       setStatus(result);
     } catch (err) {
@@ -215,8 +256,10 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   useEffect(() => {
     if (isOpen) {
       setHasLoaded(false);
+      setUndeployConfirm(false);
       loadStatus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const deployments = useMemo(() => {
@@ -238,6 +281,23 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     () => deployments.filter(d => d.name !== 'ProxyDeployment'),
     [deployments],
   );
+
+  // Seed the log-controls form with defaults the first time we see each
+  // deployment name; preserve any values the user already typed.
+  useEffect(() => {
+    setLogControls(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const { name } of deployments) {
+        if (!next[name]) {
+          next[name] = { ...DEFAULT_LOG_CONTROLS };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deployments]);
 
   // Pending-replica detector. Either deployment status DEPLOYING (Ray
   // Serve is still reconciling) or a replica stuck in PENDING_ALLOCATION
@@ -358,59 +418,170 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     setScalingSubmitOk(false);
   };
 
+  // Refresh logs for a single deployment. Until the worker accepts
+  // per-deployment log params (see feature request to bioengine session
+  // 96b34abe), we call get_app_status with this block's params and merge
+  // only the matching deployment's data back into state — leaving other
+  // deployments' last-loaded buffers untouched. Slightly wasteful at the
+  // backend (full fan-out) but right at the UI level.
+  const refreshDeploymentLogs = async (depName: string) => {
+    const cfg = logControls[depName] ?? DEFAULT_LOG_CONTROLS;
+    setRefreshingDeployment(depName);
+    setError(null);
+    try {
+      const result = await fetchApplicationStatus({
+        application_ids: [applicationId],
+        logs_tail: cfg.logsTail,
+        n_previous_replica: cfg.nPrevious,
+      });
+      const newDeployment = result?.deployments?.[depName];
+      if (!newDeployment) {
+        setError(`Deployment "${depName}" not present in refreshed status.`);
+        return;
+      }
+      // Merge only the refreshed deployment back into state; leave the
+      // rest of the dialog's snapshot untouched (the user might be
+      // mid-edit on the scaling form etc).
+      setStatus((prev: any) => {
+        if (!prev || typeof prev !== 'object') return result;
+        return {
+          ...prev,
+          deployments: { ...(prev.deployments ?? {}), [depName]: newDeployment },
+        };
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(`Refresh failed for ${depName}: ${errorMessage}`);
+    } finally {
+      setRefreshingDeployment(null);
+    }
+  };
+
+  const updateLogControl = (depName: string, patch: Partial<LogControls>) => {
+    setLogControls(prev => ({
+      ...prev,
+      [depName]: { ...(prev[depName] ?? DEFAULT_LOG_CONTROLS), ...patch },
+    }));
+  };
+
+  // Undeploy button label depends on the app's lifecycle phase: while
+  // the worker is still bringing the app up, "stop" means "cancel the
+  // deploy"; once it's running it's a proper undeploy.
+  const undeployLabel = useMemo(() => {
+    const appStatus = String(status?.status ?? '').toUpperCase();
+    return appStatus === 'DEPLOYING' ? 'Cancel deployment' : 'Undeploy';
+  }, [status]);
+
+  const handleUndeployClick = () => {
+    if (!onUndeploy) return;
+    if (!undeployConfirm) {
+      // First click: arm the confirm state. Auto-disarm after 6s so the
+      // destructive affordance doesn't sit hot indefinitely.
+      setUndeployConfirm(true);
+      if (undeployConfirmTimer.current) clearTimeout(undeployConfirmTimer.current);
+      undeployConfirmTimer.current = setTimeout(() => setUndeployConfirm(false), 6000);
+      return;
+    }
+    // Second click: fire.
+    if (undeployConfirmTimer.current) clearTimeout(undeployConfirmTimer.current);
+    setUndeployConfirm(false);
+    onUndeploy(applicationId);
+  };
+
+  const cancelUndeployConfirm = () => {
+    if (undeployConfirmTimer.current) clearTimeout(undeployConfirmTimer.current);
+    setUndeployConfirm(false);
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <style>{`
+        .mm-press { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+        .mm-press:active:not(:disabled) { transform: scale(0.97); }
+      `}</style>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
-          <div>
-            <h3 className="text-xl font-semibold text-gray-800">Application Deployment Status</h3>
-            <p className="text-sm text-gray-500 mt-1">Application ID: {applicationId}</p>
+        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center gap-4 sticky top-0 bg-white z-10">
+          <div className="min-w-0">
+            <h3 className="text-xl font-semibold text-gray-800">Monitor & Manage app</h3>
+            <p className="text-sm text-gray-500 mt-1 break-all">Application ID: {applicationId}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close dialog">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={loadStatus}
+              disabled={loading}
+              className="mm-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Reload app status from the worker"
+            >
+              <svg className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5.07 9A8 8 0 0119 9M19 15a8 8 0 01-13.93 0" />
+              </svg>
+              {loading ? 'Refreshing' : 'Refresh'}
+            </button>
+            {/* Destructive action sits at the right edge so it isn't
+                adjacent to Refresh; two-step confirm guards against
+                accidental clicks. */}
+            {onUndeploy && (
+              undeployConfirm ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={cancelUndeployConfirm}
+                    disabled={isUndeploying}
+                    className="mm-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUndeployClick}
+                    disabled={isUndeploying}
+                    className="mm-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:bg-red-400"
+                    autoFocus
+                  >
+                    Confirm {undeployLabel.toLowerCase()}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleUndeployClick}
+                  disabled={isUndeploying}
+                  className="mm-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  title={undeployLabel === 'Cancel deployment'
+                    ? 'Stop the in-progress deployment'
+                    : 'Stop this app and free its replicas'}
+                >
+                  {isUndeploying ? (
+                    <>
+                      <svg className="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      {undeployLabel === 'Cancel deployment' ? 'Canceling' : 'Undeploying'}
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                      {undeployLabel}
+                    </>
+                  )}
+                </button>
+              )
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1" aria-label="Close dialog">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg items-end">
-            <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-gray-700">Log Lines</span>
-              <input
-                type="number"
-                value={logsTail}
-                onChange={(e) => setLogsTail(parseInt(e.target.value || '0', 10))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-              <span className="text-xs text-gray-500">-1 to retrieve all available logs</span>
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-gray-700">Previous Replicas</span>
-              <input
-                type="number"
-                value={nPreviousReplica}
-                onChange={(e) => setNPreviousReplica(parseInt(e.target.value || '0', 10))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-              <span className="text-xs text-gray-500">-1 to include all previous replicas</span>
-            </label>
-
-            <div className="flex items-end h-full">
-              <button
-                type="button"
-                onClick={loadStatus}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-400 h-10"
-              >
-                {loading ? 'Refreshing...' : 'Refresh Status'}
-              </button>
-            </div>
-          </div>
-
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
               {error}
@@ -435,7 +606,7 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
             </div>
           )}
 
-          {(!hasLoaded || loading) ? (
+          {(!hasLoaded || (loading && !hasLoaded)) ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-600">
               <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-4" />
               <p className="text-sm font-medium">Loading app status...</p>
@@ -443,14 +614,16 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
             </div>
           ) : null}
 
-          <div className="p-4 rounded-lg border border-gray-200 bg-gray-50">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <div><span className="font-medium text-gray-700">Status:</span> <span className="text-gray-900">{status?.status || 'UNKNOWN'}</span></div>
-              <div><span className="font-medium text-gray-700">Version:</span> <span className="text-gray-900">{status?.version || 'N/A'}</span></div>
-              <div><span className="font-medium text-gray-700">Message:</span> <span className="text-gray-900">{status?.message || '-'}</span></div>
-              <div><span className="font-medium text-gray-700">Last Updated By:</span> <span className="text-gray-900">{status?.last_updated_by || '-'}</span></div>
+          {hasLoaded && (
+            <div className="p-4 rounded-lg border border-gray-200 bg-gray-50">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div><span className="font-medium text-gray-700">Status:</span> <span className="text-gray-900">{status?.status || 'UNKNOWN'}</span></div>
+                <div><span className="font-medium text-gray-700">Version:</span> <span className="text-gray-900">{status?.version || 'N/A'}</span></div>
+                <div><span className="font-medium text-gray-700">Message:</span> <span className="text-gray-900">{status?.message || '-'}</span></div>
+                <div><span className="font-medium text-gray-700">Last Updated By:</span> <span className="text-gray-900">{status?.last_updated_by || '-'}</span></div>
+              </div>
             </div>
-          </div>
+          )}
 
           {loading && hasLoaded ? (
             <div className="flex items-center justify-center py-4 text-sm text-gray-600">
@@ -459,6 +632,10 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
             </div>
           ) : null}
 
+          {/* Replica scaling moves to the top of the editing surface
+              (above per-deployment cards) — it's the main lever for
+              operating an app at scale, and pushing it below a deck of
+              log panes made it easy to miss. */}
           {scalingEnabled && hasLoaded && (
             <ScalingSection
               userDeployments={userDeployments}
@@ -487,10 +664,12 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
 
           {hasLoaded && !loading && deployments.length === 0 ? (
             <p className="text-sm text-gray-500">No deployment entries found for this application.</p>
-          ) : (
+          ) : hasLoaded ? (
             <div className="space-y-4">
               {deployments.map(({ name, data }) => {
                 const logs = data?.logs && typeof data.logs === 'object' ? Object.entries(data.logs) : [];
+                const cfg = logControls[name] ?? DEFAULT_LOG_CONTROLS;
+                const isRefreshing = refreshingDeployment === name;
 
                 return (
                   <div key={name} className="border border-gray-200 rounded-xl overflow-hidden">
@@ -559,6 +738,63 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                         </div>
                       )}
 
+                      {/* Per-deployment log controls. Replaces the dialog-
+                          level "Log Lines" / "Previous Replicas" inputs
+                          so an operator can drill into one deployment
+                          without bumping log fetches for the others.
+                          Until the worker supports per-deployment params
+                          natively (see bioengine feature request) we
+                          fetch the full app status and merge only this
+                          deployment's slice back into state. */}
+                      <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                        <div className="flex flex-wrap items-end gap-3">
+                          <label className="flex flex-col gap-1 min-w-0">
+                            <span className="text-xs font-medium text-gray-700">Log Lines</span>
+                            <input
+                              type="number"
+                              value={cfg.logsTail}
+                              onChange={(e) => updateLogControl(name, { logsTail: parseInt(e.target.value || '0', 10) })}
+                              className="w-28 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm tabular-nums"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 min-w-0">
+                            <span className="text-xs font-medium text-gray-700">Previous Replicas</span>
+                            <input
+                              type="number"
+                              value={cfg.nPrevious}
+                              onChange={(e) => updateLogControl(name, { nPrevious: parseInt(e.target.value || '0', 10) })}
+                              className="w-28 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm tabular-nums"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => refreshDeploymentLogs(name)}
+                            disabled={isRefreshing || loading}
+                            className="mm-press inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed h-[34px]"
+                          >
+                            {isRefreshing ? (
+                              <>
+                                <svg className="w-3.5 h-3.5 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                                Refreshing
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5.07 9A8 8 0 0119 9M19 15a8 8 0 01-13.93 0" />
+                                </svg>
+                                Refresh logs
+                              </>
+                            )}
+                          </button>
+                          <span className="text-xs text-gray-500 ml-1">
+                            Use -1 for all available logs or all previous replicas.
+                          </span>
+                        </div>
+                      </div>
+
                       {logs.length > 0 ? (
                         <div className="space-y-3">
                           <p className="text-sm font-medium text-gray-700">Logs</p>
@@ -582,16 +818,27 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-500">No logs returned for this deployment.</p>
+                        <p className="text-xs text-gray-500">No logs returned for this deployment. Click Refresh logs to fetch.</p>
                       )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
+      {/* Scaling save errors render in a top-layer ErrorDialog (z-60) on
+          top of this dialog (z-50) so deploy_app stack traces stay readable.
+          The inline status row above just acknowledges that the save failed
+          and points at the dialog. */}
+      <ErrorDialog
+        open={!!scalingSubmitError}
+        title="Scaling update failed"
+        subtitle={applicationId}
+        message={scalingSubmitError ?? ''}
+        onClose={() => setScalingSubmitError(null)}
+      />
     </div>
   );
 };
@@ -798,7 +1045,7 @@ const ScalingSection: React.FC<ScalingSectionProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="text-xs text-gray-500 min-h-[1.25rem]">
             {submitError ? (
-              <span className="text-red-600">{submitError}</span>
+              <span className="text-red-600">Save failed. See the error dialog for details.</span>
             ) : submitOk ? (
               <span className="text-green-700">Scaling updated. Ray Serve is rolling the change.</span>
             ) : isDirty ? (
