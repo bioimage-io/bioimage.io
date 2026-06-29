@@ -40,6 +40,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
   const [debug, setDebug] = useState<boolean>(false);
   const [authorizedUsers, setAuthorizedUsers] = useState<string>('');
   const [iceServers, setIceServers] = useState<string>('');
+  const [scaling, setScaling] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
@@ -110,6 +111,14 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
           ? JSON.stringify(appIceServers, null, 2)
           : '');
 
+        // scaling (v0.10+): per-deployment Ray Serve replica map keyed
+        // by @bioengine.app class name. Show the current value as
+        // pretty-printed JSON so the user can edit it inline.
+        const appScaling = runningApp.scaling ?? null;
+        setScaling(appScaling && typeof appScaling === 'object' && Object.keys(appScaling).length > 0
+          ? JSON.stringify(appScaling, null, 2)
+          : '');
+
         setShowAdvanced(false);
       } else {
         setVersion('');
@@ -121,6 +130,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
         setDebug(false);
         setAuthorizedUsers('');
         setIceServers('');
+        setScaling('');
         setShowAdvanced(false);
       }
     }
@@ -156,6 +166,11 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
             parsedIceServers = JSON.parse(iceServers);
         }
 
+        let parsedScaling = null;
+        if (scaling && scaling.trim() !== '') {
+            parsedScaling = JSON.parse(scaling);
+        }
+
         onDeploy({
             artifact_id: artifactId,
             version: version || null,
@@ -169,6 +184,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
             debug: debug,
             authorized_users: parsedAuthorizedUsers,
             ice_servers: parsedIceServers,
+            scaling: parsedScaling && Object.keys(parsedScaling).length > 0 ? parsedScaling : null,
         });
         onClose();
     } catch (err) {
@@ -433,6 +449,24 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Inject custom STUN/TURN servers at deploy time. If left empty, the public ICE servers at hypha.aicell.io (located in Stockholm, Sweden) will be used.
+                  </p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Replica Scaling (JSON)
+                    <span className="text-gray-400 font-normal ml-2 text-xs">Per-deployment Ray Serve replica configuration</span>
+                  </label>
+                  <textarea
+                    value={scaling}
+                    onChange={(e) => setScaling(e.target.value)}
+                    style={{ resize: 'vertical', minHeight: `${Math.max(5, (scaling.match(/\n/g) || []).length + 2) * 1.5}em` }}
+                    className={textareaSx}
+                    placeholder={'{\n  "DeploymentClass": { "num_replicas": 3 },\n  "AnotherDeployment": { "autoscaling_config": { "min_replicas": 1, "max_replicas": 8, "target_num_ongoing_requests_per_replica": 4 } }\n}'}
+                    wrap="off"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Dict keyed by the <code className="bg-gray-100 px-0.5 rounded">@bioengine.app</code> class name (as shown under "deployments" in app status). Each entry is either <code className="bg-gray-100 px-0.5 rounded">{'{ "num_replicas": N }'}</code> or <code className="bg-gray-100 px-0.5 rounded">{'{ "autoscaling_config": { ... } }'}</code>{' '}— the two are mutually exclusive. Classes left out run at Ray Serve's default of one fixed replica. ProxyDeployment is always one replica and not addressable.
                   </p>
                 </div>
               </>
