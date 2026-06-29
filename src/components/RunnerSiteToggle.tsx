@@ -2,7 +2,13 @@ import React from 'react';
 import { RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
 
 interface RunnerSiteToggleProps {
-  selected: RunnerSite;
+  /**
+   * The currently selected site. Pass `null` when the toggle should render
+   * with no option highlighted — e.g. when an upstream Service ID override
+   * doesn't match either of the two known sites and the user is running
+   * against something custom.
+   */
+  selected: RunnerSite | null;
   onSelect: (site: RunnerSite) => void;
   /** Per-site availability flags. Unavailable sites render as disabled options. */
   available: Record<RunnerSite, boolean>;

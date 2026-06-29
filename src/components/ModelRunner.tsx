@@ -9,7 +9,7 @@ import {
 
 } from '../utils/modelRun';
 import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, processForShow } from '../utils/imgProcess';
-import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunners } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
@@ -142,7 +142,6 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // (via the advanced settings text input) to point at a non-production
   // worker without disabling the toggle.
   const [serviceIdOverride, setServiceIdOverride] = useState<string>("");
-  const [token, setToken] = useState<string>("");
 
   // Effective service id used for the next ModelRunnerEngine.init() call.
   // Resolution order: explicit override > toggle's active site > KTH constant
@@ -150,6 +149,31 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const serviceId = serviceIdOverride.trim()
     || modelRunners.activeServiceId
     || BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID;
+
+  // Which segment of the runner-site toggle should appear selected. The
+  // toggle and the Service ID input share one state — the override text.
+  // Empty override falls back to whatever site the probe picked; an exact
+  // match against either site id highlights that segment; any other custom
+  // value yields `null` so the toggle visibly deselects both options.
+  const trimmedOverride = serviceIdOverride.trim();
+  let toggleSelected: RunnerSite | null;
+  if (!trimmedOverride) {
+    toggleSelected = modelRunners.selected;
+  } else {
+    const matched = RUNNER_SITES.find(s => s.serviceId === trimmedOverride);
+    toggleSelected = matched ? matched.id : null;
+  }
+
+  // Clicking a site segment replaces the Service ID text with that site's
+  // literal id and keeps the underlying useModelRunners.selected in sync so
+  // probe state (availability dots) follows along.
+  const handleRunnerSiteSelect = (site: RunnerSite) => {
+    const target = RUNNER_SITES.find(s => s.id === site);
+    if (target) {
+      setServiceIdOverride(target.serviceId);
+    }
+    modelRunners.setSelected(site);
+  };
   
   // Button states
   const [buttonEnabledRun, setButtonEnabledRun] = useState<boolean>(false);
@@ -395,7 +419,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       
       const modelRunnerPromise = (async () => {
         const modelRunner = new ModelRunnerEngine(serverUrl) as ExtendedModelRunnerEngine;
-        await modelRunner.init(token.trim() || null, serviceId);
+        await modelRunner.init(null, serviceId);
         return modelRunner;
       })();
       
@@ -719,18 +743,6 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           hideRunnerToggle
         />
 
-        {/* Runner-site toggle. Drives both the Run Model engine and the
-            nested ModelTester so a visitor only chooses once. */}
-        {isLoggedIn && (
-          <div className="flex items-center">
-            <RunnerSiteToggle
-              selected={modelRunners.selected}
-              onSelect={modelRunners.setSelected}
-              available={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
-              loading={modelRunners.loading}
-            />
-          </div>
-        )}
       </div>
 
       {/* Advanced Settings Panel */}
@@ -791,9 +803,19 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Service ID
-              </label>
+              <div className="flex flex-wrap items-center gap-3 mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Service ID
+                </label>
+                {isLoggedIn && (
+                  <RunnerSiteToggle
+                    selected={toggleSelected}
+                    onSelect={handleRunnerSiteSelect}
+                    available={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
+                    loading={modelRunners.loading}
+                  />
+                )}
+              </div>
               <input
                 type="text"
                 value={serviceIdOverride}
@@ -802,23 +824,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
               />
               <span className="text-xs text-gray-500">
-                Leave empty to use the cluster selected by the slider above.
-              </span>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Token (optional)
-              </label>
-              <input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Authentication token"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-              <span className="text-xs text-gray-500">
-                Leave empty for public services, needed for connecting to private BioEngine instances
+                Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
               </span>
             </div>
           </div>
