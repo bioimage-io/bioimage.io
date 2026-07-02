@@ -38,6 +38,7 @@ interface BioEngineAppsProps {
     scaling: Record<string, any>;
   }) => Promise<void>;
   bioengineVersion?: string;
+  workerClientId?: string;
 }
 
 const BioEngineApps: React.FC<BioEngineAppsProps> = ({
@@ -62,6 +63,7 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
   fetchApplicationStatus,
   updateAppScaling,
   bioengineVersion,
+  workerClientId,
 }) => {
   const { server: hyphaServer, isLoggedIn } = useHyphaStore();
   const activeServer = server || hyphaServer;
@@ -78,6 +80,7 @@ const BioEngineApps: React.FC<BioEngineAppsProps> = ({
           fetchApplicationStatus={fetchApplicationStatus}
           updateAppScaling={updateAppScaling}
           bioengineVersion={bioengineVersion}
+          workerClientId={workerClientId}
         />
       )}
 

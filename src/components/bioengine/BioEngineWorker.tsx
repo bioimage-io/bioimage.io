@@ -1381,6 +1381,7 @@ ${token}`;
           fetchApplicationStatus={fetchApplicationStatus}
           updateAppScaling={updateAppScaling}
           bioengineVersion={status?.bioengine_version}
+          workerClientId={status?.client_id}
         />
 
         {/* App Disk Cache — admin-only API, gated on bioengine 0.11.6+ which

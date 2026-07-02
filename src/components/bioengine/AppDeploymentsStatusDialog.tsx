@@ -33,6 +33,13 @@ interface AppDeploymentsStatusDialogProps {
   // True while the parent has a stop_app call in flight for this app —
   // used to show a spinner on the undeploy button and prevent re-clicks.
   isUndeploying?: boolean;
+  // The currently-connected worker's Hypha client_id (from
+  // worker.get_status().client_id). Used to detect the recovered-app
+  // worker mismatch case surfaced by BioEngine 0.11.18+ — when it
+  // differs from status.deployed_by_worker_client_id the app was
+  // adopted from a previous worker and the ProxyDeployment's service
+  // URL may not survive a Ray Serve restart.
+  workerClientId?: string;
 }
 
 // Per-deployment form state. Two mutually-exclusive modes mirror the
@@ -140,6 +147,7 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   bioengineVersion,
   onUndeploy,
   isUndeploying,
+  workerClientId,
 }) => {
   // Format a replica's node placement using the cluster-view-consistent
   // role label, plus the replica's own node_instance_id when available
@@ -180,6 +188,20 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
     }
   };
 
+  // Palette for the header info badges (token expiry, recovered-app).
+  // Escalates warm → red as the token approaches expiry, and stays quiet
+  // slate for the "recovered but same worker" info variant so it doesn't
+  // read as an alarm.
+  const badgeToneClass = (tone: 'info' | 'amber' | 'orange' | 'red'): string => {
+    switch (tone) {
+      case 'red':    return 'bg-red-50 text-red-700 border-red-200';
+      case 'orange': return 'bg-orange-50 text-orange-700 border-orange-200';
+      case 'amber':  return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'info':
+      default:       return 'bg-slate-50 text-slate-600 border-slate-200';
+    }
+  };
+
   // Top-level status state. The dialog seeds from `initialStatus` (the app
   // status snapshot the parent already loaded), then refreshes on demand.
   // Per-deployment log refetches mutate the `deployments` slice of this
@@ -188,6 +210,88 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Header-badge ticker. The token-expiry countdown depends on wall-clock
+  // time, so this ticks once a minute while the dialog is open to keep the
+  // badge honest for viewers who leave it open across a threshold boundary
+  // (e.g. crossing from "days" to "hours"). The 60s cadence is enough
+  // resolution for a countdown that only appears in the last 7 days.
+  const [nowSeconds, setNowSeconds] = useState<number>(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = setInterval(() => setNowSeconds(Date.now() / 1000), 60_000);
+    return () => clearInterval(timer);
+  }, [isOpen]);
+
+  // Token-expiry badge. `null` when the fields are missing (legacy apps
+  // deployed by workers older than BioEngine 0.11.18) or when the token
+  // still has more than 7 days of headroom — we only surface a badge when
+  // the user might want to redeploy soon.
+  const tokenExpiryBadge = useMemo<{ tone: 'amber' | 'orange' | 'red'; label: string; tooltip: string } | null>(() => {
+    const issuedAt = status?.proxy_service_token_issued_at;
+    const ttl = status?.proxy_service_token_ttl_seconds;
+    if (typeof issuedAt !== 'number' || typeof ttl !== 'number') return null;
+    const expiresAt = issuedAt + ttl;
+    const remaining = expiresAt - nowSeconds;
+    if (remaining > 7 * 86400) return null;
+    if (remaining <= 0) {
+      return {
+        tone: 'red',
+        label: 'Token expired',
+        tooltip: 'The ProxyDeployment cannot refresh its Hypha connection. Redeploy to mint a fresh token.',
+      };
+    }
+    if (remaining <= 3600) {
+      const minutes = Math.max(1, Math.floor(remaining / 60));
+      return {
+        tone: 'red',
+        label: `Token expires in ${minutes} minute${minutes === 1 ? '' : 's'}`,
+        tooltip: 'Once expired, the ProxyDeployment cannot refresh its Hypha connection. Redeploy now.',
+      };
+    }
+    if (remaining <= 24 * 3600) {
+      const hours = Math.max(1, Math.floor(remaining / 3600));
+      return {
+        tone: 'orange',
+        label: `Token expires in ${hours} hour${hours === 1 ? '' : 's'}`,
+        tooltip: 'The ProxyDeployment will need a fresh token soon. Redeploy at your convenience.',
+      };
+    }
+    const days = Math.max(1, Math.floor(remaining / 86400));
+    return {
+      tone: 'amber',
+      label: `Token expires in ${days} day${days === 1 ? '' : 's'}`,
+      tooltip: 'Redeploy at your convenience to mint a fresh token.',
+    };
+  }, [status?.proxy_service_token_issued_at, status?.proxy_service_token_ttl_seconds, nowSeconds]);
+
+  // Recovered-app badge. Two flavors:
+  //   - match (worker adopted its own prior state after a pod restart):
+  //     subtle slate info tag so it registers but doesn't read as alarm.
+  //   - mismatch (a *different* worker adopted the app): amber warning
+  //     because the ProxyDeployment is still registered on Hypha under
+  //     the old worker's client_id, so any Ray Serve restart re-registers
+  //     the service under a new URL. Consumers holding the old URL would
+  //     need to refetch.
+  // `null` when the app wasn't recovered or when the worker fields are
+  // missing (legacy apps or worker versions older than 0.11.18).
+  const recoveredAppBadge = useMemo<{ tone: 'info' | 'amber'; label: string; tooltip: string } | null>(() => {
+    if (!status?.recovered_app) return null;
+    const deployedBy = status?.deployed_by_worker_client_id;
+    if (!deployedBy) return null;
+    if (workerClientId && deployedBy !== workerClientId) {
+      return {
+        tone: 'amber',
+        label: 'Deployed by a previous worker',
+        tooltip: `Adopted from worker "${deployedBy}". The ProxyDeployment is still registered on Hypha under that client id, so the service URL may change on the next Ray Serve restart. Redeploy at your convenience to re-register under the current worker.`,
+      };
+    }
+    return {
+      tone: 'info',
+      label: 'Recovered from previous session',
+      tooltip: 'This app was adopted from prior Ray Serve state after the worker pod restarted. The worker retained its client id, so the service URL is stable.',
+    };
+  }, [status?.recovered_app, status?.deployed_by_worker_client_id, workerClientId]);
 
   // Per-deployment "Log Lines" / "Previous Replicas" form values + an
   // in-flight refresh marker, keyed by deployment name. The dialog seeds
@@ -615,7 +719,27 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
           ) : null}
 
           {hasLoaded && (
-            <div className="p-4 rounded-lg border border-gray-200 bg-gray-50">
+            <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 space-y-3">
+              {(tokenExpiryBadge || recoveredAppBadge) && (
+                <div className="flex flex-wrap gap-2">
+                  {tokenExpiryBadge && (
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${badgeToneClass(tokenExpiryBadge.tone)}`}
+                      title={tokenExpiryBadge.tooltip}
+                    >
+                      {tokenExpiryBadge.label}
+                    </span>
+                  )}
+                  {recoveredAppBadge && (
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${badgeToneClass(recoveredAppBadge.tone)}`}
+                      title={recoveredAppBadge.tooltip}
+                    >
+                      {recoveredAppBadge.label}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <div><span className="font-medium text-gray-700">Status:</span> <span className="text-gray-900">{status?.status || 'UNKNOWN'}</span></div>
                 <div><span className="font-medium text-gray-700">Version:</span> <span className="text-gray-900">{status?.version || 'N/A'}</span></div>
