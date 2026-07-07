@@ -1,6 +1,6 @@
 ---
-name: BioImage.IO website
-description: Code-level guidance for the bioimage.io React/TypeScript frontend — coding standards, architectural patterns, component inventory, and development rules.
+name: bioimageio-website
+description: Code-level maintainer guide for the bioimage.io React/TypeScript frontend. Use when editing the React/TypeScript source (src/components/{colab,annotate,bioengine}/, src/store, src/services), touching the Hypha-reachability banner or the HYPHA_SERVER_URL config, working with rdf.yaml validation code that has to line up with bioimageio.spec / bioimageio.core, adding or renaming a bioimage.io partner (icon + collection config), or wiring the frontend to a new BioEngine feature.
 ---
 
 # BioImage.IO website — maintainer guide
@@ -128,23 +128,58 @@ The annotation URL encodes this ID so the annotator (`AnnotatePage`) can connect
 
 ## Related Repositories
 
-| Repo | Path | Language |
+Working copies live under `bioimageio-resources/` at the repo root (added 2026-07-07) so the website's dependencies are readable side-by-side with the frontend code.
+
+| Repo | Path | Role |
 |---|---|---|
-| spec-bioimage-io | `../spec-bioimage-io` | Python |
-| core-bioimage-io-python | `../core-bioimage-io-python` | Python |
-| bioengine | `../bioengine` | Python |
+| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | The RDF format specification + `bioimageio.spec` Python library |
+| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | The `bioimageio.core` runtime that loads and runs models |
+| collection | `bioimageio-resources/collection` | Community metadata: partner registry + reviewer roster |
+| bioengine | `../bioengine` | The distributed Ray-Serve inference backend behind the BioEngine button |
 
-### `../spec-bioimage-io`
+### The spec ↔ core ↔ website version chain
 
-Defines the **official YAML format specification** for all bioimage.io resources (models, datasets, notebooks, applications). Every resource is described by a Resource Description File (RDF) validated against this spec. The repo provides the schema, documentation, and a Python library (`bioimageio.spec`) used by both the website and tooling to parse, validate, and build compliant resource descriptions. Any change to the model metadata format originates here.
+The three form a pinned chain. Any bump has to cascade or the website will silently reject valid resources:
 
-### `../core-bioimage-io-python`
+- **`bioimageio.spec` 0.5.11.0** is the current spec release (2026-06-15). Format versions follow `MAJOR.MINOR.PATCH.LIB`; the first three track the resource schema, the `.LIB` suffix tracks pure implementation changes.
+- **`bioimageio.core` 0.10.4** pins `bioimageio.spec ==0.5.10.2` exactly. That's what actually runs when the website (or a partner tool) calls `bioimageio test`. Do not upgrade the website's schema past what core pins without also bumping core.
+- **The website's schema code** (anything that parses or validates rdf.yaml) must match core's pinned spec. Silent mismatches manifest as "unknown field" errors on the Test button or as models that upload cleanly but fail static validation later.
+- Resources are **YAML 1.2** — use `ruyaml`, not PyYAML. PyYAML mis-parses YAML 1.2 booleans and null forms and will silently corrupt fields.
 
-The **core Python runtime library** (`bioimageio.core`) for loading and executing bioimage.io models. Implements standardized pre/post-processing pipelines, weight format conversion (PyTorch, TensorFlow, ONNX, TorchScript, Keras), dataset statistics computation, and CLI tools for testing resource descriptions. This is what community partner tools and custom scripts use to run inference on Zoo models in a few lines of code.
+### `spec-bioimage-io` (Fynn Beuttenmüller, maintainer)
+
+Defines the RDF format for every bioimage.io resource (model, dataset, notebook, application) and ships the `bioimageio.spec` Python library that validates it. Any change to the model metadata format originates here.
+
+Primary API in `bioimageio.spec/__init__.py`:
+- `load_description`, `load_model_description`, `load_dataset_description` — parse rdf.yaml/bioimageio.yaml.
+- `validate_format` — schema-only format check.
+- `build_description`, `dump_description`, `save_bioimageio_package{,_as_folder}` — create/export.
+- Concrete Pydantic models: `ModelDescr`, `DatasetDescr`, `ApplicationDescr`, `NotebookDescr`, `GenericDescr`; discriminated unions `AnyModelDescr` etc.
+
+### `core-bioimage-io-python` (Fynn Beuttenmüller, maintainer)
+
+The runtime library the website's **Test** button delegates to. Loads models, applies declared pre/post-processing, runs inference, produces the machine-readable test report.
+
+Primary API in `bioimageio.core/__init__.py`:
+- `predict`, `predict_many`, `create_prediction_pipeline` — inference entry points.
+- `test_description`, `test_model` — what powers the website's Test button.
+- Re-exports of `load_description` etc. so most callers import from `bioimageio.core` only.
+- `add_weights`, `create_model_adapter`, `compute_dataset_measures` — weight conversion + dataset stats used during packaging.
+- CLI: `bioimageio test`, `bioimageio predict`.
+
+Backends: supports PyTorch, TensorFlow/Keras, ONNX, JAX. The Test button tries each backend the model declares; per-backend failures are expected (e.g. TF-only models on a PyTorch-only box).
+
+### `collection`
+
+The community metadata layer — not a Python package, just a JSON config plus CI workflows. Two facts the website depends on:
+
+- **Partners** live in `bioimageio_collection_config.json` under `collection_template.partners[]`, each with `id`, `name`, icon URLs, `docs`, and a `resource_types` array. **The website's partner icons and click-handlers use these `id` values verbatim.** When adding or renaming a partner in the frontend, the config entry has to change in the same PR — see the recent partner-icon filtering fix (issue #28 / PR #29) for how the id string flows from config → manifest → click handler.
+- **Reviewers** live under `"reviewers"` in the same JSON, with `id`, `name`, `affiliation`, `orcid`, `github_user`, `email`. This is the roster the review dashboard reads.
+- **Compatibility CI**: `collection/.github/workflows/check_compatibility_<partner>.yaml` runs partner-specific test scripts against submitted resources. Adding a partner needs a matching workflow file — `check_compatibility_ilastik.yaml` is the reference pattern.
 
 ### `../bioengine`
 
-The **distributed AI inference backend** that powers the BioEngine — the in-browser model testing service on bioimage.io. Built on Ray and Ray Serve for auto-scaling GPU inference across cloud/HPC nodes. Exposes model serving via Hypha RPC, supports dataset streaming with access control, and manages custom application deployment. This is the server-side counterpart to the BioEngine frontend that lets users test models on the website.
+The distributed AI inference backend that powers the BioEngine button. Built on Ray + Ray Serve for auto-scaling GPU inference across cloud / HPC nodes. Exposes model serving via Hypha RPC, supports dataset streaming with access control, and manages custom application deployment. Note the path is still one level up — the working copy is not under `bioimageio-resources/` because it's under active co-development in a sibling directory.
 
 **BioEngine skill**: When working with BioEngine apps (deploying, updating, calling services), load the skill at `public/skills/bioengine/SKILL.md` first — it contains the canonical deploy workflow, CLI reference, and critical pitfalls. Key rule: always pass `--app-id <running-id>` when updating a deployed app; omitting it always creates a new random instance.
 

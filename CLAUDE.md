@@ -50,13 +50,16 @@ Load these skills before touching the matching area of the codebase — they hol
 
 ## Related Repositories
 
-| Repo | Path | Role |
-|---|---|---|
-| spec-bioimage-io | `../spec-bioimage-io` | The official YAML/RDF spec for every resource — schema lives here. |
-| core-bioimage-io-python | `../core-bioimage-io-python` | The Python runtime (`bioimageio.core`) that loads and runs models. |
-| bioengine | `../bioengine` | The distributed Ray-Serve inference backend behind the BioEngine button. |
+Working copies of the sibling libraries live under `bioimageio-resources/` in this repo (added 2026-07-07) so they can be grepped side-by-side with the frontend:
 
-The bioimageio-website skill carries the longer description of each repo and how the website depends on it.
+| Repo | Path | Current release | Role |
+|---|---|---|---|
+| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | 0.5.11.0 (2026-06-15) | RDF format spec + `bioimageio.spec` Python library |
+| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | 0.10.4 (pins spec 0.5.10.2) | `bioimageio.core` — what the Test button delegates to |
+| collection | `bioimageio-resources/collection` | dev (CI-only) | Community partner registry + reviewer roster (JSON config) |
+| bioengine | `../bioengine` | co-developed sibling | Ray-Serve inference backend behind the BioEngine button |
+
+The spec ↔ core versions are a pinned chain — bumping one without the other silently rejects otherwise-valid resources. See the bioimageio-website skill for the version-chain rule, the partner-registry file, and the YAML 1.2 / ruyaml gotcha.
 
 ---
 
