@@ -56,7 +56,7 @@ Optional but strongly recommended:
 ```
 
 **If example images are not provided:** search the model card, source repository, linked dataset, or paper assets for a permissive representative image; otherwise ask the user. Generate a random/synthetic tensor only as a last resort, and say so in the packaging log.
-**If cover image not provided:** create a cover from the representative input/output/sample tensors (matplotlib is the usual tool for a side-by-side input/output visualization at ~2:1 aspect ratio) rather than unrelated decorative imagery.
+**If cover image not provided:** create a cover from the representative input/output/sample tensors — the spec accepts both `~2:1` (a horizontal input-then-output panel) and `1:1` (a square with input in one corner and prediction in the diagonally-opposite corner separated by a thin line). Matplotlib handles either. Avoid contact sheets, text-heavy previews, unrelated decorative imagery, and multiple cover drafts.
 
 **Downloading from HuggingFace:**
 ```bash
@@ -84,6 +84,16 @@ curl -L "https://zenodo.org/records/RECORD_ID/files/FILENAME" -o FILENAME
 
 ## Phase 2 — Build the Package
 
+### Pick the primary weight format first
+
+Every package has exactly one primary weight format. Decide before you copy anything — `rdf.yaml` is the source of truth for what belongs in the upload, and the primary format determines whether an architecture `.py` needs to travel with the weights.
+
+- **`pytorch_state_dict` — preferred when the architecture can be shared cleanly.** Most transparent: reviewers and downstream users can inspect both the architecture (`.py`) and the trained weights (`.pt`). Requires a self-contained architecture file — see [architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the fixed BioEngine runtime constraints. Add ONNX or TorchScript as **secondary** formats with `parent: pytorch_state_dict` to broaden backend coverage without re-declaring the model.
+- **`torchscript` or `onnx` — embedded graph, no `.py`.** The architecture is baked into the weight file. Do **not** ship an architecture `.py` alongside these formats; it will be ignored at best and become stale at worst. Use when the architecture is proprietary, too complex to rewrite portably, or already exported by upstream.
+- **Source checkpoints stay outside the package.** A `checkpoint.pth`, HuggingFace snapshot, or Zenodo record you started from is *provenance* — cite it in `cite:` or `training_data:`, don't copy it into `generated/`. The only weight files that belong in the package are the ones `rdf.yaml` actually references.
+
+### Build steps
+
 > **Note:** Resolve helper scripts relative to the directory containing this `SKILL.md`. In examples below, set `SKILL_DIR` to that directory.
 
 ```bash
@@ -92,16 +102,33 @@ SKILL_DIR=/path/to/bioimageio-models  # directory containing this SKILL.md
 printf 'generated/\n' >> model_package/.gitignore
 ```
 
-1. Create a package source folder for hand-written files (`build_package.py`, architecture code, notes) and a dedicated generated package folder such as `generated/`.
-2. Add generated/downloaded artifacts to `.gitignore` if the work is in a repository. Keep large weights, downloaded config/license files, generated `rdf.yaml`, generated `README.md`, covers, test tensors, and caches out of source control unless the user explicitly wants otherwise.
-3. Copy/download weight file(s) into the generated package folder.
-4. Include native `pytorch_state_dict` weights when possible. Use it as the root/canonical weights format, then add ONNX/TorchScript/etc. as secondary formats with `parent: pytorch_state_dict`.
-5. Copy architecture `.py` file into the generated package folder if `pytorch_state_dict` is used. Keep the source copy outside `generated/` so rebuilds are reproducible — **see architecture rules below**.
-6. Compute SHA256 for all files:
+1. Create a package source folder for hand-written files (`build_package.py`, architecture source, notes) and a dedicated generated package folder such as `generated/`. Add `generated/` to `.gitignore` when the work sits in a repository.
+2. **Only files that `rdf.yaml` will reference belong in `generated/`.** A clean package is usually 5–9 files; if `generated/` grows past that, something is being packaged that shouldn't be.
+
+   Keep:
+   - `rdf.yaml` and `README.md`
+   - The active weight file per declared format (e.g. `weights.pt` for `pytorch_state_dict`, `weights.onnx` for ONNX)
+   - Architecture `.py` — **only** for `pytorch_state_dict`
+   - `test_input.npy` and `test_output.npy`
+   - One cover image
+   - Custom license file when the license isn't SPDX-listed
+   - Custom pre/postprocessing `.py` sources declared in `rdf.yaml`
+
+   Drop:
+   - Source checkpoints (`checkpoint.pth`, HF snapshots, Zenodo tarballs) — provenance goes in `cite:` / `training_data:`
+   - Alternate cover drafts, source TIFFs, ground-truth references, training/validation datasets
+   - Validation plots, metrics JSON, TensorBoard logs, notebooks, Fiji macros
+   - `build_package.py`, helper scripts, `.gitignore`, packaging notes
+   - Anything produced by Phases 5–7 (Hypha upload scripts, tokens, remote-test reports, issue drafts)
+
+3. Copy or download the primary weight file into `generated/`. If a native `pytorch_state_dict` is available, use it as the canonical format and add ONNX/TorchScript as secondary formats with `parent: pytorch_state_dict`. Do not include source checkpoints alongside the exported weights.
+4. Copy the architecture `.py` into `generated/` **only** when `pytorch_state_dict` is the primary format. TorchScript and ONNX packages omit `.py` — the graph is embedded in the weight file. Keep the source copy of the architecture outside `generated/` so rebuilds are reproducible — **see architecture rules below**.
+5. Compute SHA256 for every file `rdf.yaml` will reference (weights, test tensors, architecture, cover, custom license, custom processing sources):
    ```bash
    python "$SKILL_DIR"/scripts/compute_sha256.py model_package/generated/
    ```
-7. Generate test tensors if not provided:
+   The script hashes everything in the directory — copy only the hashes for files listed in `rdf.yaml`; ignore any hashes for stray files you left in `generated/`.
+6. Generate test tensors if not provided:
    ```bash
    # Basic usage (random input):
    python "$SKILL_DIR"/scripts/generate_test_tensors.py \
@@ -119,8 +146,8 @@ printf 'generated/\n' >> model_package/.gitignore
      --model model_package/generated/weights.pt --arch model_package/generated/model.py \
      --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/generated/
    ```
-8. Write `model_package/generated/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md). If the model needs custom pre/postprocessing (Cellpose flow dynamics, StarDist NMS, custom normalizers, or any callable that isn't a built-in op), see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) for the `id: custom` pattern (inline `.py` + SHA256 vs. registered ops) — this is preferred over embedding logic in `forward()` when the extra step is data transformation rather than the model itself.
-9. Write `model_package/generated/README.md` — must contain these sections:
+7. Write `model_package/generated/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md). If the model needs custom pre/postprocessing (Cellpose flow dynamics, StarDist NMS, custom normalizers, or any callable that isn't a built-in op), see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) for the `id: custom` pattern (inline `.py` + SHA256 vs. registered ops) — this is preferred over embedding logic in `forward()` when the extra step is data transformation rather than the model itself.
+8. Write `model_package/generated/README.md` — describes the **model itself** (what it does, how to use it, provenance). Do not list files or paths; `rdf.yaml` is the source of truth for package contents, and repeating that inventory in the README is where it goes stale. Must contain these sections:
    - `## Description` — what the model does, modality, organism
    - `## Intended Use` — what tasks it is suitable for, known limitations
    - `## Validation` (exact heading, required by `bioimageio test`) — mention test results
