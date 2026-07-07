@@ -1,6 +1,25 @@
 # Annotated example: UNet2D nucleus segmentation model
 # Copy this as a starting template and fill in your values.
 # Remove comments before running bioimageio test.
+#
+# This represents a complete, minimal `pytorch_state_dict` package.
+# The corresponding `generated/` folder contains exactly the files
+# this rdf.yaml references — nothing more:
+#
+#   rdf.yaml              (this file)
+#   README.md             (documentation, listed under `documentation:`)
+#   weights.pt            (primary weights, under `weights.pytorch_state_dict.source`)
+#   model.py              (architecture, under `weights.pytorch_state_dict.architecture.source`)
+#   test_input.npy        (referenced under `inputs[0].test_tensor.source`)
+#   test_output.npy       (referenced under `outputs[0].test_tensor.source`)
+#   cover0.png            (referenced under `covers[]`)
+#   LICENSE.md            (only if the license is a non-SPDX file descriptor)
+#
+# Source checkpoints, alternate covers, ground-truth references,
+# validation plots, metrics JSON, Fiji macros, training loops, and
+# helper scripts do NOT belong in the packaged folder — cite them via
+# `cite:` or `training_data:` instead. See SKILL.md Phase 2 for the
+# full Keep / Drop list.
 
 %YAML 1.2
 ---

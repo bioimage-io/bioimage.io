@@ -5,6 +5,28 @@ model submitted with `weights: pytorch_state_dict`. Other weight formats
 (TorchScript, ONNX, TensorFlow SavedModel, etc.) embed the architecture
 in the weight file itself and do not need a `.py`.
 
+## Why `pytorch_state_dict` is the preferred primary format
+
+When the architecture code can be shared cleanly (rewritable into the
+fixed BioEngine runtime — see the next section), prefer
+`pytorch_state_dict` over embedded-graph formats. It's the most
+*transparent* option: reviewers and downstream users can read the
+architecture (`.py`) and the trained weights (`.pt`) independently.
+Compatibility bugs, subtle differences between torch versions, and
+weight-conversion bugs are visible at code-review time rather than
+hidden inside a serialized graph.
+
+Choose `torchscript` / `onnx` as the primary format only when the
+architecture is proprietary, too complex to rewrite portably (e.g. a
+full Cellpose or StarDist backbone in a hurry), or already exported by
+upstream. When you do, drop the architecture `.py` from the package
+entirely — the graph is in the weight file and shipping stale `.py`
+alongside just invites confusion.
+
+For maximum backend coverage, ship `pytorch_state_dict` as the primary
+format and add TorchScript / ONNX as *secondary* formats with
+`parent: pytorch_state_dict` in the RDF.
+
 ## Fixed BioEngine runtime
 
 The BioEngine model runner runs inside a Ray Serve deployment that has
