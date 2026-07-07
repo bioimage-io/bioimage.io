@@ -15,32 +15,51 @@ per-model. Your architecture file must work with only:
 ```
 torch==2.5.1          torchvision==0.20.1   numpy==1.26.4
 tensorflow==2.16.1    bioimageio.core==0.10.0  onnxruntime==1.20.1
-careamics==0.0.16     cellpose==3.1.1.2     xarray==2025.1.2
+careamics==0.0.16     cellpose==3.1.1.2     stardist==0.9.1
+xarray==2025.1.2
 ```
 
 ## Rules
 
-- **No custom library imports.** Do not `import cellpose`,
-  `import stardist`, `import monai`, or any package not in the list
-  above. If the original model used such a library, rewrite the
-  architecture class using only `torch` + `torch.nn`.
+- **No imports outside the fixed list above.** `import cellpose`,
+  `import torch`, `import torchvision`, `import tensorflow`,
+  `import onnxruntime`, `import careamics`, `import bioimageio.core`,
+  `import numpy`, `import stardist`, and `import xarray` all work —
+  those packages are pre-installed at the pinned versions above.
+  Anything else — including `import monai`,
+  `import segmentation_models_pytorch`, `import kornia` — will fail
+  at deploy time.
 - **Self-contained.** The `.py` file must define the full model class
   with all layers inline. No relative imports, no local helper modules.
 - **No `conda_env` field in `rdf.yaml`.** Omit it entirely. Adding a
   custom conda environment will prevent the BioEngine from running the
   model.
-- **Minimal imports.** Only `import torch`, `import torch.nn as nn`,
-  and `import numpy as np` at the top. Nothing else unless it's in the
-  fixed list above.
+- **Keep the import block small.** For most models `import torch`,
+  `import torch.nn as nn`, `import numpy as np` is all you need. Import
+  cellpose / careamics / tensorflow only when the model actually depends
+  on them at forward time.
 - **Constructor accepts plain Python types only** — `int`, `float`,
   `bool`, `str`. No custom config objects (Pydantic models, dataclasses,
   hydra configs, etc.).
 
+### If your model needs a package that isn't in the list
+
+- For a one-off remote test, `bioimage-io/model-runner`'s
+  `test(..., additional_requirements=["your_package==x.y.z"])` kwarg
+  runs that single test as a fresh Ray task that layers your extras on
+  top of the baseline. Good for prototyping; slower on every call.
+- For a permanent addition, file an issue at
+  <https://github.com/aicell-lab/bioengine> requesting the package be
+  added to `apps/model-runner/runtime.py`'s `REQUIREMENTS`. Include the
+  package version and why it can't be replaced by native `torch` /
+  `numpy` code.
+
 ## Bad — will fail on BioEngine
 
 ```python
-from cellpose.models import CellposeModel   # custom lib, not installed
-from my_project.blocks import ResBlock      # local import, path not available
+import stardist                                # not in the fixed runtime — deploy fails
+import monai                                   # not in the fixed runtime — deploy fails
+from my_project.blocks import ResBlock         # local import, path not available at runtime
 ```
 
 ## Good

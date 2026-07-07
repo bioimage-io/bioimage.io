@@ -305,6 +305,21 @@ class MyDeployment:
 ### Key rules
 
 - Use `@bioengine.app(num_cpus=..., num_gpus=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- **Extract the `pip=[...]` list to a `requirements-<module>.txt` file** next to the module (e.g. `requirements-runtime.txt` next to `runtime.py`) and load it via a small helper. Same pin values ship, but the deps look like a real requirements file — Dependabot / pip-audit can point at the file, PR diffs isolate dep bumps, and the decorator stays readable:
+  ```python
+  from pathlib import Path
+
+  def _read_pip(name: str) -> list[str]:
+      text = (Path(__file__).parent / name).read_text()
+      return [
+          l.strip() for l in text.splitlines()
+          if l.strip() and not l.lstrip().startswith("#")
+      ]
+
+  @bioengine.app(pip=_read_pip("requirements-runtime.txt"), ...)
+  class RuntimeApp: ...
+  ```
+  Applies to every app regardless of pin count. When a file has multiple `@bioengine.app` sites (e.g. an entry + runtime pair), give each its own `requirements-<module>.txt` and duplicate the helper — apps ship as self-contained packages, so per-file duplication beats cross-module imports.
 - Lifecycle hooks are decorators with **free method names**: `@bioengine.async_init`, `@bioengine.smoke_test`, `@bioengine.health_check`, `@bioengine.multiplexed(max_models=N)`. The reserved names `async_init` / `test_deployment` / `check_health` no longer work as plain methods.
 - API methods: `@bioengine.method` (basic) or `@bioengine.method(context=True)` (opt-in caller-context injection — the user method must declare a `context` parameter; arrives as a plain dict, never a Hypha proxy).
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.

@@ -9,6 +9,10 @@ Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io)
 - The user wants to compare multiple models against ground truth.
 - The user wants to validate a model RDF or run BioImage.IO compliance tests.
 
+## Contributing a model to the Zoo?
+
+This skill is for **calling** an already-deployed model-runner to run existing BioImage.IO models. To **package and submit a new model** to the Zoo (RDF creation, weight-format conversion, static + dynamic validation, submission workflow, and the fixed runtime environment your architecture code will run against), load the [`bioimageio-models`](https://bioimage.io/skills/bioimageio-models/SKILL.md) skill instead.
+
 ## Setup
 
 Install the CLI (Python ≥ 3.11):
