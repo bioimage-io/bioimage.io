@@ -36,28 +36,27 @@ Required:
 [ ] Model architecture code — for pytorch_state_dict (the Python class)
 [ ] Input tensor: shape, dtype, axes, channel names, expected value range
 [ ] Output tensor: shape, dtype, axes, channel names, value range
-[ ] Preprocessing — zero_mean_unit_variance / scale_range / custom / none
-[ ] Postprocessing — sigmoid / cellpose_flow_dynamics / stardist_postprocessing / custom / none
-      (note: `softmax` is NOT a valid built-in op — embed it in `forward()` instead)
-      (for Cellpose or StarDist models, ask if the model outputs raw flows/distances that need decoding)
-[ ] Representative test input image (any format; will be converted to .npy)
+[ ] Preprocessing — prefer adaptable normalization (`zero_mean_unit_variance`, `scale_range`) over fixed values when compatible with the model; verify whether any upstream pipeline already applies it
+[ ] Postprocessing — `sigmoid`, `none`, or a custom callable (Cellpose flow dynamics, StarDist NMS, custom decoders → see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)); note that `softmax` is NOT a valid built-in op — embed it in `forward()` instead
+[ ] Representative example image(s) for test/sample/cover use — search the source repo/model card/dataset links first, then ask the user if needed
 [ ] Model name — specific, human-readable (e.g. "cFOS Segmentation 2D UNet - Mouse Hippocampus")
 [ ] Description — 2-4 sentences: what it does, modality, organism/tissue, training data
-[ ] License — SPDX identifier: MIT, CC-BY-4.0, CC0-1.0, Apache-2.0, GPL-3.0
+[ ] License — SPDX identifier (e.g. `MIT`, `CC-BY-4.0`, `CC0-1.0`, `Apache-2.0`, `GPL-3.0`), or a custom license file descriptor for spec >= 0.5.11
 [ ] Author name(s)
 
 Optional but strongly recommended:
 [ ] Author ORCID, GitHub username, affiliation
+[ ] `packaged_by` person(s), especially when packagers differ from model authors
 [ ] Citation DOI or URL (paper)
 [ ] Tags (modality, task, architecture, framework, organism)
 [ ] Git repository URL
 [ ] Documentation / README
-[ ] Cover image (PNG/JPG, 2:1 aspect, <500KB)
+[ ] Cover image (PNG/JPG, ~2:1 aspect ratio, <500KB) and sample tensors derived from real example data where possible
 [ ] Hypha token for submission (ask at submission time; never store or log)
 ```
 
-**If test input not provided:** generate a random tensor from the shape spec.  
-**If cover image not provided:** generate side-by-side input/output visualization with matplotlib.
+**If example images are not provided:** search the model card, source repository, linked dataset, or paper assets for a permissive representative image; otherwise ask the user. Generate a random/synthetic tensor only as a last resort, and say so in the packaging log.
+**If cover image not provided:** create a cover from the representative input/output/sample tensors (matplotlib is the usual tool for a side-by-side input/output visualization at ~2:1 aspect ratio) rather than unrelated decorative imagery.
 
 **Downloading from HuggingFace:**
 ```bash
@@ -85,85 +84,96 @@ curl -L "https://zenodo.org/records/RECORD_ID/files/FILENAME" -o FILENAME
 
 ## Phase 2 — Build the Package
 
-> **Note:** Run the commands in this phase from the **`bioimage.io` repository root** (the directory that contains the `public/skills/` folder). If the skill was loaded from a URL rather than the local repo, download the scripts directory first or adjust paths accordingly.
+> **Note:** Resolve helper scripts relative to the directory containing this `SKILL.md`. In examples below, set `SKILL_DIR` to that directory.
 
 ```bash
-mkdir -p model_package
+mkdir -p model_package/generated
+SKILL_DIR=/path/to/bioimageio-models  # directory containing this SKILL.md
+printf 'generated/\n' >> model_package/.gitignore
 ```
 
-1. Copy/download weight file(s) into `model_package/`
-2. Copy architecture `.py` file (if pytorch_state_dict) — **see architecture rules below**
-3. Compute SHA256 for all files:
+1. Create a package source folder for hand-written files (`build_package.py`, architecture code, notes) and a dedicated generated package folder such as `generated/`.
+2. Add generated/downloaded artifacts to `.gitignore` if the work is in a repository. Keep large weights, downloaded config/license files, generated `rdf.yaml`, generated `README.md`, covers, test tensors, and caches out of source control unless the user explicitly wants otherwise.
+3. Copy/download weight file(s) into the generated package folder.
+4. Include native `pytorch_state_dict` weights when possible. Use it as the root/canonical weights format, then add ONNX/TorchScript/etc. as secondary formats with `parent: pytorch_state_dict`.
+5. Copy architecture `.py` file into the generated package folder if `pytorch_state_dict` is used. Keep the source copy outside `generated/` so rebuilds are reproducible — **see architecture rules below**.
+6. Compute SHA256 for all files:
    ```bash
-   python public/skills/bioimageio-models/scripts/compute_sha256.py model_package/
+   python "$SKILL_DIR"/scripts/compute_sha256.py model_package/generated/
    ```
-4. Generate test tensors if not provided:
+7. Generate test tensors if not provided:
    ```bash
    # Basic usage (random input):
-   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
-     --model model_package/weights.pt --arch model_package/model.py \
-     --class MyModel --input-shape "1,1,256,256" --output model_package/
+   python "$SKILL_DIR"/scripts/generate_test_tensors.py \
+     --model model_package/generated/weights.pt --arch model_package/generated/model.py \
+     --class MyModel --input-shape "1,1,256,256" --output model_package/generated/
 
    # If model constructor takes arguments (e.g. in_channels, depth):
-   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
-     --model model_package/weights.pt --arch model_package/model.py \
+   python "$SKILL_DIR"/scripts/generate_test_tensors.py \
+     --model model_package/generated/weights.pt --arch model_package/generated/model.py \
      --class UNet2D --kwargs '{"in_channels": 1, "out_channels": 1, "depth": 4}' \
-     --input-shape "1,1,256,256" --output model_package/
+     --input-shape "1,1,256,256" --output model_package/generated/
 
    # Skip normalization (for pre-normalized data):
-   python public/skills/bioimageio-models/scripts/generate_test_tensors.py \
-     --model model_package/weights.pt --arch model_package/model.py \
-     --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/
+   python "$SKILL_DIR"/scripts/generate_test_tensors.py \
+     --model model_package/generated/weights.pt --arch model_package/generated/model.py \
+     --class MyModel --skip-normalize --input-shape "1,1,256,256" --output model_package/generated/
    ```
-5. Write `model_package/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
-   - Use `format_version: 0.5.10`
-   - If the model needs Cellpose/StarDist decoding or custom logic, see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)
-6. Write `model_package/README.md` — must contain these sections:
+8. Write `model_package/generated/rdf.yaml` — see [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md). If the model needs custom pre/postprocessing (Cellpose flow dynamics, StarDist NMS, custom normalizers, or any callable that isn't a built-in op), see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) for the `id: custom` pattern (inline `.py` + SHA256 vs. registered ops) — this is preferred over embedding logic in `forward()` when the extra step is data transformation rather than the model itself.
+9. Write `model_package/generated/README.md` — must contain these sections:
    - `## Description` — what the model does, modality, organism
    - `## Intended Use` — what tasks it is suitable for, known limitations
    - `## Validation` (exact heading, required by `bioimageio test`) — mention test results
    - `## Citation` — reference the paper
 
+### Spec 0.5.11+ packaging notes
+
+- Use `format_version: 0.5.11` or the latest released model spec supported by `bioimageio.core`.
+- `license` may be either an SPDX identifier or a file descriptor:
+  ```yaml
+  license:
+    source: LICENSE.md
+    sha256: <sha256>
+  ```
+  Use a custom license file when the upstream license is not SPDX-listed.
+- `covers` and `documentation` are file descriptors in current spec versions:
+  ```yaml
+  covers:
+    - source: cover0.png
+      sha256: <sha256>
+  documentation:
+    source: README.md
+    sha256: <sha256>
+  ```
+- Add `packaged_by` when the packaging author differs from the model authors:
+  ```yaml
+  packaged_by:
+    - name: "Firstname Lastname"
+      github_user: githubhandle
+      affiliation: "Institute"
+  ```
+- Set `maintainers` to the packagers by default, since they are usually the people who can fix packaging issues and update the submitted package.
+- Keep all `source` paths relative to the package directory that contains `rdf.yaml`. If artifacts live in `generated/`, validate `generated/rdf.yaml`, not a stale root-level RDF.
+
+### Test-output contract
+
+`test_output.npy` must be generated from `test_input.npy` using exactly the preprocessing, model weights, and output postprocessing declared in `rdf.yaml`.
+
+- Prefer generating reference outputs independently from `bioimageio.core`, as close to the model's native library/runtime as possible (for example PyTorch/Transformers/Keras/Stardist native APIs). Use `bioimageio.core` to validate the package, not as the source of truth for `test_output.npy`.
+- If an upstream pipeline already applies the same preprocessing declared in `rdf.yaml`, use the pipeline directly to create `test_output.npy`.
+- If the upstream pipeline applies different preprocessing, do not double-normalize or silently rely on it. Either declare the upstream preprocessing in `rdf.yaml`, or bypass the pipeline preprocessing and feed the model tensors that have been preprocessed according to the RDF.
+- Inspect pipeline/image-processor configs numerically. For Hugging Face image models, check fields like `do_normalize`, `image_mean`, and `image_std`, and compare actual `pixel_values` to the intended BioImage.IO preprocessing.
+- When comparing backends, first confirm outputs are correlated and shaped correctly before loosening tolerances. Device/provider changes should not create drastic differences; large drift usually means a preprocessing or output-selection mismatch.
+
+### Preprocessing preference
+
+- Prefer adaptable input normalization such as `zero_mean_unit_variance` or `scale_range` over fixed constants when the model can reasonably support it. Adaptive normalization is usually more portable across acquisition settings.
+- Use `fixed_zero_mean_unit_variance` or `scale_linear` only when the native model contract requires fixed training statistics (for example ImageNet mean/std or published dataset statistics). If fixed values are required, document their source.
+- Keep the RDF, reference-output generation, README, and packaging log consistent. Do not switch preprocessing just in the RDF without regenerating `test_output.npy`.
+
 ### Architecture file rules (pytorch_state_dict only)
 
-The BioEngine model runner has a **fixed set of pre-installed packages** — there is no custom conda
-environment support. Your architecture `.py` must work with only these:
-
-```
-torch==2.5.1          torchvision==0.20.1   numpy==1.26.4
-tensorflow==2.16.1    bioimageio.core==0.10.0  onnxruntime==1.20.1
-careamics==0.0.16     cellpose==3.1.1.2     xarray==2025.1.2
-```
-
-**Rules:**
-- **No custom library imports** — do not `import cellpose`, `import stardist`, `import monai`, or any package not in the list above. If the original model used such a library, rewrite the architecture class using only `torch` + `torch.nn`.
-- **Self-contained** — the `.py` file must define the full model class with all layers inline. No relative imports, no local helper modules.
-- **No `conda_env` field in `rdf.yaml`** — omit it entirely. Adding a custom conda environment will prevent the BioEngine from running the model.
-- **Minimal imports** — only `import torch`, `import torch.nn as nn`, `import numpy as np` at the top. Nothing else unless it's in the fixed list.
-- **Constructor must accept plain Python types** — `int`, `float`, `bool`, `str`. No custom config objects.
-
-**Bad (will fail on BioEngine):**
-```python
-from cellpose.models import CellposeModel   # ❌ custom lib
-from my_project.blocks import ResBlock      # ❌ local import
-```
-
-**Good:**
-```python
-import torch
-import torch.nn as nn
-
-class UNet(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1):
-        super().__init__()
-        self.enc = nn.Conv2d(in_channels, 64, 3, padding=1)
-        self.dec = nn.Conv2d(64, out_channels, 1)
-    def forward(self, x):
-        return self.dec(torch.relu(self.enc(x)))
-```
-
-If the original architecture is too complex to rewrite portably, consider exporting to **TorchScript**
-or **ONNX** instead — those formats embed the architecture in the weight file and need no `.py` at all.
+If the model ships `pytorch_state_dict` weights, the architecture `.py` must be self-contained and use only the fixed set of packages pre-installed on the BioEngine model runner (`torch==2.5.1`, `torchvision==0.20.1`, `numpy==1.26.4`, `bioimageio.core==0.10.0`, `onnxruntime==1.20.1`, plus a few others — no `conda_env` support, no per-model installs). See [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the full list, the rules on imports / constructor args / self-containment, and Bad/Good examples. When rewriting isn't feasible (e.g. Cellpose backbones), export to TorchScript or ONNX and skip the `.py` entirely.
 
 Full field reference and annotated example:
 - [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
@@ -174,44 +184,45 @@ Full field reference and annotated example:
 ## Phase 3 — Static Validation
 
 ```bash
-pip install -q bioimageio.spec
+pip install -q "bioimageio.spec>=0.5.11"
 python -c "
 from bioimageio.spec import load_description
-desc = load_description('model_package/rdf.yaml')
+desc = load_description('model_package/generated/rdf.yaml')
 print('✓ Static validation passed:', type(desc).__name__)
 "
 ```
 
 Fix errors and retry. Common issues:
 - Missing `sha256` for a referenced file — run `compute_sha256.py` and update the YAML
-- Wrong `format_version` — use `0.5.10`
+- Wrong `format_version` — use `0.5.11` or the latest released model spec supported by the installed `bioimageio.spec` package; custom license files require `0.5.11` or newer
 - Duplicate axis `id` values **within** a single tensor (same IDs across input/output tensors is fine)
 - `pytorch_state_dict` must NOT have a `parent` field
 - `softmax` is NOT a valid postprocessing operation — embed it inside the model's `forward()`
-- `covers` must be a plain list of string paths: `["cover.png"]` — do NOT use `source:`/`sha256:` dicts (those are only for `test_tensor`)
+- Current spec versions expect file descriptors for `covers` and `documentation`; include both `source` and `sha256`
 - `SizeReference` has NO `scale` field — cannot express "output = input/2". For models with stride/grid > 1 (e.g., StarDist grid=2), use fixed output sizes instead of a reference
 
 ---
 
 ## Phase 4 — Dynamic Testing
 
-> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, Python 3.8/3.9 works. On Python 3.10+, use the latest versions.
+> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, `bioimageio.core==0.9.0` works on Python 3.8/3.9 without downgrading. On Python 3.8/3.9 with `pytorch_state_dict`, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, use current versions from conda-forge or `pip install "bioimageio.spec>=0.5.11" "bioimageio.core>=0.10"`.
 
 ```bash
-pip install -q "bioimageio.spec>=0.5.10" "bioimageio.core>=0.10"
-bioimageio test model_package/rdf.yaml
+pip install -q "bioimageio.spec>=0.5.11" "bioimageio.core>=0.10"
+bioimageio test model_package/generated/rdf.yaml
 
-# For models with custom pre/postprocessing, add the flag:
-bioimageio test model_package/rdf.yaml --allow-custom-postprocessing
+# For models that use custom pre/postprocessing (id: custom, source: .py),
+# opt in to executing the shipped callable:
+bioimageio test model_package/generated/rdf.yaml --allow-custom-postprocessing
 ```
 
 Or with conda (handles Python version automatically):
 ```bash
 conda create -n bioimageio -c conda-forge bioimageio.core -y
-conda run -n bioimageio bioimageio test model_package/rdf.yaml
+conda run -n bioimageio bioimageio test model_package/generated/rdf.yaml
 ```
 
-Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.  
+Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.
 Fix shape/dtype/preprocessing errors and rerun.
 
 Common dynamic test failures:
@@ -221,8 +232,9 @@ Common dynamic test failures:
   checkpoint = torch.load('original.pth', weights_only=False)
   torch.save(checkpoint['model'], 'weights.pt')  # or checkpoint['state_dict'], etc.
   ```
-- `test output does not match` — regenerate `test_output.npy` by running the model on `test_input.npy`
+- `test output does not match` — regenerate `test_output.npy` by running the declared preprocessing + model + postprocessing on `test_input.npy`; verify upstream pipeline preprocessing before using it
 - `shape mismatch` — check that `test_input.npy` shape matches the `axes` spec exactly
+- ONNX passes on CPU but may fail on a device/provider such as CoreML — compare CPU vs provider outputs and record drift. Prefer generating reference outputs with the same provider used for validation, or force CPU during local validation when provider-specific numerical drift is unrelated to package correctness.
 
 ---
 
@@ -235,7 +247,7 @@ See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-model
    pip install -q hypha-rpc
    python https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py
    # or if running from the local repo:
-   python public/skills/bioimageio-models/scripts/hypha_login.py
+   python "$SKILL_DIR"/scripts/hypha_login.py
    ```
    Then load it:
    ```bash
@@ -339,7 +351,7 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
                     await client.put(put_url, content=fobj.read(), headers={"Content-Type": ""})
                 print(f"  ✓ re-uploaded {rel}")
 
-asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/"))
+asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/generated/"))
 ```
 
 After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `valid-format`.
@@ -371,7 +383,7 @@ async def request_review(artifact_id: str, token: str, package_dir: str):
         print(f"Review requested for {artifact_id}")
         print(f"Track status: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
 
-asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/"))
+asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/generated/"))
 ```
 
 **What happens next (curator side):**
@@ -386,119 +398,13 @@ asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", pack
 
 ## Phase 7 — Audit & Report Improvements
 
-**This phase is mandatory.** After completing the submission (success or failure), review your running log and report issues. This is how the BioImage Model Zoo infrastructure keeps improving.
+**This phase is mandatory.** After the submission (success or failure), walk your running log and file the reports below. This is how the BioImage Model Zoo infrastructure keeps improving. All boilerplate — `gh issue create` bodies for each target repo and the success-example template — lives in [references/audit-templates.md](https://bioimage.io/skills/bioimageio-models/references/audit-templates.md); copy from there rather than authoring from scratch.
 
-### 7a — Report spec/validation issues
-
-If you found the YAML spec unclear, a validation error message unhelpful, or a required field underdocumented:
-
-```bash
-# Open an issue on the spec repo
-gh issue create \
-  --repo bioimage-io/spec-bioimage-io \
-  --title "YOUR TITLE HERE" \
-  --body "$(cat <<'EOF'
-## Problem
-[Describe exactly what was confusing or broken]
-
-## Steps to reproduce
-[Paste the rdf.yaml section or the error message]
-
-## Expected behavior
-[What should have happened instead]
-
-## Environment
-- bioimageio.spec version: $(python -c "import bioimageio.spec; print(bioimageio.spec.__version__)")
-- bioimageio.core version: $(python -c "import bioimageio.core; print(bioimageio.core.__version__)")
-- Python: $(python --version)
-- Model type: [PyTorch / TF / ONNX]
-EOF
-)"
-```
-
-Or create the issue at: https://github.com/bioimage-io/spec-bioimage-io/issues
-
-### 7b — Report core library issues
-
-If `bioimageio test` crashed, gave wrong results, or failed for unclear reasons:
-
-```bash
-gh issue create \
-  --repo bioimage-io/core-bioimage-io-python \
-  --title "Test failure: [brief description]" \
-  --body "$(cat <<'EOF'
-## Error
-[Full traceback from bioimageio test]
-
-## Model details
-[format_version, weight format, preprocessing steps]
-
-## Reproduction
-[Minimal rdf.yaml that reproduces the issue]
-EOF
-)"
-```
-
-Or: https://github.com/bioimage-io/core-bioimage-io-python/issues
-
-### 7c — Report website / submission issues
-
-If the upload process, the Hypha API, or the bioimage.io website had problems:
-
-```bash
-gh issue create \
-  --repo bioimage-io/bioimage.io \
-  --title "[Upload/API] YOUR ISSUE" \
-  --body "..."
-```
-
-Or: https://github.com/bioimage-io/bioimage.io/issues
-
-### 7d — Propose improvements to this skill
-
-If these instructions were confusing, incomplete, or missing key steps, open a PR or issue to improve the skill itself:
-
-```bash
-gh issue create \
-  --repo bioimage-io/bioimage.io \
-  --title "[Skill] bioimageio-models: [what to improve]" \
-  --body "$(cat <<'EOF'
-## What was confusing / missing
-[Describe the gap in the skill instructions]
-
-## Where in the skill
-[Phase X, file references/..., etc.]
-
-## Suggested improvement
-[Draft the improved text or instructions]
-
-## Model submitted
-[What model you were packaging — helps reproduce the scenario]
-EOF
-)"
-```
-
-Skill source: `public/skills/bioimageio-models/` in https://github.com/bioimage-io/bioimage.io
-
-### 7e — Add your model as a success example
-
-If the submission succeeded, document it so future agents can learn from it. Add a note to the skill:
-
-```bash
-# Append your successful example to references/success-examples.md
-cat >> skills/bioimageio-models/references/success-examples.md <<'EOF'
-
-## [Model Name] — [Date]
-- **Source**: [HuggingFace/Zenodo URL]
-- **Weight format**: [pytorch_state_dict / onnx / tensorflow_saved_model_bundle]
-- **Key challenge**: [What was the hardest part]
-- **What worked**: [The approach that solved it]
-- **rdf.yaml snippet** (if notable):
-```yaml
-[paste relevant section]
-```
-EOF
-```
+- **7a — Spec / validation issues** (unclear field, unhelpful validation error, missing docs) → file against `bioimage-io/spec-bioimage-io`.
+- **7b — Core library issues** (`bioimageio test` crashed or gave wrong results) → file against `bioimage-io/core-bioimage-io-python`.
+- **7c — Website / submission issues** (upload flow, Hypha API, bioimage.io UI) → file against `bioimage-io/bioimage.io`.
+- **7d — Skill improvements** — if these instructions were confusing or missing steps, file against `bioimage-io/bioimage.io` with a concrete draft of the improved text. Skill source lives at `public/skills/bioimageio-models/`.
+- **7e — Success example** — on a successful submission, append the model to [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) so future runs can learn from what worked. Use the append template in `audit-templates.md`.
 
 ---
 
@@ -517,11 +423,13 @@ EOF
 | File | When to Read |
 |------|-------------|
 | [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `rdf.yaml` — all fields explained |
-| [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) | Custom pre/postprocessing ops, Cellpose/StarDist built-ins, security model |
 | [references/example-rdf.yaml](https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml) | Annotated example to copy from |
+| [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) | `pytorch_state_dict` architecture `.py` constraints, allowed packages, Bad/Good examples |
+| [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md) | Custom pre/postprocessing ops (Cellpose flow dynamics, StarDist NMS, custom normalizers), the SHA256 security model, and inline `.py` vs. registered patterns (spec 0.5.10+) |
 | [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) | Hypha API calls for submission |
+| [references/audit-templates.md](https://bioimage.io/skills/bioimageio-models/references/audit-templates.md) | `gh issue create` bodies for Phase 7 audit + success-example append template |
 | [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) | Real worked examples from past submissions |
 | [scripts/hypha_login.py](https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py) | Log in to Hypha and save token to `.env` |
-| [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility (also hashes custom processing `.py` files) |
+| [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility |
 | [scripts/generate_test_tensors.py](https://bioimage.io/skills/bioimageio-models/scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
 | [scripts/validate_package.sh](https://bioimage.io/skills/bioimageio-models/scripts/validate_package.sh) | One-shot validation runner |

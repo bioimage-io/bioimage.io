@@ -6,7 +6,7 @@
 ---
 
 # ---- IDENTITY ----
-format_version: 0.5.10    # Current stable (spec 0.5.10+ required for custom pre/postprocessing)
+format_version: 0.5.11    # Or latest released model spec supported by bioimageio.spec
 type: model                # Always "model" for ML models
 
 name: UNet 2D Nuclei Broad              # 5-128 chars, human-readable, specific
@@ -30,9 +30,13 @@ authors:
     orcid: 0000-0002-8567-6389
     affiliation: EMBL Heidelberg
 
-maintainers:               # Who handles issues / updates
-  - name: Constantin Pape
-    github_user: constantinpape
+packaged_by:               # Required when packagers differ from model authors
+  - name: Firstname Lastname
+    github_user: githubhandle
+
+maintainers:               # Usually the packagers, who handle package issues / updates
+  - name: Firstname Lastname
+    github_user: githubhandle
 
 # ---- REFERENCES ----
 cite:
@@ -54,9 +58,12 @@ tags:
   - dsb2018
 
 covers:
-  - cover0.png             # PNG/JPG, 2:1 or 1:1 aspect, <500KB
+  - source: cover0.png       # PNG/JPG, 2:1 or 1:1 aspect, <500KB
+    sha256: <sha256_of_cover0.png>
 
-documentation: README.md   # Must end in .md; include a "# Validation" section
+documentation:
+  source: README.md          # Must end in .md; include a "# Validation" section
+  sha256: <sha256_of_README.md>
 
 # ---- TENSORS ----
 inputs:

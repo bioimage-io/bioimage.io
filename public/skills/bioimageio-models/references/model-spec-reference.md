@@ -1,6 +1,6 @@
 # BioImage.IO Model RDF — Field Reference
 
-Format version: **0.5.10** (always use this or latest)  
+Format version: **0.5.11** (or the latest released model spec supported by `bioimageio.spec`)  
 Spec source: https://github.com/bioimage-io/spec-bioimage-io  
 Full interactive docs: https://bioimage-io.github.io/spec-bioimage-io/interactive_docs_v0-5.html
 
@@ -11,7 +11,7 @@ Full interactive docs: https://bioimage-io.github.io/spec-bioimage-io/interactiv
 ```yaml
 %YAML 1.2
 ---
-format_version: 0.5.10
+format_version: 0.5.11
 type: model
 name: "Your Model Name Here"
 description: "One or two sentences describing what this model does."
@@ -69,21 +69,22 @@ weights:
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `format_version` | YES | string | Always `"0.5.10"` (current stable) |
+| `format_version` | YES | string | Use `"0.5.11"` or the latest released model spec supported by `bioimageio.spec` |
 | `type` | YES | string | Always `"model"` |
 | `name` | YES | string | 5–128 chars. Human-readable, descriptive. No "model" suffix needed. |
 | `description` | YES | string | Max 1024 chars. What it does, what data it handles. |
-| `license` | YES | string | SPDX identifier: `MIT`, `CC-BY-4.0`, `CC0-1.0`, `Apache-2.0` |
+| `license` | YES | string or FileDescr | SPDX identifier (e.g. `MIT`, `CC-BY-4.0`, `CC0-1.0`, `Apache-2.0`, `GPL-3.0`), or a custom license file descriptor for non-SPDX licenses |
 | `authors` | YES | list | At least one entry with `name` |
 | `inputs` | YES | list | At least one input tensor descriptor |
 | `outputs` | YES | list | At least one output tensor descriptor |
 | `weights` | YES | dict | At least one weights format |
-| `documentation` | recommended | string | Path to `README.md` (must end in `.md`) |
-| `covers` | recommended | list | Cover image paths — plain strings like `["cover.png"]` (PNG/JPG, <500KB, 2:1 aspect). Do NOT use `source:`/`sha256:` dicts here — those are only for `test_tensor`. |
+| `documentation` | recommended | FileDescr | `source` + `sha256` for `README.md` |
+| `covers` | recommended | list of FileDescr | Cover image descriptors with `source` + `sha256` (PNG/JPG, <500KB, 2:1 aspect) |
 | `tags` | recommended | list | See tags section below |
 | `cite` | recommended | list | Citations with `doi` or `url` |
 | `git_repo` | optional | string | URL to source repository |
 | `maintainers` | optional | list | Who to contact for issues |
+| `packaged_by` | optional | list | People who packaged/uploaded the model, especially if different from `authors` |
 | `timestamp` | optional | string | ISO 8601: `"2024-01-15T10:30:00+00:00"` |
 | `training_data` | optional | dict | Reference to training dataset artifact |
 
@@ -98,6 +99,49 @@ authors:
     orcid: "0000-0000-0000-0000"        # optional, strongly recommended
     affiliation: "Institute Name"       # optional
 ```
+
+---
+
+## License, Documentation, Covers, and Packagers
+
+For standard licenses, use an SPDX identifier:
+
+```yaml
+license: MIT
+```
+
+For non-SPDX or custom upstream licenses, use a file descriptor (model spec 0.5.11+):
+
+```yaml
+license:
+  source: LICENSE.md
+  sha256: <hash>
+```
+
+Current model spec versions also use file descriptors for docs and covers:
+
+```yaml
+documentation:
+  source: README.md
+  sha256: <hash>
+covers:
+  - source: cover0.png
+    sha256: <hash>
+```
+
+If the package was prepared by someone other than the model authors, record that explicitly:
+
+```yaml
+packaged_by:
+  - name: "Firstname Lastname"
+    github_user: githubhandle
+    affiliation: "Institute Name"
+maintainers:
+  - name: "Firstname Lastname"
+    github_user: githubhandle
+```
+
+Use the packagers as `maintainers` by default; they are usually the people who can fix packaging issues and update the submitted package.
 
 ---
 
@@ -133,16 +177,19 @@ inputs:
       - id: ensure_dtype
         kwargs:
           dtype: float32
-    pad:                          # optional (spec 0.5.10+): how to pad undersized inputs
-      mode: reflect               # constant | edge | reflect | symmetric
 ```
+
+Use real representative images for `test_tensor`, `sample_tensor`, and `covers`
+whenever possible. Search the model card, source repository, linked dataset, or
+paper assets before falling back to synthetic/random data. If synthetic test data
+is used, mention that in the README or packaging log.
 
 ### Axis Types
 
 | Type | Description | Required subfields |
 |------|-------------|-------------------|
 | `batch` | Batch dimension | none (size defaults to inferred) |
-| `channel` | Channel dimension | `channel_names` (list of strings — arbitrary names allowed) |
+| `channel` | Channel dimension | `channel_names` (list of strings) |
 | `space` | Spatial (x, y, z) | `id` (x/y/z), `size` |
 | `time` | Time | `id`, `size` |
 | `index` | General index | `id`, `size` |
@@ -193,47 +240,53 @@ Applied to input tensors before inference:
 | Operation | kwargs | Description |
 |-----------|--------|-------------|
 | `zero_mean_unit_variance` | `axes: [y, x]` or `[c, y, x]` | Subtract mean, divide by std |
-| `fixed_zero_mean_unit_variance` | `axes`, `mean`, `std` | Use pre-computed statistics |
-| `scale_range` | `axes`, `min_percentile`, `max_percentile`, `eps` | Percentile-based scaling |
+| `scale_range` | `axes`, `min_percentile`, `max_percentile` | Percentile-based scaling |
 | `scale_linear` | `gain`, `offset` | `x = x * gain + offset` |
 | `ensure_dtype` | `dtype: float32` | Cast to dtype |
 | `binarize` | `threshold: 0.5` | Binary threshold |
 | `clip` | `min: 0.0, max: 1.0` | Clip values |
-| `custom` | `callable`, `source`, `sha256`, `kwargs` | User-supplied Python callable (spec 0.5.10+) |
+
+**Preference:** choose adaptable normalization such as `zero_mean_unit_variance` or
+`scale_range` when it is compatible with the model. Use fixed constants only when
+the native model contract requires fixed training statistics, and document their
+source.
+
+**Reference-output rule:** generate `test_output.npy` with the same preprocessing
+declared here, preferably through the model's native library/runtime rather than
+through `bioimageio.core`.
 
 ## Postprocessing Operations
 
 Applied to output tensors after inference:
 
-| Operation | kwargs | Description |
-|-----------|--------|-------------|
-| `sigmoid` | none | Logits → probabilities |
-| `scale_linear` | `gain`, `offset` | Linear rescale |
-| `ensure_dtype` | `dtype: float32` | Cast to dtype |
-| `binarize` | `threshold: 0.5` | Binary threshold |
-| `clip` | `min`, `max` | Clip values |
-| `zero_mean_unit_variance` | `axes` | Subtract mean, divide by std |
-| `scale_range` | `axes`, `min_percentile`, `max_percentile` | Percentile-based scaling |
-| `scale_mean_variance` | `axes` | Match mean and variance to reference |
-| `cellpose_flow_dynamics` | `cellprob_threshold`, `flow_threshold`, `do_3D`, `min_size`, `output_dtype` | Cellpose flow → instance labels (spec 0.5.10+) |
-| `stardist_postprocessing` | `grid`, `prob_threshold`, `nms_threshold`, `n_rays` | StarDist probability+distance → instance labels (spec 0.5.10+) |
-| `custom` | `callable`, `source`, `sha256`, `kwargs` | User-supplied Python callable (spec 0.5.10+) |
+| Operation | kwargs |
+|-----------|--------|
+| `sigmoid` | none |
+| `scale_linear` | `gain`, `offset` |
+| `ensure_dtype` | `dtype: float32` |
+| `binarize` | `threshold: 0.5` |
+| `clip` | `min`, `max` |
+| `zero_mean_unit_variance` | `axes` |
+| `scale_range` | `axes`, `min_percentile`, `max_percentile` |
+| `scale_mean_variance` | `axes` |
 
 > **Note:** `softmax` is NOT a valid postprocessing operation in `bioimageio.spec` 0.5.x.
 > For multi-class models that need softmax, embed it inside the model's `forward()` method
 > so the output tensor is already a probability map. This keeps the model self-contained
 > and compatible with all runtimes.
 
-> **Custom processing:** For models that require arbitrary decoding logic (flow fields,
-> radial distance maps, etc.), use `id: custom` with an inline `.py` source file.
-> See [custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)
-> for full documentation, security model, and worked examples.
+> **Beyond built-ins:** Cellpose flow dynamics (`cellpose_flow_dynamics` — kwargs `cellprob_threshold`, `flow_threshold`, `do_3D`, `min_size`, `output_dtype`), StarDist NMS (`stardist_postprocessing` — kwargs `grid`, `prob_threshold`, `nms_threshold`, `n_rays`), and any other decoder shipped as a callable live under `id: custom` (or the registered `id:` for the two ops above). See [custom-processing.md](custom-processing.md) for the full pattern including the SHA256 security model.
 
 ---
 
 ## Weights Formats
 
 ### PyTorch State Dict (most common)
+
+Prefer including native `pytorch_state_dict` weights whenever a portable
+architecture file can be provided. Treat it as the canonical/root weights format,
+and attach converted formats such as ONNX or TorchScript with
+`parent: pytorch_state_dict`.
 
 ```yaml
 weights:
@@ -370,7 +423,7 @@ def sha256(path):
     return h.hexdigest()
 ```
 
-Or use the helper script: `scripts/compute_sha256.py model_package/`
+Or use the helper script on the generated package directory: `scripts/compute_sha256.py model_package/generated/`
 
 ---
 
@@ -381,10 +434,8 @@ Or use the helper script: `scripts/compute_sha256.py model_package/`
 | `sha256 mismatch for ...` | Recompute SHA256 and update in YAML |
 | `axis id 'x' not unique` | Axis `id` values must be unique **within** each tensor (not globally across tensors) |
 | `pytorch_state_dict cannot have parent` | Remove `parent` from `pytorch_state_dict` block |
-| `format_version not supported` | Change to `"0.5.10"` |
+| `format_version not supported` | Use `"0.5.11"` or the latest released model spec supported by `bioimageio.spec` |
 | `channel_names length != axis size` | Ensure `channel_names` list length matches number of channels |
-| `test output does not match` | Regenerate `test_output.npy` by running the model on `test_input.npy` |
+| `test output does not match` | Regenerate `test_output.npy` from the exact RDF preprocessing, model, and postprocessing contract |
 | `documentation must end in .md` | Rename doc file or fix path in YAML |
 | `name too short` | Name must be 5–128 characters |
-| `custom processing not allowed` | Pass `allow_custom_postprocessing=True` to `create_prediction_pipeline()` |
-| `source sha256 required` | Add `sha256` for every `source:` field including custom processing `.py` files |
