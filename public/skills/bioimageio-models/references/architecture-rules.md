@@ -57,8 +57,8 @@ xarray==2025.1.2
 ## Bad — will fail on BioEngine
 
 ```python
-import stardist                                # not in the fixed runtime — deploy fails
 import monai                                   # not in the fixed runtime — deploy fails
+import segmentation_models_pytorch as smp      # not in the fixed runtime — deploy fails
 from my_project.blocks import ResBlock         # local import, path not available at runtime
 ```
 

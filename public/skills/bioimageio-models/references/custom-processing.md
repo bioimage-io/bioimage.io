@@ -74,16 +74,16 @@ def my_postprocess(threshold: float = 0.5):
 
 ### Allowed imports
 
-Only packages pre-installed in the BioEngine runtime may be imported:
+The custom callable runs inside the same BioEngine `RuntimeApp` deployment as the model itself, so
+the allowed set of imports is identical to the architecture-file rules. See
+[architecture-rules.md](architecture-rules.md#fixed-bioengine-runtime) for the authoritative
+pinned list (currently includes `torch`, `torchvision`, `numpy`, `tensorflow`, `bioimageio.core`,
+`onnxruntime`, `careamics`, `cellpose`, `stardist`, `xarray`).
 
-```
-numpy==1.26.4         scipy                 scikit-image
-torch==2.5.1          torchvision           tensorflow==2.16.1
-onnxruntime==1.20.1   bioimageio.core       xarray
-```
-
-Do **not** import `cellpose`, `stardist`, or any package not in this list. If you need Cellpose or
-StarDist decoding, use the dedicated built-in ops described below instead.
+`import cellpose` and `import stardist` both work inside a custom callable — but if you only need
+flow-dynamics decoding or NMS you should prefer the registered built-in ops (`cellpose_flow_dynamics`,
+`stardist_postprocessing`) described below, since those are validated, versioned, and skip the
+extra security review that a custom `.py` requires.
 
 ---
 
