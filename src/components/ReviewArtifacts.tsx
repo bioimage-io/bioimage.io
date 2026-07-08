@@ -139,7 +139,7 @@ const ReviewArtifacts: React.FC = () => {
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
         keywords: keywords,
-        stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined),
+        stage: viewMode === 'published' ? false : true,
         limit: itemsPerPage,
         offset: (reviewArtifactsPage - 1) * itemsPerPage,
         pagination: true,

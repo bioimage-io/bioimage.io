@@ -3,7 +3,7 @@ import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 import StatusBadge from './StatusBadge';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { Tooltip, IconButton, CircularProgress } from '@mui/material';
+import { Tooltip, IconButton } from '@mui/material';
 
 interface Author {
   name: string;
@@ -18,17 +18,15 @@ interface AdminResourceCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   isStaged?: boolean;
-  status: 'staged' | 'published' | 'deletion-requested';
+  status: 'staged' | 'published';
   authors?: Author[];
   createdAt?: number;
   lastModified?: number;
   artifactType?: string;
   isCollectionAdmin?: boolean;
-  onRequestDeletion?: () => void;
   id: string;
   emoji?: string;
   isLoading?: boolean;
-  deletionRequestLoading?: boolean;
 }
 
 const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
@@ -46,11 +44,9 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   lastModified,
   artifactType,
   isCollectionAdmin = false,
-  onRequestDeletion,
   id,
   emoji,
   isLoading = false,
-  deletionRequestLoading = false,
 }) => {
   const [showCopied, setShowCopied] = useState(false);
 
@@ -67,7 +63,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   };
 
   return (
-    <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 min-h-[340px] flex flex-col ${
+    <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 flex flex-col ${
       isStaged ? 'bg-yellow-50' : ''
     }`}>
       
@@ -91,7 +87,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
         
       </div>
       
-      <div className="p-4 mt-5">
+      <div className="p-4 mt-5 flex-1 flex flex-col">
         <div className="flex-none">
           <div className="flex items-center gap-2 mb-2">
             {emoji && <span className="text-xl">{emoji}</span>}
@@ -164,12 +160,12 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
             {/*
               Direct Delete is only meaningful on staged artifacts: for those
               with published versions it discards the staged changes, and for
-              fully-unpublished ones it removes the artifact. On published
-              artifacts even an admin lacks Hypha's creator-only `delete`
-              token, so the only achievable action is to flip the status to
-              `deletion-requested` for the reviewers.
+              fully-unpublished ones it removes the artifact. Published
+              artifacts have no in-UI deletion path — Hypha's `delete`
+              capability is workspace-owner-only, so takedowns go through
+              the bioimageiobot admin channel.
             */}
-            {isStaged && isCollectionAdmin && onDelete ? (
+            {isStaged && isCollectionAdmin && onDelete && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
                 className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
@@ -178,25 +174,6 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               >
                 <TrashIcon className="w-5 h-5" />
                 <span className="ml-1">Delete</span>
-              </button>
-            ) : onRequestDeletion && status !== 'deletion-requested' && (
-              <button
-                onClick={(e) => handleClick(e, onRequestDeletion)}
-                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
-                title="Request Deletion"
-                disabled={deletionRequestLoading}
-              >
-                {deletionRequestLoading ? (
-                  <>
-                    <CircularProgress size={20} className="mr-2" />
-                    <span className="ml-1">Requesting...</span>
-                  </>
-                ) : (
-                  <>
-                    <TrashIcon className="w-5 h-5" />
-                    <span className="ml-1">Request Deletion</span>
-                  </>
-                )}
               </button>
             )}
           </div>

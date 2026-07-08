@@ -71,6 +71,7 @@ interface RDFEditorProps {
   onChange: (content: string) => void;
   readOnly?: boolean;
   showModeSwitch?: boolean;
+  userEmail?: string;
 }
 
 // Add the getCompletion function
@@ -99,11 +100,12 @@ async function getCompletion(text: string): Promise<string[]> {
   }
 }
 
-const RDFEditor: React.FC<RDFEditorProps> = ({ 
-  content, 
+const RDFEditor: React.FC<RDFEditorProps> = ({
+  content,
   onChange,
   readOnly = false,
-  showModeSwitch = true
+  showModeSwitch = true,
+  userEmail,
 }) => {
   const [isFormMode, setIsFormMode] = useState(true);
   const [formData, setFormData] = useState<RDFContent>({});
@@ -199,15 +201,31 @@ const RDFEditor: React.FC<RDFEditorProps> = ({
     }
 
     try {
-      setEditorContent(content);
-      const parsed = yaml.load(content) as RDFContent;
-      setFormData(parsed || {});
+      const parsed = (yaml.load(content) as RDFContent) || {};
+
+      // Auto-fill uploader email from the logged-in user when it's missing.
+      if (userEmail && !parsed.uploader?.email) {
+        const withEmail: RDFContent = {
+          ...parsed,
+          uploader: { ...parsed.uploader, email: userEmail },
+        };
+        const updatedYaml = yaml.dump(withEmail);
+        setEditorContent(updatedYaml);
+        setFormData(withEmail);
+        setIsInternalChange(true);
+        onChange(updatedYaml);
+      } else {
+        setEditorContent(content);
+        setFormData(parsed);
+      }
       setErrors({});
     } catch (error) {
       console.error('Error parsing YAML:', error);
+      setEditorContent(content);
       setErrors({ yaml: 'Invalid YAML format' });
     }
-  }, [content]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, userEmail]);
 
   // Fetch licenses on component mount
   useEffect(() => {

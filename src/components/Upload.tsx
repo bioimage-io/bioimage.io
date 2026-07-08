@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
-import { LinearProgress, Dialog as MuiDialog, Snackbar, Alert, Slide, SlideProps } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
@@ -163,19 +163,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [promptCopied, setPromptCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user, isConnecting, reconnect } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
-  // Floating banner mirrors uploadStatus messages so the header doesn't
-  // shift when "File loaded successfully" appears inline. Keyed by uid so
-  // rapid successive setUploadStatus calls each get their own 5s window
-  // instead of stomping on the previous one.
-  const [banner, setBanner] = useState<{ uid: number; message: string; severity: 'info' | 'success' | 'error' } | null>(null);
 
   // Advanced Options popover state (KTH/deNBI toggle + Server URL + Service ID
   // override) — same pattern as the Edit page's Advanced Options. Sits before
   // the Validate button so a submitter can point ModelValidator at a private
   // BioEngine before running validation.
   const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [serviceIdOverride, setServiceIdOverride] = useState<string>('');
   const [uploadServerUrl, setUploadServerUrl] = useState<string>('');
   const [overrideRunner, setOverrideRunner] = useState<{ runner: any; available: boolean } | null>(null);
@@ -185,14 +181,17 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
   const navigate = useNavigate();
   const [isUploading, setIsUploading] = useState(false);
+  const [createdArtifactId, setCreatedArtifactId] = useState<string | null>(null);
 
-  // Sync uploadStatus into the floating banner. Skip progress-only updates
-  // (severity: 'info' with a numeric progress) — those belong to the
-  // progress bar, not a fire-and-forget toast.
+  // Auto-dismiss uploadStatus after 3s once it's a final state (success or
+  // error) or a fire-and-forget info without progress. In-flight progress
+  // updates (info + numeric progress) stay put so the user still sees the
+  // progress bar until it completes.
   useEffect(() => {
     if (!uploadStatus?.message) return;
     if (uploadStatus.severity === 'info' && typeof uploadStatus.progress === 'number') return;
-    setBanner({ uid: Date.now(), message: uploadStatus.message, severity: uploadStatus.severity });
+    const t = setTimeout(() => setUploadStatus(null), 3000);
+    return () => clearTimeout(t);
   }, [uploadStatus]);
 
   // Click-outside dismissal for the Advanced Options popover.
@@ -998,6 +997,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const fullId = artifact.id;
       const shortId = fullId.split('/').pop() || '';
       setGeneratedId(shortId);
+      setCreatedArtifactId(fullId);
 
       // Find the emoji for the generated id
       const noun = extractNounFromId(shortId);
@@ -1303,13 +1303,26 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
     } catch (error) {
       console.error('Upload failed:', error);
-      setUploadStatus({
-        message: error instanceof Error 
-          ? `Upload failed: ${error.message}` 
-          : 'Upload failed: Unknown error occurred',
-        severity: 'error'
-      });
-      setIsUploading(false);
+      // If the artifact was already created before the error, navigate to the Edit
+      // page so the user can inspect what was uploaded and retry from there instead
+      // of being stranded on the Upload page with no path forward.
+      if (createdArtifactId) {
+        setUploadStatus({
+          message: error instanceof Error
+            ? `Some files may not have uploaded: ${error.message}. Redirecting to edit page...`
+            : 'Upload partially failed. Redirecting to edit page...',
+          severity: 'error'
+        });
+        setTimeout(() => navigate(`/edit/${encodeURIComponent(createdArtifactId)}/stage`), 2500);
+      } else {
+        setUploadStatus({
+          message: error instanceof Error
+            ? `Upload failed: ${error.message}`
+            : 'Upload failed: Unknown error occurred',
+          severity: 'error'
+        });
+        setIsUploading(false);
+      }
     }
   };
 
@@ -1630,9 +1643,13 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                   {/* Status section */}
                   <div className="flex-grow min-w-0">
-                    {/* Status messages moved to a floating banner (Snackbar
-                        near the bottom of this component) so they don't
-                        push the header down when they appear/disappear. */}
+                    {uploadStatus && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`${getStatusColor(uploadStatus.severity)} text-base truncate`}>
+                          {uploadStatus.message}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Buttons section */}
@@ -1713,6 +1730,25 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                               <span className="text-xs text-gray-500">
                                 Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
                               </span>
+                            </div>
+                            <div className="border-t border-gray-100 pt-3">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setIsReconnecting(true);
+                                  try { await reconnect(); } finally { setIsReconnecting(false); }
+                                }}
+                                disabled={isReconnecting || isConnecting}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {(isReconnecting || isConnecting) && (
+                                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                  </svg>
+                                )}
+                                {(isReconnecting || isConnecting) ? 'Resetting...' : 'Reset Connection'}
+                              </button>
                             </div>
                           </div>
                         )}
@@ -1985,6 +2021,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     onChange={(value) => handleEditorChange(value, selectedFile)}
                     readOnly={false}
                     showModeSwitch={true}
+                    userEmail={user?.email}
                   />
                 ) : isTextFile(selectedFile.name) ? (
                   <div className="flex flex-col gap-4">
@@ -2068,34 +2105,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         </div>
       )}
       {renderShaDialog()}
-
-      {/* Floating status banner. Slides in from the right, auto-dismisses
-          after 5 s. Keyed by uid so back-to-back setUploadStatus calls
-          each get a fresh 5 s window instead of the second one closing
-          the first prematurely. */}
-      <Snackbar
-        key={banner?.uid ?? 'empty'}
-        open={banner !== null}
-        onClose={(_, reason) => {
-          if (reason === 'clickaway') return;
-          setBanner(null);
-        }}
-        autoHideDuration={5000}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        TransitionComponent={(props: SlideProps) => <Slide {...props} direction="left" />}
-        sx={{ mt: 8 }}
-      >
-        {banner ? (
-          <Alert
-            severity={banner.severity === 'error' ? 'error' : banner.severity === 'success' ? 'success' : 'info'}
-            variant="filled"
-            onClose={() => setBanner(null)}
-            sx={{ minWidth: 280, maxWidth: 420, boxShadow: 3 }}
-          >
-            {banner.message}
-          </Alert>
-        ) : undefined}
-      </Snackbar>
     </div>
   );
 };

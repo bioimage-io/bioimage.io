@@ -183,7 +183,7 @@ const Edit: React.FC = () => {
   };
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user} = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user, isConnecting, reconnect } = useHyphaStore();
   // One shared runner-site selection lives here so the Save→Validate→Test
   // row renders a single toggle and both children act on the same choice.
   const baseRunners = useModelRunners();
@@ -193,6 +193,7 @@ const Edit: React.FC = () => {
   // value deselects both segments and the override probe below drives
   // ModelTester/ModelValidator against the custom service.
   const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [serviceIdOverride, setServiceIdOverride] = useState<string>('');
   // Server URL override. Empty = use the default Hypha server the rest of
   // the app is connected to via `useHyphaStore`. Anything else triggers a
@@ -278,18 +279,6 @@ const Edit: React.FC = () => {
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [showAdvancedOptions]);
 
-  // Click-outside dismissal for the Test Model config dropdown.
-  useEffect(() => {
-    if (!showTestDropdown) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (testDropdownRef.current && !testDropdownRef.current.contains(e.target as Node)) {
-        setShowTestDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [showTestDropdown]);
-
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
     severity: 'info' | 'success' | 'error';
@@ -335,15 +324,10 @@ const Edit: React.FC = () => {
   // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
   // the uploader-email validation in `validateRdfContent`).
   const [canEditArtifact, setCanEditArtifact] = useState(false);
-  // Hypha treats `delete` as a creator-only token on artifacts: even site
-  // admins and uploaders with `rw+` on the collection do not get it. The
-  // artifact's creator (typically the bioimageiobot system account) holds
-  // the only `delete` capability. We expose the destructive delete UI only
-  // when `_permissions[user.id]` actually contains `delete` (or `*`);
-  // everyone else gets the request-deletion flow instead.
+  // Hypha's `delete` permission is workspace-owner-only — regular uploaders
+  // and reviewers never hold it. Show the destructive delete UI only when
+  // `_permissions[user.id]` actually contains `delete` (or `*`).
   const [canDeleteArtifact, setCanDeleteArtifact] = useState(false);
-  const [showRequestDeletionDialog, setShowRequestDeletionDialog] = useState(false);
-  const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -368,17 +352,24 @@ const Edit: React.FC = () => {
   // inside ReviewPublishArtifact (Submit for Review needs an extra
   // confirmation when status !== 'passed').
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
-  // Config dropdown attached to the Test Model button: gathers the two
-  // per-run options and a "Run test now" primary action instead of
-  // firing the test the moment the button is clicked.
-  const [showTestDropdown, setShowTestDropdown] = useState<boolean>(false);
-  const testDropdownRef = useRef<HTMLDivElement>(null);
+  const [showTestOptionsDialog, setShowTestOptionsDialog] = useState<boolean>(false);
   const modelTesterRef = useRef<ModelTesterHandle>(null);
 
   useEffect(() => {
     setEditVersion(version);
     setIsStaged(version === 'stage');
   }, [version]);
+
+  // Auto-dismiss uploadStatus after 3s once it's a final state (success or
+  // error) or a fire-and-forget info without progress. In-flight progress
+  // updates (info + numeric progress) stay put so the LinearProgress keeps
+  // rendering until the operation completes.
+  useEffect(() => {
+    if (!uploadStatus?.message) return;
+    if (uploadStatus.severity === 'info' && typeof uploadStatus.progress === 'number') return;
+    const t = setTimeout(() => setUploadStatus(null), 3000);
+    return () => clearTimeout(t);
+  }, [uploadStatus]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -1603,7 +1594,7 @@ const Edit: React.FC = () => {
             </svg>
             New Version
           </button>
-          {canDeleteArtifact ? (
+          {canDeleteArtifact && (
             <button
               onClick={() => setShowDeleteVersionDialog(true)}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
@@ -1612,17 +1603,6 @@ const Edit: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
               Delete This Version
-            </button>
-          ) : canEditArtifact && (artifactInfo?.manifest as any)?.status !== 'deletion-requested' && (
-            <button
-              onClick={() => setShowRequestDeletionDialog(true)}
-              title="Only the artifact creator can delete versions directly. Submit a deletion request for the reviewers."
-              className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Request Deletion
             </button>
           )}
         </div>
@@ -2588,6 +2568,25 @@ const Edit: React.FC = () => {
                     Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
                   </span>
                 </div>
+                <div className="border-t border-gray-100 pt-3">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsReconnecting(true);
+                      try { await reconnect(); } finally { setIsReconnecting(false); }
+                    }}
+                    disabled={isReconnecting || isConnecting}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {(isReconnecting || isConnecting) && (
+                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    )}
+                    {(isReconnecting || isConnecting) ? 'Resetting...' : 'Reset Connection'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2615,112 +2614,24 @@ const Edit: React.FC = () => {
           </div>
         )}
 
-        {/* Test Model dropdown. Trigger opens a popover with the two per-run
-            options and a primary "Run test now" button; the underlying
-            ModelTester runs headless (hideTrigger) and surfaces its result
-            via its own status pill + result dialog next to the trigger. */}
+        {/* Test Model — split button: trigger opens options dialog, result pill shows run outcome. */}
         {artifactType === 'model' && artifactId && (
-          <div ref={testDropdownRef} className="relative w-full sm:w-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowTestDropdown(v => !v)}
-              disabled={!server}
-              aria-expanded={showTestDropdown}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors w-full sm:w-auto justify-center sm:justify-start
-                ${!server
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Test Model
-              <svg
-                className={`w-4 h-4 ${showTestDropdown ? 'rotate-180' : ''}`}
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                style={{ transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {/* ModelTester renders without its own trigger — the status
-                pill + result popover live here so the user can still see
-                the run outcome. */}
-            <ModelTester
-              ref={modelTesterRef}
-              artifactId={artifactId}
-              isStaged={isStaged}
-              isDisabled={!server}
-              skipCache={skipCacheForTest}
-              publishTestReport={publishTestReport}
-              onTestComplete={async (result) => {
-                if (result) setLastTestResult(result);
-                await loadArtifactFiles();
-              }}
-              className="flex-shrink-0"
-              modelRunners={modelRunners}
-              hideRunnerToggle
-              hideTrigger
-            />
-
-            {showTestDropdown && (
-              <div
-                className="absolute left-0 top-full mt-2 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-gray-200 shadow-lg p-4 space-y-3 text-left"
-                style={{
-                  transformOrigin: 'top left',
-                  animation: 'edit-test-dropdown-open 180ms cubic-bezier(0.23, 1, 0.32, 1)',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <style>{`
-                  @keyframes edit-test-dropdown-open {
-                    from { opacity: 0; transform: scale(0.97); }
-                    to   { opacity: 1; transform: scale(1); }
-                  }
-                `}</style>
-                <h4 className="font-medium text-gray-900 text-sm">Test Options</h4>
-                <label
-                  title="If checked, publish test_report.json to the model artifact after testing."
-                  className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
-                >
-                  <input
-                    type="checkbox"
-                    checked={publishTestReport}
-                    onChange={(e) => setPublishTestReport(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Publish test result
-                </label>
-                <label
-                  title="If checked, bypass cache and force a full model package re-download before testing."
-                  className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
-                >
-                  <input
-                    type="checkbox"
-                    checked={skipCacheForTest}
-                    onChange={(e) => setSkipCacheForTest(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Skip cache
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTestDropdown(false);
-                    void modelTesterRef.current?.runTest();
-                  }}
-                  disabled={!server}
-                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-transform duration-150 ease-out active:scale-[0.97]"
-                >
-                  Run test now
-                </button>
-              </div>
-            )}
-          </div>
+          <ModelTester
+            ref={modelTesterRef}
+            artifactId={artifactId}
+            isStaged={isStaged}
+            isDisabled={!server}
+            skipCache={skipCacheForTest}
+            publishTestReport={publishTestReport}
+            onTriggerClick={() => setShowTestOptionsDialog(true)}
+            onTestComplete={async (result) => {
+              if (result) setLastTestResult(result);
+              await loadArtifactFiles();
+            }}
+            className="w-full sm:w-auto"
+            modelRunners={modelRunners}
+            hideRunnerToggle
+          />
         )}
 
         {/* Review & Publish button — gated on RDF validity (existing) AND
@@ -3247,44 +3158,10 @@ const Edit: React.FC = () => {
       const isPermissionError = /permission/i.test(message);
       setUploadStatus({
         message: isPermissionError
-          ? "You don't have the 'delete' permission on this artifact. Use Request Deletion instead."
+          ? "You don't have permission to delete this artifact. Contact the workspace admin to remove it."
           : `Error deleting version: ${message}`,
         severity: 'error',
       });
-    }
-  };
-
-  // Submit a deletion request by flipping the manifest status on the staged
-  // version. Mirrors the flow in MyArtifacts.confirmDeletionRequest so the
-  // Review page picks it up the same way regardless of entry point.
-  const handleRequestDeletion = async () => {
-    if (!artifactManager || !artifactId || !artifactInfo) return;
-
-    try {
-      setIsRequestingDeletion(true);
-      await artifactManager.edit({
-        artifact_id: artifactId,
-        version: 'stage',
-        manifest: {
-          ...artifactInfo.manifest,
-          status: 'deletion-requested',
-        },
-        _rkwargs: true,
-      });
-      setUploadStatus({
-        message: 'Deletion request submitted. A reviewer will process it.',
-        severity: 'success',
-      });
-      setShowRequestDeletionDialog(false);
-      navigate(getBackPath());
-    } catch (error) {
-      console.error('Error requesting deletion:', error);
-      setUploadStatus({
-        message: `Failed to submit deletion request: ${error}`,
-        severity: 'error',
-      });
-    } finally {
-      setIsRequestingDeletion(false);
     }
   };
 
@@ -3326,49 +3203,6 @@ const Edit: React.FC = () => {
             className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
           >
             Update & Continue
-          </button>
-        </div>
-      </div>
-    </MuiDialog>
-  );
-
-  const renderRequestDeletionDialog = () => (
-    <MuiDialog
-      open={showRequestDeletionDialog}
-      onClose={() => !isRequestingDeletion && setShowRequestDeletionDialog(false)}
-      maxWidth="sm"
-      fullWidth
-    >
-      <div className="p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">
-          Request Artifact Deletion
-        </h3>
-        <div className="space-y-4">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-            <p className="mb-2">
-              Only the artifact's creator can delete versions directly. Submitting a
-              request marks this artifact as <code className="bg-yellow-100 px-1 rounded">deletion-requested</code> so a reviewer can act on it.
-            </p>
-            <p>
-              The request covers the whole artifact, not just version{' '}
-              <code className="bg-yellow-100 px-1 rounded">{editVersion}</code>.
-            </p>
-          </div>
-        </div>
-        <div className="mt-6 flex gap-3 justify-end">
-          <button
-            onClick={() => setShowRequestDeletionDialog(false)}
-            disabled={isRequestingDeletion}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleRequestDeletion}
-            disabled={isRequestingDeletion}
-            className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 border border-transparent rounded-md hover:bg-yellow-700 disabled:opacity-50"
-          >
-            {isRequestingDeletion ? 'Submitting...' : 'Request Deletion'}
           </button>
         </div>
       </div>
@@ -3598,10 +3432,70 @@ const Edit: React.FC = () => {
 
       {renderOverwriteDialog()}
 
+      {/* Test options dialog */}
+      <MuiDialog
+        open={showTestOptionsDialog}
+        onClose={() => setShowTestOptionsDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <div className="p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-1">Run Model Test</h3>
+          <p className="text-sm text-gray-500 mb-5">
+            The model will be tested via BioEngine. Configure the options below before starting.
+          </p>
+          <div className="space-y-4">
+            <label className="flex items-start gap-3 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={publishTestReport}
+                onChange={(e) => setPublishTestReport(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Publish test result</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Saves <code className="bg-gray-100 px-1 rounded">test_report.json</code> back to the model artifact after the run. The test badge on the model card will reflect the outcome. Leave unchecked to test privately without updating the artifact.
+                </div>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={skipCacheForTest}
+                onChange={(e) => setSkipCacheForTest(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Skip cache</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Forces a full re-download of the model package, bypassing any cached files on the runner. Use this if you recently updated the model files and want to make sure the test runs against the latest version.
+                </div>
+              </div>
+            </label>
+          </div>
+          <div className="mt-6 flex gap-3 justify-end">
+            <button
+              onClick={() => setShowTestOptionsDialog(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                setShowTestOptionsDialog(false);
+                void modelTesterRef.current?.runTest();
+              }}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            >
+              Run Test
+            </button>
+          </div>
+        </div>
+      </MuiDialog>
+
       {/* Add Delete Version Dialog */}
       {renderDeleteVersionDialog()}
-
-      {renderRequestDeletionDialog()}
 
       {/* Add ValidationErrorDialog */}
       <ValidationErrorDialog

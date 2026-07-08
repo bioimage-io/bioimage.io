@@ -10,6 +10,7 @@ interface TestResult {
   name: string;
   status: 'passed' | 'failed';
   type?: string;
+  env?: [string, string][];
   details: Array<{
     name: string;
     status: 'passed' | 'failed';
@@ -43,11 +44,15 @@ interface ModelTesterProps {
   hideRunnerToggle?: boolean;
   /**
    * Hide the built-in trigger button. Use when the parent renders its own
-   * trigger (e.g. wrapping the tester in a dropdown that also exposes
-   * per-run options) and drives the test via the imperative `runTest`
-   * method on the component's ref.
+   * trigger and drives the test via the imperative `runTest` ref method.
    */
   hideTrigger?: boolean;
+  /**
+   * When provided, clicking the trigger calls this instead of running the
+   * test directly. Use to open a pre-run options dialog while keeping the
+   * split-button visually connected.
+   */
+  onTriggerClick?: () => void;
 }
 
 export interface ModelTesterHandle {
@@ -68,6 +73,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   modelRunners,
   hideRunnerToggle = false,
   hideTrigger = false,
+  onTriggerClick,
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
@@ -95,30 +101,45 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     };
   }, []);
 
-  // Update the effect for dropdown positioning
+  // Position the popover so it stays inside the viewport regardless of
+  // which side of the row the button lives on. Prefers opening leftward
+  // (the tester usually sits near the right side of the actions row);
+  // falls back to opening rightward, and finally nudges the popover with
+  // a negative-`right` offset when neither side fully fits so it never
+  // clips past the viewport edge.
   useEffect(() => {
-    if (isOpen && dropdownRef.current && buttonRef.current) {
+    if (!isOpen) return;
+    const position = () => {
       const dropdown = dropdownRef.current;
       const button = buttonRef.current;
-      const dropdownRect = dropdown.getBoundingClientRect();
+      if (!dropdown || !button) return;
+      const dropdownWidth = dropdown.offsetWidth;
       const buttonRect = button.getBoundingClientRect();
-      
-      // Check if dropdown would go outside the left edge of viewport
-      const spaceOnLeft = buttonRect.left;
-      
-      // Reset any previous positioning
+      const vw = window.innerWidth;
+      const margin = 8;
+
       dropdown.style.right = '';
       dropdown.style.left = '';
-      
-      if (spaceOnLeft < dropdownRect.width) {
-        // Position to the right if there's not enough space on the left
+
+      const spaceLeftOfButtonRight = buttonRect.right - margin;
+      const spaceRightOfButtonLeft = vw - buttonRect.left - margin;
+
+      if (spaceLeftOfButtonRight >= dropdownWidth) {
+        dropdown.style.right = '0px';
+      } else if (spaceRightOfButtonLeft >= dropdownWidth) {
         dropdown.style.left = '0px';
       } else {
-        // Default position to the right edge of the button, appearing on the left side
-        dropdown.style.right = '0px';
+        // Neither side alone fits; pin popover's right to viewport-right
+        // minus margin. Parent's right edge ≈ buttonRect.right, so a
+        // negative `right` shifts the popover further right.
+        const offset = buttonRect.right - (vw - margin);
+        dropdown.style.right = `${offset}px`;
       }
-    }
-  }, [isOpen, testResult]);
+    };
+    position();
+    window.addEventListener('resize', position);
+    return () => window.removeEventListener('resize', position);
+  }, [isOpen, testResult, isLoading]);
 
   // Add resize listener
   useEffect(() => {
@@ -147,6 +168,15 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
+
+      // v1.6.0+: publish_test_report=true requires a caller-owned token so
+      // the runner writes under the user's identity, not the service account.
+      let hyphaToken: string | undefined;
+      if (publishTestReport && typeof server.generateToken === 'function') {
+        setLoadingStep('Minting short-lived token for publish...');
+        hyphaToken = await server.generateToken();
+      }
+
       console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, publish_test_report: ${publishTestReport}`);
       const startTime = performance.now();
       const result = await runner.test({
@@ -154,6 +184,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         stage: isStaged,
         skip_cache: skipCache,
         publish_test_report: publishTestReport,
+        ...(hyphaToken ? { hypha_token: hyphaToken } : {}),
         _rkwargs: true,
       });
       const endTime = performance.now();
@@ -209,14 +240,12 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
 ⏳ ${loadingStep}
 
-Please note that model testing may take 30s or more as we need to:
-1. Download the model files
-2. Initialize the testing environment
-3. Run the model with test data
+This may take 30 seconds or more. The runner will:
+1. Load the model from cache or download it
+2. Load the weights onto GPU
+3. Run inference with the model's bundled test inputs
 
-Testing infrastructure is provided by BioEngine.
-
-Please keep this window open while the test is running.`;
+Powered by BioEngine. Keep this window open while the test is running.`;
     }
 
     if (!testResult) return '';
@@ -244,6 +273,15 @@ Please keep this window open while the test is running.`;
         content += '\n';
       }
     });
+
+    if (testResult.env && testResult.env.length > 0) {
+      content += `## Environment\n\n`;
+      content += `| Package | Version |\n|---|---|\n`;
+      testResult.env.forEach(([pkg, ver]) => {
+        content += `| ${pkg} | ${ver} |\n`;
+      });
+      content += '\n';
+    }
 
     return content;
   };
@@ -297,7 +335,7 @@ Please keep this window open while the test is running.`;
         <div className="flex h-[40px]" ref={buttonRef}>
         {!hideTrigger && (
           <button
-            onClick={runTest}
+            onClick={onTriggerClick ?? runTest}
             disabled={buttonDisabled}
             title={noRunner
               ? 'Both KTH and deNBI model-runner services failed to respond.'
@@ -322,16 +360,14 @@ Please keep this window open while the test is running.`;
           <Menu.Button
             onClick={() => setIsOpen(!isOpen)}
             className={`inline-flex items-center px-2 h-full font-medium transition-colors
-              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l'}
+              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l border-white/20'}
               ${buttonDisabled
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : isLoading
-                  ? 'bg-blue-600 text-white'
-                  : testResult
-                    ? testResult.status === 'passed'
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+                : testResult
+                  ? testResult.status === 'passed'
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
               }`}
             disabled={buttonDisabled}
           >
@@ -347,12 +383,7 @@ Please keep this window open while the test is running.`;
                     ? "M5 13l4 4L19 7"
                     : "M6 18L18 6M6 6l12 12"} />
               </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              </svg>
-            )}
+            ) : null}
             {testResult && (
               <svg className="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
