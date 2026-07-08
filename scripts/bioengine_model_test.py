@@ -44,7 +44,7 @@ async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
 
 async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
-    publish_test_report: bool = True,
+    attach_test_report: bool = True,
     reports_dir: Optional[Path] = None,
     skip_cache: bool = False,
 ) -> None:
@@ -55,7 +55,7 @@ async def test_bmz_models(
 
     Args:
         model_ids: List of model IDs to test. If None, fetches all models.
-        publish_test_report: Whether model_runner.test should publish test_report.json.
+        attach_test_report: Whether model_runner.test should attach test_report.json to the artifact.
         reports_dir: Directory where per-model JSON test reports are written.
         skip_cache: Whether to skip cache during model testing.
 
@@ -118,7 +118,7 @@ async def test_bmz_models(
                     model_id=model_id,
                     stage=False,
                     skip_cache=skip_cache,
-                    publish_test_report=publish_test_report,
+                    attach_test_report=attach_test_report,
                 ),
                 timeout=300,  # 5 minutes timeout
             )
@@ -330,10 +330,10 @@ def main():
         help="Directory for writing test reports and reading them in --analyze-reports (default: ../bioimageio_test_reports)",
     )
     parser.add_argument(
-        "--no-publish-test-report",
+        "--no-attach-test-report",
         action="store_false",
-        dest="publish_test_report",
-        help="Do not publish test_report.json via model_runner.test",
+        dest="attach_test_report",
+        help="Do not attach test_report.json to the artifact via model_runner.test",
     )
     parser.add_argument(
         "--dry-run",
@@ -360,8 +360,8 @@ def main():
 
     # Handle dry-run mode
     if args.dry_run:
-        args.publish_test_report = False
-        print("Running in dry-run mode - test_report.json will not be published")
+        args.attach_test_report = False
+        print("Running in dry-run mode - test_report.json will not be attached to the artifact")
 
     reports_dir = (
         args.reports_dir
@@ -378,7 +378,7 @@ def main():
         asyncio.run(
             test_bmz_models(
                 model_ids=args.model_ids,
-                publish_test_report=args.publish_test_report,
+                attach_test_report=args.attach_test_report,
                 reports_dir=reports_dir,
                 skip_cache=args.skip_cache,
             )

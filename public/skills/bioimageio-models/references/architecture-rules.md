@@ -53,9 +53,11 @@ xarray==2025.1.2
   at deploy time.
 - **Self-contained.** The `.py` file must define the full model class
   with all layers inline. No relative imports, no local helper modules.
-- **No `conda_env` field in `rdf.yaml`.** Omit it entirely. Adding a
-  custom conda environment will prevent the BioEngine from running the
-  model.
+- **No `conda_env` in `rdf.yaml` for models that should be served by
+  the shared BioEngine runtime.** The default `test()` and
+  `infer()` code paths both use the RuntimeApp's own venv (the pinned
+  set below), so declaring a custom conda env for a
+  runtime-compatible model just adds cost with no benefit.
 - **Keep the import block small.** For most models `import torch`,
   `import torch.nn as nn`, `import numpy as np` is all you need. Import
   cellpose / careamics / tensorflow only when the model actually depends
@@ -64,17 +66,24 @@ xarray==2025.1.2
   `bool`, `str`. No custom config objects (Pydantic models, dataclasses,
   hydra configs, etc.).
 
-### If your model needs a package that isn't in the list
+### If your model genuinely needs deps outside the shared runtime
 
-- For a one-off remote test, `bioimage-io/model-runner`'s
-  `test(..., additional_requirements=["your_package==x.y.z"])` kwarg
-  runs that single test as a fresh Ray task that layers your extras on
-  top of the baseline. Good for prototyping; slower on every call.
-- For a permanent addition, file an issue at
-  <https://github.com/aicell-lab/bioengine> requesting the package be
-  added to `apps/model-runner/runtime.py`'s `REQUIREMENTS`. Include the
-  package version and why it can't be replaced by native `torch` /
-  `numpy` code.
+- **Declare a `conda_env` in `rdf.yaml`** with the extra packages
+  and expect callers to opt into
+  `test(..., custom_environment=True)`. That path spawns
+  `mamba env create` from the model's declared spec, runs
+  `bioimageio test` inside the fresh env, and removes it on both
+  success and failure. First run is slow (~10 min for a full torch
+  env solve + install); subsequent runs reuse the cached env in
+  ~1-2 min. **Only the test path** honours `custom_environment` —
+  regular `infer()` still uses the shared runtime, so the model
+  will not be servable for inference outside its own env.
+- **Alternative — extend the shared runtime.** For packages that
+  would benefit multiple models, open an issue at
+  <https://github.com/aicell-lab/bioengine> requesting the pin be
+  added to `apps/model-runner/requirements-runtime.txt`. Include
+  the exact version and a one-line rationale for why it can't be
+  replaced with native `torch` / `numpy` code.
 
 ## Bad — will fail on BioEngine
 

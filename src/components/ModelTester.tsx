@@ -99,8 +99,9 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       
       setLoadingStep('Downloading and preparing model for testing...');
 
-      // v1.6.0+: publish_test_report=true requires a caller-owned token so
-      // the runner writes under the user's identity, not the service account.
+      // v1.6.0+ (renamed to ``attach_test_report`` in 1.8.0):
+      // ``attach_test_report=true`` requires a caller-owned token so the
+      // runner writes under the user's identity, not the service account.
       let hyphaToken: string | undefined;
       if (publishTestReport && typeof server.generateToken === 'function') {
         setLoadingStep('Minting short-lived token for publish...');

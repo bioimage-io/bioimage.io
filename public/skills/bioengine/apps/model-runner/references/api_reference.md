@@ -288,14 +288,20 @@ result = np.load("result.npy")
 
 Run the official bioimage.io test suite on a model.
 
+Every invocation runs the model in a **child process** for GPU/CUDA
+context isolation — no residual VRAM stays pinned in the RuntimeApp
+across calls.
+
 ### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `model_id` | `str` | **Yes** | — | Model identifier |
-| `stage` | `bool` | No | `false` | Use staged version |
-| `additional_requirements` | `list[str] \| null` | No | `null` | Extra pip packages |
-| `skip_cache` | `bool` | No | `false` | Force re-download |
+| `stage` | `bool` | No | `false` | Use staged version instead of the published one |
+| `skip_cache` | `bool` | No | `false` | Force a fresh model download and bypass cached test results |
+| `custom_environment` | `bool` | No | `false` | If `true`, run inside the conda env declared by the model's own weights description (via `mamba`, env cleaned up after). If `false`, run in the RuntimeApp's shared venv — the same one that serves `infer()`. |
+| `attach_test_report` | `bool` | No | `false` | If `true`, upload `test_report.json` to the artifact and add a compact `test_summary` entry to its manifest. Does NOT change the artifact's `staged`/`published` lifecycle status. |
+| `hypha_token` | `str \| null` | No | `null` | Caller's personal Hypha token. **Required** when `attach_test_report=true` — all artifact writes are performed under this token (not the runner's service credentials) so edits are attributed to the actual user. |
 
 ### Response
 
@@ -309,8 +315,23 @@ Run the official bioimage.io test suite on a model.
 ### Usage
 
 ```python
+# Default: standard runtime, no artifact write
 report = await mr.test(model_id="affable-shark")
-print(report["status"])  # "passed" or "failed"
+print(report["status"])  # "passed", "valid-format", or "failed"
+
+# Custom conda env from the model's rdf.yaml
+report = await mr.test(
+    model_id="resourceful-lizard",
+    custom_environment=True,
+)
+
+# Publish the report back to the artifact
+token = await server.generate_token()  # short-lived personal token
+report = await mr.test(
+    model_id="affable-shark",
+    attach_test_report=True,
+    hypha_token=token,
+)
 ```
 
 ---

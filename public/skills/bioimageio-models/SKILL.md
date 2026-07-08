@@ -324,7 +324,7 @@ async def run_bioengine_test(artifact_id: str, token: str):
                 model_id=model_id,
                 stage=True,              # load from staging, not published collection
                 skip_cache=True,
-                publish_test_report=False,  # don't write back to artifact yet
+                attach_test_report=False,  # don't write back to artifact yet
             ),
             timeout=300,
         )
