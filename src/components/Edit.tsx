@@ -5,7 +5,7 @@ import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Check
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
-import ModelTester from './ModelTester';
+import ModelTester, { ModelTesterHandle, TestResult } from './ModelTester';
 import ModelValidator from './ModelValidator';
 import RunnerSiteToggle from './RunnerSiteToggle';
 import { RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
@@ -278,6 +278,18 @@ const Edit: React.FC = () => {
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [showAdvancedOptions]);
 
+  // Click-outside dismissal for the Test Model config dropdown.
+  useEffect(() => {
+    if (!showTestDropdown) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (testDropdownRef.current && !testDropdownRef.current.contains(e.target as Node)) {
+        setShowTestDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showTestDropdown]);
+
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
     severity: 'info' | 'success' | 'error';
@@ -351,6 +363,17 @@ const Edit: React.FC = () => {
   } | null>(null);
   const [publishTestReport, setPublishTestReport] = useState<boolean>(false);
   const [skipCacheForTest, setSkipCacheForTest] = useState<boolean>(false);
+  // Result from the most recent ModelTester run — powers the Review &
+  // Publish gate (must have run a test) and the confirm-on-fail dialog
+  // inside ReviewPublishArtifact (Submit for Review needs an extra
+  // confirmation when status !== 'passed').
+  const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
+  // Config dropdown attached to the Test Model button: gathers the two
+  // per-run options and a "Run test now" primary action instead of
+  // firing the test the moment the button is clicked.
+  const [showTestDropdown, setShowTestDropdown] = useState<boolean>(false);
+  const testDropdownRef = useRef<HTMLDivElement>(null);
+  const modelTesterRef = useRef<ModelTesterHandle>(null);
 
   useEffect(() => {
     setEditVersion(version);
@@ -1558,6 +1581,7 @@ const Edit: React.FC = () => {
           onPublish={handlePublish}
           isContentValid={isContentValid}
           hasContentChanged={hasContentChanged}
+          lastTestResult={lastTestResult}
         />
       );
     }
@@ -2591,67 +2615,144 @@ const Edit: React.FC = () => {
           </div>
         )}
 
-        {/* Test Model button */}
+        {/* Test Model dropdown. Trigger opens a popover with the two per-run
+            options and a primary "Run test now" button; the underlying
+            ModelTester runs headless (hideTrigger) and surfaces its result
+            via its own status pill + result dialog next to the trigger. */}
         {artifactType === 'model' && artifactId && (
-          <div className="w-full sm:w-auto flex flex-wrap items-center gap-3">
-            <label
-              title="If checked, publish test_report.json to the model artifact after testing."
-              className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+          <div ref={testDropdownRef} className="relative w-full sm:w-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowTestDropdown(v => !v)}
+              disabled={!server}
+              aria-expanded={showTestDropdown}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors w-full sm:w-auto justify-center sm:justify-start
+                ${!server
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
             >
-              <input
-                type="checkbox"
-                checked={publishTestReport}
-                onChange={(e) => setPublishTestReport(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              Publish test result
-            </label>
-            <label
-              title="If checked, bypass cache and force a full model package re-download before testing."
-              className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
-            >
-              <input
-                type="checkbox"
-                checked={skipCacheForTest}
-                onChange={(e) => setSkipCacheForTest(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              Skip cache
-            </label>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Test Model
+              <svg
+                className={`w-4 h-4 ${showTestDropdown ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                style={{ transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* ModelTester renders without its own trigger — the status
+                pill + result popover live here so the user can still see
+                the run outcome. */}
             <ModelTester
+              ref={modelTesterRef}
               artifactId={artifactId}
               isStaged={isStaged}
               isDisabled={!server}
               skipCache={skipCacheForTest}
               publishTestReport={publishTestReport}
-              onTestComplete={async () => {
+              onTestComplete={async (result) => {
+                if (result) setLastTestResult(result);
                 await loadArtifactFiles();
               }}
-              className="w-full sm:w-auto"
+              className="flex-shrink-0"
               modelRunners={modelRunners}
               hideRunnerToggle
+              hideTrigger
             />
+
+            {showTestDropdown && (
+              <div
+                className="absolute left-0 top-full mt-2 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-gray-200 shadow-lg p-4 space-y-3 text-left"
+                style={{
+                  transformOrigin: 'top left',
+                  animation: 'edit-test-dropdown-open 180ms cubic-bezier(0.23, 1, 0.32, 1)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <style>{`
+                  @keyframes edit-test-dropdown-open {
+                    from { opacity: 0; transform: scale(0.97); }
+                    to   { opacity: 1; transform: scale(1); }
+                  }
+                `}</style>
+                <h4 className="font-medium text-gray-900 text-sm">Test Options</h4>
+                <label
+                  title="If checked, publish test_report.json to the model artifact after testing."
+                  className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={publishTestReport}
+                    onChange={(e) => setPublishTestReport(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Publish test result
+                </label>
+                <label
+                  title="If checked, bypass cache and force a full model package re-download before testing."
+                  className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={skipCacheForTest}
+                    onChange={(e) => setSkipCacheForTest(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Skip cache
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDropdown(false);
+                    void modelTesterRef.current?.runTest();
+                  }}
+                  disabled={!server}
+                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-transform duration-150 ease-out active:scale-[0.97]"
+                >
+                  Run test now
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Review & Publish button */}
-        {isStaged && (
-          <button
-            onClick={() => handleTabChange('review')}
-            disabled={shouldDisableActions}
-            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
-              ${shouldDisableActions
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : activeTab === 'review'
-                  ? 'bg-blue-700 text-white'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Review & Publish
-          </button>
-        )}
+        {/* Review & Publish button — gated on RDF validity (existing) AND
+            the test having produced any result (new; failing tests still
+            let the user proceed, they just have to confirm inside the
+            review dialog). */}
+        {isStaged && (() => {
+          const needsTest = artifactType === 'model' && artifactId;
+          const disabled = shouldDisableActions || (needsTest && !lastTestResult);
+          const title = disabled && needsTest && !lastTestResult
+            ? 'Run Test Model first — a test result (passing or not) is required before Review & Publish.'
+            : undefined;
+          return (
+            <span title={title} className="w-full sm:w-auto">
+              <button
+                onClick={() => handleTabChange('review')}
+                disabled={disabled}
+                className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
+                  ${disabled
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : activeTab === 'review'
+                      ? 'bg-blue-700 text-white'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Review & Publish
+              </button>
+            </span>
+          );
+        })()}
       </div>
       </>
     );

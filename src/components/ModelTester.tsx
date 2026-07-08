@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
@@ -31,7 +31,7 @@ interface ModelTesterProps {
   className?: string;
   skipCache?: boolean;
   publishTestReport?: boolean;
-  onTestComplete?: () => void | Promise<void>;
+  onTestComplete?: (result?: TestResult) => void | Promise<void>;
   /**
    * When provided, use this caller-owned runner state instead of the
    * component's internal `useModelRunners()` instance. Lets a parent share
@@ -41,9 +41,23 @@ interface ModelTesterProps {
   modelRunners?: UseModelRunnersResult;
   /** Hide the inline runner toggle. Use when a parent renders a shared toggle. */
   hideRunnerToggle?: boolean;
+  /**
+   * Hide the built-in trigger button. Use when the parent renders its own
+   * trigger (e.g. wrapping the tester in a dropdown that also exposes
+   * per-run options) and drives the test via the imperative `runTest`
+   * method on the component's ref.
+   */
+  hideTrigger?: boolean;
 }
 
-const ModelTester: React.FC<ModelTesterProps> = ({
+export interface ModelTesterHandle {
+  /** Fire the same test-run the built-in button would fire, honoring the current props. */
+  runTest: () => Promise<void>;
+}
+
+export type { TestResult };
+
+const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   artifactId,
   isStaged,
   isDisabled,
@@ -53,7 +67,8 @@ const ModelTester: React.FC<ModelTesterProps> = ({
   className = '',
   modelRunners,
   hideRunnerToggle = false,
-}) => {
+  hideTrigger = false,
+}, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
   const { kth, denbi, selected, setSelected, activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
@@ -149,14 +164,14 @@ const ModelTester: React.FC<ModelTesterProps> = ({
 
       if (onTestComplete) {
         try {
-          await onTestComplete();
+          await onTestComplete(result);
         } catch (refreshErr) {
           console.error('Post-test refresh failed:', refreshErr);
         }
       }
     } catch (err) {
       console.error('Test run failed:', err);
-      setTestResult({
+      const failureResult: TestResult = {
         name: 'Test Failed',
         status: "failed",
         details: [{
@@ -168,12 +183,25 @@ const ModelTester: React.FC<ModelTesterProps> = ({
           }],
           warnings: []
         }]
-      });
+      };
+      setTestResult(failureResult);
+      if (onTestComplete) {
+        try {
+          await onTestComplete(failureResult);
+        } catch (refreshErr) {
+          console.error('Post-test refresh failed:', refreshErr);
+        }
+      }
     } finally {
       setLoadingStep('');
       setIsLoading(false);
     }
   };
+
+  // Expose runTest so a parent can wrap the tester in its own trigger UI
+  // (e.g. a dropdown that gathers per-run options before firing) while
+  // still letting this component own the result / spinner dialog.
+  useImperativeHandle(ref, () => ({ runTest }), [runTest]);
 
   const getMarkdownContent = () => {
     if (isLoading) {
@@ -267,31 +295,34 @@ Please keep this window open while the test is running.`;
     <div className={`relative ${className}`}>
       <div className="flex items-center gap-2">
         <div className="flex h-[40px]" ref={buttonRef}>
-        <button
-          onClick={runTest}
-          disabled={buttonDisabled}
-          title={noRunner
-            ? 'Both KTH and deNBI model-runner services failed to respond.'
-            : undefined}
-          className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-            ${buttonDisabled
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
-            }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="hidden sm:inline">{buttonLabel}</span>
-        </button>
+        {!hideTrigger && (
+          <button
+            onClick={runTest}
+            disabled={buttonDisabled}
+            title={noRunner
+              ? 'Both KTH and deNBI model-runner services failed to respond.'
+              : undefined}
+            className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
+              ${buttonDisabled
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+              }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="hidden sm:inline">{buttonLabel}</span>
+          </button>
+        )}
 
         <Menu as="div" className="relative h-full">
           <Menu.Button
             onClick={() => setIsOpen(!isOpen)}
-            className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l
+            className={`inline-flex items-center px-2 h-full font-medium transition-colors
+              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l'}
               ${buttonDisabled
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : isLoading
@@ -360,6 +391,8 @@ Please keep this window open while the test is running.`;
       </div>
     </div>
   );
-};
+});
+
+ModelTester.displayName = 'ModelTester';
 
 export default ModelTester;

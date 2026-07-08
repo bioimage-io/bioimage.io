@@ -1,13 +1,18 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import JSZip from 'jszip';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
 import axios from 'axios';
-import { LinearProgress, Dialog as MuiDialog } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, Snackbar, Alert, Slide, SlideProps } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
+import RunnerSiteToggle from './RunnerSiteToggle';
+import { useModelRunners } from '../hooks/useModelRunners';
+import { RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
+import { HYPHA_SERVER_URL } from '../config/hypha';
+import { hyphaWebsocketClient } from 'hypha-rpc';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
@@ -160,10 +165,97 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
+  // Floating banner mirrors uploadStatus messages so the header doesn't
+  // shift when "File loaded successfully" appears inline. Keyed by uid so
+  // rapid successive setUploadStatus calls each get their own 5s window
+  // instead of stomping on the previous one.
+  const [banner, setBanner] = useState<{ uid: number; message: string; severity: 'info' | 'success' | 'error' } | null>(null);
+
+  // Advanced Options popover state (KTH/deNBI toggle + Server URL + Service ID
+  // override) — same pattern as the Edit page's Advanced Options. Sits before
+  // the Validate button so a submitter can point ModelValidator at a private
+  // BioEngine before running validation.
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(false);
+  const [serviceIdOverride, setServiceIdOverride] = useState<string>('');
+  const [uploadServerUrl, setUploadServerUrl] = useState<string>('');
+  const [overrideRunner, setOverrideRunner] = useState<{ runner: any; available: boolean } | null>(null);
+  const advancedOptionsRef = useRef<HTMLDivElement>(null);
+  const baseRunners = useModelRunners();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
   const navigate = useNavigate();
   const [isUploading, setIsUploading] = useState(false);
+
+  // Sync uploadStatus into the floating banner. Skip progress-only updates
+  // (severity: 'info' with a numeric progress) — those belong to the
+  // progress bar, not a fire-and-forget toast.
+  useEffect(() => {
+    if (!uploadStatus?.message) return;
+    if (uploadStatus.severity === 'info' && typeof uploadStatus.progress === 'number') return;
+    setBanner({ uid: Date.now(), message: uploadStatus.message, severity: uploadStatus.severity });
+  }, [uploadStatus]);
+
+  // Click-outside dismissal for the Advanced Options popover.
+  useEffect(() => {
+    if (!showAdvancedOptions) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (advancedOptionsRef.current && !advancedOptionsRef.current.contains(e.target as Node)) {
+        setShowAdvancedOptions(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showAdvancedOptions]);
+
+  // Override probe: when the user types a custom service id, connect to it
+  // (optionally against a custom Hypha server URL) and use the resulting
+  // runner instead of baseRunners.activeRunner.
+  useEffect(() => {
+    const target = serviceIdOverride.trim();
+    if (!target) { setOverrideRunner(null); return; }
+    const customServerUrl = uploadServerUrl.trim();
+    const usingCustomServer = customServerUrl && customServerUrl !== HYPHA_SERVER_URL;
+    if (!server && !usingCustomServer) { setOverrideRunner(null); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const probeServer = usingCustomServer
+          ? await hyphaWebsocketClient.connectToServer({ server_url: customServerUrl })
+          : server;
+        if (!alive || !probeServer) return;
+        const r = await probeServer.getService(target, { mode: 'select:min:get_load' });
+        if (alive) setOverrideRunner({ runner: r, available: true });
+      } catch {
+        if (alive) setOverrideRunner({ runner: null, available: false });
+      }
+    })();
+    return () => { alive = false; };
+  }, [server, serviceIdOverride, uploadServerUrl]);
+
+  const modelRunners = useMemo(() => {
+    const target = serviceIdOverride.trim();
+    if (!target) return baseRunners;
+    return {
+      ...baseRunners,
+      activeRunner: overrideRunner?.runner ?? null,
+      activeServiceId: target,
+      hasAny: !!overrideRunner?.available || baseRunners.hasAny,
+    };
+  }, [baseRunners, overrideRunner, serviceIdOverride]);
+
+  const trimmedOverride = serviceIdOverride.trim();
+  let toggleSelected: RunnerSite | null;
+  if (!trimmedOverride) {
+    toggleSelected = baseRunners.selected;
+  } else {
+    const matched = RUNNER_SITES.find(s => s.serviceId === trimmedOverride);
+    toggleSelected = matched ? matched.id : null;
+  }
+  const handleRunnerSiteSelect = (site: RunnerSite) => {
+    const target = RUNNER_SITES.find(s => s.id === site);
+    if (target) setServiceIdOverride(target.serviceId);
+    baseRunners.setSelected(site);
+  };
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isValidated, setIsValidated] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
@@ -1538,45 +1630,132 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                   {/* Status section */}
                   <div className="flex-grow min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {uploadStatus && (
-                        <>
-                          <span className="text-gray-400">•</span>
-                          <span className={`${getStatusColor(uploadStatus.severity)} text-base truncate`}>
-                            {uploadStatus.message}
-                          </span>
-                        </>
-                      )}
-                    </div>
+                    {/* Status messages moved to a floating banner (Snackbar
+                        near the bottom of this component) so they don't
+                        push the header down when they appear/disappear. */}
                   </div>
 
                   {/* Buttons section */}
-                  <div className="flex gap-2 flex-shrink-0">
+                  <div className="flex gap-2 flex-shrink-0 items-center">
+                    {/* Advanced Options popover. Sits before Validate so the
+                        submitter can point ModelValidator at a private
+                        BioEngine (Server URL + Service ID override) or pick
+                        a specific cluster on the KTH/deNBI toggle. Same
+                        pattern as the Edit page's Advanced Options. */}
+                    {isLoggedIn && (
+                      <div ref={advancedOptionsRef} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvancedOptions(v => !v)}
+                          aria-expanded={showAdvancedOptions}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300"
+                        >
+                          <svg
+                            className={`w-4 h-4 ${showAdvancedOptions ? 'rotate-180' : ''}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            style={{ transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                          Advanced Options
+                        </button>
+
+                        {showAdvancedOptions && (
+                          <div
+                            className="absolute right-0 top-full mt-2 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-gray-200 shadow-lg p-4 space-y-4 text-left"
+                            style={{
+                              transformOrigin: 'top right',
+                              animation: 'upload-advanced-open 180ms cubic-bezier(0.23, 1, 0.32, 1)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <style>{`
+                              @keyframes upload-advanced-open {
+                                from { opacity: 0; transform: scale(0.97); }
+                                to   { opacity: 1; transform: scale(1); }
+                              }
+                            `}</style>
+                            <h4 className="font-medium text-gray-900 text-sm">Advanced Options</h4>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Server URL
+                              </label>
+                              <input
+                                type="url"
+                                value={uploadServerUrl}
+                                onChange={(e) => setUploadServerUrl(e.target.value)}
+                                placeholder={HYPHA_SERVER_URL}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                              />
+                              <span className="text-xs text-gray-500">
+                                Leave empty to use the default Hypha server. Set to a private BioEngine to validate against it.
+                              </span>
+                            </div>
+                            <div>
+                              <div className="flex flex-wrap items-center gap-3 mb-1">
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Service ID
+                                </label>
+                                <RunnerSiteToggle
+                                  selected={toggleSelected}
+                                  onSelect={handleRunnerSiteSelect}
+                                  available={{ kth: baseRunners.kth.available, denbi: baseRunners.denbi.available }}
+                                  loading={baseRunners.loading}
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={serviceIdOverride}
+                                onChange={(e) => setServiceIdOverride(e.target.value)}
+                                placeholder={baseRunners.activeServiceId ?? ''}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                              />
+                              <span className="text-xs text-gray-500">
+                                Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <ModelValidator
                       rdfContent={getRdfFile()?.content as string}
                       isDisabled={!getRdfFile() || !server}
                       onValidationComplete={handleValidationComplete}
+                      modelRunners={modelRunners}
+                      hideRunnerToggle
                     />
                     {!uploadedArtifact && (
-                      <button
-                        onClick={handleUpload}
-                        disabled={isUploading || !isLoggedIn || !isValidated}
-                        className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                          ${isUploading || !isLoggedIn || !isValidated
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      <span
+                        title={
+                          !isLoggedIn
+                            ? undefined
+                            : !isValidated
+                              ? 'Run Validate first — the rdf.yaml must pass validation before it can be uploaded.'
+                              : undefined
+                        }
                       >
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                          </svg>
-                          {!isLoggedIn 
-                            ? 'Please login'
-                            : isUploading 
-                              ? 'Uploading...' 
-                              : 'Upload'}
-                        </>
-                      </button>
+                        <button
+                          onClick={handleUpload}
+                          disabled={isUploading || !isLoggedIn || !isValidated}
+                          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                            ${isUploading || !isLoggedIn || !isValidated
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                        >
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                            {!isLoggedIn
+                              ? 'Please login'
+                              : isUploading
+                                ? 'Uploading...'
+                                : 'Upload'}
+                          </>
+                        </button>
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1889,6 +2068,34 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         </div>
       )}
       {renderShaDialog()}
+
+      {/* Floating status banner. Slides in from the right, auto-dismisses
+          after 5 s. Keyed by uid so back-to-back setUploadStatus calls
+          each get a fresh 5 s window instead of the second one closing
+          the first prematurely. */}
+      <Snackbar
+        key={banner?.uid ?? 'empty'}
+        open={banner !== null}
+        onClose={(_, reason) => {
+          if (reason === 'clickaway') return;
+          setBanner(null);
+        }}
+        autoHideDuration={5000}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        TransitionComponent={(props: SlideProps) => <Slide {...props} direction="left" />}
+        sx={{ mt: 8 }}
+      >
+        {banner ? (
+          <Alert
+            severity={banner.severity === 'error' ? 'error' : banner.severity === 'success' ? 'success' : 'info'}
+            variant="filled"
+            onClose={() => setBanner(null)}
+            sx={{ minWidth: 280, maxWidth: 420, boxShadow: 3 }}
+          >
+            {banner.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </div>
   );
 };

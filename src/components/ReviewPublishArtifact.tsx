@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog as MuiDialog, TextField } from '@mui/material';
 import Comments from './Comments';
 import ArtifactCard from './ArtifactCard';
-import ModelTester from './ModelTester';
+import ModelTester, { TestResult } from './ModelTester';
 import { ArtifactInfo } from '../types/artifact';
 import ArtifactAdmin from './ArtifactAdmin';
 import { useHyphaStore } from '../store/hyphaStore';
@@ -24,6 +24,12 @@ interface ReviewPublishArtifactProps {
   isContentValid: boolean;
   hasContentChanged: boolean;
   defaultComment?: string;
+  /**
+   * Latest Test Model result surfaced from the Edit page. When present and
+   * status !== 'passed', clicking Submit for Review opens a confirmation
+   * dialog rendering the failing checks before firing handleSubmit.
+   */
+  lastTestResult?: TestResult | null;
 }
 
 const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
@@ -33,6 +39,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   isCollectionAdmin,
   onPublish,
   isContentValid,
+  lastTestResult,
   hasContentChanged,
   defaultComment
 }) => {
@@ -69,6 +76,20 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   // hit when the request-review edit path lands on `bioimage-io/bioimage.io`
   // without stage=True) so they aren't swallowed by console.error only.
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Extra confirmation when the last Test Model run didn't pass — the user
+  // sees the failing checks and has to explicitly opt in before we call
+  // handleSubmit. See the failing-test dialog rendered near the bottom of
+  // this component.
+  const [showFailingTestConfirm, setShowFailingTestConfirm] = useState<boolean>(false);
+  const isTestPassing = lastTestResult?.status === 'passed';
+
+  const attemptSubmit = () => {
+    if (!isTestPassing) {
+      setShowFailingTestConfirm(true);
+      return;
+    }
+    void handleSubmit();
+  };
 
   const handleSubmit = async () => {
     if (!artifactInfo?.manifest) return;
@@ -510,7 +531,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               Cancel
             </button>
             <button
-              onClick={handleSubmit}
+              onClick={attemptSubmit}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               Submit for Review
@@ -521,6 +542,89 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
       {/* Publish Dialog */}
       {renderPublishDialog()}
+
+      {/* Failing-test confirmation. Renders the failing checks (same
+          TestResult shape ModelTester produces) and requires an explicit
+          "Publish anyway" click before firing handleSubmit. */}
+      <MuiDialog
+        open={showFailingTestConfirm}
+        onClose={() => setShowFailingTestConfirm(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <div className="p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <svg className="w-6 h-6 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+            </svg>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Test did not pass — submit anyway?</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Reviewers will see this failing report. You can also cancel, fix the issue in the editor, and re-run Test Model before submitting.
+              </p>
+            </div>
+          </div>
+
+          {lastTestResult && (
+            <div className="border border-gray-200 rounded-md overflow-hidden max-h-72 overflow-y-auto">
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2 text-sm">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border
+                  ${lastTestResult.status === 'passed'
+                    ? 'bg-green-50 text-green-700 border-green-200'
+                    : 'bg-red-50 text-red-700 border-red-200'}`}>
+                  {lastTestResult.status}
+                </span>
+                <span className="font-medium text-gray-800">{lastTestResult.name}</span>
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {lastTestResult.details?.map((detail, idx) => (
+                  <li key={idx} className="px-4 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border
+                        ${detail.status === 'passed'
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        {detail.status}
+                      </span>
+                      <span className="font-medium text-gray-800">{detail.name}</span>
+                    </div>
+                    {detail.errors?.length > 0 && (
+                      <ul className="mt-1 ml-2 list-disc list-inside text-xs text-red-700 space-y-0.5">
+                        {detail.errors.map((err, ei) => (
+                          <li key={ei}>{err.msg}{err.loc?.length ? ` (${err.loc.join('.')})` : ''}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {detail.warnings?.length > 0 && (
+                      <ul className="mt-1 ml-2 list-disc list-inside text-xs text-amber-700 space-y-0.5">
+                        {detail.warnings.map((w, wi) => (
+                          <li key={wi}>{w.msg}{w.loc?.length ? ` (${w.loc.join('.')})` : ''}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-6 flex gap-3 justify-end">
+            <button
+              onClick={() => setShowFailingTestConfirm(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { setShowFailingTestConfirm(false); void handleSubmit(); }}
+              className="px-4 py-2 text-sm font-medium text-white bg-amber-600 border border-transparent rounded-md hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+            >
+              Publish anyway
+            </button>
+          </div>
+        </div>
+      </MuiDialog>
     </div>
   );
 };
