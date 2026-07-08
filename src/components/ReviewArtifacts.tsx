@@ -123,39 +123,98 @@ const ReviewArtifacts: React.FC = () => {
 
     try {
       setLoading(true);
-      const filters: any = {};
-      const keywords: string[] = [];
+      setError(null);
 
       if (viewMode === 'pending') {
-        // Nested manifest-field filters are unreliable in Hypha; use
-        // full-text keyword search on the staged manifest value instead.
-        keywords.push('request-review');
+        // Hypha's list() keyword search only indexes committed manifests, not
+        // staged ones. Models submitted for review keep their files staged until
+        // a curator accepts them, so we need two passes:
+        //   1. List all staged artifacts, read each staged manifest, filter for
+        //      status='request-review' client-side.
+        //   2. List committed artifacts whose committed manifest already carries
+        //      status='request-review' (e.g. models re-submitted after prior
+        //      acceptance, or edge cases like accidental commits).
+        // Results are merged and deduplicated by artifact id.
+
+        const [stagedResp, committedResp] = await Promise.all([
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            stage: true,
+            limit: 1000,
+            pagination: true,
+            _rkwargs: true
+          }),
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            keywords: ['request-review'],
+            stage: false,
+            limit: 1000,
+            pagination: true,
+            _rkwargs: true
+          })
+        ]);
+
+        const stagedItems: Artifact[] = stagedResp.items ?? [];
+
+        const stagedReads = await Promise.all(
+          stagedItems.map(async (a: Artifact) => {
+            try {
+              return await artifactManager.read({
+                artifact_id: a.id,
+                stage: true,
+                _rkwargs: true
+              });
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        const stagedPending: Artifact[] = stagedReads.filter(
+          (a: any): a is Artifact => a?.manifest?.status === 'request-review'
+        );
+
+        const committedPending: Artifact[] = committedResp.items ?? [];
+        const stagedIds = new Set(stagedPending.map((a: Artifact) => a.id));
+        let merged: Artifact[] = [
+          ...stagedPending,
+          ...committedPending.filter((a: Artifact) => !stagedIds.has(a.id))
+        ];
+
+        if (serverSearchQuery.trim()) {
+          const q = serverSearchQuery.trim().toLowerCase();
+          merged = merged.filter((a: Artifact) =>
+            a.manifest?.name?.toLowerCase().includes(q) ||
+            a.manifest?.description?.toLowerCase().includes(q) ||
+            (a.id ?? '').toLowerCase().includes(q)
+          );
+        }
+
+        setReviewArtifactsTotalItems(merged.length);
+        const start = (reviewArtifactsPage - 1) * itemsPerPage;
+        setArtifacts(merged.slice(start, start + itemsPerPage));
+      } else {
+        const filters: any = {};
+        const keywords: string[] = [];
+
+        if (serverSearchQuery.trim()) {
+          keywords.push(serverSearchQuery.trim());
+        }
+
+        const response = await artifactManager.list({
+          parent_id: "bioimage-io/bioimage.io",
+          filters,
+          keywords,
+          stage: viewMode === 'published' ? false : true,
+          limit: itemsPerPage,
+          offset: (reviewArtifactsPage - 1) * itemsPerPage,
+          pagination: true,
+          _rkwargs: true
+        });
+
+        setArtifacts(response.items);
+        setReviewArtifactsTotalItems(response.total);
       }
-
-      // Add search query to filters if present
-      if (serverSearchQuery.trim()) {
-        keywords.push(serverSearchQuery.trim());
-      }
-
-      const response = await artifactManager.list({
-        parent_id: "bioimage-io/bioimage.io",
-        filters: filters,
-        keywords: keywords,
-        stage: viewMode === 'published' ? false : true,
-        limit: itemsPerPage,
-        offset: (reviewArtifactsPage - 1) * itemsPerPage,
-        pagination: true,
-        _rkwargs: true
-      });
-
-      // show the keywords, filters, and stage, then the response
-
-      console.log("DEBUG:", {keywords, filters, stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined)})
-      console.log("DEBUG:", response)
-
-      setArtifacts(response.items);
-      setReviewArtifactsTotalItems(response.total);
-      setError(null);
     } catch (err) {
       console.error('Error loading artifacts:', err);
       setError('Failed to load artifacts');

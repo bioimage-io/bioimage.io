@@ -125,7 +125,6 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
       await artifactManager.edit({
         artifact_id: artifactId,
-        version: "stage",
         stage: true,
         manifest: manifestCopy,
         _rkwargs: true
