@@ -107,13 +107,13 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         hyphaToken = await server.generateToken();
       }
 
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, publish_test_report: ${publishTestReport}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, attach_test_report: ${publishTestReport}`);
       const startTime = performance.now();
       const result = await runner.test({
         model_id: modelId,
         stage: isStaged,
         skip_cache: skipCache,
-        publish_test_report: publishTestReport,
+        attach_test_report: publishTestReport,
         ...(hyphaToken ? { hypha_token: hyphaToken } : {}),
         _rkwargs: true,
       });
