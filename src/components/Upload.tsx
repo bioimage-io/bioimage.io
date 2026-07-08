@@ -1785,7 +1785,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       <span
                         title={
                           !isLoggedIn
-                            ? undefined
+                            ? 'Log in to upload your model.'
                             : !isValidated
                               ? 'Run Validate first — the rdf.yaml must pass validation before it can be uploaded.'
                               : undefined

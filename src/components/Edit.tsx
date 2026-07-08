@@ -2661,9 +2661,14 @@ const Edit: React.FC = () => {
           const needsTest = artifactType === 'model' && artifactId;
           const alreadySubmitted = artifactInfo?.manifest?.status === 'request-review';
           const disabled = shouldDisableActions || (needsTest && !lastTestResult && !alreadySubmitted);
-          const title = disabled && needsTest && !lastTestResult && !alreadySubmitted
-            ? 'Run Test Model first — a test result (passing or not) is required before Review & Publish.'
-            : undefined;
+          const title = !disabled ? undefined
+            : shouldDisableActions
+              ? (hasContentChanged
+                  ? 'Save your rdf.yaml changes first before reviewing and publishing.'
+                  : 'Fix the rdf.yaml validation errors first before reviewing and publishing.')
+              : (needsTest && !lastTestResult && !alreadySubmitted)
+                ? 'Run Test Model first — a test result (passing or not) is required before Review & Publish.'
+                : undefined;
           return (
             <span title={title} className="w-full sm:w-auto">
               <button
