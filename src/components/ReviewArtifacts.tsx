@@ -687,7 +687,7 @@ const ReviewArtifacts: React.FC = () => {
                           
                           {artifact.manifest?.covers && artifact.manifest.covers.length > 0 && (
                             <div className="mt-3 flex gap-2 overflow-x-auto">
-                              {artifact.manifest.covers.slice(0, 3).map((cover: string, index: number) => (
+                              {artifact.manifest.covers.slice(0, 3).map((cover: any, index: number) => (
                                 <div 
                                   key={index}
                                   className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-gray-200"
