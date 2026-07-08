@@ -42,159 +42,15 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 **Environment**:
 ```bash
-export HYPHA_TOKEN=<your-token>                             # see "If you don't have a Hypha token yet" below
+export HYPHA_TOKEN=<your-token>                             # see references/hypha_setup.md if you don't have one
 export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use
 ```
 
-### If you don't have a Hypha token yet
-
-When the user hasn't provided a `HYPHA_TOKEN` and you need one, walk them through the browser login flow rather than guessing. `hypha_rpc.login()` connects to the `public/hypha-login` service, prints a one-time URL, and blocks until the user finishes the OAuth flow in their browser:
-
-```python
-from hypha_rpc import login
-
-token = await login({
-    "server_url": "https://hypha.aicell.io",
-    # Optional but recommended for long-lived agents:
-    # "expires_in": 3600 * 24 * 30,   # 30 days
-    # "login_timeout": 300,           # how long to wait for the user
-})
-# Save it: the user pastes this into their .env as HYPHA_TOKEN
-```
-
-If you're running headless (CLI, notebook, bot, agent shell), pass a `login_callback` to display the URL however you prefer — the default just `print()`s it:
-
-```python
-async def show_login(context):
-    # context = {"login_url": "...", "key": "...", "report_url": "..."}
-    print(f"\n🔐 Open this link to sign in to Hypha:\n   {context['login_url']}\n")
-
-token = await login({
-    "server_url": "https://hypha.aicell.io",
-    "login_callback": show_login,
-    "login_timeout": 300,
-})
-```
-
-The token returned is scoped to the **user's personal workspace** (`ws-user-<provider>|<uid>`, e.g. `ws-user-github|49943582`) with admin permission. That's enough to set up workers, create new workspaces, and mint scoped tokens for apps. Save it in `~/.env` as `HYPHA_TOKEN` so subsequent sessions don't re-trigger login.
-
-> **Interactive setup wizard** — the page at `https://bioimage.io/#/bioengine` ("Launch Your Own BioEngine Instance") wraps this same flow with a friendlier UI and auto-generates a 30-day admin token after Hypha login. For humans who'd rather click than type, send them there; agents working purely in code use `login()` directly.
-
-### Create a new workspace
-
-Personal workspaces work for prototyping. For lab- or facility-scale deployments, create a dedicated workspace so collaborators can share artifacts, workers, and apps cleanly. Workspaces that store artifacts (which all app deployments do) **must be persistent**:
-
-```python
-from hypha_rpc import connect_to_server
-
-async with connect_to_server({"server_url": "https://hypha.aicell.io", "token": admin_token}) as server:
-    ws = await server.create_workspace({
-        "id": "my-lab",                       # required: lowercase, hyphens only, globally unique
-        "name": "My Lab",                     # optional display name
-        "description": "Workers + apps for the lab",
-        "persistent": True,                   # required for artifact storage
-        # "owners": ["nils.mech@gmail.com"],  # optional — defaults to caller; add co-owners here
-    })
-    print("created:", ws["id"])
-```
-
-The caller becomes an owner by default. Once created, the workspace shows up in `await server.list_workspaces()`, and you can mint scoped tokens for it (next subsection).
-
-### Generate scoped tokens (worker + apps)
-
-Once you have an admin token for a workspace, mint shorter-lived scoped tokens via `server.generate_token(...)`. The BioEngine worker itself does this internally — replicating the same scheme in your own bootstrap means tokens look uniform across the cluster.
-
-**Worker bootstrap token** — admin permission, 30-day default. This is what you pass to the worker process as `HYPHA_TOKEN` env var:
-
-```python
-worker_token = await server.generate_token({
-    "workspace": "my-lab",
-    "permission": "admin",                    # worker needs admin to mint tokens for app replicas
-    "expires_in": 3600 * 24 * 30,             # 30 days
-    "client_id": "bioengine-worker-<facility>",   # optional but recommended for stable identity
-})
-```
-
-(The worker, once running, also auto-mints itself a **3-hour rolling internal admin token** which it renews every cycle — that's an internal detail; you only need to provide the 30-day bootstrap token.)
-
-**App / startup-applications token** — `read_write` permission, 30-day default. This is exactly what `AppsManager` and `AppBuilder` mint internally for every app deployment and proxy service:
-
-```python
-app_token = await server.generate_token({
-    "workspace": "my-lab",
-    "permission": "read_write",
-    "expires_in": 3600 * 24 * 30,             # 30 days — the BioEngine default
-})
-```
-
-Use this when you need to hand an app process an authenticated client for the workspace (e.g. when supplying `--hypha-token` to `bioengine apps run` for an app that registers its own Hypha services back, like `model-runner` or `cellpose-finetuning`).
-
-**Permission ladder** (use the least-privileged level that works):
-
-| `permission` | Can do |
-|---|---|
-| `read` | Call services, read artifacts. No registration. |
-| `read_write` | + register services, create/edit artifacts. Default for apps. |
-| `admin` | + manage workspace, mint new tokens. Required for the worker itself. |
-
-`expires_in` is in seconds. Don't issue admin tokens with `expires_in > 30 days` for a hosted worker — short renewal cycles bound the blast radius if the token is leaked. The BioEngine worker's internal 3-hour rolling token is the upper bound for "compromise window" once the worker is running.
+**Getting a token, workspace, and scoped credentials.** If you don't already have a `HYPHA_TOKEN`, or you need to create a dedicated workspace or mint worker/app tokens, **load [references/hypha_setup.md](references/hypha_setup.md)** — the browser login flow, `create_workspace`, the `generate_token` scheme, and the permission ladder. Most task runs only need this once.
 
 ### Service IDs — how to discover them (read carefully)
 
-BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are two layers, and **they look superficially similar but resolve to different things**:
-
-- **Worker service** — addresses the worker's admin API (`get_status`, `deploy_app`, etc.). One per worker:
-  ```
-  <workspace>/<worker_client_id>:bioengine-worker
-  ```
-  Concrete examples in the `bioimage-io` workspace today: `bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker`, `bioimage-io/bioengine-worker-denbi-<hash>:bioengine-worker`, `bioimage-io/bioengine-worker-berzelius:bioengine-worker`.
-
-- **App service** — addresses a specific running app on a specific worker. One per (worker, app):
-  ```
-  <workspace>/<worker_client_id>-<replica_id>:<application_id>
-  ```
-  e.g. `bioimage-io/bioengine-worker-denbi-<hash>-<replica>:model-runner`. The `<replica_id>` is appended to the worker's `client_id` so each app replica is its own Hypha client.
-
-> ⚠️ **`<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) is NOT the callable app service.** That short form exists as a WebRTC offer endpoint registered by the proxy, and calling it returns only `{offer}`, not the app methods. **Always use the per-worker per-replica form above when calling an app.**
-
-**Service types** (use with `list_services({"type": ...})`):
-
-| Type | Registered by | Selects |
-|---|---|---|
-| `bioengine-worker` | the worker itself | one entry per worker |
-| `bioengine-app` | the proxy deployment of each running app | one entry per running app (singular — `bioengine-apps` returns 0 results) |
-
-**Discovery recipe** (one ready-to-paste block):
-```python
-from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
-
-# 1. List workers in the workspace:
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
-#   → ["bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker", "...-denbi-...", ...]
-
-# 2. For a chosen worker, ask which apps it has running AND get their concrete service IDs:
-worker = await s.get_service(workers[0])
-status = await worker.get_app_status(None)            # None / no args = all running apps
-#   ALWAYS a dict keyed by app id, even when one app is queried (the
-#   docstring's "single app returns directly" claim is stale — treat the
-#   return as a dict in every case).
-for app_id, info in status.items():
-    if info.get("status") == "RUNNING":
-        ws_sid  = info["service_ids"]["websocket_service_id"]   # concrete; this is what you call
-        rtc_sid = info["service_ids"]["webrtc_service_id"]
-        print(app_id, "→", ws_sid)
-
-# 3. Call the app:
-app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<replica>:model-runner"
-result = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
-```
-
-> **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).
-
-> **Replica suffix in the service ID** — the worker mints a fresh Hypha sub-client for every Ray Serve replica (so each replica can register its own services). That's why the app's service ID is `<workspace>/<worker_client_id>-<replica_id>:<app_id>` (e.g. `…-v6qq1k45:model-runner`) instead of just `<workspace>/<worker_client_id>:<app_id>`. The suffix is stable for the lifetime of the replica and changes on every redeploy — always re-resolve via `get_app_status` rather than caching the full service ID across deploys.
-
-A user who deployed their own worker in workspace `<ws>` has the same pattern: a `<ws>/bioengine-worker-*:bioengine-worker` for the worker and `<ws>/<worker_client_id>-<replica_id>:<app_id>` per app instance.
+Calling an app requires the concrete per-worker per-replica service ID, and `<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) does **not** reach the app methods — it returns only `{offer}`. Before any Task 3 (deploy) or Task 4 (call) work, **load [references/service_ids.md](references/service_ids.md)** for the worker-vs-app ID layers, the `list_services` type table, and the ready-to-paste discovery recipe that resolves a callable `websocket_service_id` via `worker.get_app_status(None)`.
 
 ---
 
@@ -567,8 +423,6 @@ result  = await app.infer(model_id="affable-shark", inputs="<url>")
 
 ### Apps that take dataset URIs
 
-### Apps that take dataset URIs
-
 Some apps (e.g. cellpose-finetuning) take HTTPS URIs of OME-Zarr datasets as input rather than streaming through the worker. Discover candidate datasets via the BioImage Archive search API, the IDR OME-NGFF samples catalogue, or any other public source — see [references/data_sources.md](references/data_sources.md) for the BIA, IDR / OMERO query patterns and how to extract `.ome.zarr` URIs from the response.
 
 ### App-specific subskills
@@ -611,6 +465,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 | File | Covers |
 |---|---|
+| [references/hypha_setup.md](references/hypha_setup.md) | Hypha login, create workspace, mint scoped tokens, permission ladder (read once) |
+| [references/service_ids.md](references/service_ids.md) | Worker-vs-app service ID layers + discovery recipe (Tasks 3 & 4) |
 | [references/worker_onboarding.md](references/worker_onboarding.md) | Set up a worker — mode selection + 7-check readiness test (Task 1) |
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
