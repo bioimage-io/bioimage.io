@@ -65,13 +65,23 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   };
 
   const { artifactManager } = useHyphaStore();
+  // Surface Hypha errors (e.g. the PermissionError non-workspace-admin users
+  // hit when the request-review edit path lands on `bioimage-io/bioimage.io`
+  // without stage=True) so they aren't swallowed by console.error only.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!artifactInfo?.manifest) return;
+    setSubmitError(null);
     try {
       await artifactManager.edit({
         artifact_id: artifactId,
         version: "stage",
+        // Pass `stage: true` alongside `version: "stage"` so Hypha treats
+        // this as an edit of the staged version rather than falling through
+        // to the collection-commit path (which requires collection-admin
+        // permission that regular submitters don't have — see issue #0005).
+        stage: true,
         manifest: {
           ...artifactInfo.manifest,
           status: 'request-review'
@@ -80,8 +90,12 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
       });
       setStatus('request-review');
       setShowReviewDialog(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting for review:', error);
+      const message = error?.message || String(error);
+      setSubmitError(message.includes('permission')
+        ? 'You do not currently have permission to submit this model for review. If this looks wrong, share the message below with a reviewer.\n\n' + message
+        : message);
     }
   };
 
@@ -92,10 +106,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
       if ('status' in manifestCopy) {
         delete manifestCopy.status;
       }
-      
+
       await artifactManager.edit({
         artifact_id: artifactId,
         version: "stage",
+        stage: true,
         manifest: manifestCopy,
         _rkwargs: true
       });
@@ -482,9 +497,14 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               </ul>
             </div>
           </div>
+          {submitError && (
+            <div className="mt-4 px-4 py-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700 whitespace-pre-wrap break-words">
+              {submitError}
+            </div>
+          )}
           <div className="mt-6 flex gap-3 justify-end">
             <button
-              onClick={() => setShowReviewDialog(false)}
+              onClick={() => { setSubmitError(null); setShowReviewDialog(false); }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               Cancel
