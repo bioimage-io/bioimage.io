@@ -2670,10 +2670,11 @@ const Edit: React.FC = () => {
                 ? 'Run Test Model first — a test result (passing or not) is required before Review & Publish.'
                 : undefined;
           return (
-            <span title={title} className="w-full sm:w-auto">
+            <span className="w-full sm:w-auto">
               <button
                 onClick={() => handleTabChange('review')}
                 disabled={disabled}
+                title={title}
                 className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
                   ${disabled
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'

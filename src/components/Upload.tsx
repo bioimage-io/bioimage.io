@@ -1782,7 +1782,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       hideRunnerToggle
                     />
                     {!uploadedArtifact && (
-                      <span
+                      <button
+                        onClick={handleUpload}
+                        disabled={isUploading || !isLoggedIn || !isValidated}
                         title={
                           !isLoggedIn
                             ? 'Log in to upload your model.'
@@ -1790,11 +1792,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                               ? 'Run Validate first — the rdf.yaml must pass validation before it can be uploaded.'
                               : undefined
                         }
-                      >
-                        <button
-                          onClick={handleUpload}
-                          disabled={isUploading || !isLoggedIn || !isValidated}
-                          className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                        className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
                             ${isUploading || !isLoggedIn || !isValidated
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                               : 'bg-blue-600 text-white hover:bg-blue-700'}`}
@@ -1809,8 +1807,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                                 ? 'Uploading...'
                                 : 'Upload'}
                           </>
-                        </button>
-                      </span>
+                      </button>
                     )}
                   </div>
                 </div>
