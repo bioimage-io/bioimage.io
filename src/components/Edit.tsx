@@ -17,6 +17,7 @@ import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
+import TestDetailsDialog from './TestDetailsDialog';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -354,6 +355,8 @@ const Edit: React.FC = () => {
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
   const [showTestOptionsDialog, setShowTestOptionsDialog] = useState<boolean>(false);
   const modelTesterRef = useRef<ModelTesterHandle>(null);
+  const [testReportDialogOpen, setTestReportDialogOpen] = useState(false);
+  const [testReportData, setTestReportData] = useState<any>(null);
 
   useEffect(() => {
     setEditVersion(version);
@@ -700,6 +703,20 @@ const Edit: React.FC = () => {
   };
 
   const handleFileSelect = async (file: FileNode) => {
+    // test_report.json is shown in the TestDetailsDialog, not the raw editor
+    if (file.name === 'test_report.json') {
+      try {
+        const raw = await fetchFileContent(file);
+        const text = typeof raw === 'string' ? raw : raw instanceof ArrayBuffer
+          ? new TextDecoder().decode(raw) : null;
+        setTestReportData(text ? JSON.parse(text) : null);
+      } catch {
+        setTestReportData(null);
+      }
+      setTestReportDialogOpen(true);
+      return;
+    }
+
     // First check if the file still exists in our files array
     const fileExists = files.some(f => f.path === file.path);
     if (!fileExists) {
@@ -3434,6 +3451,15 @@ const Edit: React.FC = () => {
       {renderShaDialog()}
 
       {renderOverwriteDialog()}
+
+      {/* Test report viewer — opens when clicking test_report.json in the file list */}
+      <TestDetailsDialog
+        open={testReportDialogOpen}
+        onClose={() => setTestReportDialogOpen(false)}
+        data={testReportData}
+        isLoading={false}
+        type="test-report"
+      />
 
       {/* Test options dialog */}
       <MuiDialog

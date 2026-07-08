@@ -125,9 +125,11 @@ const ReviewArtifacts: React.FC = () => {
       setLoading(true);
       const filters: any = {};
       const keywords: string[] = [];
-      
+
       if (viewMode === 'pending') {
-        filters.manifest = { status: 'request-review' };
+        // Nested manifest-field filters are unreliable in Hypha; use
+        // full-text keyword search on the staged manifest value instead.
+        keywords.push('request-review');
       }
 
       // Add search query to filters if present
