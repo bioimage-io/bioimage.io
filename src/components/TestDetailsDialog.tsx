@@ -152,8 +152,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
-      fullWidth
+      maxWidth={isLoading ? 'xs' : 'lg'}
+      fullWidth={!isLoading}
       PaperProps={{
         sx: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
