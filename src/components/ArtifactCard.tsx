@@ -9,7 +9,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 
-import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveCoverThumbnailUrl } from '../utils/urlHelpers';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
@@ -22,6 +22,7 @@ interface ResourceCardProps {
 
 export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const covers = artifact.manifest.covers || [];
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
@@ -147,10 +148,17 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     }
   };
 
-  // Get the resolved cover URL for the current index
+  // Reset thumbnail fallback state when the user navigates to a different cover image.
+  useEffect(() => {
+    setThumbnailFailed(false);
+  }, [currentImageIndex]);
+
+  // In the overview grid, prefer the thumbnail (lower bandwidth); fall back to
+  // the original on 404. External URLs are returned unchanged by both helpers.
   const getCurrentCoverUrl = () => {
     if (covers.length === 0) return '';
-    return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
+    if (thumbnailFailed) return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
+    return resolveCoverThumbnailUrl(covers[currentImageIndex], artifact.id);
   };
 
   return (
@@ -282,6 +290,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             onClick={handleClick}
             component="img"
             image={getCurrentCoverUrl()}
+            onError={() => setThumbnailFailed(true)}
             alt={artifact.manifest.name}
             sx={{
               position: 'absolute',

@@ -26,7 +26,11 @@ interface Artifact {
     comment: string;
     created_at: number;
   }>;
-  staging?: any[];
+  staging?: any;
+  /** Populated by loadArtifacts when a staged version exists; holds the staged manifest's status. */
+  _stagedStatus?: string | null;
+  /** True when the artifact exists only as a staged version (no committed releases). */
+  _stagedOnly?: boolean;
 }
 
 const MyArtifacts: React.FC = () => {
@@ -98,7 +102,18 @@ const MyArtifacts: React.FC = () => {
         _rkwargs: true,
       } as const;
 
-      const [createdRes, uploadedRes] = await Promise.all([
+      // When showing "All Versions" we also need the staged manifests to:
+      // (a) include staged-only artifacts that stage=all misses entirely
+      // (b) surface the staged manifest's review status (e.g. request-review)
+      //     for dual artifacts whose committed manifest has no status field
+      const stagedOpts = !showStagedOnly ? {
+        parent_id: "bioimage-io/bioimage.io",
+        stage: "stage",
+        limit: 100,
+        _rkwargs: true,
+      } as const : null;
+
+      const [createdRes, uploadedRes, stagedCreatedRes, stagedUploadedRes] = await Promise.all([
         artifactManager.list({
           ...listOpts,
           filters: { created_by: user.id },
@@ -109,6 +124,12 @@ const MyArtifacts: React.FC = () => {
               ...listOpts,
               keywords: [...baseKeywords, user.email],
             })
+          : Promise.resolve([]),
+        stagedOpts
+          ? artifactManager.list({ ...stagedOpts, filters: { created_by: user.id }, keywords: baseKeywords })
+          : Promise.resolve([]),
+        stagedOpts && user.email
+          ? artifactManager.list({ ...stagedOpts, keywords: [...baseKeywords, user.email] })
           : Promise.resolve([]),
       ]);
 
@@ -124,6 +145,21 @@ const MyArtifacts: React.FC = () => {
       for (const a of [...(createdRes || []), ...(uploadedRes || [])]) {
         if (a?.id && isMine(a)) byId[a.id] = a;
       }
+
+      // Merge staged data: enrich dual artifacts with staged status and add
+      // staged-only artifacts that stage=all missed entirely.
+      for (const a of [...(stagedCreatedRes || []), ...(stagedUploadedRes || [])]) {
+        if (!a?.id || !isMine(a)) continue;
+        const stagedStatus = a.manifest?.status ?? null;
+        if (byId[a.id]) {
+          byId[a.id] = { ...byId[a.id], _stagedStatus: stagedStatus };
+        } else {
+          // Staged-only artifact: stage=all returned nothing for it.
+          // Mark it explicitly so the card shows the "Staged" badge.
+          byId[a.id] = { ...a, staging: true, _stagedOnly: true, _stagedStatus: stagedStatus };
+        }
+      }
+
       const merged = Object.values(byId).sort((x: any, y: any) =>
         (y.last_modified ?? y.created_at ?? 0) - (x.last_modified ?? x.created_at ?? 0)
       );
@@ -365,7 +401,7 @@ const MyArtifacts: React.FC = () => {
                   <MyArtifactCard
                     id={artifact.id}
                     title={artifact.manifest?.name || artifact.alias}
-                    status={artifact.manifest?.status}
+                    status={artifact._stagedStatus ?? artifact.manifest?.status}
                     description={artifact.manifest?.description || 'No description'}
                     tags={[
                       `v${artifact.versions?.length || 0}`,
@@ -373,12 +409,12 @@ const MyArtifacts: React.FC = () => {
                     ]}
                     image={artifact.manifest?.cover || undefined}
                     downloadUrl={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
-                    onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}${artifact.staging ? '/stage' : ''}`)}
+                    onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}${(artifact.staging || artifact._stagedOnly) ? '/stage' : ''}`)}
                     onDelete={() => {
                       setArtifactToDelete(artifact);
                       setIsDeleteDialogOpen(true);
                     }}
-                    isStaged={!!artifact.staging}
+                    isStaged={!!artifact.staging || !!artifact._stagedOnly}
                     artifactType={artifact.type}
                     isCollectionAdmin={isCollectionAdmin}
                   />

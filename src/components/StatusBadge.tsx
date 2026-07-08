@@ -18,10 +18,12 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) =>
       'draft': { color: 'gray', text: 'Draft' }
     } as const;
     
-    return configs[status.toLowerCase() as keyof typeof configs] || configs.draft;
+    return configs[status.toLowerCase() as keyof typeof configs] || null;
   };
 
   const config = getStatusConfig(status);
+  if (!config) return null;
+
   const sizeClasses = {
     small: 'px-1.5 py-0.5 text-xs',
     medium: 'px-2.5 py-1 text-sm',
@@ -34,7 +36,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) =>
       ${
         {
           yellow: 'bg-yellow-100 text-yellow-800',
-          blue: 'bg-blue-100 text-blue-800', 
+          blue: 'bg-blue-100 text-blue-800',
           red: 'bg-red-100 text-red-800',
           green: 'bg-green-100 text-green-800',
           gray: 'bg-gray-100 text-gray-800'
