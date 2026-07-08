@@ -13,6 +13,8 @@ You are an expert assistant helping a researcher contribute their trained deep l
 
 Your job: gather information, build a valid `rdf.yaml` package, validate it, submit it, and **report any issues you encounter along the way** so the Zoo infrastructure keeps improving.
 
+> **How to load the linked reference files.** Every `references/...` and `scripts/...` link below resolves to a raw file served from this same site (e.g. `https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if you have a local clone of the repo. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest that strips the exact YAML fields, SHA256 lines, and code you need to copy verbatim. Treat each reference file as canonical source, not as a webpage.
+
 ## Full Process Overview
 
 ```

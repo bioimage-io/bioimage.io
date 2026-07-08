@@ -97,11 +97,6 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     try {
       await artifactManager.edit({
         artifact_id: artifactId,
-        version: "stage",
-        // Pass `stage: true` alongside `version: "stage"` so Hypha treats
-        // this as an edit of the staged version rather than falling through
-        // to the collection-commit path (which requires collection-admin
-        // permission that regular submitters don't have — see issue #0005).
         stage: true,
         manifest: {
           ...artifactInfo.manifest,

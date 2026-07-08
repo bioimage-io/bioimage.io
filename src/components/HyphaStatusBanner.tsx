@@ -33,7 +33,6 @@ const HyphaStatusBanner: React.FC = () => {
   const isHyphaUnreachable = useHyphaStore(s => s.isHyphaUnreachable);
   const markHyphaUnreachable = useHyphaStore(s => s.markHyphaUnreachable);
   const markHyphaReachable = useHyphaStore(s => s.markHyphaReachable);
-
   const [isProbing, setIsProbing] = useState(false);
   const [secondsUntilProbe, setSecondsUntilProbe] = useState<number | null>(null);
   const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);

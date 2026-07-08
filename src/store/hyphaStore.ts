@@ -79,6 +79,8 @@ export interface HyphaState {
   hyphaUnreachableMessage: string | null;
   markHyphaUnreachable: (errorMessage?: string | null) => void;
   markHyphaReachable: () => void;
+  // Reconnect using the last-used token (reads from localStorage like LoginButton).
+  reconnect: () => Promise<void>;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -120,6 +122,25 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       ? { isHyphaUnreachable: false, hyphaUnreachableSince: null, hyphaUnreachableMessage: null }
       : state
   ),
+  reconnect: async () => {
+    const savedToken = (() => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const expiry = localStorage.getItem('tokenExpiry');
+        if (expiry && new Date(expiry) > new Date()) return token;
+      }
+      return null;
+    })();
+    // Reset dedup keys so connect() doesn't short-circuit when the WS
+    // dropped but the config looks identical to the last successful run.
+    activeConnectKey = null;
+    pendingConnectPromise = null;
+    await get().connect({
+      server_url: HYPHA_SERVER_URL,
+      token: savedToken ?? undefined,
+      method_timeout: 300,
+    });
+  },
   myArtifactsPage: 1,
   myArtifactsTotalItems: 0,
   reviewArtifactsPage: 1,

@@ -26,6 +26,8 @@ interface TestDetailsDialogProps {
   onClose: () => void;
   data: any | null;
   isLoading: boolean;
+  /** Shown inside the dialog while isLoading is true (e.g. current runner step). */
+  loadingMessage?: string;
   rawErrorContent?: string | null;
   isInvalidJson?: boolean;
   type: 'test-report' | 'compatibility';
@@ -38,6 +40,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   onClose,
   data,
   isLoading,
+  loadingMessage,
   rawErrorContent,
   isInvalidJson = false,
   type,
@@ -149,8 +152,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
-      fullWidth
+      maxWidth={isLoading ? 'xs' : 'lg'}
+      fullWidth={!isLoading}
       PaperProps={{
         sx: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -193,8 +196,33 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
       
       <DialogContent dividers sx={{ p: 0 }}>
         {isLoading ? (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <Typography>Loading test details...</Typography>
+          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <img
+              src="/static/img/bioengine-logo-black.svg"
+              alt="BioEngine"
+              className="animate-pulse"
+              style={{ height: '80px' }}
+            />
+            <Typography color="text.secondary">
+              {loadingMessage || 'Running model tests...'}
+            </Typography>
+            {type === 'test-report' && (
+              <Box sx={{ textAlign: 'center', maxWidth: 400 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  This may take 30 seconds or more. The runner will:
+                </Typography>
+                <Typography variant="body2" color="text.secondary" component="div">
+                  <ol style={{ textAlign: 'left', display: 'inline-block', margin: 0, paddingLeft: '1.2em' }}>
+                    <li>Load the model from cache or download it</li>
+                    <li>Load the weights onto GPU</li>
+                    <li>Run inference with the bundled test inputs</li>
+                  </ol>
+                </Typography>
+                <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: 'block' }}>
+                  Keep this window open while the test is running.
+                </Typography>
+              </Box>
+            )}
           </Box>
         ) : isInvalidJson ? (
           <Box sx={{ p: 3 }}>

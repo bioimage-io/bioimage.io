@@ -125,9 +125,11 @@ const ReviewArtifacts: React.FC = () => {
       setLoading(true);
       const filters: any = {};
       const keywords: string[] = [];
-      
+
       if (viewMode === 'pending') {
-        filters.manifest = { status: 'request-review' };
+        // Nested manifest-field filters are unreliable in Hypha; use
+        // full-text keyword search on the staged manifest value instead.
+        keywords.push('request-review');
       }
 
       // Add search query to filters if present
@@ -139,7 +141,7 @@ const ReviewArtifacts: React.FC = () => {
         parent_id: "bioimage-io/bioimage.io",
         filters: filters,
         keywords: keywords,
-        stage: viewMode === 'published' ? false : (viewMode === 'staging' ? true : undefined),
+        stage: viewMode === 'published' ? false : true,
         limit: itemsPerPage,
         offset: (reviewArtifactsPage - 1) * itemsPerPage,
         pagination: true,

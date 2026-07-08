@@ -1,15 +1,14 @@
-import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useImperativeHandle, forwardRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Menu } from '@headlessui/react';
+import TestDetailsDialog from './TestDetailsDialog';
 
 interface TestResult {
   name: string;
   status: 'passed' | 'failed';
   type?: string;
+  env?: [string, string][];
   details: Array<{
     name: string;
     status: 'passed' | 'failed';
@@ -43,11 +42,15 @@ interface ModelTesterProps {
   hideRunnerToggle?: boolean;
   /**
    * Hide the built-in trigger button. Use when the parent renders its own
-   * trigger (e.g. wrapping the tester in a dropdown that also exposes
-   * per-run options) and drives the test via the imperative `runTest`
-   * method on the component's ref.
+   * trigger and drives the test via the imperative `runTest` ref method.
    */
   hideTrigger?: boolean;
+  /**
+   * When provided, clicking the trigger calls this instead of running the
+   * test directly. Use to open a pre-run options dialog while keeping the
+   * split-button visually connected.
+   */
+  onTriggerClick?: () => void;
 }
 
 export interface ModelTesterHandle {
@@ -68,75 +71,23 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   modelRunners,
   hideRunnerToggle = false,
   hideTrigger = false,
+  onTriggerClick,
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
   const { kth, denbi, selected, setSelected, activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
-  const [isMobile, setIsMobile] = useState(false);
-
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
-          buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
-  // Update the effect for dropdown positioning
-  useEffect(() => {
-    if (isOpen && dropdownRef.current && buttonRef.current) {
-      const dropdown = dropdownRef.current;
-      const button = buttonRef.current;
-      const dropdownRect = dropdown.getBoundingClientRect();
-      const buttonRect = button.getBoundingClientRect();
-      
-      // Check if dropdown would go outside the left edge of viewport
-      const spaceOnLeft = buttonRect.left;
-      
-      // Reset any previous positioning
-      dropdown.style.right = '';
-      dropdown.style.left = '';
-      
-      if (spaceOnLeft < dropdownRect.width) {
-        // Position to the right if there's not enough space on the left
-        dropdown.style.left = '0px';
-      } else {
-        // Default position to the right edge of the button, appearing on the left side
-        dropdown.style.right = '0px';
-      }
-    }
-  }, [isOpen, testResult]);
-
-  // Add resize listener
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024); // 1024px matches Tailwind's lg breakpoint
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const runTest = async () => {
     if (!artifactId || !server) return;
 
     setIsLoading(true);
+    setTestResult(null);
     setLoadingStep('Initializing test runner...');
-    setIsOpen(true);
+    setIsDialogOpen(true);
     
     try {
       setLoadingStep('Connecting to model runner service...');
@@ -147,6 +98,15 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       const modelId = artifactId.split('/').pop();
       
       setLoadingStep('Downloading and preparing model for testing...');
+
+      // v1.6.0+: publish_test_report=true requires a caller-owned token so
+      // the runner writes under the user's identity, not the service account.
+      let hyphaToken: string | undefined;
+      if (publishTestReport && typeof server.generateToken === 'function') {
+        setLoadingStep('Minting short-lived token for publish...');
+        hyphaToken = await server.generateToken();
+      }
+
       console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, publish_test_report: ${publishTestReport}`);
       const startTime = performance.now();
       const result = await runner.test({
@@ -154,6 +114,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         stage: isStaged,
         skip_cache: skipCache,
         publish_test_report: publishTestReport,
+        ...(hyphaToken ? { hypha_token: hyphaToken } : {}),
         _rkwargs: true,
       });
       const endTime = performance.now();
@@ -203,85 +164,9 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   // still letting this component own the result / spinner dialog.
   useImperativeHandle(ref, () => ({ runTest }), [runTest]);
 
-  const getMarkdownContent = () => {
-    if (isLoading) {
-      return `### Running Model Tests...
-
-⏳ ${loadingStep}
-
-Please note that model testing may take 30s or more as we need to:
-1. Download the model files
-2. Initialize the testing environment
-3. Run the model with test data
-
-Testing infrastructure is provided by BioEngine.
-
-Please keep this window open while the test is running.`;
-    }
-
-    if (!testResult) return '';
-
-    let content = `# ${testResult.status === 'passed' ? '✅ Test Passed' : '❌ Test Failed'}\n\n`;
-    content += `## Details\n\n`;
-
-    testResult.details.forEach(detail => {
-      content += `### ${detail.name}\n`;
-      content += `**Status**: ${detail.status === 'passed' ? '✅ Passed' : '❌ Failed' }\n\n`;
-
-      if (detail.errors.length > 0) {
-        content += '#### Errors\n';
-        detail.errors.forEach(error => {
-          content += `- **${error.loc.join(' > ')}**: ${error.msg}\n`;
-        });
-        content += '\n';
-      }
-
-      if (detail.warnings.length > 0) {
-        content += '#### Warnings\n';
-        detail.warnings.forEach(warning => {
-          content += `- **${warning.loc.join(' > ')}**: ${warning.msg}\n`;
-        });
-        content += '\n';
-      }
-    });
-
-    return content;
-  };
-
-  const renderContent = () => (
-    <div className="p-6 relative">
-      <button
-        onClick={() => setIsOpen(false)}
-        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
-        title="Close test results"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-      {isLoading && (
-        <div className="flex items-center justify-center mb-4">
-          <img 
-            src="/static/img/bioengine-logo-black.svg" 
-            alt="BioEngine Logo" 
-            className="h-28 animate-pulse"
-          />
-        </div>
-      )}
-      <ReactMarkdown
-        className="prose prose-sm max-w-none"
-        remarkPlugins={[remarkGfm]}
-      >
-        {getMarkdownContent()}
-      </ReactMarkdown>
-    </div>
-  );
-
   // Button is disabled if the caller disabled it, if a test is already in
   // flight, if the user isn't logged in, or if neither runner answered the
-  // probe. The last case is the new failure mode from this PR — both KTH
-  // and deNBI being unreachable shouldn't surface as a generic "test"
-  // error after the click; it should be visible up-front in the button.
+  // probe.
   const noRunner = !runnersLoading && !hasAny;
   const buttonDisabled = isDisabled || isLoading || !isLoggedIn || noRunner;
 
@@ -294,46 +179,45 @@ Please keep this window open while the test is running.`;
   return (
     <div className={`relative ${className}`}>
       <div className="flex items-center gap-2">
-        <div className="flex h-[40px]" ref={buttonRef}>
-        {!hideTrigger && (
-          <button
-            onClick={runTest}
-            disabled={buttonDisabled}
-            title={noRunner
-              ? 'Both KTH and deNBI model-runner services failed to respond.'
-              : undefined}
-            className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-              ${buttonDisabled
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
-              }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="hidden sm:inline">{buttonLabel}</span>
-          </button>
-        )}
+        <div className="flex h-[40px]">
+          {!hideTrigger && (
+            <button
+              onClick={onTriggerClick ?? runTest}
+              disabled={buttonDisabled}
+              title={noRunner
+                ? 'Both KTH and deNBI model-runner services failed to respond.'
+                : undefined}
+              className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
+                ${buttonDisabled
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="hidden sm:inline">{buttonLabel}</span>
+            </button>
+          )}
 
-        <Menu as="div" className="relative h-full">
-          <Menu.Button
-            onClick={() => setIsOpen(!isOpen)}
+          {/* Result pill: shows spinner while running, pass/fail icon when done */}
+          <button
+            onClick={() => (testResult || isLoading) && setIsDialogOpen(true)}
             className={`inline-flex items-center px-2 h-full font-medium transition-colors
-              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l'}
-              ${buttonDisabled
+              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l border-white/20'}
+              ${buttonDisabled && !testResult
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : isLoading
-                  ? 'bg-blue-600 text-white'
-                  : testResult
-                    ? testResult.status === 'passed'
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+                : testResult
+                  ? testResult.status === 'passed'
+                    ? 'bg-green-600 text-white hover:bg-green-700 cursor-pointer'
+                    : 'bg-red-600 text-white hover:bg-red-700 cursor-pointer'
+                  : isLoading
+                    ? 'bg-gray-200 text-gray-700 cursor-pointer'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
-            disabled={buttonDisabled}
           >
             {isLoading ? (
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
@@ -341,45 +225,19 @@ Please keep this window open while the test is running.`;
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
             ) : testResult ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d={testResult.status === 'passed'
-                    ? "M5 13l4 4L19 7"
-                    : "M6 18L18 6M6 6l12 12"} />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              </svg>
-            )}
-            {testResult && (
-              <svg className="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            )}
-          </Menu.Button>
-
-          {(testResult || isLoading) && isOpen && (
-            isMobile ? (
-              // Modal dialog for mobile
-              <div className="fixed inset-0 bg-black bg-opacity-50 z-[100]">
-                <div className="fixed inset-4 bg-white rounded-lg overflow-auto">
-                  {renderContent()}
-                </div>
-              </div>
-            ) : (
-              // Dropdown for desktop
-              <div 
-                ref={dropdownRef}
-                className="absolute mt-2 w-[calc(100vw-2rem)] sm:w-[600px] max-w-[600px] max-h-[80vh] overflow-y-auto origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
-              >
-                {renderContent()}
-              </div>
-            )
-          )}
-        </Menu>
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d={testResult.status === 'passed' ? "M5 13l4 4L19 7" : "M6 18L18 6M6 6l12 12"} />
+                </svg>
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </>
+            ) : null}
+          </button>
         </div>
+
         {isLoggedIn && !hideRunnerToggle && (
           <RunnerSiteToggle
             selected={selected}
@@ -389,6 +247,15 @@ Please keep this window open while the test is running.`;
           />
         )}
       </div>
+
+      <TestDetailsDialog
+        open={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        data={testResult}
+        isLoading={isLoading}
+        loadingMessage={loadingStep}
+        type="test-report"
+      />
     </div>
   );
 });

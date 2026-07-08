@@ -21,6 +21,22 @@ const extractPath = (input: FileLike): string => {
  * @param resourceId - The resource ID
  * @returns The full resolved URL
  */
+/**
+ * Inserts ".thumbnail" before the file extension: "cover.png" → "cover.thumbnail.png".
+ * Returns the original path unchanged if it has no extension or is an external URL.
+ */
+export const resolveCoverThumbnailUrl = (path: FileLike, resourceId: string): string => {
+  const source = extractPath(path);
+  if (!source) return '';
+  if (source.startsWith('http://') || source.startsWith('https://')) return source;
+  const lastDot = source.lastIndexOf('.');
+  const thumbnailPath = lastDot === -1
+    ? source
+    : `${source.substring(0, lastDot)}.thumbnail${source.substring(lastDot)}`;
+  const id = resourceId.split('/').pop();
+  return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/files/${thumbnailPath}`;
+};
+
 export const resolveHyphaUrl = (path: FileLike, resourceId: string, use_proxy: boolean = false): string => {
   const source = extractPath(path);
   if (!source) return '';
