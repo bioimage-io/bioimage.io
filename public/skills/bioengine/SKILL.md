@@ -321,6 +321,7 @@ class MyDeployment:
   ```
   Applies to every app regardless of pin count. When a file has multiple `@bioengine.app` sites (e.g. an entry + runtime pair), give each its own `requirements-<module>.txt` and duplicate the helper — apps ship as self-contained packages, so per-file duplication beats cross-module imports.
 - Lifecycle hooks are decorators with **free method names**: `@bioengine.async_init`, `@bioengine.smoke_test`, `@bioengine.health_check`, `@bioengine.multiplexed(max_models=N)`. The reserved names `async_init` / `test_deployment` / `check_health` no longer work as plain methods.
+- `@bioengine.multiplexed`: **one per class** (Ray Serve limitation — the cache wrapper attribute is hardcoded on `self`; a second decorated method silently shares the first's cache and loader; bioengine rejects this at `@bioengine.app` scan time). Manual cache control from any method: `await bioengine.multiplex.evict_lru_model(self)`, `await bioengine.multiplex.evict_all_models(self)`, `await bioengine.multiplex.evict_model(self, id)`, `bioengine.multiplex.cached_model_ids(self)`. Useful for foundation-model apps that need to free the GPU before an expensive downstream call.
 - API methods: `@bioengine.method` (basic) or `@bioengine.method(context=True)` (opt-in caller-context injection — the user method must declare a `context` parameter; arrives as a plain dict, never a Hypha proxy).
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.
 - `num_gpus: 1` for GPU, `num_gpus: 0` for CPU-only; never use fractional values.

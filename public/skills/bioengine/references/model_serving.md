@@ -14,24 +14,24 @@
 Route requests to different model variants within one deployment — avoids one-deployment-per-model overhead. Use for model zoos, A/B testing, fine-tuned variants.
 
 ```python
-from ray import serve
+import bioengine
+from pydantic import Field
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 4,
-        "num_gpus": 1,
-        "memory": 8 * 1024**3,
-        "runtime_env": {"pip": ["cellpose>=4.0"]},
-    }
+@bioengine.app(
+    num_cpus=4,
+    num_gpus=1,
+    memory_mb=8 * 1024,
+    pip=["cellpose>=4.0"],
 )
 class MultiplexedSegmentation:
-    @serve.multiplexed(max_num_models_per_replica=4)
+    @bioengine.multiplexed(max_models=4)
     async def _get_model(self, model_id: str):
-        """Called automatically when a new model_id is seen."""
+        """Called automatically when a new model_id is seen. LRU-evicted
+        when max_models is hit — the evicted model's ``__del__`` fires."""
         from cellpose import models
         return models.CellposeModel(model_type=model_id, gpu=True)
 
-    @schema_method
+    @bioengine.method
     async def segment(
         self,
         image: list,
@@ -39,13 +39,32 @@ class MultiplexedSegmentation:
         diameter: float = Field(None, description="Cell diameter in pixels"),
     ) -> dict:
         import numpy as np
-        model = await self._get_model(model_id)   # Ray Serve handles caching
+        model = await self._get_model(model_id)   # LRU cache handled internally
         arr = np.array(image, dtype=np.float32)
         masks, _, _ = model.eval(arr, diameter=diameter, channels=[0, 0])
         return {"labels": masks.tolist(), "n_cells": int(masks.max())}
+
+    @bioengine.method
+    async def free_gpu(self) -> dict:
+        """Drop every cached model right now — useful before running
+        a foundation-model call that needs the full GPU."""
+        return {"evicted": await bioengine.multiplex.evict_all_models(self)}
 ```
 
-`max_num_models_per_replica`: how many variants stay warm per replica. LRU eviction when limit is reached. Set 2–4 for typical GPU memory.
+**Cache size**: `max_models=` controls how many variants stay warm per replica. LRU eviction when the limit is reached — Ray Serve calls the model's `__del__` (if defined) so GPU memory / disk handles / etc. release eagerly. Set 2–4 for typical GPU memory.
+
+**One `@bioengine.multiplexed` per class.** Ray Serve stores the cache wrapper at a single hardcoded attribute on `self`, so a second decorated method silently shares the first's cache and loader — bioengine rejects the class at scan time. If you need multiple caches, split them into separate `@bioengine.app` deployment classes.
+
+**Manual cache control** via `bioengine.multiplex`:
+
+| Helper | Purpose | Returns |
+|---|---|---|
+| `evict_lru_model(self)` | evict least-recently-used | `Optional[str]` — model_id or None |
+| `evict_all_models(self)` | drain the cache | `int` count |
+| `evict_model(self, id)` | evict specific | `bool` |
+| `cached_model_ids(self)` | introspect, LRU→MRU | `list[str]` |
+
+Each helper routes through Ray Serve's `unload_model_lru` — same `__del__` cleanup path as natural cache overflow.
 
 ---
 
