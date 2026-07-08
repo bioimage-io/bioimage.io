@@ -2637,11 +2637,14 @@ const Edit: React.FC = () => {
         {/* Review & Publish button — gated on RDF validity (existing) AND
             the test having produced any result (new; failing tests still
             let the user proceed, they just have to confirm inside the
-            review dialog). */}
+            review dialog).
+            Exception: if the staged manifest already has status=request-review
+            the user already ran the test and submitted, so skip the gate. */}
         {isStaged && (() => {
           const needsTest = artifactType === 'model' && artifactId;
-          const disabled = shouldDisableActions || (needsTest && !lastTestResult);
-          const title = disabled && needsTest && !lastTestResult
+          const alreadySubmitted = artifactInfo?.manifest?.status === 'request-review';
+          const disabled = shouldDisableActions || (needsTest && !lastTestResult && !alreadySubmitted);
+          const title = disabled && needsTest && !lastTestResult && !alreadySubmitted
             ? 'Run Test Model first — a test result (passing or not) is required before Review & Publish.'
             : undefined;
           return (

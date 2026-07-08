@@ -26,6 +26,8 @@ interface TestDetailsDialogProps {
   onClose: () => void;
   data: any | null;
   isLoading: boolean;
+  /** Shown inside the dialog while isLoading is true (e.g. current runner step). */
+  loadingMessage?: string;
   rawErrorContent?: string | null;
   isInvalidJson?: boolean;
   type: 'test-report' | 'compatibility';
@@ -38,6 +40,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   onClose,
   data,
   isLoading,
+  loadingMessage,
   rawErrorContent,
   isInvalidJson = false,
   type,
@@ -193,8 +196,16 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
       
       <DialogContent dividers sx={{ p: 0 }}>
         {isLoading ? (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <Typography>Loading test details...</Typography>
+          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <img
+              src="/static/img/bioengine-logo-black.svg"
+              alt="BioEngine"
+              className="animate-pulse"
+              style={{ height: '80px' }}
+            />
+            <Typography color="text.secondary">
+              {loadingMessage || 'Running model tests...'}
+            </Typography>
           </Box>
         ) : isInvalidJson ? (
           <Box sx={{ p: 3 }}>
