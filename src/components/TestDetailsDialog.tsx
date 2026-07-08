@@ -206,6 +206,23 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             <Typography color="text.secondary">
               {loadingMessage || 'Running model tests...'}
             </Typography>
+            {type === 'test-report' && (
+              <Box sx={{ textAlign: 'center', maxWidth: 400 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  This may take 30 seconds or more. The runner will:
+                </Typography>
+                <Typography variant="body2" color="text.secondary" component="div">
+                  <ol style={{ textAlign: 'left', display: 'inline-block', margin: 0, paddingLeft: '1.2em' }}>
+                    <li>Load the model from cache or download it</li>
+                    <li>Load the weights onto GPU</li>
+                    <li>Run inference with the bundled test inputs</li>
+                  </ol>
+                </Typography>
+                <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: 'block' }}>
+                  Keep this window open while the test is running.
+                </Typography>
+              </Box>
+            )}
           </Box>
         ) : isInvalidJson ? (
           <Box sx={{ p: 3 }}>
