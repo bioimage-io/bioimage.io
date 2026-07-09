@@ -86,6 +86,10 @@ interface BioEngineClusterResourcesProps {
       state?: string;
       pid?: number;
       start_time_s?: number;
+      // Set by BioEngineWorker while flattening `deployments[*].replicas[]`.
+      // 'ProxyDeployment' is the fixed routing replica every app runs; user
+      // deployments carry their own name.
+      deployment_name?: string;
     }>;
   }>;
 }
@@ -114,20 +118,29 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     STOPPED: 0,
   };
   const nodeApps = useMemo(() => {
-    const out: Record<string, Array<{ appId: string; state?: string }>> = {};
+    const out: Record<string, Array<{ appId: string; state?: string; deployments: string[]; proxyOnly: boolean }>> = {};
     for (const [appId, app] of Object.entries(bioengineApps ?? {})) {
       const perNode: Record<string, string | undefined> = {};
+      const perNodeDeployments: Record<string, Set<string>> = {};
       for (const r of app?.replicas ?? []) {
         if (!r?.node_id) continue;
         const prev = perNode[r.node_id];
         if (prev === undefined || (STATE_RANK[r.state ?? ''] ?? -1) > (STATE_RANK[prev ?? ''] ?? -1)) {
           perNode[r.node_id] = r.state;
         }
+        if (r.deployment_name) {
+          if (!perNodeDeployments[r.node_id]) perNodeDeployments[r.node_id] = new Set();
+          perNodeDeployments[r.node_id].add(r.deployment_name);
+        }
       }
       Object.entries(perNode).forEach(([nodeId, state]) => {
+        const deployments = Array.from(perNodeDeployments[nodeId] ?? []).sort((a, b) => a.localeCompare(b));
+        // When the only thing placed here is the routing proxy, the app isn't
+        // really doing work on this node — tint it grey rather than purple.
+        const proxyOnly = deployments.length > 0 && deployments.every(d => d === 'ProxyDeployment');
         if (!out[nodeId]) out[nodeId] = [];
         if (!out[nodeId].some(x => x.appId === appId)) {
-          out[nodeId].push({ appId, state });
+          out[nodeId].push({ appId, state, deployments, proxyOnly });
         }
       });
     }
@@ -401,15 +414,38 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                             <div className="flex flex-col">
                               <span className="text-gray-600">Apps placed here:</span>
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {nodeApps[nodeId].map(({ appId, state }) => (
-                                  <span
-                                    key={appId}
-                                    className={`inline-block px-2 py-0.5 text-xs font-medium rounded font-mono break-all border ${nodeAppStateClasses(state)}`}
-                                    title={state ? `${appId} — ${state}` : appId}
-                                  >
-                                    {appId}{state && state !== 'RUNNING' ? ` (${state})` : ''}
-                                  </span>
-                                ))}
+                                {nodeApps[nodeId].map(({ appId, state, deployments, proxyOnly }) => {
+                                  // A proxy-only placement is shown grey; the
+                                  // real state tint stays otherwise so trouble
+                                  // (STARTING / FAILED) is never hidden.
+                                  const tint = proxyOnly && state === 'RUNNING'
+                                    ? 'bg-gray-100 text-gray-600 border-gray-300'
+                                    : nodeAppStateClasses(state);
+                                  return (
+                                    <span key={appId} className="relative inline-block group">
+                                      <span
+                                        className={`inline-block px-2 py-0.5 text-xs font-medium rounded font-mono break-all border ${tint}`}
+                                      >
+                                        {appId}{state && state !== 'RUNNING' ? ` (${state})` : ''}
+                                      </span>
+                                      {deployments.length > 0 && (
+                                        <span
+                                          role="tooltip"
+                                          className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 origin-bottom scale-95 rounded-md bg-gray-900 px-2 py-1 text-left opacity-0 shadow-lg transition duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-100 group-hover:opacity-100"
+                                        >
+                                          <span className="block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                                            Deployments on this node
+                                          </span>
+                                          {deployments.map(d => (
+                                            <span key={d} className="block whitespace-nowrap font-mono text-xs text-white">
+                                              {d}
+                                            </span>
+                                          ))}
+                                        </span>
+                                      )}
+                                    </span>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}

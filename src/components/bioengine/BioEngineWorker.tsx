@@ -379,14 +379,19 @@ const BioEngineWorker: React.FC = () => {
               const aggregatedReplicaStates: Record<string, number> = {};
               const aggregatedReplicas: Array<any> = [];
               if (app.deployments && typeof app.deployments === 'object') {
-                for (const deployment of Object.values(app.deployments) as any[]) {
+                for (const [deploymentName, deployment] of Object.entries(app.deployments) as [string, any][]) {
                   if (deployment?.replica_states) {
                     for (const [state, count] of Object.entries(deployment.replica_states)) {
                       aggregatedReplicaStates[state] = (aggregatedReplicaStates[state] || 0) + (count as number);
                     }
                   }
                   if (Array.isArray(deployment?.replicas)) {
-                    aggregatedReplicas.push(...deployment.replicas);
+                    // Tag each replica with its deployment name so the nodes
+                    // overview can distinguish the ProxyDeployment from user
+                    // deployments and list what's actually placed on a node.
+                    for (const replica of deployment.replicas) {
+                      aggregatedReplicas.push({ ...replica, deployment_name: deploymentName });
+                    }
                   }
                 }
               }
