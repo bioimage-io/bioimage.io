@@ -154,18 +154,27 @@ const ReviewArtifacts: React.FC = () => {
           })
         );
 
-        let pending: Artifact[] = stagedReads.filter(
+        // Separate request-review from revision-needed so we can sort them.
+        // Request-review items appear first (truly pending); revision items
+        // follow so the reviewer can track them and help the developer.
+        let reviewPending: Artifact[] = stagedReads.filter(
           (a: any): a is Artifact => a?.manifest?.status === 'request-review'
+        );
+        let revisionNeeded: Artifact[] = stagedReads.filter(
+          (a: any): a is Artifact => a?.manifest?.status === 'revision'
         );
 
         if (serverSearchQuery.trim()) {
           const q = serverSearchQuery.trim().toLowerCase();
-          pending = pending.filter((a: Artifact) =>
+          const matches = (a: Artifact) =>
             a.manifest?.name?.toLowerCase().includes(q) ||
             a.manifest?.description?.toLowerCase().includes(q) ||
-            (a.id ?? '').toLowerCase().includes(q)
-          );
+            (a.id ?? '').toLowerCase().includes(q);
+          reviewPending = reviewPending.filter(matches);
+          revisionNeeded = revisionNeeded.filter(matches);
         }
+
+        const pending = [...reviewPending, ...revisionNeeded];
 
         setReviewArtifactsTotalItems(pending.length);
         const start = (reviewArtifactsPage - 1) * itemsPerPage;
@@ -343,8 +352,12 @@ const ReviewArtifacts: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Calculate number of pending review artifacts - only consider if showing staged artifacts
-  const pendingCount = viewMode === 'pending' ? artifacts.length : 0;
+  const pendingReviewCount = viewMode === 'pending'
+    ? artifacts.filter(a => a.manifest?.status === 'request-review').length
+    : 0;
+  const revisionCount = viewMode === 'pending'
+    ? artifacts.filter(a => a.manifest?.status === 'revision').length
+    : 0;
 
   const handleCopyId = (artifactId: string) => {
     const id = artifactId.split('/').pop() || '';
@@ -519,8 +532,16 @@ const ReviewArtifacts: React.FC = () => {
                       "Privileged Reviewer Access"}
                   </h3>
                   <div className="mt-2 text-sm text-blue-700">
-                  {viewMode === 'pending' && pendingCount > 0 && 
-                    <p className="mt-1">You have {pendingCount} item{pendingCount !== 1 ? 's' : ''} waiting for review.</p>}
+                  {viewMode === 'pending' && (pendingReviewCount > 0 || revisionCount > 0) && (
+                    <p className="mt-1">
+                      {pendingReviewCount > 0 && (
+                        <>{pendingReviewCount} item{pendingReviewCount !== 1 ? 's' : ''} awaiting review{revisionCount > 0 ? ', ' : '.'}</>
+                      )}
+                      {revisionCount > 0 && (
+                        <>{revisionCount} item{revisionCount !== 1 ? 's' : ''} waiting for revision.</>
+                      )}
+                    </p>
+                  )}
                     <p className="mt-1">
                       {viewMode === 'published' ? 
                         "As a privileged reviewer, you can edit and manage all published models in the BioImage Model Zoo. Any changes made will be immediately visible to users." : 
@@ -665,9 +686,33 @@ const ReviewArtifacts: React.FC = () => {
             </div>
           ) : (
             <div className="bg-white shadow overflow-hidden sm:rounded-md">
+              {/* Section header for pending-review view */}
+              {viewMode === 'pending' && artifacts.some(a => a.manifest?.status === 'request-review') && (
+                <div className="px-6 pt-4 pb-2">
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                    Awaiting Review
+                  </h2>
+                </div>
+              )}
               <ul role="list" className="space-y-6">
-                {artifacts.map((artifact, index) => (
-                  <li key={artifact.id} className={`py-2 ${index !== artifacts.length - 1 ? 'border-b border-gray-200 pb-6' : ''}`}>
+                {artifacts.map((artifact, index) => {
+                  const isFirstRevision =
+                    viewMode === 'pending' &&
+                    artifact.manifest?.status === 'revision' &&
+                    (index === 0 || artifacts[index - 1]?.manifest?.status !== 'revision');
+                  return (
+                  <React.Fragment key={artifact.id}>
+                    {isFirstRevision && (
+                      <li className="px-6 pt-4 pb-2 border-t-2 border-orange-200 bg-orange-50">
+                        <h2 className="text-sm font-semibold text-orange-600 uppercase tracking-wide">
+                          Needs Revision
+                        </h2>
+                        <p className="text-xs text-orange-500 mt-0.5">
+                          These models have been sent back to the developer. Review progress and provide guidance.
+                        </p>
+                      </li>
+                    )}
+                  <li className={`py-2 ${index !== artifacts.length - 1 ? 'border-b border-gray-200 pb-6' : ''}`}>
                     <div className="px-4 py-6 sm:px-6 min-h-[300px]">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
@@ -824,7 +869,9 @@ const ReviewArtifacts: React.FC = () => {
                       </div>
                     </div>
                   </li>
-                ))}
+                  </React.Fragment>
+                  );
+                })}
               </ul>
             </div>
           )}
