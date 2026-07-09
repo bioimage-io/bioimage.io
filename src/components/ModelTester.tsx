@@ -114,7 +114,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       setLoadingStep('Starting test run...');
       console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
 
-      const test_run_id: string = await runner.test({
+      const testResponse = await runner.test({
         model_id: modelId,
         stage: isStaged,
         skip_cache: skipCache,
@@ -122,62 +122,73 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         _rkwargs: true,
       });
 
-      console.log(`Test run started with id: ${test_run_id}`);
-
-      // Poll for completion
-      const MAX_POLLS = 120; // 6 minutes at 3s intervals
+      // v1.13.2+ async API: runner.test() returns a bare string test_run_id.
+      // v1.12.1 legacy sync API: runner.test() returns the full TestResult directly.
+      // Detect which version we're talking to and handle both.
       let finalResult: TestResult | null = null;
 
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await sleep(3000);
+      if (typeof testResponse !== 'string') {
+        // Old sync runner — result is already available.
+        console.log('Legacy sync runner detected, using result directly:', testResponse);
+        finalResult = testResponse as TestResult;
+      } else {
+        const test_run_id = testResponse;
+        console.log(`Async test run started, id: ${test_run_id}`);
 
-        const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
-        const { progress, test_report } = status;
+        // Poll for completion
+        const MAX_POLLS = 120; // 6 minutes at 3s intervals
 
-        // Map progress state to a human-readable loading step
-        if (progress.state === 'queued') {
-          const pos = progress.queue_position;
-          setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
-        } else if (progress.state === 'model_download') {
-          setLoadingStep('Downloading model...');
-        } else if (progress.state === 'env_setup') {
-          setLoadingStep('Setting up environment...');
-        } else if (progress.state === 'running') {
-          const elapsed = progress.elapsed_seconds ? ` (${Math.floor(progress.elapsed_seconds)}s)` : '';
-          setLoadingStep(`Running tests${elapsed}...`);
-        }
+        for (let i = 0; i < MAX_POLLS; i++) {
+          await sleep(3000);
 
-        if (progress.state === 'completed' || progress.state === 'failed') {
-          console.log(`Test ${progress.state}. Report:`, test_report);
-          if (test_report) {
-            finalResult = test_report as TestResult;
-          } else if (progress.state === 'failed') {
-            finalResult = {
-              name: 'Test Failed',
-              status: 'failed',
-              details: [{
-                name: 'Error',
-                status: 'failed',
-                errors: [{ msg: progress.error || 'Test run failed on the runner.', loc: ['test'] }],
-                warnings: [],
-              }],
-            };
+          const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
+          const { progress, test_report } = status;
+
+          // Map progress state to a human-readable loading step
+          if (progress.state === 'queued') {
+            const pos = progress.queue_position;
+            setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
+          } else if (progress.state === 'model_download') {
+            setLoadingStep('Downloading model...');
+          } else if (progress.state === 'env_setup') {
+            setLoadingStep('Setting up environment...');
+          } else if (progress.state === 'running') {
+            const elapsed = progress.elapsed_seconds ? ` (${Math.floor(progress.elapsed_seconds)}s)` : '';
+            setLoadingStep(`Running tests${elapsed}...`);
           }
-          break;
-        }
-      }
 
-      if (!finalResult) {
-        finalResult = {
-          name: 'Test Timed Out',
-          status: 'failed',
-          details: [{
-            name: 'Timeout',
+          if (progress.state === 'completed' || progress.state === 'failed') {
+            console.log(`Test ${progress.state}. Report:`, test_report);
+            if (test_report) {
+              finalResult = test_report as TestResult;
+            } else if (progress.state === 'failed') {
+              finalResult = {
+                name: 'Test Failed',
+                status: 'failed',
+                details: [{
+                  name: 'Error',
+                  status: 'failed',
+                  errors: [{ msg: progress.error || 'Test run failed on the runner.', loc: ['test'] }],
+                  warnings: [],
+                }],
+              };
+            }
+            break;
+          }
+        }
+
+        if (!finalResult) {
+          finalResult = {
+            name: 'Test Timed Out',
             status: 'failed',
-            errors: [{ msg: 'Test did not complete within the expected time. Check the runner logs.', loc: ['test'] }],
-            warnings: [],
-          }],
-        };
+            details: [{
+              name: 'Timeout',
+              status: 'failed',
+              errors: [{ msg: 'Test did not complete within the expected time. Check the runner logs.', loc: ['test'] }],
+              warnings: [],
+            }],
+          };
+        }
       }
 
       setTestResult(finalResult);
