@@ -334,6 +334,13 @@ const Edit: React.FC = () => {
   // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
   // the uploader-email validation in `validateRdfContent`).
   const [canEditArtifact, setCanEditArtifact] = useState(false);
+  // `canStageArtifact` is the STRICT subset of canEditArtifact that maps to
+  // actual Hypha server-side 'edit' permission on the artifact itself.
+  // Collection admins have `canEditArtifact` but NOT necessarily `canStageArtifact`
+  // because Hypha's `artifact.edit({ stage: true })` checks `_permissions[user.id]`,
+  // not the collection-level role. Gate Stage/Commit/Discard on this flag so
+  // collection admins don't see buttons that will always fail with PermissionError.
+  const [canStageArtifact, setCanStageArtifact] = useState(false);
   // Hypha's `delete` permission is workspace-owner-only — regular uploaders
   // and reviewers never hold it. Show the destructive delete UI only when
   // `_permissions[user.id]` actually contains `delete` (or `*`).
@@ -643,12 +650,14 @@ const Edit: React.FC = () => {
           const uploaderEmail = (artifact?.manifest as any)?.uploader?.email?.toLowerCase?.();
           const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
           setCanEditArtifact(isAdmin || hasArtifactEdit || matchesUploaderEmail);
+          setCanStageArtifact(hasArtifactEdit || matchesUploaderEmail);
           setCanDeleteArtifact(hasArtifactDelete);
         }
       } catch (error) {
         console.error('Error checking collection admin status:', error);
         setIsCollectionAdmin(false);
         setCanEditArtifact(false);
+        setCanStageArtifact(false);
         setCanDeleteArtifact(false);
       }
 
@@ -2627,15 +2636,14 @@ const Edit: React.FC = () => {
           />
         )}
 
-        {/* Stage / Commit / Discard / Review & Publish — adapts to whether the
-            artifact already has a published version (update flow) or is a new
-            upload going through review for the first time. */}
-        {canEditArtifact && (() => {
-          // Update flow: artifact already has at least one committed version.
-          if (hasPublishedVersion) {
-            if (!isStaged) {
-              // Published view — offer to enter staging mode.
-              return (
+        {/* Stage / Commit / Discard — update flow (artifact already published).
+            Requires actual Hypha 'edit' permission on the artifact, so gated on
+            canStageArtifact (not the broader canEditArtifact which includes
+            collection admins who don't hold per-artifact Hypha edit rights). */}
+        {canStageArtifact && hasPublishedVersion && (() => {
+          if (!isStaged) {
+            // Published view — offer to enter staging mode.
+            return (
                 <button
                   onClick={handleStageForEditing}
                   disabled={uploadStatus?.severity === 'info'}
@@ -2673,9 +2681,13 @@ const Edit: React.FC = () => {
                 </button>
               </>
             );
-          }
+        })()}
 
-          // New-upload flow: no committed version yet — show Review & Publish.
+        {/* Review & Publish — new-upload flow only (no committed version yet).
+            Collection admins also see this so they can trigger review on their
+            own new models; the actual commit in ReviewPublishArtifact uses
+            the uploader's own Hypha permissions, which they do hold. */}
+        {canEditArtifact && !hasPublishedVersion && (() => {
           if (!isStaged) return null;
           const needsTest = artifactType === 'model' && artifactId;
           const alreadySubmitted = artifactInfo?.manifest?.status === 'request-review';
