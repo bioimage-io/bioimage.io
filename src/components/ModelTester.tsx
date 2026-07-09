@@ -104,7 +104,6 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       // runner writes under the user's identity, not the service account.
       let hyphaToken: string | undefined;
       if (publishTestReport && typeof server.generateToken === 'function') {
-        setLoadingStep('Minting short-lived token for publish...');
         hyphaToken = await server.generateToken();
       }
 

@@ -126,33 +126,17 @@ const ReviewArtifacts: React.FC = () => {
       setError(null);
 
       if (viewMode === 'pending') {
-        // Hypha's list() keyword search only indexes committed manifests, not
-        // staged ones. Models submitted for review keep their files staged until
-        // a curator accepts them, so we need two passes:
-        //   1. List all staged artifacts, read each staged manifest, filter for
-        //      status='request-review' client-side.
-        //   2. List committed artifacts whose committed manifest already carries
-        //      status='request-review' (e.g. models re-submitted after prior
-        //      acceptance, or edge cases like accidental commits).
-        // Results are merged and deduplicated by artifact id.
-
-        const [stagedResp, committedResp] = await Promise.all([
-          artifactManager.list({
-            parent_id: "bioimage-io/bioimage.io",
-            stage: true,
-            limit: 1000,
-            pagination: true,
-            _rkwargs: true
-          }),
-          artifactManager.list({
-            parent_id: "bioimage-io/bioimage.io",
-            keywords: ['request-review'],
-            stage: false,
-            limit: 1000,
-            pagination: true,
-            _rkwargs: true
-          })
-        ]);
+        // Pending-review models must remain staged (not committed) until a
+        // curator accepts them. Hypha keyword search only indexes committed
+        // manifests, so we list all staged artifacts, read each staged manifest
+        // individually, and filter client-side for status='request-review'.
+        const stagedResp = await artifactManager.list({
+          parent_id: "bioimage-io/bioimage.io",
+          stage: true,
+          limit: 1000,
+          pagination: true,
+          _rkwargs: true
+        });
 
         const stagedItems: Artifact[] = stagedResp.items ?? [];
 
@@ -170,29 +154,22 @@ const ReviewArtifacts: React.FC = () => {
           })
         );
 
-        const stagedPending: Artifact[] = stagedReads.filter(
+        let pending: Artifact[] = stagedReads.filter(
           (a: any): a is Artifact => a?.manifest?.status === 'request-review'
         );
 
-        const committedPending: Artifact[] = committedResp.items ?? [];
-        const stagedIds = new Set(stagedPending.map((a: Artifact) => a.id));
-        let merged: Artifact[] = [
-          ...stagedPending,
-          ...committedPending.filter((a: Artifact) => !stagedIds.has(a.id))
-        ];
-
         if (serverSearchQuery.trim()) {
           const q = serverSearchQuery.trim().toLowerCase();
-          merged = merged.filter((a: Artifact) =>
+          pending = pending.filter((a: Artifact) =>
             a.manifest?.name?.toLowerCase().includes(q) ||
             a.manifest?.description?.toLowerCase().includes(q) ||
             (a.id ?? '').toLowerCase().includes(q)
           );
         }
 
-        setReviewArtifactsTotalItems(merged.length);
+        setReviewArtifactsTotalItems(pending.length);
         const start = (reviewArtifactsPage - 1) * itemsPerPage;
-        setArtifacts(merged.slice(start, start + itemsPerPage));
+        setArtifacts(pending.slice(start, start + itemsPerPage));
       } else {
         const filters: any = {};
         const keywords: string[] = [];
