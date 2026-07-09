@@ -30,6 +30,8 @@ interface ReviewPublishArtifactProps {
    * dialog rendering the failing checks before firing handleSubmit.
    */
   lastTestResult?: TestResult | null;
+  /** Actual RDF spec filename used by this artifact ('bioimageio.yaml' or 'rdf.yaml'). */
+  rdfFileName?: string;
 }
 
 const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
@@ -41,7 +43,8 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   isContentValid,
   lastTestResult,
   hasContentChanged,
-  defaultComment
+  defaultComment,
+  rdfFileName = 'bioimageio.yaml',
 }) => {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
@@ -136,7 +139,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   };
 
   const handleGoBackToEdit = () => {
-    navigate(`?tab=%40rdf.yaml`);
+    navigate(`?tab=%40${rdfFileName}`);
   };
 
   const renderPublishDialog = () => (

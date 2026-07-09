@@ -26,6 +26,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
@@ -449,17 +450,24 @@ const ArtifactDetails = () => {
   const handleViewSource = async () => {
     if (selectedResource?.id) {
       try {
-        const rdfUrl = resolveHyphaUrl('rdf.yaml', selectedResource.id);
-        const response = await fetch(rdfUrl);
-        if (!response.ok) {
-          console.error('Failed to fetch RDF source:', response.status);
+        // Try bioimageio.yaml first, fall back to rdf.yaml for legacy models
+        let text: string | null = null;
+        for (const fileName of [BIOIMAGEIO_YAML, RDF_YAML]) {
+          const url = resolveHyphaUrl(fileName, selectedResource.id);
+          const response = await fetch(url);
+          if (response.ok) {
+            text = await response.text();
+            break;
+          }
+        }
+        if (text === null) {
+          console.error('Failed to fetch manifest source');
           return;
         }
-        const text = await response.text();
         setRdfContent(text);
         setIsRdfDialogOpen(true);
       } catch (error) {
-        console.error('Failed to fetch RDF source:', error);
+        console.error('Failed to fetch manifest source:', error);
       }
     }
   };

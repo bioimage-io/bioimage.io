@@ -767,18 +767,6 @@ const ReviewArtifacts: React.FC = () => {
                                     <Menu.Item>
                                       {({ active }) => (
                                         <button
-                                          onClick={() => handleStatusChange(artifact, 'in-review')}
-                                          className={`${
-                                            active ? 'bg-gray-100' : ''
-                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                        >
-                                          Mark as In Review
-                                        </button>
-                                      )}
-                                    </Menu.Item>
-                                    <Menu.Item>
-                                      {({ active }) => (
-                                        <button
                                           onClick={() => handleStatusChange(artifact, 'revision')}
                                           className={`${
                                             active ? 'bg-gray-100' : ''

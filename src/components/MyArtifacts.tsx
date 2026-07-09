@@ -150,13 +150,35 @@ const MyArtifacts: React.FC = () => {
       // staged-only artifacts that stage=all missed entirely.
       for (const a of [...(stagedCreatedRes || []), ...(stagedUploadedRes || [])]) {
         if (!a?.id || !isMine(a)) continue;
-        const stagedStatus = a.manifest?.status ?? null;
         if (byId[a.id]) {
-          byId[a.id] = { ...byId[a.id], _stagedStatus: stagedStatus };
+          byId[a.id] = { ...byId[a.id], staging: byId[a.id].staging ?? true };
         } else {
           // Staged-only artifact: stage=all returned nothing for it.
           // Mark it explicitly so the card shows the "Staged" badge.
-          byId[a.id] = { ...a, staging: true, _stagedOnly: true, _stagedStatus: stagedStatus };
+          byId[a.id] = { ...a, staging: true, _stagedOnly: true };
+        }
+      }
+
+      // list() returns committed manifests even when stage:"stage" is set —
+      // staged manifest content is only available via read(stage:true).
+      // Batch-read staged manifests for all items with an open staging session
+      // so the card can show the correct review status (e.g. request-review).
+      const stagingIds = Object.keys(byId).filter(id =>
+        showStagedOnly || !!(byId[id].staging || byId[id]._stagedOnly)
+      );
+      if (stagingIds.length > 0) {
+        const stagedReads = await Promise.all(
+          stagingIds.map(async (id) => {
+            try {
+              const detail = await artifactManager.read({ artifact_id: id, stage: true, _rkwargs: true });
+              return [id, detail?.manifest?.status ?? null] as [string, string | null];
+            } catch {
+              return [id, null] as [string, string | null];
+            }
+          })
+        );
+        for (const [id, stagedStatus] of stagedReads) {
+          if (byId[id]) byId[id] = { ...byId[id], _stagedStatus: stagedStatus };
         }
       }
 

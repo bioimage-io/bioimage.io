@@ -17,6 +17,7 @@ import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { updateManifestSha256 } from '../utils/sha-handling';
+import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -396,8 +397,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             handle: file
           };
 
-          // Only load rdf.yaml content immediately
-          if (fileName === 'rdf.yaml') {
+          // Only load manifest content immediately
+          if (isRdfFileName(fileName)) {
             const content = await file.async('string');
             fileNode.content = content;
             fileNode.loaded = true;
@@ -422,7 +423,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         progress: 100
       });
       
-      const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
+      const rdfFile = findRdfFile(fileNodes);
       if (rdfFile) {
         handleFileSelect(rdfFile);
       }
@@ -461,10 +462,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         });
       }
       
-      // Sort files to prioritize rdf.yaml
+      // Sort files to prioritize manifest files (bioimageio.yaml first, then rdf.yaml)
       const sortedFiles = [...acceptedFiles].sort((a, b) => {
-        if (a.name === 'rdf.yaml') return -1;
-        if (b.name === 'rdf.yaml') return 1;
+        if (a.name === BIOIMAGEIO_YAML) return -1;
+        if (b.name === BIOIMAGEIO_YAML) return 1;
+        if (a.name === RDF_YAML) return -1;
+        if (b.name === RDF_YAML) return 1;
         return 0;
       });
 
@@ -494,8 +497,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           loaded: false
         };
 
-        // Only load rdf.yaml content immediately
-        if (fileName === 'rdf.yaml') {
+        // Only load manifest content immediately
+        if (isRdfFileName(fileName)) {
           const content = await readFileContent(file);
           fileNode.content = content;
           fileNode.loaded = true;
@@ -518,13 +521,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         progress: 100
       });
       
-      const rdfFile = fileNodes.find(file => file.path.endsWith('rdf.yaml'));
+      const rdfFile = findRdfFile(fileNodes);
       if (rdfFile) {
         handleFileSelect(rdfFile);
       } else {
-        // If no rdf.yaml found, show a warning
         setUploadStatus({
-          message: 'Warning: No rdf.yaml file found. This is required for BioImage.IO models.',
+          message: 'Warning: No bioimageio.yaml (or rdf.yaml) file found. This is required for BioImage.IO models.',
           severity: 'error'
         });
       }
@@ -765,10 +767,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         </h3>
         <div className="space-y-4">
           <p className="text-sm text-gray-500">
-            The file content for <span className="font-semibold text-gray-700">{shaDialogState?.fileName}</span> has changed since it was last referenced in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>.
+            The file content for <span className="font-semibold text-gray-700">{shaDialogState?.fileName}</span> has changed since it was last referenced in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{getRdfFile()?.name ?? BIOIMAGEIO_YAML}</code>.
           </p>
           <p className="text-sm text-gray-500">
-            Do you want to update the reference (SHA256) in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">rdf.yaml</code>?
+            Do you want to update the reference (SHA256) in <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{getRdfFile()?.name ?? BIOIMAGEIO_YAML}</code>?
           </p>
         </div>
         <div className="mt-6 flex gap-3 justify-end">
@@ -828,9 +830,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         severity: 'info'
       });
 
-      const rdfFile = files.find(file => file.path.endsWith('rdf.yaml'));
+      const rdfFile = findRdfFile(files);
       if (!rdfFile) {
-        throw new Error('No rdf.yaml file found in the upload');
+        throw new Error('No bioimageio.yaml or rdf.yaml file found in the upload');
       }
 
       let manifest: RdfManifest;
@@ -849,7 +851,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             // From regular file
             rdfContent = await readFileContent(rdfFile.file) as string;
           } else {
-            throw new Error('Cannot load rdf.yaml content');
+            throw new Error('Cannot load manifest content');
           }
         } else {
           rdfContent = typeof rdfFile.content === 'string' 
@@ -868,7 +870,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         const fileShaMap: Record<string, string> = {};
         
         for (const file of files) {
-           if (file.path.endsWith('rdf.yaml')) continue;
+           if (endsWithRdfFileName(file.path)) continue;
            
            try {
              let sha = '';
@@ -899,7 +901,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
              }
              
              if (sha) {
-                // Determine the key used in rdf.yaml (which corresponds to upload path)
+                // Determine the key used in the manifest (which corresponds to upload path)
                 let key = file.path;
                 if (key.includes('/')) key = file.name;
                 fileShaMap[key] = sha;
@@ -935,7 +937,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             // If we get here, user processed all prompts. Now apply approved updates.
             // Note: fileShaMap has been modified to remove skipped files, so only approved ones are updated.
             const { count } = updateManifestSha256(manifest, fileShaMap, false);
-            console.log(`Updated ${count} SHA references in rdf.yaml`);
+            console.log(`Updated ${count} SHA references in ${rdfFile.name}`);
         }
 
         // Extract weight files for later use
@@ -947,20 +949,20 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           email: user.email
         };
 
-        // Update the rdf.yaml content with the new manifest
+        // Update the manifest content
         const updatedContent = yaml.dump(manifest);
-        
+
         // Update the file in the files array
-        const updatedFiles = files.map(file => 
-          file.path.endsWith('rdf.yaml')
+        const updatedFiles = files.map(file =>
+          endsWithRdfFileName(file.path)
             ? { ...file, content: updatedContent }
             : file
         );
         setFiles(updatedFiles);
 
       } catch (error) {
-        console.error('Error parsing rdf.yaml:', error);
-        throw new Error('Invalid rdf.yaml format');
+        console.error('Error parsing manifest:', error);
+        throw new Error('Invalid manifest format');
       }
 
       // Set alias pattern based on manifest type
@@ -1029,9 +1031,9 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         delete updatedManifest.config;
       }
 
-      // Update the rdf.yaml content in the files array and mark it as edited
+      // Update the manifest content in the files array and mark it as edited
       const updatedFiles = files.map(file => {
-        if (file.path.endsWith('rdf.yaml')) {
+        if (endsWithRdfFileName(file.path)) {
           const updatedContent = yaml.dump(updatedManifest, {
             // Ensure consistent formatting
             indent: 2,
@@ -1048,10 +1050,10 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       });
       setFiles(updatedFiles);
 
-      // Find the updated rdf file
-      const updatedRdfFile = updatedFiles.find(file => file.path.endsWith('rdf.yaml'));
+      // Find the updated manifest file
+      const updatedRdfFile = findRdfFile(updatedFiles);
       if (!updatedRdfFile) {
-        throw new Error('Failed to update rdf.yaml');
+        throw new Error('Failed to update manifest');
       }
 
       // Upload the updated rdf.yaml first
@@ -1061,12 +1063,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         progress: 0
       });
 
-      // For directory uploads, we need to strip the folder name from the path
-      let rdfUploadPath = updatedRdfFile.path;
-      if (rdfUploadPath.includes('/')) {
-        // Extract just the filename without the directory structure
-        rdfUploadPath = 'rdf.yaml';
-        console.log(`Directory upload detected for rdf.yaml: Changed path from "${updatedRdfFile.path}" to "${rdfUploadPath}"`);
+      // Always upload the manifest as bioimageio.yaml regardless of original filename/path.
+      // This normalizes legacy rdf.yaml uploads and strips directory prefixes.
+      const rdfUploadPath = BIOIMAGEIO_YAML;
+      if (updatedRdfFile.path !== rdfUploadPath) {
+        console.log(`Normalizing manifest upload path from "${updatedRdfFile.path}" to "${rdfUploadPath}"`);
       }
 
       const rdfPutUrl = await artifactManager.put_file({
@@ -1086,13 +1087,13 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         const rdfSha256 = await calculateSHA256(rdfContent);
         fileSha256Map[rdfUploadPath] = rdfSha256;
         console.log('📄 Uploading file:', {
-          name: 'rdf.yaml',
+          name: rdfUploadPath,
           path: rdfUploadPath,
           size: rdfContent.length,
           sha256: rdfSha256
         });
       } catch (error) {
-        console.error('Error calculating SHA256 for rdf.yaml:', error);
+        console.error('Error calculating SHA256 for manifest:', error);
       }
 
       await axios.put(rdfPutUrl, updatedRdfFile.content, {
@@ -1109,8 +1110,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true
       });
 
-      // Upload remaining files
-      const remainingFiles = updatedFiles.filter(file => !file.path.endsWith('rdf.yaml'));
+      // Upload remaining files (manifest already uploaded above)
+      const remainingFiles = updatedFiles.filter(file => !endsWithRdfFileName(file.path));
       const autoSkippedFiles: string[] = [];
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
@@ -1393,8 +1394,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       setFiles(nodes);
       setShowDragDrop(false);
 
-      // Select rdf.yaml by default if it exists
-      const rdfFile = nodes.find(file => file.path.endsWith('rdf.yaml'));
+      // Select manifest file by default if it exists
+      const rdfFile = findRdfFile(nodes);
       if (rdfFile) {
         handleFileSelect(rdfFile);
       }
@@ -1407,10 +1408,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     return details.split('\n')[0];
   };
 
-  // Find the rdf file from the files array
-  const getRdfFile = () => {
-    return files.find(file => file.path.endsWith('rdf.yaml'));
-  };
+  // Find the manifest file from the files array (prefers bioimageio.yaml over rdf.yaml)
+  const getRdfFile = () => findRdfFile(files);
 
   // Replace the uploadLargeFile function with this implementation
   const uploadLargeFile = async (
@@ -1560,8 +1559,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                 <>
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-medium text-gray-900">
-                      {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
-                        (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
+                      {findRdfFile(files)?.content &&
+                        (yaml.load(findRdfFile(files)?.content as string) as RdfManifest)?.name || 'Untitled'}
                     </h2>
                     <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                       stage
@@ -1626,12 +1625,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       )}
                     </span>
 
-                    {/* File Name with Star for rdf.yaml */}
+                    {/* File Name with Star for manifest file */}
                     <div className="flex items-center gap-2 flex-1">
                       <span className="truncate text-sm font-medium tracking-wide">
                         {file.name}
                       </span>
-                      {file.name === 'rdf.yaml' && (
+                      {isRdfFileName(file.name) && (
                         <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                         </svg>
@@ -1789,7 +1788,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                           !isLoggedIn
                             ? 'Log in to upload your model.'
                             : !isValidated
-                              ? 'Run Validate first — the rdf.yaml must pass validation before it can be uploaded.'
+                              ? 'Run Validate first — the manifest must pass validation before it can be uploaded.'
                               : undefined
                         }
                         className={`px-6 py-2 rounded-md font-medium transition-colors whitespace-nowrap flex items-center gap-2
@@ -1970,7 +1969,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                     </h3>
                     <ol className="list-decimal list-inside space-y-3 text-gray-600 text-base">
                       <li className="leading-relaxed">Prepare your model package following the BioImage.IO specification</li>
-                      <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> file</li>
+                      <li className="leading-relaxed">Ensure your package includes a valid <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">bioimageio.yaml</code> file (or <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm font-mono">rdf.yaml</code> for legacy models)</li>
                       <li className="leading-relaxed">Upload using one of these methods:
                         <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
                           <li><strong>Folder upload:</strong> Drag & drop a folder containing all your model files (recommended for large files)</li>
@@ -2031,7 +2030,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                       </div>
                     </div>
                   </div>
-                ) : selectedFile.name.endsWith('rdf.yaml') ? (
+                ) : isRdfFileName(selectedFile.name) ? (
                   <RDFEditor
                     content={typeof selectedFile.content === 'string' ? selectedFile.content : ''}
                     onChange={(value) => handleEditorChange(value, selectedFile)}
@@ -2094,8 +2093,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
             <>
               <div className="flex items-center justify-between">
                 <h3 className="font-medium text-gray-900">
-                  {files.find(f => f.path.endsWith('rdf.yaml'))?.content && 
-                    (yaml.load(files.find(f => f.path.endsWith('rdf.yaml'))?.content as string) as RdfManifest)?.name || 'Untitled'}
+                  {findRdfFile(files)?.content &&
+                    (yaml.load(findRdfFile(files)?.content as string) as RdfManifest)?.name || 'Untitled'}
                 </h3>
                 <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                   stage

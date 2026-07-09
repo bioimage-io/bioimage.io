@@ -18,7 +18,7 @@ interface AdminResourceCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   isStaged?: boolean;
-  status: 'staged' | 'published';
+  status?: string | null;
   authors?: Author[];
   createdAt?: number;
   lastModified?: number;
