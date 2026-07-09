@@ -17,6 +17,7 @@ import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
+import { resolveTestReportUrl } from '../utils/urlHelpers';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 import TestDetailsDialog from './TestDetailsDialog';
@@ -354,9 +355,11 @@ const Edit: React.FC = () => {
     fileName: string;
     resolve: (value: boolean) => void;
   } | null>(null);
-  const [attachTestReport, setAttachTestReport] = useState<boolean>(false);
   const [skipCacheForTest, setSkipCacheForTest] = useState<boolean>(false);
   const [customEnvironment, setCustomEnvironment] = useState<boolean>(false);
+  // Stored test report fetched from the test-report collection (model-runner v1.13.2+).
+  const [storedTestReport, setStoredTestReport] = useState<TestResult | null>(null);
+  const [isTestReportOutdated, setIsTestReportOutdated] = useState(false);
   // Result from the most recent ModelTester run — powers the Review &
   // Publish gate (must have run a test) and the confirm-on-fail dialog
   // inside ReviewPublishArtifact (Submit for Review needs an extra
@@ -371,6 +374,45 @@ const Edit: React.FC = () => {
     setEditVersion(version);
     setIsStaged(version === 'stage');
   }, [version]);
+
+  // Load the stored test report from the dedicated test-report collection whenever
+  // the artifact or staging mode changes. Shows inline in the Test Model pill so
+  // the editor always reflects the current test outcome without re-running.
+  useEffect(() => {
+    if (!artifactId || !artifactType || artifactType !== 'model') {
+      setStoredTestReport(null);
+      setIsTestReportOutdated(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = resolveTestReportUrl(artifactId, isStaged);
+        const res = await fetch(url);
+        if (cancelled || !res.ok) {
+          setStoredTestReport(null);
+          setIsTestReportOutdated(false);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setStoredTestReport(data as TestResult);
+
+        // Compare latest_remote_modified in the report vs on the artifact to detect staleness.
+        const reportModified = (data as any).latest_remote_modified;
+        const artifactModified = (artifactInfo as any)?.latest_remote_modified;
+        setIsTestReportOutdated(
+          reportModified != null && artifactModified != null && reportModified !== artifactModified
+        );
+      } catch {
+        if (!cancelled) {
+          setStoredTestReport(null);
+          setIsTestReportOutdated(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [artifactId, artifactType, isStaged, artifactInfo?.id]);
 
   // Auto-dismiss uploadStatus after 3s once it's a final state (success or
   // error) or a fire-and-forget info without progress. In-flight progress
@@ -500,6 +542,42 @@ const Edit: React.FC = () => {
       comment,
       _rkwargs: true
     });
+  };
+
+  const handleStageForEditing = async () => {
+    if (!artifactManager || !artifactId) return;
+    try {
+      setUploadStatus({ message: 'Preparing staged version for editing...', severity: 'info' });
+      await artifactManager.edit({ artifact_id: artifactId, stage: true, _rkwargs: true });
+      navigate(`/edit/${artifactId}/stage`);
+    } catch (error) {
+      console.error('Error staging artifact:', error);
+      setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
+    }
+  };
+
+  const handleCommitChanges = async () => {
+    if (!artifactManager || !artifactId) return;
+    try {
+      setUploadStatus({ message: 'Committing changes...', severity: 'info' });
+      await commitIfStaged('Updated model');
+      navigate(`/edit/${artifactId}`);
+    } catch (error) {
+      console.error('Error committing staged changes:', error);
+      setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
+    }
+  };
+
+  const handleDiscardChanges = async () => {
+    if (!artifactManager || !artifactId) return;
+    try {
+      setUploadStatus({ message: 'Discarding staged changes...', severity: 'info' });
+      await artifactManager.discard({ artifact_id: artifactId, _rkwargs: true });
+      navigate(`/edit/${artifactId}`);
+    } catch (error) {
+      console.error('Error discarding staged changes:', error);
+      setUploadStatus({ message: 'Failed to discard changes', severity: 'error' });
+    }
   };
 
   const loadArtifactFiles = async (versionOverride?: string) => {
@@ -863,11 +941,11 @@ const Edit: React.FC = () => {
     
     if (!artifactManager || !contentToSave) return;
 
-    // Not in staging mode: only users with write rights on the artifact
-    // (collection admin OR per-artifact uploader/editor) may make changes.
-    if (!isStaged && !canEditArtifact) {
+    // Saving is only allowed when the artifact is in staging mode.
+    // Use the "Stage for Editing" button to create a staged session first.
+    if (!isStaged) {
       setUploadStatus({
-        message: 'Cannot make changes when not in staging mode.',
+        message: 'Stage this artifact for editing before saving.',
         severity: 'error'
       });
       return;
@@ -913,28 +991,6 @@ const Edit: React.FC = () => {
 
       // Track the final content that was uploaded (may be modified during save)
       let finalSavedContent: string = contentToSave;
-
-      // If user can write to the artifact and isn't already in stage mode,
-      // open a temporary stage so the edit lands somewhere and we can commit it.
-      let needsStageCleanup = false;
-      if (canEditArtifact && !isStaged) {
-        try {
-          // Create temporary stage
-          await artifactManager.edit({
-            artifact_id: artifactId,
-            stage: true,
-            _rkwargs: true
-          });
-          needsStageCleanup = true;
-        } catch (error) {
-          console.error('Error creating temporary stage:', error);
-          setUploadStatus({
-            message: 'Error creating temporary stage',
-            severity: 'error'
-          });
-          return;
-        }
-      }
 
       try {
         // For the RDF spec file, validate content before saving
@@ -1094,7 +1150,7 @@ const Edit: React.FC = () => {
             await artifactManager.edit({
               artifact_id: artifactId,
               manifest: mergedManifest, // Use the merged manifest
-              stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
+              stage: isStaged,
               _rkwargs: true
             });
 
@@ -1170,7 +1226,7 @@ const Edit: React.FC = () => {
                   [file.path]: fileSha256
                 }
               },
-              stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
+              stage: isStaged,
               _rkwargs: true
             });
 
@@ -1249,36 +1305,16 @@ const Edit: React.FC = () => {
           }
         }
 
-        // If we created a temporary stage, commit changes immediately.
-        // commitIfStaged tolerates a concurrent path (e.g. the
-        // setTimeout(handleSave, 100) below for rdf.yaml SHA backfill) having
-        // already committed the same staging area.
-        if (needsStageCleanup) {
-          try {
-            await commitIfStaged(`Updated ${file.path}`);
-
-            // Refresh artifact files to get the latest state
-            await loadArtifactFiles();
-          } catch (error) {
-            console.error('Error committing changes:', error);
-            setUploadStatus({
-              message: 'Error committing changes',
-              severity: 'error'
-            });
-            return;
-          }
-        }
-
         // Update the local state with the final saved content (which may have been modified during save)
-        setFiles(prevFiles => prevFiles.map(f => 
-          f.path === file.path 
+        setFiles(prevFiles => prevFiles.map(f =>
+          f.path === file.path
             ? { ...f, content: finalSavedContent, edited: false }
             : f
         ));
 
         // If this file is currently selected, update selectedFile too
-        setSelectedFile(prev => 
-          prev?.path === file.path 
+        setSelectedFile(prev =>
+          prev?.path === file.path
             ? { ...prev, content: finalSavedContent, edited: false }
             : prev
         );
@@ -1291,7 +1327,7 @@ const Edit: React.FC = () => {
         });
 
         setUploadStatus({
-          message: needsStageCleanup ? 'Changes saved and committed' : 'Changes saved',
+          message: 'Changes saved',
           severity: 'success'
         });
 
@@ -1802,33 +1838,13 @@ const Edit: React.FC = () => {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!artifactManager || !artifactId) return;
 
-    // Only writers on the artifact can upload files outside stage mode.
-    if (!isStaged && !canEditArtifact) {
+    // Uploading files requires staging mode. Use "Stage for Editing" first.
+    if (!isStaged) {
       setUploadStatus({
-        message: 'Cannot upload files when not in staging mode. Only manifest changes are allowed.',
+        message: 'Stage this artifact for editing before uploading files.',
         severity: 'error'
       });
       return;
-    }
-
-    // Same temp-stage shortcut as the rdf.yaml save path.
-    let needsStageCleanup = false;
-    if (canEditArtifact && !isStaged) {
-      try {
-        await artifactManager.edit({
-          artifact_id: artifactId,
-          stage: true,
-          _rkwargs: true
-        });
-        needsStageCleanup = true;
-      } catch (error) {
-        console.error('Error creating temporary stage:', error);
-        setUploadStatus({
-          message: 'Error creating temporary stage',
-          severity: 'error'
-        });
-        return;
-      }
     }
 
     // Get the manifest to check for weight files
@@ -1995,7 +2011,7 @@ const Edit: React.FC = () => {
                 [file.name]: fileSha256
               }
             },
-            stage: isStaged || needsStageCleanup, // Keep in staging mode if currently staged
+            stage: isStaged,
             _rkwargs: true
           });
 
@@ -2108,25 +2124,6 @@ const Edit: React.FC = () => {
       }
     }
 
-    // Auto-commit the temporary stage we created above for writers who
-    // weren't already in stage mode. Done ONCE after all files are processed
-    // so the per-file iterations all see the same open stage; a per-iteration
-    // commit would drop the stage and break put_file on the next file.
-    if (needsStageCleanup) {
-      try {
-        await commitIfStaged(
-          acceptedFiles.length === 1
-            ? `Added ${acceptedFiles[0].name}`
-            : `Added ${acceptedFiles.length} files`
-        );
-      } catch (error) {
-        console.error('Error committing changes:', error);
-        setUploadStatus({
-          message: 'Error committing changes',
-          severity: 'error'
-        });
-      }
-    }
   }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
@@ -2138,10 +2135,10 @@ const Edit: React.FC = () => {
   const handleDeleteFile = async (file: FileNode) => {
     if (!artifactManager || !artifactId) return;
 
-    // Only writers on the artifact can delete files outside stage mode.
-    if (!isStaged && !canEditArtifact) {
+    // Deleting files requires staging mode. Use "Stage for Editing" first.
+    if (!isStaged) {
       setUploadStatus({
-        message: 'Cannot delete files when not in staging mode. Only manifest changes are allowed.',
+        message: 'Stage this artifact for editing before deleting files.',
         severity: 'error'
       });
       return;
@@ -2152,26 +2149,6 @@ const Edit: React.FC = () => {
         message: `Deleting ${file.name}...`,
         severity: 'info'
       });
-
-      // Same temp-stage shortcut as save/upload.
-      let needsStageCleanup = false;
-      if (canEditArtifact && !isStaged) {
-        try {
-          await artifactManager.edit({
-            artifact_id: artifactId,
-            stage: true,
-            _rkwargs: true
-          });
-          needsStageCleanup = true;
-        } catch (error) {
-          console.error('Error creating temporary stage:', error);
-          setUploadStatus({
-            message: 'Error creating temporary stage',
-            severity: 'error'
-          });
-          return;
-        }
-      }
 
       // For directories, remove the .keep placeholder file that represents the folder
       const filePath = file.isDirectory ? `${file.path}/.keep` : file.path;
@@ -2199,10 +2176,10 @@ const Edit: React.FC = () => {
               ...existingManifest,
               file_sha256: updatedFileSha256
             },
-            stage: isStaged || needsStageCleanup,
+            stage: isStaged,
             _rkwargs: true
           });
-          
+
           // Update local artifactInfo
           setArtifactInfo(prev => prev ? {
             ...prev,
@@ -2211,26 +2188,11 @@ const Edit: React.FC = () => {
               file_sha256: updatedFileSha256
             } as typeof prev.manifest
           } : null);
-          
+
           console.log(`[SHA256 Cleanup] Removed ${file.name} from file_sha256 map`);
         }
       } catch (error) {
         console.error('Error removing file from file_sha256 map:', error);
-      }
-
-      // Auto-commit the temporary stage we created above for writers
-      // who weren't already in stage mode.
-      if (needsStageCleanup) {
-        try {
-          await commitIfStaged(`Deleted ${file.name}`);
-        } catch (error) {
-          console.error('Error committing changes:', error);
-          setUploadStatus({
-            message: 'Error committing changes',
-            severity: 'error'
-          });
-          return;
-        }
       }
 
       // Clear selected file if it was the deleted one
@@ -2483,26 +2445,37 @@ const Edit: React.FC = () => {
 
     const showAdvancedButton = isLoggedIn && (isRdfFile || (artifactType === 'model' && artifactId));
 
+    // "Has a committed (published) version" — true whenever the artifact has at
+    // least one committed entry. Used to switch between the new-upload flow
+    // (Review & Publish) and the update flow (Stage → edit → Commit/Discard).
+    const hasPublishedVersion = lastVersion !== null;
+
     return (
       <>
       <div className="flex flex-wrap gap-2 w-full sm:w-auto">
 
-        {/* Save button */}
+        {/* Save button — disabled when viewing the published version of a model
+            that already has a committed version (user must click "Stage for Editing" first). */}
         {selectedFile && isTextFile(selectedFile.name) && (
-          <button
-            onClick={() => handleSave(selectedFile)}
-            disabled={!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'}
-            title={`Save (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S)`}
-            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
-              ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info'
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
+          <HintTooltip
+            hint={!isStaged && hasPublishedVersion ? 'Click "Stage for Editing" before saving changes.' : undefined}
+            className="w-full sm:w-auto"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-            Save
-          </button>
+            <button
+              onClick={() => handleSave(selectedFile)}
+              disabled={!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info' || (!isStaged && hasPublishedVersion)}
+              title={`Save (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S)`}
+              className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto
+                ${!unsavedChanges[selectedFile.path] || uploadStatus?.severity === 'info' || (!isStaged && hasPublishedVersion)
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              </svg>
+              Save
+            </button>
+          </HintTooltip>
         )}
 
         {/* Advanced Options popover. Houses the runner-site toggle and
@@ -2630,7 +2603,9 @@ const Edit: React.FC = () => {
           </div>
         )}
 
-        {/* Test Model — split button: trigger opens options dialog, result pill shows run outcome. */}
+        {/* Test Model — split button: trigger opens options dialog, result pill shows run outcome.
+            The pill also reflects the stored test report from the collection so the editor always
+            shows the current test status without requiring a fresh test run. */}
         {artifactType === 'model' && artifactId && (
           <ModelTester
             ref={modelTesterRef}
@@ -2638,26 +2613,70 @@ const Edit: React.FC = () => {
             isStaged={isStaged}
             isDisabled={!server}
             skipCache={skipCacheForTest}
-            attachTestReport={attachTestReport}
             customEnvironment={customEnvironment}
             onTriggerClick={() => setShowTestOptionsDialog(true)}
             onTestComplete={async (result) => {
               if (result) setLastTestResult(result);
               await loadArtifactFiles();
             }}
+            storedTestReport={storedTestReport}
+            isStoredReportOutdated={isTestReportOutdated}
             className="w-full sm:w-auto"
             modelRunners={modelRunners}
             hideRunnerToggle
           />
         )}
 
-        {/* Review & Publish button — gated on RDF validity (existing) AND
-            the test having produced any result (new; failing tests still
-            let the user proceed, they just have to confirm inside the
-            review dialog).
-            Exception: if the staged manifest already has status=request-review
-            the user already ran the test and submitted, so skip the gate. */}
-        {isStaged && (() => {
+        {/* Stage / Commit / Discard / Review & Publish — adapts to whether the
+            artifact already has a published version (update flow) or is a new
+            upload going through review for the first time. */}
+        {canEditArtifact && (() => {
+          // Update flow: artifact already has at least one committed version.
+          if (hasPublishedVersion) {
+            if (!isStaged) {
+              // Published view — offer to enter staging mode.
+              return (
+                <button
+                  onClick={handleStageForEditing}
+                  disabled={uploadStatus?.severity === 'info'}
+                  className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Stage for Editing
+                </button>
+              );
+            }
+            // Staged view — Commit and Discard.
+            return (
+              <>
+                <button
+                  onClick={handleCommitChanges}
+                  disabled={uploadStatus?.severity === 'info'}
+                  className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Commit
+                </button>
+                <button
+                  onClick={handleDiscardChanges}
+                  disabled={uploadStatus?.severity === 'info'}
+                  className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-white text-red-600 border border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Discard
+                </button>
+              </>
+            );
+          }
+
+          // New-upload flow: no committed version yet — show Review & Publish.
+          if (!isStaged) return null;
           const needsTest = artifactType === 'model' && artifactId;
           const alreadySubmitted = artifactInfo?.manifest?.status === 'request-review';
           const disabled = shouldDisableActions || (needsTest && !lastTestResult && !alreadySubmitted);
@@ -3479,20 +3498,6 @@ const Edit: React.FC = () => {
             The model will be tested via BioEngine. Configure the options below before starting.
           </p>
           <div className="space-y-4">
-            <label className="flex items-start gap-3 cursor-pointer select-none group">
-              <input
-                type="checkbox"
-                checked={attachTestReport}
-                onChange={(e) => setAttachTestReport(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
-              />
-              <div>
-                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Save test report to artifact</div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  Uploads <code className="bg-gray-100 px-1 rounded">test_report.json</code> to the model artifact after the run. The test badge on the model card will reflect the outcome. Leave unchecked to test privately without updating the artifact.
-                </div>
-              </div>
-            </label>
             <label className="flex items-start gap-3 cursor-pointer select-none group">
               <input
                 type="checkbox"

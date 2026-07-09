@@ -30,7 +30,6 @@ interface ModelTesterProps {
   isDisabled?: boolean;
   className?: string;
   skipCache?: boolean;
-  attachTestReport?: boolean;
   customEnvironment?: boolean;
   onTestComplete?: (result?: TestResult) => void | Promise<void>;
   /**
@@ -53,6 +52,16 @@ interface ModelTesterProps {
    * split-button visually connected.
    */
   onTriggerClick?: () => void;
+  /**
+   * Existing test report fetched from the test-report collection (model-runner
+   * v1.13.2+). Shown in the result pill before the user runs a fresh test.
+   */
+  storedTestReport?: TestResult | null;
+  /**
+   * When true, the stored test report is considered outdated relative to the
+   * current artifact state. The pill is rendered grey to signal this.
+   */
+  isStoredReportOutdated?: boolean;
 }
 
 export interface ModelTesterHandle {
@@ -62,12 +71,13 @@ export interface ModelTesterHandle {
 
 export type { TestResult };
 
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
 const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   artifactId,
   isStaged,
   isDisabled,
   skipCache = false,
-  attachTestReport = false,
   customEnvironment = false,
   onTestComplete,
   className = '',
@@ -75,6 +85,8 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   hideRunnerToggle = false,
   hideTrigger = false,
   onTriggerClick,
+  storedTestReport,
+  isStoredReportOutdated = false,
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
@@ -89,46 +101,90 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
     setIsLoading(true);
     setTestResult(null);
-    setLoadingStep('Initializing test runner...');
+    setLoadingStep('Connecting to model runner...');
     setIsDialogOpen(true);
-    
+
     try {
-      setLoadingStep('Connecting to model runner service...');
       const runner = activeRunner;
       if (!runner) {
         throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
       }
       const modelId = artifactId.split('/').pop();
-      
-      setLoadingStep('Downloading and preparing model for testing...');
 
-      // ``attach_test_report=true`` requires a caller-owned token so the
-      // runner writes under the user's identity, not the service account.
-      let hyphaToken: string | undefined;
-      if (attachTestReport && typeof server.generateToken === 'function') {
-        hyphaToken = await server.generateToken();
-      }
+      setLoadingStep('Starting test run...');
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
 
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, attach_test_report: ${attachTestReport}, custom_environment: ${customEnvironment}`);
-      const startTime = performance.now();
-      const result = await runner.test({
+      const test_run_id: string = await runner.test({
         model_id: modelId,
         stage: isStaged,
         skip_cache: skipCache,
-        attach_test_report: attachTestReport,
         custom_environment: customEnvironment,
-        ...(hyphaToken ? { hypha_token: hyphaToken } : {}),
         _rkwargs: true,
       });
-      const endTime = performance.now();
-      const executionTime = (endTime - startTime) / 1000; // Convert to seconds
-      console.log(`Test execution time: ${executionTime.toFixed(2)}s`);
-      console.log("Test result:", result);
-      setTestResult(result);
+
+      console.log(`Test run started with id: ${test_run_id}`);
+
+      // Poll for completion
+      const MAX_POLLS = 120; // 6 minutes at 3s intervals
+      let finalResult: TestResult | null = null;
+
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await sleep(3000);
+
+        const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
+        const { progress, test_report } = status;
+
+        // Map progress state to a human-readable loading step
+        if (progress.state === 'queued') {
+          const pos = progress.queue_position;
+          setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
+        } else if (progress.state === 'model_download') {
+          setLoadingStep('Downloading model...');
+        } else if (progress.state === 'env_setup') {
+          setLoadingStep('Setting up environment...');
+        } else if (progress.state === 'running') {
+          const elapsed = progress.elapsed_seconds ? ` (${Math.floor(progress.elapsed_seconds)}s)` : '';
+          setLoadingStep(`Running tests${elapsed}...`);
+        }
+
+        if (progress.state === 'completed' || progress.state === 'failed') {
+          console.log(`Test ${progress.state}. Report:`, test_report);
+          if (test_report) {
+            finalResult = test_report as TestResult;
+          } else if (progress.state === 'failed') {
+            finalResult = {
+              name: 'Test Failed',
+              status: 'failed',
+              details: [{
+                name: 'Error',
+                status: 'failed',
+                errors: [{ msg: progress.error || 'Test run failed on the runner.', loc: ['test'] }],
+                warnings: [],
+              }],
+            };
+          }
+          break;
+        }
+      }
+
+      if (!finalResult) {
+        finalResult = {
+          name: 'Test Timed Out',
+          status: 'failed',
+          details: [{
+            name: 'Timeout',
+            status: 'failed',
+            errors: [{ msg: 'Test did not complete within the expected time. Check the runner logs.', loc: ['test'] }],
+            warnings: [],
+          }],
+        };
+      }
+
+      setTestResult(finalResult);
 
       if (onTestComplete) {
         try {
-          await onTestComplete(result);
+          await onTestComplete(finalResult);
         } catch (refreshErr) {
           console.error('Post-test refresh failed:', refreshErr);
         }
@@ -137,16 +193,13 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       console.error('Test run failed:', err);
       const failureResult: TestResult = {
         name: 'Test Failed',
-        status: "failed",
+        status: 'failed',
         details: [{
           name: 'Error',
           status: 'failed',
-          errors: [{
-            msg: `Failed to run model test: ${err}`,
-            loc: ['test']
-          }],
-          warnings: []
-        }]
+          errors: [{ msg: `Failed to run model test: ${err}`, loc: ['test'] }],
+          warnings: [],
+        }],
       };
       setTestResult(failureResult);
       if (onTestComplete) {
@@ -162,14 +215,8 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     }
   };
 
-  // Expose runTest so a parent can wrap the tester in its own trigger UI
-  // (e.g. a dropdown that gathers per-run options before firing) while
-  // still letting this component own the result / spinner dialog.
   useImperativeHandle(ref, () => ({ runTest }), [runTest]);
 
-  // Button is disabled if the caller disabled it, if a test is already in
-  // flight, if the user isn't logged in, or if neither runner answered the
-  // probe.
   const noRunner = !runnersLoading && !hasAny;
   const buttonDisabled = isDisabled || isLoading || !isLoggedIn || noRunner;
 
@@ -178,6 +225,35 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     : noRunner
       ? 'Runners unavailable'
       : 'Test Model';
+
+  // The "display result" is either a fresh test result or the stored one.
+  // A fresh result (just run) always takes precedence.
+  const displayResult = testResult ?? storedTestReport ?? null;
+  const showingStoredResult = testResult === null && !isLoading && storedTestReport != null;
+  const isOutdated = showingStoredResult && isStoredReportOutdated;
+
+  const getPillClass = () => {
+    const base = `inline-flex items-center px-2 h-full font-medium transition-colors
+      ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l border-white/20'}`;
+
+    if (isLoading) return `${base} bg-gray-200 text-gray-700 cursor-pointer`;
+
+    if (!displayResult) {
+      return `${base} ${buttonDisabled
+        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+        : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`;
+    }
+
+    if (isOutdated) {
+      return `${base} bg-gray-300 text-gray-600 hover:bg-gray-400 cursor-pointer`;
+    }
+
+    return `${base} ${displayResult.status === 'passed'
+      ? 'bg-green-600 text-white hover:bg-green-700 cursor-pointer'
+      : 'bg-red-600 text-white hover:bg-red-700 cursor-pointer'}`;
+  };
+
+  const pillClickable = isLoading || displayResult != null;
 
   return (
     <div className={`relative ${className}`}>
@@ -188,59 +264,60 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
               hint={noRunner ? 'Both KTH and deNBI model-runner services failed to respond.' : undefined}
               className="h-full"
             >
-            <button
-              onClick={onTriggerClick ?? runTest}
-              disabled={buttonDisabled}
-              className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-                ${buttonDisabled
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
-                }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="hidden sm:inline">{buttonLabel}</span>
-            </button>
+              <button
+                onClick={onTriggerClick ?? runTest}
+                disabled={buttonDisabled}
+                className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
+                  ${buttonDisabled
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+                  }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="hidden sm:inline">{buttonLabel}</span>
+              </button>
             </HintTooltip>
           )}
 
-          {/* Result pill: shows spinner while running, pass/fail icon when done */}
-          <button
-            onClick={() => (testResult || isLoading) && setIsDialogOpen(true)}
-            className={`inline-flex items-center px-2 h-full font-medium transition-colors
-              ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l border-white/20'}
-              ${buttonDisabled && !testResult
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : testResult
-                  ? testResult.status === 'passed'
-                    ? 'bg-green-600 text-white hover:bg-green-700 cursor-pointer'
-                    : 'bg-red-600 text-white hover:bg-red-700 cursor-pointer'
-                  : isLoading
-                    ? 'bg-gray-200 text-gray-700 cursor-pointer'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
+          {/* Result pill: spinner while running, pass/fail when done, stored result when available */}
+          <HintTooltip
+            hint={isOutdated ? 'Test report is outdated. The model has changed since this report was generated.' : undefined}
+            className="h-full"
           >
-            {isLoading ? (
-              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            ) : testResult ? (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d={testResult.status === 'passed' ? "M5 13l4 4L19 7" : "M6 18L18 6M6 6l12 12"} />
+            <button
+              onClick={() => pillClickable && setIsDialogOpen(true)}
+              className={getPillClass()}
+            >
+              {isLoading ? (
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </>
-            ) : null}
-          </button>
+              ) : displayResult ? (
+                <>
+                  {isOutdated ? (
+                    /* Clock icon for outdated report */
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d={displayResult.status === 'passed' ? "M5 13l4 4L19 7" : "M6 18L18 6M6 6l12 12"} />
+                    </svg>
+                  )}
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </>
+              ) : null}
+            </button>
+          </HintTooltip>
         </div>
 
         {isLoggedIn && !hideRunnerToggle && (
@@ -256,7 +333,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       <TestDetailsDialog
         open={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
-        data={testResult}
+        data={displayResult}
         isLoading={isLoading}
         loadingMessage={loadingStep}
         type="test-report"

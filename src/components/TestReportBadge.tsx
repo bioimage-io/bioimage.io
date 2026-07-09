@@ -15,7 +15,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import InfoIcon from '@mui/icons-material/Info';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
-import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
 import TestReportDialog from './TestReportDialog';
 
 interface TestReportBadgeProps {
@@ -87,9 +87,13 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
         setIsInvalidJson(false);
         setRawErrorContent(null);
         setDetailedTestReport(null);
-        
-        const testReportUrl = resolveHyphaUrl('test_report.json', artifact.id, true);
-        const response = await fetch(testReportUrl);
+
+        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
+        // fall back to the legacy location on the model artifact itself.
+        let response = await fetch(resolveTestReportUrl(artifact.id, false));
+        if (!response.ok) {
+          response = await fetch(resolveHyphaUrl('test_report.json', artifact.id, true));
+        }
         const responseText = await response.text();
         
         try {

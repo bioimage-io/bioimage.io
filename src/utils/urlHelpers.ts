@@ -56,3 +56,17 @@ export const resolveHyphaUrl = (path: FileLike, resourceId: string, use_proxy: b
     return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/${id}/files/${source}`;
   }
 };
+
+/**
+ * Builds the URL for a model's test report from the dedicated test-report collection
+ * (model-runner v1.13.2+). Reports live under bioimage-io/test-report-<modelId>/files/
+ * published/ or staged/ depending on whether the artifact is in staging mode.
+ *
+ * @param artifactId - full artifact ID, e.g. 'bioimage-io/cheerful-panda'
+ * @param staged     - true when the caller is viewing the staged version of the artifact
+ */
+export const resolveTestReportUrl = (artifactId: string, staged: boolean): string => {
+  const modelId = artifactId.split('/').pop();
+  const slot = staged ? 'staged' : 'published';
+  return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}/files/${slot}/test_report.json?use_proxy=true`;
+};

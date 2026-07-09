@@ -25,7 +25,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
-import { resolveHyphaUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -300,10 +300,14 @@ const ArtifactDetails = () => {
       }
 
       try {
-        const testReportUrl = resolveHyphaUrl('test_report.json', selectedResource.id, true);
-        const response = await fetch(testReportUrl);
+        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
+        // fall back to the legacy location on the model artifact itself.
+        let response = await fetch(resolveTestReportUrl(selectedResource.id, false));
+        if (!response.ok) {
+          response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
+        }
         const testReportJson = await response.json();
-        
+
         if (isValidTestReport(testReportJson)) {
           setTestReportData(testReportJson);
         } else {
@@ -363,9 +367,13 @@ const ArtifactDetails = () => {
         setIsInvalidJson(false);
         setRawErrorContent(null);
         setDetailedTestReport(null);
-        
-        const testReportUrl = resolveHyphaUrl('test_report.json', selectedResource.id, true);
-        const response = await fetch(testReportUrl);
+
+        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
+        // fall back to the legacy location on the model artifact itself.
+        let response = await fetch(resolveTestReportUrl(selectedResource.id, false));
+        if (!response.ok) {
+          response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
+        }
         const responseText = await response.text();
         
         try {
