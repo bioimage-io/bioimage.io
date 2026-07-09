@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
+import HintTooltip from './HintTooltip';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Menu } from '@headlessui/react';
@@ -163,12 +164,13 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
     <div className={`relative ${className}`}>
       <div className="flex items-center gap-2">
         <div className="flex h-[40px]">
+        <HintTooltip
+          hint={noRunner ? 'Both KTH and deNBI model-runner services failed to respond.' : undefined}
+          className="h-full"
+        >
         <button
           onClick={handleValidate}
           disabled={buttonDisabled}
-          title={noRunner
-            ? 'Both KTH and deNBI model-runner services failed to respond.'
-            : undefined}
           className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
             ${buttonDisabled
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -183,20 +185,23 @@ const ModelValidator: React.FC<ModelValidatorProps> = ({
           </svg>
           <span className="hidden sm:inline">{buttonLabel}</span>
         </button>
+        </HintTooltip>
 
         <Menu as="div" className="relative h-full">
           <Menu.Button
             onClick={() => validationResult && setIsMenuOpen(!isMenuOpen)}
             className={`inline-flex items-center px-2 h-full rounded-r-md font-medium transition-colors border-l border-white/20
-              ${buttonDisabled
+              ${buttonDisabled && !validationResult
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : validationResult
                   ? validationResult.success
                     ? 'bg-green-600 text-white hover:bg-green-700'
                     : 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  : isLoading
+                    ? 'bg-gray-200 text-gray-700'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
-            disabled={buttonDisabled}
+            disabled={buttonDisabled || !validationResult}
           >
             {isLoading ? (
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">

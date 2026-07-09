@@ -3,6 +3,7 @@ import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
 import TestDetailsDialog from './TestDetailsDialog';
+import HintTooltip from './HintTooltip';
 
 interface TestResult {
   name: string;
@@ -183,12 +184,13 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       <div className="flex items-center gap-2">
         <div className="flex h-[40px]">
           {!hideTrigger && (
+            <HintTooltip
+              hint={noRunner ? 'Both KTH and deNBI model-runner services failed to respond.' : undefined}
+              className="h-full"
+            >
             <button
               onClick={onTriggerClick ?? runTest}
               disabled={buttonDisabled}
-              title={noRunner
-                ? 'Both KTH and deNBI model-runner services failed to respond.'
-                : undefined}
               className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
                 ${buttonDisabled
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -203,6 +205,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
               </svg>
               <span className="hidden sm:inline">{buttonLabel}</span>
             </button>
+            </HintTooltip>
           )}
 
           {/* Result pill: shows spinner while running, pass/fail icon when done */}
