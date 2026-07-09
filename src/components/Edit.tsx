@@ -346,8 +346,9 @@ const Edit: React.FC = () => {
     fileName: string;
     resolve: (value: boolean) => void;
   } | null>(null);
-  const [publishTestReport, setPublishTestReport] = useState<boolean>(false);
+  const [attachTestReport, setAttachTestReport] = useState<boolean>(false);
   const [skipCacheForTest, setSkipCacheForTest] = useState<boolean>(false);
+  const [customEnvironment, setCustomEnvironment] = useState<boolean>(false);
   // Result from the most recent ModelTester run — powers the Review &
   // Publish gate (must have run a test) and the confirm-on-fail dialog
   // inside ReviewPublishArtifact (Submit for Review needs an extra
@@ -2639,7 +2640,8 @@ const Edit: React.FC = () => {
             isStaged={isStaged}
             isDisabled={!server}
             skipCache={skipCacheForTest}
-            publishTestReport={publishTestReport}
+            attachTestReport={attachTestReport}
+            customEnvironment={customEnvironment}
             onTriggerClick={() => setShowTestOptionsDialog(true)}
             onTestComplete={async (result) => {
               if (result) setLastTestResult(result);
@@ -3483,14 +3485,28 @@ const Edit: React.FC = () => {
             <label className="flex items-start gap-3 cursor-pointer select-none group">
               <input
                 type="checkbox"
-                checked={publishTestReport}
-                onChange={(e) => setPublishTestReport(e.target.checked)}
+                checked={attachTestReport}
+                onChange={(e) => setAttachTestReport(e.target.checked)}
                 className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
               />
               <div>
-                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Publish test result</div>
+                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Save test report to artifact</div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  Saves <code className="bg-gray-100 px-1 rounded">test_report.json</code> back to the model artifact after the run. The test badge on the model card will reflect the outcome. Leave unchecked to test privately without updating the artifact.
+                  Uploads <code className="bg-gray-100 px-1 rounded">test_report.json</code> to the model artifact after the run. The test badge on the model card will reflect the outcome. Leave unchecked to test privately without updating the artifact.
+                </div>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={customEnvironment}
+                onChange={(e) => setCustomEnvironment(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Custom environment</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Runs the test inside the conda environment declared by the model's own weights description. Slower than the default runner environment but matches exactly what the model author specified.
                 </div>
               </div>
             </label>
@@ -3509,14 +3525,16 @@ const Edit: React.FC = () => {
               </div>
             </label>
           </div>
-          <div className="mt-5 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
-            <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-            <span>
-              The BioEngine runner uses a fixed environment and does not support custom conda environments or dependencies. Tests may fail if the model requires packages not available in the default runner environment.
-            </span>
-          </div>
+          {!customEnvironment && (
+            <div className="mt-5 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
+              <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <span>
+                The BioEngine runner uses a fixed environment. Tests may fail if the model requires packages not available in the default runner environment. Enable custom environment above to test in the model-declared conda environment instead.
+              </span>
+            </div>
+          )}
           <div className="mt-4 flex gap-3 justify-end">
             <button
               onClick={() => setShowTestOptionsDialog(false)}

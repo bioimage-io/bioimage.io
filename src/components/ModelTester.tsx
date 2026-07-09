@@ -29,7 +29,8 @@ interface ModelTesterProps {
   isDisabled?: boolean;
   className?: string;
   skipCache?: boolean;
-  publishTestReport?: boolean;
+  attachTestReport?: boolean;
+  customEnvironment?: boolean;
   onTestComplete?: (result?: TestResult) => void | Promise<void>;
   /**
    * When provided, use this caller-owned runner state instead of the
@@ -65,7 +66,8 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   isStaged,
   isDisabled,
   skipCache = false,
-  publishTestReport = false,
+  attachTestReport = false,
+  customEnvironment = false,
   onTestComplete,
   className = '',
   modelRunners,
@@ -99,21 +101,21 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       
       setLoadingStep('Downloading and preparing model for testing...');
 
-      // v1.6.0+ (renamed to ``attach_test_report`` in 1.8.0):
       // ``attach_test_report=true`` requires a caller-owned token so the
       // runner writes under the user's identity, not the service account.
       let hyphaToken: string | undefined;
-      if (publishTestReport && typeof server.generateToken === 'function') {
+      if (attachTestReport && typeof server.generateToken === 'function') {
         hyphaToken = await server.generateToken();
       }
 
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, attach_test_report: ${publishTestReport}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, attach_test_report: ${attachTestReport}, custom_environment: ${customEnvironment}`);
       const startTime = performance.now();
       const result = await runner.test({
         model_id: modelId,
         stage: isStaged,
         skip_cache: skipCache,
-        attach_test_report: publishTestReport,
+        attach_test_report: attachTestReport,
+        custom_environment: customEnvironment,
         ...(hyphaToken ? { hypha_token: hyphaToken } : {}),
         _rkwargs: true,
       });
