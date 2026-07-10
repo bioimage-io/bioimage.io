@@ -302,7 +302,7 @@ const ArtifactDetails = () => {
       try {
         // Try the new dedicated test-report collection first (model-runner v1.13.2+),
         // fall back to the legacy location on the model artifact itself.
-        let response = await fetch(resolveTestReportUrl(selectedResource.id, false));
+        let response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
         if (!response.ok) {
           response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
         }
@@ -370,7 +370,7 @@ const ArtifactDetails = () => {
 
         // Try the new dedicated test-report collection first (model-runner v1.13.2+),
         // fall back to the legacy location on the model artifact itself.
-        let response = await fetch(resolveTestReportUrl(selectedResource.id, false));
+        let response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
         if (!response.ok) {
           response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
         }

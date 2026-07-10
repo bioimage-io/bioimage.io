@@ -405,11 +405,13 @@ const Edit: React.FC = () => {
         if (cancelled) return;
         setStoredTestReport(data as TestResult);
 
-        // Compare latest_remote_modified in the report vs on the artifact to detect staleness.
+        // Compare latest_remote_modified in the report (max file mtime when test ran)
+        // against the artifact's last_modified (updated on any commit/edit). If the
+        // artifact changed after the test, the report is stale.
         const reportModified = (data as any).latest_remote_modified;
-        const artifactModified = (artifactInfo as any)?.latest_remote_modified;
+        const artifactModified = (artifactInfo as any)?.last_modified ?? (artifactInfo as any)?.latest_remote_modified;
         setIsTestReportOutdated(
-          reportModified != null && artifactModified != null && reportModified !== artifactModified
+          reportModified != null && artifactModified != null && (artifactModified as number) > (reportModified as number)
         );
       } catch {
         if (!cancelled) {
@@ -433,7 +435,12 @@ const Edit: React.FC = () => {
   }, [uploadStatus]);
 
   useEffect(() => {
-    if (!isLoggedIn) {
+    // Read isConnecting from live store state (not the stale closure) so we
+    // don't redirect while an auto-login is still in flight. Effects fire in
+    // mounting order: LoginButton sets isConnecting=true synchronously before
+    // this effect runs, but the closure value is frozen at render time.
+    const currentlyConnecting = useHyphaStore.getState().isConnecting;
+    if (!isLoggedIn && !currentlyConnecting) {
       navigate('/');
     }
   }, [isLoggedIn, navigate]);
@@ -1339,6 +1346,22 @@ const Edit: React.FC = () => {
           message: 'Changes saved',
           severity: 'success'
         });
+
+        // Re-check test report staleness after a staged save: the artifact's
+        // last_modified is updated server-side by the put_file + edit above,
+        // so re-fetch to compare against the report's latest_remote_modified.
+        if (isStaged && storedTestReport) {
+          try {
+            const fresh = await artifactManager.read({ artifact_id: artifactId, _rkwargs: true });
+            const artifactModified = (fresh as any)?.last_modified ?? (fresh as any)?.latest_remote_modified;
+            const reportModified = (storedTestReport as any).latest_remote_modified;
+            setIsTestReportOutdated(
+              reportModified != null && artifactModified != null && (artifactModified as number) > (reportModified as number)
+            );
+          } catch {
+            // Leave the current outdated flag unchanged if the re-check fails
+          }
+        }
 
       } catch (error) {
         console.error('Error in save process:', error);
@@ -3509,6 +3532,16 @@ const Edit: React.FC = () => {
           <p className="text-sm text-gray-500 mb-5">
             The model will be tested via BioEngine. Configure the options below before starting.
           </p>
+          {!customEnvironment && (
+            <div className="mb-4 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
+              <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <span>
+                The BioEngine runner uses a fixed environment. Tests may fail if the model requires packages not available in the default runner environment. Enable custom environment below to test in the model-declared conda environment instead.
+              </span>
+            </div>
+          )}
           <div className="space-y-4">
             <label className="flex items-start gap-3 cursor-pointer select-none group">
               <input
@@ -3539,16 +3572,6 @@ const Edit: React.FC = () => {
               </div>
             </label>
           </div>
-          {!customEnvironment && (
-            <div className="mt-5 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
-              <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-              </svg>
-              <span>
-                The BioEngine runner uses a fixed environment. Tests may fail if the model requires packages not available in the default runner environment. Enable custom environment above to test in the model-declared conda environment instead.
-              </span>
-            </div>
-          )}
           <div className="mt-4 flex gap-3 justify-end">
             <button
               onClick={() => setShowTestOptionsDialog(false)}

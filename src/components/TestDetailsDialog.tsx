@@ -21,13 +21,21 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 
+export interface ProgressInfo {
+  state: 'connecting' | 'starting' | 'queued' | 'model_download' | 'env_setup' | 'running';
+  queuePosition?: number;
+  elapsedSeconds?: number;
+}
+
 interface TestDetailsDialogProps {
   open: boolean;
   onClose: () => void;
   data: any | null;
   isLoading: boolean;
-  /** Shown inside the dialog while isLoading is true (e.g. current runner step). */
+  /** Shown inside the dialog while isLoading is true and progressInfo is absent. */
   loadingMessage?: string;
+  /** Structured progress state for badge rendering while loading. */
+  progressInfo?: ProgressInfo;
   rawErrorContent?: string | null;
   isInvalidJson?: boolean;
   type: 'test-report' | 'compatibility';
@@ -41,6 +49,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   data,
   isLoading,
   loadingMessage,
+  progressInfo,
   rawErrorContent,
   isInvalidJson = false,
   type,
@@ -108,10 +117,31 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   };
 
   const getDialogTitle = () => {
-    if (type === 'compatibility') {
-      return 'Compatibility Test Details';
-    }
+    if (type === 'compatibility') return 'Compatibility Test Details';
+    if (isLoading) return 'Model Testing in Progress';
     return 'Test Report Details';
+  };
+
+  const getProgressStateLabel = (state: ProgressInfo['state']): string => {
+    switch (state) {
+      case 'connecting': return 'Connecting';
+      case 'starting': return 'Starting';
+      case 'queued': return 'Queued';
+      case 'model_download': return 'Downloading model';
+      case 'env_setup': return 'Setting up environment';
+      case 'running': return 'Running';
+    }
+  };
+
+  const getProgressChipSx = (state: ProgressInfo['state']) => {
+    const base = { borderRadius: '8px', fontWeight: 500 };
+    if (state === 'queued') {
+      return { ...base, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.3)' };
+    }
+    if (state === 'running') {
+      return { ...base, backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#15803d', border: '1px solid rgba(34, 197, 94, 0.3)' };
+    }
+    return { ...base, backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' };
   };
 
   const getHeaderInfo = () => {
@@ -196,32 +226,73 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
       
       <DialogContent dividers sx={{ p: 0 }}>
         {isLoading ? (
-          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2.5 }}>
             <img
               src="/static/img/bioengine-logo-black.svg"
               alt="BioEngine"
               className="animate-pulse"
               style={{ height: '80px' }}
             />
-            <Typography color="text.secondary">
-              {loadingMessage || 'Running model tests...'}
-            </Typography>
+
+            {/* Status badges */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {progressInfo ? (
+                <>
+                  <Chip
+                    label={getProgressStateLabel(progressInfo.state)}
+                    size="small"
+                    sx={getProgressChipSx(progressInfo.state)}
+                  />
+                  {progressInfo.state === 'queued' && progressInfo.queuePosition != null && progressInfo.queuePosition > 0 && (
+                    <Chip
+                      label={`#${progressInfo.queuePosition}`}
+                      size="small"
+                      sx={{
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        color: '#b45309',
+                        border: '1px solid rgba(245, 158, 11, 0.3)',
+                        borderRadius: '8px',
+                        fontWeight: 600,
+                      }}
+                    />
+                  )}
+                  {progressInfo.state === 'running' && progressInfo.elapsedSeconds != null && (
+                    <Typography variant="body2" color="text.secondary">
+                      {Math.floor(progressInfo.elapsedSeconds)}s
+                    </Typography>
+                  )}
+                </>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  {loadingMessage || 'Running model tests...'}
+                </Typography>
+              )}
+            </Box>
+
+            {/* Explanation box */}
             {type === 'test-report' && (
-              <Box sx={{ textAlign: 'center', maxWidth: 400 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  This may take 30 seconds or more. The runner will:
+              <Paper
+                sx={{
+                  p: 2.5,
+                  mt: 1,
+                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
+                  border: '1px solid rgba(229, 231, 235, 1)',
+                  borderRadius: '12px',
+                  width: '100%',
+                  maxWidth: 360,
+                }}
+              >
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500 }}>
+                  BioEngine runs these steps:
                 </Typography>
                 <Typography variant="body2" color="text.secondary" component="div">
-                  <ol style={{ textAlign: 'left', display: 'inline-block', margin: 0, paddingLeft: '1.2em' }}>
+                  <ol style={{ margin: 0, paddingLeft: '1.2em', lineHeight: 1.8 }}>
                     <li>Load the model from cache or download it</li>
                     <li>Load the weights onto GPU</li>
                     <li>Run inference with the bundled test inputs</li>
                   </ol>
                 </Typography>
-                <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: 'block' }}>
-                  Keep this window open while the test is running.
-                </Typography>
-              </Box>
+              </Paper>
             )}
           </Box>
         ) : isInvalidJson ? (

@@ -2,7 +2,7 @@ import React, { useState, useImperativeHandle, forwardRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
-import TestDetailsDialog from './TestDetailsDialog';
+import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
 import HintTooltip from './HintTooltip';
 
 interface TestResult {
@@ -95,6 +95,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
+  const [progressInfo, setProgressInfo] = useState<ProgressInfo | null>(null);
 
   const runTest = async () => {
     if (!artifactId || !server) return;
@@ -102,6 +103,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     setIsLoading(true);
     setTestResult(null);
     setLoadingStep('Connecting to model runner...');
+    setProgressInfo({ state: 'connecting' });
     setIsDialogOpen(true);
 
     try {
@@ -112,6 +114,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       const modelId = artifactId.split('/').pop();
 
       setLoadingStep('Starting test run...');
+      setProgressInfo({ state: 'starting' });
       console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
 
       const testResponse = await runner.test({
@@ -136,25 +139,27 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         console.log(`Async test run started, id: ${test_run_id}`);
 
         // Poll for completion
-        const MAX_POLLS = 120; // 6 minutes at 3s intervals
+        const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
 
         for (let i = 0; i < MAX_POLLS; i++) {
-          await sleep(3000);
-
           const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
           const { progress, test_report } = status;
 
-          // Map progress state to a human-readable loading step
+          // Map progress state to structured progress info and a loading step text
           if (progress.state === 'queued') {
             const pos = progress.queue_position;
             setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
+            setProgressInfo({ state: 'queued', queuePosition: pos ?? undefined });
           } else if (progress.state === 'model_download') {
             setLoadingStep('Downloading model...');
+            setProgressInfo({ state: 'model_download' });
           } else if (progress.state === 'env_setup') {
             setLoadingStep('Setting up environment...');
+            setProgressInfo({ state: 'env_setup' });
           } else if (progress.state === 'running') {
-            const elapsed = progress.elapsed_seconds ? ` (${Math.floor(progress.elapsed_seconds)}s)` : '';
-            setLoadingStep(`Running tests${elapsed}...`);
+            const elapsed = progress.elapsed_seconds;
+            setLoadingStep(`Running tests${elapsed ? ` (${Math.floor(elapsed)}s)` : ''}...`);
+            setProgressInfo({ state: 'running', elapsedSeconds: elapsed ?? undefined });
           }
 
           if (progress.state === 'completed' || progress.state === 'failed') {
@@ -175,6 +180,8 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             }
             break;
           }
+
+          await sleep(3000);
         }
 
         if (!finalResult) {
@@ -222,6 +229,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
     } finally {
       setLoadingStep('');
+      setProgressInfo(null);
       setIsLoading(false);
     }
   };
@@ -347,6 +355,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         data={displayResult}
         isLoading={isLoading}
         loadingMessage={loadingStep}
+        progressInfo={progressInfo ?? undefined}
         type="test-report"
       />
     </div>
