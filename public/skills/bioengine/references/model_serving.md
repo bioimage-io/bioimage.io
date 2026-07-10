@@ -1,7 +1,7 @@
 # BioEngine Model Serving — Advanced Patterns
 
 ## Contents
-- [Model multiplexing](#model-multiplexing)
+- [Model caching](#model-caching)
 - [GPU allocation strategies](#gpu-allocation-strategies)
 - [Auto-scaling for batch jobs](#auto-scaling-for-batch-jobs)
 - [Integrating models from external sources](#integrating-models-from-external-sources)
@@ -9,7 +9,7 @@
 
 ---
 
-## Model multiplexing
+## Model caching
 
 Route requests to different model variants within one deployment — avoids one-deployment-per-model overhead. Use for model zoos, A/B testing, fine-tuned variants.
 
@@ -23,11 +23,15 @@ from pydantic import Field
     memory_mb=8 * 1024,
     pip=["cellpose>=4.0"],
 )
-class MultiplexedSegmentation:
-    @bioengine.multiplexed(max_models=4)
+class CachedSegmentation:
+    @bioengine.cached(max_models=4)
     async def _get_model(self, model_id: str):
-        """Called automatically when a new model_id is seen. LRU-evicted
-        when max_models is hit — the evicted model's ``__del__`` fires."""
+        """Loader — called on cache miss. First non-self arg is the
+        cache key; the LRU cache calls this to build a new entry when
+        ``model_id`` is not already warm. On overflow the LRU entry is
+        evicted first, with ``gc.collect()`` + ``torch.cuda.empty_cache()``
+        run in the same critical section so pynvml reflects the freed
+        VRAM immediately."""
         from cellpose import models
         return models.CellposeModel(model_type=model_id, gpu=True)
 
@@ -39,7 +43,7 @@ class MultiplexedSegmentation:
         diameter: float = Field(None, description="Cell diameter in pixels"),
     ) -> dict:
         import numpy as np
-        model = await self._get_model(model_id)   # LRU cache handled internally
+        model = await self._get_model(model_id)   # cache handled internally
         arr = np.array(image, dtype=np.float32)
         masks, _, _ = model.eval(arr, diameter=diameter, channels=[0, 0])
         return {"labels": masks.tolist(), "n_cells": int(masks.max())}
@@ -47,15 +51,16 @@ class MultiplexedSegmentation:
     @bioengine.method
     async def free_gpu(self) -> dict:
         """Drop every cached model right now — useful before running
-        a foundation-model call that needs the full GPU."""
-        return {"evicted": await bioengine.multiplex.evict_all_models(self)}
+        a foundation-model call that needs the full GPU. GPU memory
+        is returned to the CUDA driver in the same critical section."""
+        return {"evicted": await bioengine.cache.evict_all_models(self)}
 ```
 
-**Cache size**: `max_models=` controls how many variants stay warm per replica. LRU eviction when the limit is reached — Ray Serve calls the model's `__del__` (if defined) so GPU memory / disk handles / etc. release eagerly. Set 2–4 for typical GPU memory.
+**Cache size**: `max_models=` controls how many variants stay warm per replica. LRU eviction when the limit is reached — the evicted entry's `__del__` fires and `gc.collect()` + `torch.cuda.empty_cache()` run before the next entry is loaded. Set 2–4 for typical GPU memory.
 
-**One `@bioengine.multiplexed` per class.** Ray Serve stores the cache wrapper at a single hardcoded attribute on `self`, so a second decorated method silently shares the first's cache and loader — bioengine rejects the class at scan time. If you need multiple caches, split them into separate `@bioengine.app` deployment classes.
+**Multiple `@bioengine.cached` methods per class are allowed** — each gets its own independent cache under its method name. Use this when the deployment loads unrelated model families that shouldn't share a slot count.
 
-**Manual cache control** via `bioengine.multiplex`:
+**Manual cache control** via `bioengine.cache`:
 
 | Helper | Purpose | Returns |
 |---|---|---|
@@ -64,7 +69,9 @@ class MultiplexedSegmentation:
 | `evict_model(self, id)` | evict specific | `bool` |
 | `cached_model_ids(self)` | introspect, LRU→MRU | `list[str]` |
 
-Each helper routes through Ray Serve's `unload_model_lru` — same `__del__` cleanup path as natural cache overflow.
+Each helper takes an optional `method_name=` kwarg to select among multiple `@bioengine.cached` methods on the same class; omit it when the class has only one cache. Every eviction path runs `gc.collect()` + `torch.cuda.empty_cache()` under the same asyncio lock — GPU memory is returned to the CUDA driver immediately, so `pynvml` and downstream memory probes see the drop right away.
+
+> **Renamed in `bioengine 0.11.22`.** The old `@bioengine.multiplexed` decorator and `bioengine.multiplex` submodule were removed — no shim. Apps on earlier bioengine versions must migrate: rename the decorator and swap `bioengine.multiplex.*` for `bioengine.cache.*` (same signatures) before the worker upgrades.
 
 ---
 
