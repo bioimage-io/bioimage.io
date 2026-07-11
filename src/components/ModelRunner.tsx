@@ -15,6 +15,14 @@ import { useModelRunners } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
 import ModelTester from './ModelTester';
 
+/** Progress dict emitted by get_infer_status on the v1.15.0 async API. */
+interface InferProgress {
+  queue_position: number;
+  model_download: number | null;
+  env_setup: null;
+  running: number | null;
+}
+
 // Extend the ModelRunnerEngine type to properly type the runTiles method
 interface ExtendedModelRunnerEngine extends ModelRunnerEngine {
   runTiles: (
@@ -25,7 +33,8 @@ interface ExtendedModelRunnerEngine extends ModelRunnerEngine {
     tileOverlaps: any,
     additionalParameters?: any,
     reportFunc?: (msg: string) => void,
-    enableTiling?: boolean
+    enableTiling?: boolean,
+    progressCallback?: (status: InferProgress) => void
   ) => Promise<any>;
   init: (token?: string | null, serviceId?: string) => Promise<void>;
 }
@@ -134,6 +143,24 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [inputLoaded, setInputLoaded] = useState<boolean>(false);
   const [tilingEnabled, setTilingEnabled] = useState<boolean>(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
+
+  // v1.15.0 async infer progress (null when idle or using v1.14.0 sync API)
+  const [inferProgress, setInferProgress] = useState<InferProgress | null>(null);
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!inferProgress) return;
+    const id = setInterval(() => setNowSec(Date.now() / 1000), 1000);
+    return () => clearInterval(id);
+  }, [!!inferProgress]);
+
+  const fmtDuration = (sec: number) => {
+    const s = Math.floor(Math.max(0, sec));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const inferStepDuration = (startTs: number | null, endTs: number | null | undefined) => {
+    if (startTs == null) return '—';
+    return fmtDuration((endTs ?? nowSec) - startTs);
+  };
   
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
@@ -353,7 +380,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         parametersStore.tileOverlaps,
         parametersStore.additionalParameters,
         (msg: string) => setInfoPanel(msg, true),
-        tilingEnabled
+        tilingEnabled,
+        (status: InferProgress) => setInferProgress(status)
       );
       
       // Display the results
@@ -371,6 +399,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       console.error('Failed to run model:', error);
       setInfoPanel("Failed to run the model. See console for details.", false, true);
     } finally {
+      setInferProgress(null);
       setIsLoading(false);
       setButtonEnabledRun(true);
     }
@@ -881,18 +910,43 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 </div>
               )}
               
-              {/* Status text */}
-              <div className="text-base font-medium">
-                {infoMessage || 
-                  (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn 
-                    ? "Initializing ImageJ.JS..." 
-                    : !isLoggedIn 
-                      ? "Please log in to use the model runner"
-                      : !hyphaCoreAPI || !isHyphaCoreReady
-                        ? "Connecting to Hypha..."
-                        : "Ready"
+              {/* Infer progress panel (v1.15.0 async API) or plain status text */}
+              {inferProgress ? (
+                <div className="text-sm font-mono space-y-1 min-w-[220px]">
+                  {inferProgress.queue_position > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="font-sans font-medium text-blue-700">Queue position</span>
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                        #{inferProgress.queue_position}
+                      </span>
+                    </div>
                   )}
-              </div>
+                  {inferProgress.queue_position === 0 && (
+                    <>
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="font-sans text-blue-700">Model download</span>
+                        <span>{inferStepDuration(inferProgress.model_download, inferProgress.running)}</span>
+                      </div>
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="font-sans text-blue-700">Running</span>
+                        <span>{inferStepDuration(inferProgress.running, null)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="text-base font-medium">
+                  {infoMessage ||
+                    (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
+                      ? "Initializing ImageJ.JS..."
+                      : !isLoggedIn
+                        ? "Please log in to use the model runner"
+                        : !hyphaCoreAPI || !isHyphaCoreReady
+                          ? "Connecting to Hypha..."
+                          : "Ready"
+                    )}
+                </div>
+              )}
             </div>
 
             {/* Reload button - only show when there's an error */}

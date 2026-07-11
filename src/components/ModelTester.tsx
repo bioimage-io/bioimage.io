@@ -103,7 +103,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     setIsLoading(true);
     setTestResult(null);
     setLoadingStep('Connecting to model runner...');
-    setProgressInfo({ state: 'connecting' });
+    setProgressInfo({ version: 'v1', state: 'connecting' });
     setIsDialogOpen(true);
 
     try {
@@ -114,7 +114,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       const modelId = artifactId.split('/').pop();
 
       setLoadingStep('Starting test run...');
-      setProgressInfo({ state: 'starting' });
+      setProgressInfo({ version: 'v1', state: 'starting' });
       console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
 
       const testResponse = await runner.test({
@@ -143,42 +143,95 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
         for (let i = 0; i < MAX_POLLS; i++) {
           const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
-          const { progress, test_report } = status;
 
-          // Map progress state to structured progress info and a loading step text
-          if (progress.state === 'queued') {
-            const pos = progress.queue_position;
-            setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
-            setProgressInfo({ state: 'queued', queuePosition: pos ?? undefined });
-          } else if (progress.state === 'model_download') {
-            setLoadingStep('Downloading model...');
-            setProgressInfo({ state: 'model_download' });
-          } else if (progress.state === 'env_setup') {
-            setLoadingStep('Setting up environment...');
-            setProgressInfo({ state: 'env_setup' });
-          } else if (progress.state === 'running') {
-            const elapsed = progress.elapsed_seconds;
-            setLoadingStep(`Running tests${elapsed ? ` (${Math.floor(elapsed)}s)` : ''}...`);
-            setProgressInfo({ state: 'running', elapsedSeconds: elapsed ?? undefined });
-          }
+          // Detect API version:
+          //   v1.14.0 — response has a `progress` wrapper object
+          //   v1.15.0 — response is the 5-key dict directly (queue_position at top level)
+          if ('progress' in status) {
+            // ── v1.14.0 legacy shape ──────────────────────────────────────────
+            const { progress, test_report } = status;
 
-          if (progress.state === 'completed' || progress.state === 'failed') {
-            console.log(`Test ${progress.state}. Report:`, test_report);
-            if (test_report) {
-              finalResult = test_report as TestResult;
-            } else if (progress.state === 'failed') {
-              finalResult = {
-                name: 'Test Failed',
-                status: 'failed',
-                details: [{
-                  name: 'Error',
-                  status: 'failed',
-                  errors: [{ msg: progress.error || 'Test run failed on the runner.', loc: ['test'] }],
-                  warnings: [],
-                }],
-              };
+            if (progress.state === 'queued') {
+              const pos = progress.queue_position;
+              setLoadingStep(pos ? `In queue (position ${pos})...` : 'Waiting in queue...');
+              setProgressInfo({ version: 'v1', state: 'queued', queuePosition: pos ?? undefined });
+            } else if (progress.state === 'model_download') {
+              setLoadingStep('Downloading model...');
+              setProgressInfo({ version: 'v1', state: 'model_download' });
+            } else if (progress.state === 'env_setup') {
+              setLoadingStep('Setting up environment...');
+              setProgressInfo({ version: 'v1', state: 'env_setup' });
+            } else if (progress.state === 'running') {
+              const elapsed = progress.elapsed_seconds;
+              setLoadingStep(`Running tests${elapsed ? ` (${Math.floor(elapsed)}s)` : ''}...`);
+              setProgressInfo({ version: 'v1', state: 'running', elapsedSeconds: elapsed ?? undefined });
             }
-            break;
+
+            if (progress.state === 'completed' || progress.state === 'failed') {
+              console.log(`Test ${progress.state}. Report:`, test_report);
+              if (test_report) {
+                finalResult = test_report as TestResult;
+              } else if (progress.state === 'failed') {
+                finalResult = {
+                  name: 'Test Failed',
+                  status: 'failed',
+                  details: [{
+                    name: 'Error',
+                    status: 'failed',
+                    errors: [{ msg: progress.error || 'Test run failed on the runner.', loc: ['test'] }],
+                    warnings: [],
+                  }],
+                };
+              }
+              break;
+            }
+          } else {
+            // ── v1.15.0 new shape: 5-key dict ────────────────────────────────
+            const { queue_position, model_download, env_setup, running, result } = status;
+
+            setProgressInfo({
+              version: 'v2',
+              queuePosition: queue_position ?? 0,
+              modelDownload: model_download ?? null,
+              envSetup: env_setup ?? null,
+              running: running ?? null,
+            });
+
+            // Derive a text label for the legacy loadingStep (used as aria / fallback)
+            if ((queue_position ?? 0) > 0) {
+              setLoadingStep(`In queue (position ${queue_position})...`);
+            } else if (running != null) {
+              setLoadingStep('Running tests...');
+            } else if (env_setup != null) {
+              setLoadingStep('Setting up environment...');
+            } else if (model_download != null) {
+              setLoadingStep('Downloading model...');
+            } else {
+              setLoadingStep('Starting...');
+            }
+
+            if (result != null) {
+              console.log('Test completed. Result:', result);
+              if ('error' in result) {
+                finalResult = {
+                  name: 'Test Failed',
+                  status: 'failed',
+                  details: [{
+                    name: 'Error',
+                    status: 'failed',
+                    errors: [{ msg: result.error as string, loc: ['test'] }],
+                    warnings: [],
+                  }],
+                };
+              } else {
+                // Stamp the result time so the dialog can show a final running duration
+                setProgressInfo(prev => prev?.version === 'v2'
+                  ? { ...prev, resultTime: Date.now() / 1000 }
+                  : prev);
+                finalResult = result as TestResult;
+              }
+              break;
+            }
           }
 
           await sleep(3000);

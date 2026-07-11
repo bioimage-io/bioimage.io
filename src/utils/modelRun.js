@@ -327,16 +327,41 @@ class BioEngineExecutor {
     }
   }
 
-  async execute(
-    modelId,
-    inputs = null,
-  ) {
+  async execute(modelId, inputs = null, progressCallback = null) {
     const ret = await this.runner.infer({
       model_id: modelId,
       inputs: inputs,
       _rkwargs: true,
     });
-    return ret;
+
+    if (typeof ret !== 'string') {
+      // v1.14.0 sync API — result dict returned directly
+      return ret;
+    }
+
+    // v1.15.0 async API — ret is a request_id string (format: ij-<hex12>)
+    const request_id = ret;
+    const MAX_POLLS = 120; // 6 minutes at 3 s inter-poll delay
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      const status = await this.runner.get_infer_status({ request_id, _rkwargs: true });
+
+      if (progressCallback) {
+        progressCallback(status);
+      }
+
+      if (status.result != null) {
+        if ('error' in status.result) {
+          throw new Error(status.result.error);
+        }
+        return status.result;
+      }
+
+      await sleep(3000);
+    }
+
+    throw new Error('Inference timed out after 6 minutes.');
   }
 
   // async runCellpose(array, additionalParameters = {}) {
@@ -508,30 +533,22 @@ export class ModelRunnerEngine {
     return getArtifactFileUrl(this.modelId, filePath);
   }
 
-  async submitTensor(tensor, additionalParameters = undefined) {
+  async submitTensor(tensor, additionalParameters = undefined, progressCallback = undefined) {
     if (!this.rdf || !this.rdf.inputs || !this.rdf.inputs[0]) {
       throw new Error("RDF data not loaded properly");
     }
-    
+
     const reverseEnd = this.inputEndianness === "<";
     const data_type = getDataType(this.rdf.inputs[0]); // Use the new helper
     const reshapedImg = tfjsToImJoy(tensor, reverseEnd, data_type);
     const modelId = this.modelId;
-    let outImg;
-    // if (modelId === "cellpose-python") {
-    //   const resp = await this.bioengineExecutor.runCellpose(
-    //     reshapedImg,
-    //     additionalParameters
-    //   );
-    //   outImg = resp.mask;
-    // } else {
-    const resp = await this.bioengineExecutor.execute(modelId, reshapedImg);
+    const resp = await this.bioengineExecutor.execute(modelId, reshapedImg, progressCallback ?? null);
     // get output tensor name with fallback
     const outputTensorName = getTensorIdentifier(this.rdf.outputs[0], 0);
     return resp[outputTensorName];
   }
 
-  async runOneTensor(tensor, padder, additionalParameters = undefined) {
+  async runOneTensor(tensor, padder, additionalParameters = undefined, progressCallback = undefined) {
     if (!this.rdf || !this.rdf.outputs || !this.rdf.outputs[0]) {
       throw new Error("RDF data not loaded properly");
     }
@@ -540,7 +557,7 @@ export class ModelRunnerEngine {
     const [paddedTensor, padArr] = padder.pad(tensor);
     console.log("Padded tile shape: " + paddedTensor.shape);
     const startTime = performance.now();
-    let outImg = await this.submitTensor(paddedTensor, additionalParameters);
+    let outImg = await this.submitTensor(paddedTensor, additionalParameters, progressCallback);
     const endTime = performance.now();
     console.log("Output tile shape: " + outImg._rshape);
     console.log("Execution time: " + (endTime - startTime).toFixed(2) + "ms");
@@ -583,37 +600,38 @@ export class ModelRunnerEngine {
     tileOverlaps,
     additionalParameters = undefined,
     reportFunc = undefined,
-    enableTiling = false
+    enableTiling = false,
+    progressCallback = undefined
   ) {
     if (!reportFunc) {
       reportFunc = (msg) => {
         console.log(msg);
       };
     }
-    
+
     const inputAxes = parseAxes(inputSpec); // Use the new helper
     const minShape = getMinShape(inputSpec); // Use the new helper
     const stepShape = getStepShape(inputSpec); // Use the new helper
-    
+
     if (!inputAxes || !minShape) {
       throw new Error("Invalid input specification");
     }
-    
+
     let padder = new ImgPadder(undefined, minShape, stepShape, 0);
-    
+
     // Check if tiling is disabled or if tensor is small enough to process without tiling
     if (!enableTiling) {
       console.log("Tiling disabled - Running on whole tensor");
       reportFunc("Running the model on whole image (tiling disabled)...");
-      const result = await this.runOneTensor(tensor, padder, additionalParameters);
+      const result = await this.runOneTensor(tensor, padder, additionalParameters, progressCallback);
       console.log("Output tensor shape:", result.shape);
       return result;
     }
-    
+
     // Tiling enabled - proceed with original tiling logic
     const tileSize = inputAxes.split("").map((a) => tileSizes[a]);
     const overlap = inputAxes.split("").map((a) => tileOverlaps[a]);
-    
+
     console.log("Input tensor shape:", tensor.shape, "tile size:", tileSize, "overlap:", overlap);
     const tiler = new ImgTiler(tensor.shape, tileSize, overlap);
     const nTiles = tiler.getNTiles();
@@ -629,7 +647,8 @@ export class ModelRunnerEngine {
       const outTensor = await this.runOneTensor(
         tile.data,
         padder,
-        additionalParameters
+        additionalParameters,
+        progressCallback
       );
       const outTile = new ImgTile(tile.starts, tile.ends, tile.indexes);
       outTile.data = outTensor;
