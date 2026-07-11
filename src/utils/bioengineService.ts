@@ -37,8 +37,7 @@ export const BIOIMAGEIO_DENBI_MODEL_RUNNER_SERVICE_ID =
 export const BIOIMAGEIO_KTH_MODEL_RUNNER_DEV_SERVICE_ID = 'bioimage-io/model-runner-dev';
 
 export const MODEL_RUNNER_DEV_MODE =
-  typeof import.meta !== 'undefined' &&
-  (import.meta as any).env?.VITE_MODEL_RUNNER_DEV === 'true';
+  process.env.REACT_APP_MODEL_RUNNER_DEV === 'true';
 
 // Worker-admin service id (KTH is the canonical production worker).
 export const BIOIMAGEIO_WORKER_CLIENT_GLOB = BIOIMAGEIO_KTH_WORKER_CLIENT_GLOB;

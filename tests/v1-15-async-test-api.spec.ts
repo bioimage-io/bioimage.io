@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 //
 // Requires:
 //   HYPHA_TOKEN env var — same token the user stores in localStorage after login.
-//   Dev server running with: VITE_MODEL_RUNNER_DEV=true pnpm dev
+//   Dev server running with: REACT_APP_MODEL_RUNNER_DEV=true pnpm start
 //
 // What this tests:
 //   - The "Run Model Test" options dialog opens when "Test Model" is clicked.
