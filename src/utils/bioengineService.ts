@@ -26,16 +26,11 @@ export const BIOIMAGEIO_KTH_MODEL_RUNNER_SERVICE_ID =
 export const BIOIMAGEIO_DENBI_MODEL_RUNNER_SERVICE_ID =
   `bioimage-io/${BIOIMAGEIO_DENBI_WORKER_CLIENT_GLOB}:model-runner`;
 
-// Dev/staging model-runner (v1.15.0+). Override the KTH service ID for
-// Playwright tests and local dev without touching the production path.
-// Set VITE_MODEL_RUNNER_DEV=true to activate (see playwright.config.ts).
-//
-// The dev app registers as application_id="model-runner-dev" on Hypha,
-// which creates the workspace-scoped alias below. The pod-hash-qualified
-// form (bioimage-io/bioengine-worker-kth-<hash>:model-runner-dev) also
-// works but rotates on helm upgrades — use the alias instead.
-export const BIOIMAGEIO_KTH_MODEL_RUNNER_DEV_SERVICE_ID = 'bioimage-io/model-runner-dev';
-
+// Dev/staging switch. deNBI now runs the v1.15.2 async API as its
+// PRODUCTION model-runner (the KTH "model-runner-dev" app was torn down,
+// July 2026), so dev mode no longer swaps in a separate alias — it just
+// promotes the existing deNBI model-runner to the default site.
+// Set REACT_APP_MODEL_RUNNER_DEV=true to activate (see playwright.config.ts).
 export const MODEL_RUNNER_DEV_MODE =
   process.env.REACT_APP_MODEL_RUNNER_DEV === 'true';
 
@@ -50,13 +45,19 @@ export const BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID = BIOIMAGEIO_KTH_MODEL_RUNNER_SE
 
 export type RunnerSite = 'kth' | 'denbi';
 
-export const RUNNER_SITES: Array<{ id: RunnerSite; label: string; serviceId: string }> = [
-  {
-    id: 'kth',
-    label: MODEL_RUNNER_DEV_MODE ? 'KTH (dev)' : 'KTH',
-    serviceId: MODEL_RUNNER_DEV_MODE
-      ? BIOIMAGEIO_KTH_MODEL_RUNNER_DEV_SERVICE_ID
-      : BIOIMAGEIO_KTH_MODEL_RUNNER_SERVICE_ID,
-  },
-  { id: 'denbi', label: 'deNBI', serviceId: BIOIMAGEIO_DENBI_MODEL_RUNNER_SERVICE_ID },
-];
+const KTH_SITE = {
+  id: 'kth' as const,
+  label: 'KTH',
+  serviceId: BIOIMAGEIO_KTH_MODEL_RUNNER_SERVICE_ID,
+};
+const DENBI_SITE = {
+  id: 'denbi' as const,
+  label: MODEL_RUNNER_DEV_MODE ? 'deNBI (dev)' : 'deNBI',
+  serviceId: BIOIMAGEIO_DENBI_MODEL_RUNNER_SERVICE_ID,
+};
+
+// In dev mode, deNBI (v1.15.2 async API) is the default site; KTH
+// (v1.14.0 sync) stays selectable as the second entry. Production keeps
+// KTH as the default.
+export const RUNNER_SITES: Array<{ id: RunnerSite; label: string; serviceId: string }> =
+  MODEL_RUNNER_DEV_MODE ? [DENBI_SITE, KTH_SITE] : [KTH_SITE, DENBI_SITE];
