@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
-// Playwright tests target the deNBI v1.15.2 async model-runner
-// (bioimage-io/bioengine-worker-denbi-*:model-runner), which dev mode
-// promotes to the default site. Start the dev server with the flag first:
-//   REACT_APP_MODEL_RUNNER_DEV=true pnpm start
+// Model-test integration specs run against the dev server and switch to the
+// deNBI v1.15.2 async model-runner (bioimage-io/bioengine-worker-denbi-*:model-runner)
+// by clicking the deNBI option in the Test Model options dialog. Start the
+// dev server, then run the tests:
+//   pnpm start
 //   npx playwright test
 
 export default defineConfig({
