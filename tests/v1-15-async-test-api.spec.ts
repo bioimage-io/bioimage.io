@@ -1,28 +1,30 @@
 import { test, expect } from '@playwright/test';
 
-// Integration test for the v1.15.0+ async model-runner API.
+// Integration test for the v1.15.2 async model-runner API against the deNBI
+// worker (the site that runs the new async API).
 //
 // Requires:
 //   HYPHA_TOKEN env var — same token the user stores in localStorage after login.
-//   Dev server running with: REACT_APP_MODEL_RUNNER_DEV=true pnpm start
+//   Dev server running: pnpm start
 //
 // What this tests:
-//   - The "Run Model Test" options dialog opens when "Test Model" is clicked.
-//   - After clicking "Run Test", the TestDetailsDialog title is "Model Testing in
-//     Progress" while the test is in-flight.
-//   - The v1.15.0 step-duration timeline rows (Model download / Environment setup /
-//     Running) appear once the runner dequeues the request — distinguishing the new
-//     format from the v1.14.0 Chip-badge format.
-//   - A queue position chip (#N) is rendered while queue_position > 0 and hidden
-//     once the request is dequeued.
-//   - After completion the dialog title reverts to "Test Report Details" and the
-//     result (passed or failed) is shown.
+//   - The shared "Run Model Test" options dialog opens when "Test Model" is clicked.
+//   - The deNBI runner site can be selected inside that dialog (v1.15.2 async API).
+//   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
+//   - The queue-position row sits on TOP of the step table and holds at 0 once
+//     the request is dequeued (it is never hidden).
+//   - The three step rows (Model download / Environment setup / Running) each show
+//     their start time in the user's timezone, a dash when skipped, and the live
+//     elapsed seconds in brackets for the step currently running.
+//   - After completion the dialog title reverts to "Test Report Details".
 
 const MODEL_ID = 'bioimage-io/affable-shark';
 const MODEL_URL_ID = encodeURIComponent(MODEL_ID); // bioimage-io%2Faffable-shark
 
-test.describe('v1.15.0 async model test API', () => {
-  test('Edit page: async polling shows step-duration timeline and final result', async ({ page }) => {
+const injectToken = (token: string) => ({ tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+
+test.describe('v1.15.2 async model test API (deNBI)', () => {
+  test('Edit page: switch to deNBI, timeline shows start times and final result', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -36,7 +38,7 @@ test.describe('v1.15.0 async model test API', () => {
     await page.addInitScript(({ tok, expiry }) => {
       localStorage.setItem('token', tok);
       localStorage.setItem('tokenExpiry', expiry);
-    }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+    }, injectToken(token));
 
     await page.goto(`/#/edit/${MODEL_URL_ID}`);
 
@@ -44,53 +46,48 @@ test.describe('v1.15.0 async model test API', () => {
     // resolves to 'model' via a successful Hypha artifact-manager RPC call.
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
 
-    // Step 2: Open the options dialog.
+    // Step 2: Open the shared options dialog.
     await page.getByRole('button', { name: 'Test Model' }).click();
-    await expect(page.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
+    const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
+    await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
 
-    // Step 3: Start the test (default options: no custom env, no skip-cache).
-    await page.getByRole('button', { name: 'Run Test' }).click();
+    // Step 3: Switch the runner site to deNBI (the v1.15.2 async API) inside
+    // the dialog, then start the test with default options.
+    const denbi = optionsDialog.getByRole('radio', { name: 'deNBI' });
+    await expect(denbi).toBeEnabled({ timeout: 30000 });
+    await denbi.click();
+    await expect(denbi).toHaveAttribute('aria-checked', 'true');
+    await optionsDialog.getByRole('button', { name: 'Run Test' }).click();
 
-    // Step 4: TestDetailsDialog opens automatically; title must change while loading.
+    // Step 4: TestDetailsDialog opens automatically; title changes while loading.
     await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
 
-    // Step 5: Watch for v1.15.0-specific progress indicators.
-    //
-    // Two possible initial states:
-    //   a) Queued — queue position chip (#N) is shown.
-    //   b) Dequeued immediately — step-duration rows appear straight away.
-    //
-    // We wait for whichever arrives first.
-    const queueChip = page.locator('text=/^#\\d+$/');
-    const stepRow = page.getByText('Model download');
+    // Step 5: Queue position sits on top of the table and is always present
+    // while the test is in flight (it holds at 0 once running, never hidden).
+    await expect(page.getByText('Queue position')).toBeVisible({ timeout: 120000 });
 
-    await expect(queueChip.or(stepRow)).toBeVisible({ timeout: 120000 });
+    // Step 6: All three step rows are rendered (table is always shown).
+    await expect(page.getByText('Model download')).toBeVisible({ timeout: 240000 });
+    await expect(page.getByText('Environment setup')).toBeVisible();
+    await expect(page.getByText('Running')).toBeVisible();
 
-    // If queued, wait for it to dequeue (queue chip disappears).
-    if (await queueChip.isVisible()) {
-      await expect(queueChip).toBeHidden({ timeout: 240000 });
-    }
+    // Step 7: Once a step is running, its right-hand cell shows a wall-clock
+    // start time (hh:mm:ss) and the active step appends live elapsed seconds.
+    const startTimeCell = page.locator('text=/\\d{1,2}:\\d{2}:\\d{2}/');
+    await expect(startTimeCell.first()).toBeVisible({ timeout: 240000 });
+    await expect(page.locator('text=/\\(\\d+s\\)/').first()).toBeVisible({ timeout: 30000 });
 
-    // Step 6: Once dequeued, all three step-duration rows must be present.
-    await expect(page.getByText('Model download')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('Environment setup')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Running')).toBeVisible({ timeout: 5000 });
-
-    // Sanity-check: at least one duration cell shows a mm:ss value or '—'.
-    // The Running step is always non-null (it's the active step), so it shows live ticking.
-    const durationCells = page.locator('text=/^\\d{2}:\\d{2}$|^—$/');
-    await expect(durationCells.first()).toBeVisible({ timeout: 5000 });
-
-    // Step 7: Wait for the test to complete — title reverts to "Test Report Details".
+    // Step 8: Wait for completion — title reverts to "Test Report Details".
     await expect(page.getByText('Test Report Details')).toBeVisible({ timeout: 240000 });
 
-    // Step 8: A "passed" or "failed" chip is now shown in the report header.
+    // Step 9: A "passed" or "failed" status chip is shown in the report header
+    // (the first such chip — detail rows carry their own status chips too).
     await expect(
-      page.getByText(/^passed$/).or(page.getByText(/^failed$/))
+      page.getByText(/^passed$/).or(page.getByText(/^failed$/)).first()
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test('Edit page: queue chip absent once dequeued', async ({ page }) => {
+  test('Edit page: skipped step renders an em dash', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -102,19 +99,30 @@ test.describe('v1.15.0 async model test API', () => {
     await page.addInitScript(({ tok, expiry }) => {
       localStorage.setItem('token', tok);
       localStorage.setItem('tokenExpiry', expiry);
-    }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+    }, injectToken(token));
 
     await page.goto(`/#/edit/${MODEL_URL_ID}`);
 
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
     await page.getByRole('button', { name: 'Test Model' }).click();
-    await expect(page.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
-    await page.getByRole('button', { name: 'Run Test' }).click();
+    const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
+    await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
+
+    const denbi = optionsDialog.getByRole('radio', { name: 'deNBI' });
+    await expect(denbi).toBeEnabled({ timeout: 30000 });
+    await denbi.click();
+    // Enable "Skip cache" (second checkbox) so the run actually downloads and
+    // runs rather than returning instantly from cache — that gives the
+    // in-progress timeline a stable window to observe. With no custom
+    // environment, the Environment setup step is skipped and its start-time
+    // cell must render an em dash once the Running step has started.
+    await optionsDialog.locator('input[type="checkbox"]').nth(1).check();
+    await optionsDialog.getByRole('button', { name: 'Run Test' }).click();
 
     await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
-
-    // Once model-download row appears, queue position chip must be gone.
-    await expect(page.getByText('Model download')).toBeVisible({ timeout: 120000 });
-    await expect(page.locator('text=/^#\\d+$/')).toBeHidden();
+    // Once the Running step has a start time, Environment setup is skipped and
+    // shows an em dash. Poll for it while the run is in its (real) running phase.
+    await expect(page.getByText('Running')).toBeVisible({ timeout: 240000 });
+    await expect(page.getByText('—').first()).toBeVisible({ timeout: 120000 });
   });
 });

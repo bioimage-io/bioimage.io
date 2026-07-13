@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dialog as MuiDialog, TextField } from '@mui/material';
 import Comments from './Comments';
 import ArtifactCard from './ArtifactCard';
-import ModelTester, { TestResult } from './ModelTester';
+import ModelTester, { ModelTesterHandle, TestResult } from './ModelTester';
+import TestOptionsDialog from './TestOptionsDialog';
+import { useModelRunners } from '../hooks/useModelRunners';
 import { ArtifactInfo } from '../types/artifact';
 import ArtifactAdmin from './ArtifactAdmin';
 import { useHyphaStore } from '../store/hyphaStore';
@@ -51,6 +53,14 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
   const [status, setStatus] = useState<string>('');
   const [modelVersion, setModelVersion] = useState<string>('');
+
+  // Test Model — shared options dialog + shared runner selection so the button
+  // behaves exactly as it does on the Edit page (same defaults, same dialog).
+  const modelRunners = useModelRunners();
+  const modelTesterRef = useRef<ModelTesterHandle>(null);
+  const [showTestOptionsDialog, setShowTestOptionsDialog] = useState(false);
+  const [customEnvironment, setCustomEnvironment] = useState(false);
+  const [skipCacheForTest, setSkipCacheForTest] = useState(false);
 
   const shouldDisableActions = !isContentValid || hasContentChanged;
 
@@ -224,10 +234,15 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                 </button>
                 {artifactInfo?.manifest && artifactInfo.manifest.type === 'model' && (
                   <ModelTester
+                    ref={modelTesterRef}
                     artifactId={artifactId}
                     isStaged={isStaged}
                     isDisabled={shouldDisableActions}
-                    skipCache={true}
+                    skipCache={skipCacheForTest}
+                    customEnvironment={customEnvironment}
+                    onTriggerClick={() => setShowTestOptionsDialog(true)}
+                    modelRunners={modelRunners}
+                    hideRunnerToggle
                   />
                 )}
               </>
@@ -622,6 +637,21 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           </div>
         </div>
       </MuiDialog>
+
+      {/* Shared Test Model options dialog — identical to the Edit page. */}
+      <TestOptionsDialog
+        open={showTestOptionsDialog}
+        onClose={() => setShowTestOptionsDialog(false)}
+        onRun={() => { void modelTesterRef.current?.runTest(); }}
+        customEnvironment={customEnvironment}
+        onCustomEnvironmentChange={setCustomEnvironment}
+        skipCache={skipCacheForTest}
+        onSkipCacheChange={setSkipCacheForTest}
+        selectedSite={modelRunners.selected}
+        onSelectSite={modelRunners.setSelected}
+        siteAvailable={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
+        siteLoading={modelRunners.loading}
+      />
     </div>
   );
 };
