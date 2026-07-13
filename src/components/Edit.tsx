@@ -3559,10 +3559,6 @@ const Edit: React.FC = () => {
         onCustomEnvironmentChange={setCustomEnvironment}
         skipCache={skipCacheForTest}
         onSkipCacheChange={setSkipCacheForTest}
-        selectedSite={toggleSelected}
-        onSelectSite={handleRunnerSiteSelect}
-        siteAvailable={{ kth: baseRunners.kth.available, denbi: baseRunners.denbi.available }}
-        siteLoading={baseRunners.loading}
       />
 
       {/* Add Delete Version Dialog */}

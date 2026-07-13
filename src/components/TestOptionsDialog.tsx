@@ -1,7 +1,5 @@
 import React from 'react';
 import { Dialog as MuiDialog } from '@mui/material';
-import RunnerSiteToggle from './RunnerSiteToggle';
-import { RunnerSite } from '../utils/bioengineService';
 
 interface TestOptionsDialogProps {
   open: boolean;
@@ -12,18 +10,14 @@ interface TestOptionsDialogProps {
   onCustomEnvironmentChange: (value: boolean) => void;
   skipCache: boolean;
   onSkipCacheChange: (value: boolean) => void;
-  /** Runner-site selection, shown at the top so it is picked before the run. */
-  selectedSite: RunnerSite | null;
-  onSelectSite: (site: RunnerSite) => void;
-  siteAvailable: Record<RunnerSite, boolean>;
-  siteLoading?: boolean;
 }
 
 /**
  * The single "Run Model Test" options dialog shared by every page that can
- * start a test (Edit, Review). It bundles the runner-site selector with the
- * custom-environment and skip-cache toggles so the Test Model button behaves
- * identically everywhere it appears.
+ * start a test (Edit, Review). It carries the custom-environment and
+ * skip-cache toggles so the Test Model button behaves identically everywhere
+ * it appears. Runner-site selection lives in the Advanced Options popover, not
+ * here.
  */
 const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
   open,
@@ -33,10 +27,6 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
   onCustomEnvironmentChange,
   skipCache,
   onSkipCacheChange,
-  selectedSite,
-  onSelectSite,
-  siteAvailable,
-  siteLoading = false,
 }) => {
   return (
     <MuiDialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -45,20 +35,6 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
         <p className="text-sm text-gray-500 mb-5">
           The model will be tested via BioEngine. Configure the options below before starting.
         </p>
-
-        {/* Runner site — pick which cluster handles this test. */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium text-gray-800">Runner site</div>
-            <div className="text-xs text-gray-500 mt-0.5">Which BioEngine cluster runs the test.</div>
-          </div>
-          <RunnerSiteToggle
-            selected={selectedSite}
-            onSelect={onSelectSite}
-            available={siteAvailable}
-            loading={siteLoading}
-          />
-        </div>
 
         {!customEnvironment && (
           <div className="mb-4 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">

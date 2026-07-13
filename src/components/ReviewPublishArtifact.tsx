@@ -647,10 +647,6 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         onCustomEnvironmentChange={setCustomEnvironment}
         skipCache={skipCacheForTest}
         onSkipCacheChange={setSkipCacheForTest}
-        selectedSite={modelRunners.selected}
-        onSelectSite={modelRunners.setSelected}
-        siteAvailable={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
-        siteLoading={modelRunners.loading}
       />
     </div>
   );

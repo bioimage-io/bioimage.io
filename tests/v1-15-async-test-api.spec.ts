@@ -8,8 +8,8 @@ import { test, expect } from '@playwright/test';
 //   Dev server running: pnpm start
 //
 // What this tests:
+//   - The deNBI runner site is selected in the Advanced Options popover (v1.15.2 async API).
 //   - The shared "Run Model Test" options dialog opens when "Test Model" is clicked.
-//   - The deNBI runner site can be selected inside that dialog (v1.15.2 async API).
 //   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
 //   - The queue-position row sits on TOP of the step table and holds at 0 once
 //     the request is dequeued (it is never hidden).
@@ -46,17 +46,19 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // resolves to 'model' via a successful Hypha artifact-manager RPC call.
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
 
-    // Step 2: Open the shared options dialog.
-    await page.getByRole('button', { name: 'Test Model' }).click();
-    const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
-    await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
-
-    // Step 3: Switch the runner site to deNBI (the v1.15.2 async API) inside
-    // the dialog, then start the test with default options.
-    const denbi = optionsDialog.getByRole('radio', { name: 'deNBI' });
+    // Step 2: Switch the runner site to deNBI (the v1.15.2 async API) in the
+    // Advanced Options popover — runner-site selection lives there, not in the
+    // Run Model Test dialog.
+    await page.getByRole('button', { name: 'Advanced Options' }).click();
+    const denbi = page.getByRole('radio', { name: 'deNBI' });
     await expect(denbi).toBeEnabled({ timeout: 30000 });
     await denbi.click();
     await expect(denbi).toHaveAttribute('aria-checked', 'true');
+
+    // Step 3: Open the shared options dialog and start the test with defaults.
+    await page.getByRole('button', { name: 'Test Model' }).click();
+    const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
+    await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
     await optionsDialog.getByRole('button', { name: 'Run Test' }).click();
 
     // Step 4: TestDetailsDialog opens automatically; title changes while loading.
@@ -104,13 +106,18 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     await page.goto(`/#/edit/${MODEL_URL_ID}`);
 
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
+
+    // Switch to deNBI in the Advanced Options popover first.
+    await page.getByRole('button', { name: 'Advanced Options' }).click();
+    const denbi = page.getByRole('radio', { name: 'deNBI' });
+    await expect(denbi).toBeEnabled({ timeout: 30000 });
+    await denbi.click();
+    await expect(denbi).toHaveAttribute('aria-checked', 'true');
+
     await page.getByRole('button', { name: 'Test Model' }).click();
     const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
     await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
 
-    const denbi = optionsDialog.getByRole('radio', { name: 'deNBI' });
-    await expect(denbi).toBeEnabled({ timeout: 30000 });
-    await denbi.click();
     // Enable "Skip cache" (second checkbox) so the run actually downloads and
     // runs rather than returning instantly from cache — that gives the
     // in-progress timeline a stable window to observe. With no custom
