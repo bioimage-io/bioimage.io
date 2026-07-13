@@ -8,12 +8,10 @@ import { LinearProgress, Dialog as MuiDialog } from '@mui/material';
 import yaml from 'js-yaml';
 import { Link, useNavigate } from 'react-router-dom';
 import ModelValidator from './ModelValidator';
-import RunnerSiteToggle from './RunnerSiteToggle';
+import AdvancedOptions from './AdvancedOptions';
 import HintTooltip from './HintTooltip';
-import { useModelRunners } from '../hooks/useModelRunners';
-import { RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
+import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { hyphaWebsocketClient } from 'hypha-rpc';
 import RDFEditor from './RDFEditor';
 import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
@@ -165,20 +163,15 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [promptCopied, setPromptCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user, isConnecting, reconnect } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
 
-  // Advanced Options popover state (KTH/deNBI toggle + Server URL + Service ID
-  // override) — same pattern as the Edit page's Advanced Options. Sits before
-  // the Validate button so a submitter can point ModelValidator at a private
-  // BioEngine before running validation.
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(false);
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const [serviceIdOverride, setServiceIdOverride] = useState<string>('');
-  const [uploadServerUrl, setUploadServerUrl] = useState<string>('');
-  const [overrideRunner, setOverrideRunner] = useState<{ runner: any; available: boolean } | null>(null);
-  const advancedOptionsRef = useRef<HTMLDivElement>(null);
-  const baseRunners = useModelRunners();
+  // Shared runner connection + Advanced Options. `conn.modelRunners` is the
+  // effective (override-aware) runner passed to ModelValidator; the Server URL
+  // / Service ID override lives in a shared store so the popover is identical
+  // on every page.
+  const conn = useModelRunnerConnection();
+  const modelRunners = conn.modelRunners;
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDragDrop, setShowDragDrop] = useState(!files.length);
   const navigate = useNavigate();
@@ -196,67 +189,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
     return () => clearTimeout(t);
   }, [uploadStatus]);
 
-  // Click-outside dismissal for the Advanced Options popover.
-  useEffect(() => {
-    if (!showAdvancedOptions) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (advancedOptionsRef.current && !advancedOptionsRef.current.contains(e.target as Node)) {
-        setShowAdvancedOptions(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [showAdvancedOptions]);
-
-  // Override probe: when the user types a custom service id, connect to it
-  // (optionally against a custom Hypha server URL) and use the resulting
-  // runner instead of baseRunners.activeRunner.
-  useEffect(() => {
-    const target = serviceIdOverride.trim();
-    if (!target) { setOverrideRunner(null); return; }
-    const customServerUrl = uploadServerUrl.trim();
-    const usingCustomServer = customServerUrl && customServerUrl !== HYPHA_SERVER_URL;
-    if (!server && !usingCustomServer) { setOverrideRunner(null); return; }
-    let alive = true;
-    (async () => {
-      try {
-        const probeServer = usingCustomServer
-          ? await hyphaWebsocketClient.connectToServer({ server_url: customServerUrl })
-          : server;
-        if (!alive || !probeServer) return;
-        const r = await probeServer.getService(target, { mode: 'select:min:get_load' });
-        if (alive) setOverrideRunner({ runner: r, available: true });
-      } catch {
-        if (alive) setOverrideRunner({ runner: null, available: false });
-      }
-    })();
-    return () => { alive = false; };
-  }, [server, serviceIdOverride, uploadServerUrl]);
-
-  const modelRunners = useMemo(() => {
-    const target = serviceIdOverride.trim();
-    if (!target) return baseRunners;
-    return {
-      ...baseRunners,
-      activeRunner: overrideRunner?.runner ?? null,
-      activeServiceId: target,
-      hasAny: !!overrideRunner?.available || baseRunners.hasAny,
-    };
-  }, [baseRunners, overrideRunner, serviceIdOverride]);
-
-  const trimmedOverride = serviceIdOverride.trim();
-  let toggleSelected: RunnerSite | null;
-  if (!trimmedOverride) {
-    toggleSelected = baseRunners.selected;
-  } else {
-    const matched = RUNNER_SITES.find(s => s.serviceId === trimmedOverride);
-    toggleSelected = matched ? matched.id : null;
-  }
-  const handleRunnerSiteSelect = (site: RunnerSite) => {
-    const target = RUNNER_SITES.find(s => s.id === site);
-    if (target) setServiceIdOverride(target.serviceId);
-    baseRunners.setSelected(site);
-  };
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isValidated, setIsValidated] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
@@ -1679,99 +1611,19 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                         a specific cluster on the KTH/deNBI toggle. Same
                         pattern as the Edit page's Advanced Options. */}
                     {isLoggedIn && (
-                      <div ref={advancedOptionsRef} className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setShowAdvancedOptions(v => !v)}
-                          aria-expanded={showAdvancedOptions}
-                          className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300"
-                        >
-                          <svg
-                            className={`w-4 h-4 ${showAdvancedOptions ? 'rotate-180' : ''}`}
-                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                            style={{ transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                          Advanced Options
-                        </button>
-
-                        {showAdvancedOptions && (
-                          <div
-                            className="absolute right-0 top-full mt-2 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-gray-200 shadow-lg p-4 space-y-4 text-left"
-                            style={{
-                              transformOrigin: 'top right',
-                              animation: 'upload-advanced-open 180ms cubic-bezier(0.23, 1, 0.32, 1)',
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <style>{`
-                              @keyframes upload-advanced-open {
-                                from { opacity: 0; transform: scale(0.97); }
-                                to   { opacity: 1; transform: scale(1); }
-                              }
-                            `}</style>
-                            <h4 className="font-medium text-gray-900 text-sm">Advanced Options</h4>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Server URL
-                              </label>
-                              <input
-                                type="url"
-                                value={uploadServerUrl}
-                                onChange={(e) => setUploadServerUrl(e.target.value)}
-                                placeholder={HYPHA_SERVER_URL}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                              />
-                              <span className="text-xs text-gray-500">
-                                Leave empty to use the default Hypha server. Set to a private BioEngine to validate against it.
-                              </span>
-                            </div>
-                            <div>
-                              <div className="flex flex-wrap items-center gap-3 mb-1">
-                                <label className="block text-sm font-medium text-gray-700">
-                                  Service ID
-                                </label>
-                                <RunnerSiteToggle
-                                  selected={toggleSelected}
-                                  onSelect={handleRunnerSiteSelect}
-                                  available={{ kth: baseRunners.kth.available, denbi: baseRunners.denbi.available }}
-                                  loading={baseRunners.loading}
-                                />
-                              </div>
-                              <input
-                                type="text"
-                                value={serviceIdOverride}
-                                onChange={(e) => setServiceIdOverride(e.target.value)}
-                                placeholder={baseRunners.activeServiceId ?? ''}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                              />
-                              <span className="text-xs text-gray-500">
-                                Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
-                              </span>
-                            </div>
-                            <div className="border-t border-gray-100 pt-3">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setIsReconnecting(true);
-                                  try { await reconnect(); } finally { setIsReconnecting(false); }
-                                }}
-                                disabled={isReconnecting || isConnecting}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {(isReconnecting || isConnecting) && (
-                                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                  </svg>
-                                )}
-                                {(isReconnecting || isConnecting) ? 'Resetting...' : 'Reset Connection'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <AdvancedOptions
+                        serverUrl={conn.serverUrl}
+                        onServerUrlChange={conn.setServerUrl}
+                        serviceIdOverride={conn.serviceIdOverride}
+                        onServiceIdOverrideChange={conn.setServiceIdOverride}
+                        serviceIdPlaceholder={conn.baseRunners.activeServiceId ?? ''}
+                        toggleSelected={conn.toggleSelected}
+                        onSelectSite={conn.selectSite}
+                        siteAvailable={{ kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
+                        siteLoading={conn.baseRunners.loading}
+                        onReset={conn.reset}
+                        isResetting={conn.isReconnecting || conn.isConnecting}
+                      />
                     )}
 
                     <ModelValidator

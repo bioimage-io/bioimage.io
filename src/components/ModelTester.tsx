@@ -1,8 +1,8 @@
 import React, { useState, useImperativeHandle, forwardRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
-import RunnerSiteToggle from './RunnerSiteToggle';
 import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
+import TestOptionsDialog from './TestOptionsDialog';
 import HintTooltip from './HintTooltip';
 
 interface TestResult {
@@ -29,29 +29,15 @@ interface ModelTesterProps {
   isStaged?: boolean;
   isDisabled?: boolean;
   className?: string;
-  skipCache?: boolean;
-  customEnvironment?: boolean;
   onTestComplete?: (result?: TestResult) => void | Promise<void>;
   /**
    * When provided, use this caller-owned runner state instead of the
    * component's internal `useModelRunners()` instance. Lets a parent share
    * one runner selection across multiple sibling components (e.g. the
-   * Edit page sharing one toggle with ModelValidator).
+   * Edit page sharing one selection with ModelValidator). Runner-site
+   * selection lives in the shared Advanced Options popover, not here.
    */
   modelRunners?: UseModelRunnersResult;
-  /** Hide the inline runner toggle. Use when a parent renders a shared toggle. */
-  hideRunnerToggle?: boolean;
-  /**
-   * Hide the built-in trigger button. Use when the parent renders its own
-   * trigger and drives the test via the imperative `runTest` ref method.
-   */
-  hideTrigger?: boolean;
-  /**
-   * When provided, clicking the trigger calls this instead of running the
-   * test directly. Use to open a pre-run options dialog while keeping the
-   * split-button visually connected.
-   */
-  onTriggerClick?: () => void;
   /**
    * Existing test report fetched from the test-report collection (model-runner
    * v1.13.2+). Shown in the result pill before the user runs a fresh test.
@@ -77,25 +63,25 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   artifactId,
   isStaged,
   isDisabled,
-  skipCache = false,
-  customEnvironment = false,
   onTestComplete,
   className = '',
   modelRunners,
-  hideRunnerToggle = false,
-  hideTrigger = false,
-  onTriggerClick,
   storedTestReport,
   isStoredReportOutdated = false,
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
-  const { kth, denbi, selected, setSelected, activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
+  const { activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
   const [progressInfo, setProgressInfo] = useState<ProgressInfo | null>(null);
+  // Options dialog (custom environment + skip cache) is owned here so every
+  // Test Model button opens the same dialog with the same defaults.
+  const [showOptionsDialog, setShowOptionsDialog] = useState(false);
+  const [customEnvironment, setCustomEnvironment] = useState(false);
+  const [skipCache, setSkipCache] = useState(false);
 
   const runTest = async () => {
     if (!artifactId || !server) return;
@@ -263,7 +249,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
   const getPillClass = () => {
     const base = `inline-flex items-center px-2 h-full font-medium transition-colors
-      ${hideTrigger ? 'rounded-md border border-gray-300' : 'rounded-r-md border-l border-white/20'}`;
+      rounded-r-md border-l border-white/20`;
 
     if (isLoading) return `${base} bg-gray-200 text-gray-700 cursor-pointer`;
 
@@ -288,30 +274,28 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     <div className={`relative ${className}`}>
       <div className="flex items-center gap-2">
         <div className="flex h-[40px]">
-          {!hideTrigger && (
-            <HintTooltip
-              hint={noRunner ? 'Both KTH and deNBI model-runner services failed to respond.' : undefined}
-              className="h-full"
+          <HintTooltip
+            hint={noRunner ? 'Both KTH and deNBI model-runner services failed to respond.' : undefined}
+            className="h-full"
+          >
+            <button
+              onClick={() => setShowOptionsDialog(true)}
+              disabled={buttonDisabled}
+              className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
+                ${buttonDisabled
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
             >
-              <button
-                onClick={onTriggerClick ?? runTest}
-                disabled={buttonDisabled}
-                className={`inline-flex items-center gap-2 px-4 h-full rounded-l-md font-medium transition-colors
-                  ${buttonDisabled
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300'
-                  }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="hidden sm:inline">{buttonLabel}</span>
-              </button>
-            </HintTooltip>
-          )}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="hidden sm:inline">{buttonLabel}</span>
+            </button>
+          </HintTooltip>
 
           {/* Result pill: spinner while running, pass/fail when done, stored result when available */}
           <HintTooltip
@@ -348,16 +332,17 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             </button>
           </HintTooltip>
         </div>
-
-        {isLoggedIn && !hideRunnerToggle && (
-          <RunnerSiteToggle
-            selected={selected}
-            onSelect={setSelected}
-            available={{ kth: kth.available, denbi: denbi.available }}
-            loading={runnersLoading}
-          />
-        )}
       </div>
+
+      <TestOptionsDialog
+        open={showOptionsDialog}
+        onClose={() => setShowOptionsDialog(false)}
+        onRun={() => { void runTest(); }}
+        customEnvironment={customEnvironment}
+        onCustomEnvironmentChange={setCustomEnvironment}
+        skipCache={skipCache}
+        onSkipCacheChange={setSkipCache}
+      />
 
       <TestDetailsDialog
         open={isDialogOpen}

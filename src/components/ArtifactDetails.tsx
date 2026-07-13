@@ -23,7 +23,6 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
-import ModelTester from './ModelTester';
 import ModelRunner from './ModelRunner';
 import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';

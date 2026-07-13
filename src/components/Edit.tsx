@@ -5,13 +5,11 @@ import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Check
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
-import ModelTester, { ModelTesterHandle, TestResult } from './ModelTester';
+import ModelTester, { TestResult } from './ModelTester';
 import ModelValidator from './ModelValidator';
-import TestOptionsDialog from './TestOptionsDialog';
-import RunnerSiteToggle from './RunnerSiteToggle';
+import AdvancedOptions from './AdvancedOptions';
 import HintTooltip from './HintTooltip';
-import { RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
-import { useModelRunners } from '../hooks/useModelRunners';
+import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
 import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
@@ -19,7 +17,6 @@ import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
-import { hyphaWebsocketClient } from 'hypha-rpc';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 import TestDetailsDialog from './TestDetailsDialog';
 
@@ -207,101 +204,13 @@ const Edit: React.FC = () => {
   // Prefers bioimageio.yaml; default for new artifacts is bioimageio.yaml.
   const rdfFileName = useMemo(() => detectRdfFileName(files), [files]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user, isConnecting, reconnect } = useHyphaStore();
-  // One shared runner-site selection lives here so the Save→Validate→Test
-  // row renders a single toggle and both children act on the same choice.
-  const baseRunners = useModelRunners();
-  // Advanced Options expander state, plus a free-form Service ID override
-  // the user can type or set via the site toggle. When the override resolves
-  // to a known KTH/deNBI id the toggle highlights that segment; any other
-  // value deselects both segments and the override probe below drives
-  // ModelTester/ModelValidator against the custom service.
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(false);
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const [serviceIdOverride, setServiceIdOverride] = useState<string>('');
-  // Server URL override. Empty = use the default Hypha server the rest of
-  // the app is connected to via `useHyphaStore`. Anything else triggers a
-  // one-off connection inside the override probe below so the model-runner
-  // can be pointed at a private BioEngine. The artifact-manager and other
-  // global services keep using the default connection.
-  const [editServerUrl, setEditServerUrl] = useState<string>('');
-  const [overrideRunner, setOverrideRunner] = useState<{ runner: any; available: boolean } | null>(null);
-
-  // Probe the override service id whenever it (or the Server URL override)
-  // changes. When the Server URL points at a different Hypha instance we
-  // open a one-off anonymous connection and use that to look up the
-  // service — leaves the global hyphaStore connection untouched so the
-  // rest of the editor keeps talking to its original artifact-manager.
-  // On success the resolved RPC handle replaces baseRunners.activeRunner
-  // via the memoized wrapper below; on failure ModelTester/ModelValidator
-  // see `null` and surface their normal "no runner available" branch.
-  useEffect(() => {
-    const target = serviceIdOverride.trim();
-    if (!target) { setOverrideRunner(null); return; }
-    const customServerUrl = editServerUrl.trim();
-    const usingCustomServer = customServerUrl && customServerUrl !== HYPHA_SERVER_URL;
-    if (!server && !usingCustomServer) { setOverrideRunner(null); return; }
-
-    let alive = true;
-    (async () => {
-      try {
-        const probeServer = usingCustomServer
-          ? await hyphaWebsocketClient.connectToServer({ server_url: customServerUrl })
-          : server;
-        if (!alive || !probeServer) return;
-        const r = await probeServer.getService(target, { mode: 'select:min:get_load' });
-        if (alive) setOverrideRunner({ runner: r, available: true });
-      } catch {
-        if (alive) setOverrideRunner({ runner: null, available: false });
-      }
-    })();
-    return () => { alive = false; };
-  }, [server, serviceIdOverride, editServerUrl]);
-
-  // Public modelRunners: when the override is set, swap activeRunner /
-  // activeServiceId so consumers (ModelTester, ModelValidator) hit the
-  // overridden service. Otherwise fall through to baseRunners unchanged.
-  const modelRunners = useMemo(() => {
-    const target = serviceIdOverride.trim();
-    if (!target) return baseRunners;
-    return {
-      ...baseRunners,
-      activeRunner: overrideRunner?.runner ?? null,
-      activeServiceId: target,
-      hasAny: !!overrideRunner?.available || baseRunners.hasAny,
-    };
-  }, [baseRunners, overrideRunner, serviceIdOverride]);
-
-  // Toggle's highlighted segment, derived from the override (so manual
-  // edits drop the highlight). Empty override falls back to baseRunners.
-  const trimmedOverride = serviceIdOverride.trim();
-  let toggleSelected: RunnerSite | null;
-  if (!trimmedOverride) {
-    toggleSelected = baseRunners.selected;
-  } else {
-    const matched = RUNNER_SITES.find(s => s.serviceId === trimmedOverride);
-    toggleSelected = matched ? matched.id : null;
-  }
-  const handleRunnerSiteSelect = (site: RunnerSite) => {
-    const target = RUNNER_SITES.find(s => s.id === site);
-    if (target) setServiceIdOverride(target.serviceId);
-    baseRunners.setSelected(site);
-  };
-
-  // Click-outside dismissal for the Advanced Options popover. Only attached
-  // while the popover is open so we don't pay the listener cost on every
-  // click in the editor when the panel is closed.
-  const advancedOptionsRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!showAdvancedOptions) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (advancedOptionsRef.current && !advancedOptionsRef.current.contains(e.target as Node)) {
-        setShowAdvancedOptions(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [showAdvancedOptions]);
+  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
+  // Shared runner connection + Advanced Options state. `conn.modelRunners` is
+  // the effective runner (override-aware) shared by ModelValidator and
+  // ModelTester; the Server URL / Service ID override lives in a shared store
+  // so the Advanced Options popover is identical on every page.
+  const conn = useModelRunnerConnection();
+  const modelRunners = conn.modelRunners;
 
   const [uploadStatus, setUploadStatus] = useState<{
     message: string;
@@ -376,8 +285,6 @@ const Edit: React.FC = () => {
     fileName: string;
     resolve: (value: boolean) => void;
   } | null>(null);
-  const [skipCacheForTest, setSkipCacheForTest] = useState<boolean>(false);
-  const [customEnvironment, setCustomEnvironment] = useState<boolean>(false);
   // Stored test report fetched from the test-report collection (model-runner v1.13.2+).
   const [storedTestReport, setStoredTestReport] = useState<TestResult | null>(null);
   const [isTestReportOutdated, setIsTestReportOutdated] = useState(false);
@@ -393,8 +300,6 @@ const Edit: React.FC = () => {
   // inside ReviewPublishArtifact (Submit for Review needs an extra
   // confirmation when status !== 'passed').
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
-  const [showTestOptionsDialog, setShowTestOptionsDialog] = useState<boolean>(false);
-  const modelTesterRef = useRef<ModelTesterHandle>(null);
   const [testReportDialogOpen, setTestReportDialogOpen] = useState(false);
   const [testReportData, setTestReportData] = useState<any>(null);
 
@@ -2540,107 +2445,22 @@ const Edit: React.FC = () => {
           </HintTooltip>
         )}
 
-        {/* Advanced Options popover. Houses the runner-site toggle and
-            the Service ID override — same shape as ModelRunner's advanced
-            panel so the two pages feel consistent. Renders as a dropdown
-            beneath the button so opening it doesn't shove the rest of the
-            action row around. */}
+        {/* Advanced Options — shared popover (Server URL + Service ID + runner
+            toggle + Reset Connection), identical on every page. */}
         {showAdvancedButton && (
-          <div ref={advancedOptionsRef} className="relative w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setShowAdvancedOptions(v => !v)}
-              aria-expanded={showAdvancedOptions}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300 w-full sm:w-auto justify-center sm:justify-start"
-            >
-              <svg
-                className={`w-4 h-4 ${showAdvancedOptions ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                style={{ transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1)' }}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-              Advanced Options
-            </button>
-
-            {showAdvancedOptions && (
-              <div
-                className="absolute left-0 top-full mt-2 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-gray-200 shadow-lg p-4 space-y-4 text-left"
-                style={{
-                  transformOrigin: 'top left',
-                  animation: 'edit-advanced-open 180ms cubic-bezier(0.23, 1, 0.32, 1)',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <style>{`
-                  @keyframes edit-advanced-open {
-                    from { opacity: 0; transform: scale(0.97); }
-                    to   { opacity: 1; transform: scale(1); }
-                  }
-                `}</style>
-                <h4 className="font-medium text-gray-900 text-sm">Advanced Options</h4>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Server URL
-                  </label>
-                  <input
-                    type="url"
-                    value={editServerUrl}
-                    onChange={(e) => setEditServerUrl(e.target.value)}
-                    placeholder={HYPHA_SERVER_URL}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <span className="text-xs text-gray-500">
-                    Leave empty to use the default Hypha server. Set to a private BioEngine to validate or test against it.
-                  </span>
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-3 mb-1">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Service ID
-                    </label>
-                    <RunnerSiteToggle
-                      selected={toggleSelected}
-                      onSelect={handleRunnerSiteSelect}
-                      available={{ kth: baseRunners.kth.available, denbi: baseRunners.denbi.available }}
-                      loading={baseRunners.loading}
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    value={serviceIdOverride}
-                    onChange={(e) => setServiceIdOverride(e.target.value)}
-                    placeholder={baseRunners.activeServiceId ?? ''}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <span className="text-xs text-gray-500">
-                    Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
-                  </span>
-                </div>
-                <div className="border-t border-gray-100 pt-3">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setIsReconnecting(true);
-                      try { await reconnect(); } finally { setIsReconnecting(false); }
-                    }}
-                    disabled={isReconnecting || isConnecting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {(isReconnecting || isConnecting) && (
-                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    )}
-                    {(isReconnecting || isConnecting) ? 'Resetting...' : 'Reset Connection'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <AdvancedOptions
+            serverUrl={conn.serverUrl}
+            onServerUrlChange={conn.setServerUrl}
+            serviceIdOverride={conn.serviceIdOverride}
+            onServiceIdOverrideChange={conn.setServiceIdOverride}
+            serviceIdPlaceholder={conn.baseRunners.activeServiceId ?? ''}
+            toggleSelected={conn.toggleSelected}
+            onSelectSite={conn.selectSite}
+            siteAvailable={{ kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
+            siteLoading={conn.baseRunners.loading}
+            onReset={conn.reset}
+            isResetting={conn.isReconnecting || conn.isConnecting}
+          />
         )}
 
         {/* Validator button */}
@@ -2670,13 +2490,9 @@ const Edit: React.FC = () => {
             shows the current test status without requiring a fresh test run. */}
         {artifactType === 'model' && artifactId && (
           <ModelTester
-            ref={modelTesterRef}
             artifactId={artifactId}
             isStaged={isStaged}
             isDisabled={!server}
-            skipCache={skipCacheForTest}
-            customEnvironment={customEnvironment}
-            onTriggerClick={() => setShowTestOptionsDialog(true)}
             onTestComplete={async (result) => {
               if (result) setLastTestResult(result);
               await loadArtifactFiles();
@@ -2685,7 +2501,6 @@ const Edit: React.FC = () => {
             isStoredReportOutdated={isTestReportOutdated}
             className="w-full sm:w-auto"
             modelRunners={modelRunners}
-            hideRunnerToggle
           />
         )}
 
@@ -3551,16 +3366,6 @@ const Edit: React.FC = () => {
       />
 
       {/* Test options dialog — shared across Edit and Review for identical behavior. */}
-      <TestOptionsDialog
-        open={showTestOptionsDialog}
-        onClose={() => setShowTestOptionsDialog(false)}
-        onRun={() => { void modelTesterRef.current?.runTest(); }}
-        customEnvironment={customEnvironment}
-        onCustomEnvironmentChange={setCustomEnvironment}
-        skipCache={skipCacheForTest}
-        onSkipCacheChange={setSkipCacheForTest}
-      />
-
       {/* Add Delete Version Dialog */}
       {renderDeleteVersionDialog()}
 

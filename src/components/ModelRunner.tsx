@@ -9,10 +9,10 @@ import {
 
 } from '../utils/modelRun';
 import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, processForShow } from '../utils/imgProcess';
-import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, RUNNER_SITES, RunnerSite } from '../utils/bioengineService';
+import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { useModelRunners } from '../hooks/useModelRunners';
-import RunnerSiteToggle from './RunnerSiteToggle';
+import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
+import AdvancedOptions from './AdvancedOptions';
 import StepTimeline, { TimelineStep } from './StepTimeline';
 
 /** Progress dict emitted by get_infer_status on the v1.15.0 async API. */
@@ -130,7 +130,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // One probe for both KTH and deNBI; the selected site drives the service
   // id passed to ModelRunnerEngine.init below. The advanced "Service ID"
   // text input below still overrides this when an operator types a value.
-  const modelRunners = useModelRunners();
+  // Shared runner connection + Advanced Options (Server URL / Service ID
+  // override live in a shared store, identical to the other pages).
+  const conn = useModelRunnerConnection();
+  const modelRunners = conn.modelRunners;
   const [isLoading, setIsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [currentWindowId, setCurrentWindowId] = useState<string | null>(null);
@@ -142,51 +145,21 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [isWaiting, setIsWaiting] = useState<boolean>(false);
   const [inputLoaded, setInputLoaded] = useState<boolean>(false);
   const [tilingEnabled, setTilingEnabled] = useState<boolean>(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
   // v1.15+ async infer progress (null when idle).
   // The StepTimeline that renders this owns its own per-second tick.
   const [inferProgress, setInferProgress] = useState<InferProgress | null>(null);
 
-  // Advanced settings
+  // Tiling is inference-specific and stays local; the Server URL / Service ID
+  // override come from the shared connection (conn).
   const [tileSize, setTileSize] = useState<number>(512);
-  const [serverUrl, setServerUrl] = useState<string>(HYPHA_SERVER_URL);
-  // serviceIdOverride empty => let the runner-site toggle decide. Set this
-  // (via the advanced settings text input) to point at a non-production
-  // worker without disabling the toggle.
-  const [serviceIdOverride, setServiceIdOverride] = useState<string>("");
 
-  // Effective service id used for the next ModelRunnerEngine.init() call.
+  // Effective service id for the next ModelRunnerEngine.init() call.
   // Resolution order: explicit override > toggle's active site > KTH constant
   // (legacy fallback so this component never produces an empty serviceId).
-  const serviceId = serviceIdOverride.trim()
+  const serviceId = conn.serviceIdOverride.trim()
     || modelRunners.activeServiceId
     || BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID;
-
-  // Which segment of the runner-site toggle should appear selected. The
-  // toggle and the Service ID input share one state — the override text.
-  // Empty override falls back to whatever site the probe picked; an exact
-  // match against either site id highlights that segment; any other custom
-  // value yields `null` so the toggle visibly deselects both options.
-  const trimmedOverride = serviceIdOverride.trim();
-  let toggleSelected: RunnerSite | null;
-  if (!trimmedOverride) {
-    toggleSelected = modelRunners.selected;
-  } else {
-    const matched = RUNNER_SITES.find(s => s.serviceId === trimmedOverride);
-    toggleSelected = matched ? matched.id : null;
-  }
-
-  // Clicking a site segment replaces the Service ID text with that site's
-  // literal id and keeps the underlying useModelRunners.selected in sync so
-  // probe state (availability dots) follows along.
-  const handleRunnerSiteSelect = (site: RunnerSite) => {
-    const target = RUNNER_SITES.find(s => s.id === site);
-    if (target) {
-      setServiceIdOverride(target.serviceId);
-    }
-    modelRunners.setSelected(site);
-  };
   
   // Button states
   const [buttonEnabledRun, setButtonEnabledRun] = useState<boolean>(false);
@@ -433,7 +406,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       });
       
       const modelRunnerPromise = (async () => {
-        const modelRunner = new ModelRunnerEngine(serverUrl) as ExtendedModelRunnerEngine;
+        const modelRunner = new ModelRunnerEngine(conn.serverUrl || HYPHA_SERVER_URL) as ExtendedModelRunnerEngine;
         await modelRunner.init(null, serviceId);
         return modelRunner;
       })();
@@ -731,30 +704,24 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           {!isLoggedIn ? 'Login to Show Reference' : 'Show Reference Output'}
         </button>
         
-        {/* Advanced Settings Toggle */}
-        <button
-          onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-300"
+        {/* Advanced Options — shared popover (Server URL + Service ID + runner
+            toggle + Reset Connection). Tiling is inference-specific and slots
+            in at the top. */}
+        <AdvancedOptions
+          serverUrl={conn.serverUrl}
+          onServerUrlChange={conn.setServerUrl}
+          serviceIdOverride={conn.serviceIdOverride}
+          onServiceIdOverrideChange={conn.setServiceIdOverride}
+          serviceIdPlaceholder={modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
+          toggleSelected={conn.toggleSelected}
+          onSelectSite={conn.selectSite}
+          siteAvailable={{ kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
+          siteLoading={conn.baseRunners.loading}
+          showToggle={isLoggedIn}
+          onReset={conn.reset}
+          isResetting={conn.isReconnecting || conn.isConnecting}
         >
-          <svg 
-            className={`w-4 h-4 transition-transform ${showAdvancedSettings ? 'rotate-180' : ''}`} 
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-          Advanced Options
-        </button>
-
-      </div>
-
-      {/* Advanced Settings Panel */}
-      {showAdvancedSettings && (
-        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-4">
-          <h4 className="font-medium text-gray-900 text-sm">Advanced Options</h4>
-          
-          {/* Tiling Settings */}
+          {/* Tiling (inference only) */}
           <div className="space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
               <input
@@ -766,7 +733,6 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               />
               Enable Tiling
             </label>
-            
             {tilingEnabled && (
               <div className="ml-6 space-y-2">
                 <label htmlFor="tile-size" className="block text-sm font-medium text-gray-700">
@@ -788,52 +754,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
               </div>
             )}
           </div>
-          
-          {/* Server Settings */}
-          <div className="space-y-3 pt-3 border-t border-gray-200">
-            <h5 className="font-medium text-gray-800 text-sm">Server Configuration</h5>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Server URL
-              </label>
-              <input
-                type="url"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                placeholder={HYPHA_SERVER_URL}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            
-            <div>
-              <div className="flex flex-wrap items-center gap-3 mb-1">
-                <label className="block text-sm font-medium text-gray-700">
-                  Service ID
-                </label>
-                {isLoggedIn && (
-                  <RunnerSiteToggle
-                    selected={toggleSelected}
-                    onSelect={handleRunnerSiteSelect}
-                    available={{ kth: modelRunners.kth.available, denbi: modelRunners.denbi.available }}
-                    loading={modelRunners.loading}
-                  />
-                )}
-              </div>
-              <input
-                type="text"
-                value={serviceIdOverride}
-                onChange={(e) => setServiceIdOverride(e.target.value)}
-                placeholder={modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-              <span className="text-xs text-gray-500">
-                Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+        </AdvancedOptions>
+
+      </div>
+
 
       {/* Enhanced Status Message - moved below buttons */}
       {(infoMessage || isLoading || isWaiting || !modelInitialized) && (
