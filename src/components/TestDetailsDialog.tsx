@@ -22,18 +22,11 @@ import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 import StepTimeline, { TimelineStep } from './StepTimeline';
 
-/** v1.14.0 API — progress described by a state string + optional counters. */
-export interface ProgressInfoV1 {
-  version: 'v1';
-  state: 'connecting' | 'starting' | 'queued' | 'model_download' | 'env_setup' | 'running';
-  queuePosition?: number;
-  elapsedSeconds?: number;
-}
-
 /**
- * v1.15.0 API — progress described by the 5-key dict returned by
+ * v1.15+ API — progress described by the 5-key dict returned by
  * get_test_status / get_infer_status. All timestamps are Unix seconds.
  * null = step was skipped (cache hit / non-custom-env); undefined = not yet known.
+ * This is the only supported model-runner progress shape.
  */
 export interface ProgressInfoV2 {
   version: 'v2';
@@ -45,7 +38,7 @@ export interface ProgressInfoV2 {
   resultTime?: number;
 }
 
-export type ProgressInfo = ProgressInfoV1 | ProgressInfoV2;
+export type ProgressInfo = ProgressInfoV2;
 
 interface TestDetailsDialogProps {
   open: boolean;
@@ -142,28 +135,6 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     return 'Test Report Details';
   };
 
-  const getProgressStateLabel = (state: ProgressInfoV1['state']): string => {
-    switch (state) {
-      case 'connecting': return 'Connecting';
-      case 'starting': return 'Starting';
-      case 'queued': return 'Queued';
-      case 'model_download': return 'Downloading model';
-      case 'env_setup': return 'Setting up environment';
-      case 'running': return 'Running';
-    }
-  };
-
-  const getProgressChipSx = (state: ProgressInfoV1['state']) => {
-    const base = { borderRadius: '8px', fontWeight: 500 };
-    if (state === 'queued') {
-      return { ...base, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.3)' };
-    }
-    if (state === 'running') {
-      return { ...base, backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#15803d', border: '1px solid rgba(34, 197, 94, 0.3)' };
-    }
-    return { ...base, backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' };
-  };
-
   const getHeaderInfo = () => {
     if (type === 'compatibility' && partnerName) {
       return (
@@ -254,8 +225,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               style={{ height: '80px' }}
             />
 
-            {progressInfo?.version === 'v2' ? (
-              /* ── v1.15.0 step timeline: queue on top, per-step start times ─── */
+            {progressInfo ? (
+              /* v1.15+ step timeline: queue on top, per-step start times. */
               <StepTimeline
                 queuePosition={progressInfo.queuePosition}
                 steps={[
@@ -280,39 +251,11 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                 ] as TimelineStep[]}
               />
             ) : (
-              /* ── v1.14.0 badge UI (or pre-poll connecting/starting) ────────── */
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-                {progressInfo ? (
-                  <>
-                    <Chip
-                      label={getProgressStateLabel(progressInfo.state)}
-                      size="small"
-                      sx={getProgressChipSx(progressInfo.state)}
-                    />
-                    {progressInfo.state === 'queued' && progressInfo.queuePosition != null && progressInfo.queuePosition > 0 && (
-                      <Chip
-                        label={`#${progressInfo.queuePosition}`}
-                        size="small"
-                        sx={{
-                          backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                          color: '#b45309',
-                          border: '1px solid rgba(245, 158, 11, 0.3)',
-                          borderRadius: '8px',
-                          fontWeight: 600,
-                        }}
-                      />
-                    )}
-                    {progressInfo.state === 'running' && progressInfo.elapsedSeconds != null && (
-                      <Typography variant="body2" color="text.secondary">
-                        {Math.floor(progressInfo.elapsedSeconds)}s
-                      </Typography>
-                    )}
-                  </>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    {loadingMessage || 'Running model tests...'}
-                  </Typography>
-                )}
+              /* Pre-poll (connecting / starting): no structured progress yet. */
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {loadingMessage || 'Running model tests...'}
+                </Typography>
               </Box>
             )}
           </Box>

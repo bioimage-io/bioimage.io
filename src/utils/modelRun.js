@@ -334,12 +334,15 @@ class BioEngineExecutor {
       _rkwargs: true,
     });
 
+    // Only the v1.15+ async API is supported: infer() returns a request_id
+    // string (format: ij-<hex12>). A runner that returns a result dict directly
+    // is an older API and is rejected so the new async path is always exercised.
     if (typeof ret !== 'string') {
-      // v1.14.0 sync API — result dict returned directly
-      return ret;
+      throw new Error(
+        'This model-runner uses an unsupported API. Select a runner on v1.15 or newer.'
+      );
     }
 
-    // v1.15.0 async API — ret is a request_id string (format: ij-<hex12>)
     const request_id = ret;
     const MAX_POLLS = 120; // 6 minutes at 3 s inter-poll delay
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));

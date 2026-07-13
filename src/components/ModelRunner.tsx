@@ -144,7 +144,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [tilingEnabled, setTilingEnabled] = useState<boolean>(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
-  // v1.15.0 async infer progress (null when idle or using v1.14.0 sync API).
+  // v1.15+ async infer progress (null when idle).
   // The StepTimeline that renders this owns its own per-second tick.
   const [inferProgress, setInferProgress] = useState<InferProgress | null>(null);
 
