@@ -20,6 +20,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
+import StepTimeline, { TimelineStep } from './StepTimeline';
 
 /** v1.14.0 API — progress described by a state string + optional counters. */
 export interface ProgressInfoV1 {
@@ -163,31 +164,6 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     return { ...base, backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' };
   };
 
-  // Tick every second while a v2 progress is in-flight so durations update live.
-  const [nowSec, setNowSec] = React.useState(() => Date.now() / 1000);
-  React.useEffect(() => {
-    if (!isLoading || progressInfo?.version !== 'v2') return;
-    const id = setInterval(() => setNowSec(Date.now() / 1000), 1000);
-    return () => clearInterval(id);
-  }, [isLoading, progressInfo?.version]);
-
-  /** Format a duration in seconds as mm:ss. */
-  const fmtDuration = (sec: number): string => {
-    const s = Math.floor(Math.max(0, sec));
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  };
-
-  /**
-   * Compute the display duration for a step that started at `startTs`.
-   * `endTs` is the next step's timestamp (or resultTime for the running step).
-   * While the step is still open, ticks against `nowSec`.
-   */
-  const stepDuration = (startTs: number | null, endTs: number | null | undefined): string => {
-    if (startTs == null) return '—';
-    const end = endTs ?? nowSec;
-    return fmtDuration(end - startTs);
-  };
-
   const getHeaderInfo = () => {
     if (type === 'compatibility' && partnerName) {
       return (
@@ -279,55 +255,30 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             />
 
             {progressInfo?.version === 'v2' ? (
-              /* ── v1.15.0 ticking timeline ─────────────────────────────────── */
-              <Box sx={{ width: '100%', maxWidth: 360 }}>
-                {/* Queue position — only while waiting */}
-                {progressInfo.queuePosition > 0 && (
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Typography variant="body2" color="text.secondary">Queue position</Typography>
-                    <Chip
-                      label={`#${progressInfo.queuePosition}`}
-                      size="small"
-                      sx={{
-                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                        color: '#b45309',
-                        border: '1px solid rgba(245, 158, 11, 0.3)',
-                        borderRadius: '8px',
-                        fontWeight: 600,
-                      }}
-                    />
-                  </Box>
-                )}
-
-                {/* Steps — shown once dequeued */}
-                {progressInfo.queuePosition === 0 && (
-                  <Stack spacing={1}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary">Model download</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                        {stepDuration(
-                          progressInfo.modelDownload,
-                          progressInfo.envSetup ?? progressInfo.running ?? (progressInfo.resultTime ?? null),
-                        )}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary">Environment setup</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                        {progressInfo.envSetup != null
-                          ? stepDuration(progressInfo.envSetup, progressInfo.running ?? (progressInfo.resultTime ?? null))
-                          : '—'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary">Running</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                        {stepDuration(progressInfo.running, progressInfo.resultTime ?? null)}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                )}
-              </Box>
+              /* ── v1.15.0 step timeline: queue on top, per-step start times ─── */
+              <StepTimeline
+                queuePosition={progressInfo.queuePosition}
+                steps={[
+                  {
+                    key: 'model_download',
+                    header: 'Model download',
+                    description: 'Fetch the model package from cache or download it',
+                    startTs: progressInfo.modelDownload,
+                  },
+                  {
+                    key: 'env_setup',
+                    header: 'Environment setup',
+                    description: 'Prepare the isolated Python environment',
+                    startTs: progressInfo.envSetup,
+                  },
+                  {
+                    key: 'running',
+                    header: 'Running',
+                    description: 'Load the weights and run the bundled test inputs',
+                    startTs: progressInfo.running,
+                  },
+                ] as TimelineStep[]}
+              />
             ) : (
               /* ── v1.14.0 badge UI (or pre-poll connecting/starting) ────────── */
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -363,32 +314,6 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   </Typography>
                 )}
               </Box>
-            )}
-
-            {/* Explanation box */}
-            {type === 'test-report' && (
-              <Paper
-                sx={{
-                  p: 2.5,
-                  mt: 1,
-                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                  border: '1px solid rgba(229, 231, 235, 1)',
-                  borderRadius: '12px',
-                  width: '100%',
-                  maxWidth: 360,
-                }}
-              >
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500 }}>
-                  BioEngine runs these steps:
-                </Typography>
-                <Typography variant="body2" color="text.secondary" component="div">
-                  <ol style={{ margin: 0, paddingLeft: '1.2em', lineHeight: 1.8 }}>
-                    <li>Load the model from cache or download it</li>
-                    <li>Load the weights onto GPU</li>
-                    <li>Run inference with the bundled test inputs</li>
-                  </ol>
-                </Typography>
-              </Paper>
             )}
           </Box>
         ) : isInvalidJson ? (

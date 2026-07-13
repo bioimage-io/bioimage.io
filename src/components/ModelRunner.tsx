@@ -13,7 +13,7 @@ import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID, RUNNER_SITES, RunnerSite } from '..
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunners } from '../hooks/useModelRunners';
 import RunnerSiteToggle from './RunnerSiteToggle';
-import ModelTester from './ModelTester';
+import StepTimeline, { TimelineStep } from './StepTimeline';
 
 /** Progress dict emitted by get_infer_status on the v1.15.0 async API. */
 interface InferProgress {
@@ -144,24 +144,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [tilingEnabled, setTilingEnabled] = useState<boolean>(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
-  // v1.15.0 async infer progress (null when idle or using v1.14.0 sync API)
+  // v1.15.0 async infer progress (null when idle or using v1.14.0 sync API).
+  // The StepTimeline that renders this owns its own per-second tick.
   const [inferProgress, setInferProgress] = useState<InferProgress | null>(null);
-  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
-  useEffect(() => {
-    if (!inferProgress) return;
-    const id = setInterval(() => setNowSec(Date.now() / 1000), 1000);
-    return () => clearInterval(id);
-  }, [!!inferProgress]);
 
-  const fmtDuration = (sec: number) => {
-    const s = Math.floor(Math.max(0, sec));
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  };
-  const inferStepDuration = (startTs: number | null, endTs: number | null | undefined) => {
-    if (startTs == null) return '—';
-    return fmtDuration((endTs ?? nowSec) - startTs);
-  };
-  
   // Advanced settings
   const [tileSize, setTileSize] = useState<number>(512);
   const [serverUrl, setServerUrl] = useState<string>(HYPHA_SERVER_URL);
@@ -761,23 +747,12 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           Advanced Options
         </button>
 
-        {/* Model Tester */}
-        <ModelTester
-          artifactId={artifactId}
-          isStaged={isStaged}
-          isDisabled={false}
-          skipCache={false}
-          className="flex-shrink-0"
-          modelRunners={modelRunners}
-          hideRunnerToggle
-        />
-
       </div>
 
       {/* Advanced Settings Panel */}
       {showAdvancedSettings && (
         <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-4">
-          <h4 className="font-medium text-gray-900 text-sm">Advanced Settings</h4>
+          <h4 className="font-medium text-gray-900 text-sm">Advanced Options</h4>
           
           {/* Tiling Settings */}
           <div className="space-y-3">
@@ -910,30 +885,26 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                 </div>
               )}
               
-              {/* Infer progress panel (v1.15.0 async API) or plain status text */}
+              {/* Infer progress panel (v1.15.0 async API) or plain status text.
+                  Hidden again once the result returns (inferProgress → null). */}
               {inferProgress ? (
-                <div className="text-sm font-mono space-y-1 min-w-[220px]">
-                  {inferProgress.queue_position > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="font-sans font-medium text-blue-700">Queue position</span>
-                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                        #{inferProgress.queue_position}
-                      </span>
-                    </div>
-                  )}
-                  {inferProgress.queue_position === 0 && (
-                    <>
-                      <div className="flex justify-between items-center gap-4">
-                        <span className="font-sans text-blue-700">Model download</span>
-                        <span>{inferStepDuration(inferProgress.model_download, inferProgress.running)}</span>
-                      </div>
-                      <div className="flex justify-between items-center gap-4">
-                        <span className="font-sans text-blue-700">Running</span>
-                        <span>{inferStepDuration(inferProgress.running, null)}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
+                <StepTimeline
+                  queuePosition={inferProgress.queue_position}
+                  steps={[
+                    {
+                      key: 'model_download',
+                      header: 'Model download',
+                      description: 'Fetch the model from cache or download it',
+                      startTs: inferProgress.model_download,
+                    },
+                    {
+                      key: 'inference',
+                      header: 'Inference',
+                      description: 'Run the model on your input',
+                      startTs: inferProgress.running,
+                    },
+                  ] as TimelineStep[]}
+                />
               ) : (
                 <div className="text-base font-medium">
                   {infoMessage ||
