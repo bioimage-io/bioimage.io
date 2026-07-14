@@ -399,7 +399,7 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
               <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center">
                   <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mr-4 shadow-md p-1">
-                    <img src="/bioengine-icon.svg" alt="BioEngine" className="w-10 h-10" />
+                    <img src="/static/img/bioengine-icon.svg" alt="BioEngine" className="w-10 h-10" />
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-800 mb-1">

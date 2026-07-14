@@ -253,7 +253,7 @@ Save as `dashboard/index.html`. The dashboard is **bound to one BioEngine worker
 
 <header>
   <!-- Replace src with your facility logo, or remove the <img> entirely -->
-  <img src="https://bioimage.io/bioengine-icon.svg" alt="" />
+  <img src="https://bioimage.io/static/img/bioengine-icon.svg" alt="" />
   <div>
     <h1 id="facility-title">My Facility · BioEngine</h1>
     <div style="font-size:13px;opacity:0.9">Powered by BioEngine</div>

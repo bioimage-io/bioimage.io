@@ -276,7 +276,7 @@ const ArtifactDetails = () => {
             }
           }
           // Add bioengine icon
-          iconMap.set('bioengine', '/bioengine-icon.svg');
+          iconMap.set('bioengine', '/static/img/bioengine-icon.svg');
           setPartnerIcons(iconMap);
         }
       } catch (error) {

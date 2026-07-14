@@ -302,7 +302,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
       <div className="flex flex-wrap justify-between items-start gap-3">
         <div className="flex items-center">
           <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mr-3 p-1">
-            <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
+            <img src="/static/img/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
           </div>
           <h3 className="text-lg font-semibold text-gray-800">Available BioEngine Apps</h3>
         </div>

@@ -721,7 +721,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     {type === 'test-report' && (
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <img 
-                          src="/bioengine-icon.svg" 
+                          src="/static/img/bioengine-icon.svg" 
                           alt="BioEngine" 
                           style={{ width: '24px', height: '24px' }}
                         />

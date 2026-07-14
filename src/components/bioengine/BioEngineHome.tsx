@@ -67,7 +67,7 @@ const ServiceCard: React.FC<{
       <div className="p-6 flex-grow">
         <div className="flex items-center mb-4">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 p-1 ${featured ? 'bg-white shadow-sm' : 'bg-white'}`}>
-            <img src="/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
+            <img src="/static/img/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
           </div>
           <div className="flex-1">
             <h3 className="text-xl font-semibold text-gray-800">{service.name}</h3>
@@ -325,7 +325,7 @@ const BioEngineHome: React.FC = () => {
       {/* Header */}
       <div className="text-center mb-12">
         <div className="flex items-end justify-center gap-4 mb-4">
-          <img src="/bioengine-icon.svg" alt="BioEngine Logo" className="w-12 h-12 mb-3" />
+          <img src="/static/img/bioengine-icon.svg" alt="BioEngine Logo" className="w-12 h-12 mb-3" />
           <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
             BioEngine
           </h1>
