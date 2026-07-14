@@ -11,9 +11,12 @@
 
 ## Model caching
 
-Route requests to different model variants within one deployment — avoids one-deployment-per-model overhead. Use for model zoos, A/B testing, fine-tuned variants.
+Serve several model variants from one deployment (model zoos, A/B testing, fine-tuned variants) — avoids one-deployment-per-model overhead. There is **no framework cache**; keep loaded variants in a plain instance dict and load on miss, guarding GPU work with a lock.
+
+> **Removed in `bioengine 0.11.24` — no shim.** The `@bioengine.cached` decorator and the `bioengine.cache` module (`evict_all_models`, `evict_lru_model`, `evict_model`, `cached_model_ids`) are gone. They baked a torch-only cleanup (`torch.cuda.empty_cache()`) into the framework, which cannot reclaim TensorFlow's whole-GPU allocation or onnxruntime's CUDA arena, and BioEngine apps don't require torch. Apps that used `@bioengine.cached` must switch to the manual pattern below before their worker upgrades to 0.11.24+.
 
 ```python
+import asyncio
 import bioengine
 from pydantic import Field
 
@@ -24,16 +27,20 @@ from pydantic import Field
     pip=["cellpose>=4.0"],
 )
 class CachedSegmentation:
-    @bioengine.cached(max_models=4)
+    def __init__(self):
+        self._models: dict = {}       # your own warm cache
+        self._lock = asyncio.Lock()   # serialise GPU work + eviction
+
     async def _get_model(self, model_id: str):
-        """Loader — called on cache miss. First non-self arg is the
-        cache key; the LRU cache calls this to build a new entry when
-        ``model_id`` is not already warm. On overflow the LRU entry is
-        evicted first, with ``gc.collect()`` + ``torch.cuda.empty_cache()``
-        run in the same critical section so pynvml reflects the freed
-        VRAM immediately."""
-        from cellpose import models
-        return models.CellposeModel(model_type=model_id, gpu=True)
+        async with self._lock:
+            if model_id not in self._models:
+                if len(self._models) >= 4:               # your own capacity policy
+                    self._models.pop(next(iter(self._models)))
+                    import gc; gc.collect()
+                    import torch; torch.cuda.empty_cache()   # frees torch only — see caveat
+                from cellpose import models
+                self._models[model_id] = models.CellposeModel(model_type=model_id, gpu=True)
+            return self._models[model_id]
 
     @bioengine.method
     async def segment(
@@ -43,35 +50,15 @@ class CachedSegmentation:
         diameter: float = Field(None, description="Cell diameter in pixels"),
     ) -> dict:
         import numpy as np
-        model = await self._get_model(model_id)   # cache handled internally
+        model = await self._get_model(model_id)
         arr = np.array(image, dtype=np.float32)
         masks, _, _ = model.eval(arr, diameter=diameter, channels=[0, 0])
         return {"labels": masks.tolist(), "n_cells": int(masks.max())}
-
-    @bioengine.method
-    async def free_gpu(self) -> dict:
-        """Drop every cached model right now — useful before running
-        a foundation-model call that needs the full GPU. GPU memory
-        is returned to the CUDA driver in the same critical section."""
-        return {"evicted": await bioengine.cache.evict_all_models(self)}
 ```
 
-**Cache size**: `max_models=` controls how many variants stay warm per replica. LRU eviction when the limit is reached — the evicted entry's `__del__` fires and `gc.collect()` + `torch.cuda.empty_cache()` run before the next entry is loaded. Set 2–4 for typical GPU memory.
+**Capacity is yours to define** — the example evicts the oldest entry once four variants are warm. Tune to your GPU; a plain `dict` preserves insertion order, so `next(iter(...))` is a simple FIFO (swap in your own LRU if you track access order).
 
-**Multiple `@bioengine.cached` methods per class are allowed** — each gets its own independent cache under its method name. Use this when the deployment loads unrelated model families that shouldn't share a slot count.
-
-**Manual cache control** via `bioengine.cache`:
-
-| Helper | Purpose | Returns |
-|---|---|---|
-| `evict_lru_model(self)` | evict least-recently-used | `Optional[str]` — model_id or None |
-| `evict_all_models(self)` | drain the cache | `int` count |
-| `evict_model(self, id)` | evict specific | `bool` |
-| `cached_model_ids(self)` | introspect, LRU→MRU | `list[str]` |
-
-Each helper takes an optional `method_name=` kwarg to select among multiple `@bioengine.cached` methods on the same class; omit it when the class has only one cache. Every eviction path runs `gc.collect()` + `torch.cuda.empty_cache()` under the same asyncio lock — GPU memory is returned to the CUDA driver immediately, so `pynvml` and downstream memory probes see the drop right away.
-
-> **Renamed in `bioengine 0.11.22`.** The old `@bioengine.multiplexed` decorator and `bioengine.multiplex` submodule were removed — no shim. Apps on earlier bioengine versions must migrate: rename the decorator and swap `bioengine.multiplex.*` for `bioengine.cache.*` (same signatures) before the worker upgrades.
+**VRAM cleanup caveat.** Dropping a model from `self._models` + `torch.cuda.empty_cache()` frees **torch** memory only. TensorFlow claims the whole GPU and does not release it within a process; onnxruntime holds its CUDA arena. If your deployment mixes frameworks, or you need a guaranteed "no VRAM left over" between calls, run each inference in a **subprocess** and let the OS reclaim the entire CUDA context on exit (this is what the built-in `model-runner` app does) rather than caching models in-process.
 
 ---
 
