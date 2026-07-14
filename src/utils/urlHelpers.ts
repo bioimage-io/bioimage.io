@@ -70,3 +70,14 @@ export const resolveTestReportUrl = (artifactId: string, staged: boolean): strin
   const slot = staged ? 'staged' : 'published';
   return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}/files/${slot}/test_report.json?use_proxy=true`;
 };
+
+/**
+ * Builds the URL for the BioEngine inference report — a single artifact under
+ * the bioimage-io/test-reports collection holding every model's latest
+ * inference status. Written by scripts/bioengine_model_infer.py; replaces the
+ * former collection.manifest.bioengine_inference source.
+ *
+ * The file is a flat map: { <modelId>: { status, message, tested_at, runner_version } }.
+ */
+export const resolveInferenceReportUrl = (): string =>
+  `${HYPHA_SERVER_URL}/bioimage-io/artifacts/inference-report/files/inference_report.json?use_proxy=true`;

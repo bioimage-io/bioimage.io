@@ -18,6 +18,21 @@ WORKSPACE = "bioimage-io"
 COLLECTION = "bioimage.io"
 DEFAULT_INFERENCE_SUMMARY_PATH = "../bioimageio_test_reports/inference_summary.json"
 
+# Inference results are published to a single dedicated artifact under the
+# ``bioimage-io/test-reports`` collection (sibling to the per-model
+# ``test-report-<alias>`` artifacts the model-runner writes for full tests).
+# A single script writes this artifact, so all model results live in one file
+# and no per-model artifact / concurrent-write coordination is needed.
+TEST_REPORTS_COLLECTION = f"{WORKSPACE}/test-reports"
+INFERENCE_REPORT_ARTIFACT = f"{WORKSPACE}/inference-report"
+INFERENCE_REPORT_FILE = "inference_report.json"
+
+# Inference is submitted through the async model-runner API: ``infer()`` returns
+# a request id immediately and the result is retrieved by polling
+# ``get_infer_status(request_id)`` until its ``result`` field is populated.
+INFERENCE_TIMEOUT_SECONDS = 120
+INFERENCE_POLL_INTERVAL_SECONDS = 2
+
 
 def save_inference_summary(summary_file: str, summary: Dict[str, int | float]) -> None:
     summary_path = Path(summary_file)
@@ -64,9 +79,22 @@ def print_inference_summary_for_ci(summary_file: str) -> None:
 async def fetch_previous_results(
     artifact_manager: ObjectProxy,
 ) -> Dict[str, Dict[str, str | float]]:
-    collection = await artifact_manager.read(f"{WORKSPACE}/{COLLECTION}")
+    """Read the previously published inference results from the report artifact.
 
-    return collection["manifest"].get("bioengine_inference", {})
+    Returns an empty mapping when the artifact or its report file does not exist
+    yet (first ever run), so the caller always gets a plain dict to merge into.
+    """
+    try:
+        report = await artifact_manager.read_file(
+            INFERENCE_REPORT_ARTIFACT,
+            file_path=INFERENCE_REPORT_FILE,
+            format="json",
+        )
+    except Exception:
+        return {}
+
+    content = report.get("content") if isinstance(report, dict) else None
+    return content or {}
 
 
 async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
@@ -144,14 +172,85 @@ async def fetch_sample_image(artifact_manager: ObjectProxy, model_id: str) -> np
     return image
 
 
-async def update_collection(
+async def ensure_report_artifact(artifact_manager: ObjectProxy) -> None:
+    """Create the inference-report artifact under the test-reports collection
+    if it does not exist yet. A no-op once the artifact is present.
+    """
+    try:
+        await artifact_manager.read(INFERENCE_REPORT_ARTIFACT, silent=True)
+        return
+    except Exception:
+        pass
+
+    await artifact_manager.create(
+        parent_id=TEST_REPORTS_COLLECTION,
+        alias=INFERENCE_REPORT_ARTIFACT.split("/")[-1],
+        type="generic",
+        manifest={
+            "name": "BioEngine inference report",
+            "description": (
+                "BioEngine model-runner inference results for the "
+                f"{WORKSPACE}/{COLLECTION} collection. "
+                f"{INFERENCE_REPORT_FILE} maps each model id to its latest "
+                "inference status, message, tested_at timestamp and the "
+                "model-runner version it was checked against."
+            ),
+        },
+    )
+    print(f"Created inference report artifact '{INFERENCE_REPORT_ARTIFACT}'")
+
+
+async def update_inference_report(
     artifact_manager: ObjectProxy, updated_results: Dict[str, Dict[str, str | float]]
 ) -> None:
-    collection_id = f"{WORKSPACE}/{COLLECTION}"
-    collection = await artifact_manager.read(collection_id)
-    collection_manifest = collection["manifest"]
-    collection_manifest["bioengine_inference"] = updated_results
-    await artifact_manager.edit(artifact_id=collection_id, manifest=collection_manifest)
+    """Publish the merged inference results to the single report artifact.
+
+    Writes ``inference_report.json`` (a flat ``{model_id: {...}}`` mapping) via
+    the artifact manager's stage/put_file/commit cycle.
+    """
+    await ensure_report_artifact(artifact_manager)
+
+    await artifact_manager.edit(artifact_id=INFERENCE_REPORT_ARTIFACT, stage=True)
+    upload_url = await artifact_manager.put_file(
+        INFERENCE_REPORT_ARTIFACT, file_path=INFERENCE_REPORT_FILE
+    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.put(upload_url, data=json.dumps(updated_results, indent=2))
+        response.raise_for_status()
+    await artifact_manager.commit(INFERENCE_REPORT_ARTIFACT)
+
+
+async def run_inference(
+    runner: ObjectProxy, model_id: str, image: np.array, skip_cache: bool
+) -> None:
+    """Submit an inference request and wait for it via the async runner API.
+
+    ``infer()`` returns a request id string on the v1.15+ async API; the result
+    is then retrieved by polling ``get_infer_status(request_id)`` until its
+    ``result`` field is populated. A runner ``result`` carrying an ``error`` key
+    is surfaced as a ``RuntimeError``. Raises ``asyncio.TimeoutError`` when the
+    request does not complete within ``INFERENCE_TIMEOUT_SECONDS``.
+    """
+    request_id = await runner.infer(
+        model_id=model_id, inputs=image, skip_cache=skip_cache
+    )
+
+    # Legacy synchronous runners returned the result dict directly instead of a
+    # request id; accept that so the script keeps working during a rollout.
+    if not isinstance(request_id, str):
+        return
+
+    deadline = time.time() + INFERENCE_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        status = await runner.get_infer_status(request_id=request_id)
+        result = status.get("result") if isinstance(status, dict) else None
+        if result is not None:
+            if isinstance(result, dict) and "error" in result:
+                raise RuntimeError(result["error"])
+            return
+        await asyncio.sleep(INFERENCE_POLL_INTERVAL_SECONDS)
+
+    raise asyncio.TimeoutError()
 
 
 async def check_bmz_model_inference(
@@ -244,9 +343,8 @@ async def check_bmz_model_inference(
             image = await fetch_sample_image(artifact_manager, model_id)
 
             model_start_time = time.time()
-            await asyncio.wait_for(
-                runner.infer(model_id=model_id, inputs=image, skip_cache=skip_cache),
-                timeout=120,  # 2 minutes timeout
+            await run_inference(
+                runner, model_id=model_id, image=image, skip_cache=skip_cache
             )
             model_execution_time = time.time() - model_start_time
             print(
@@ -268,7 +366,7 @@ async def check_bmz_model_inference(
 
         results[model_id] = {
             "status": status,
-            "message": message[:20] if message else None,
+            "message": message if message else None,
             "tested_at": model_start_time,
             "runner_version": current_runner_version,
         }
@@ -299,13 +397,15 @@ async def check_bmz_model_inference(
     }
     save_inference_summary(summary_file, summary)
 
-    # Update artifact with test results
+    # Publish the merged inference results to the report artifact
     if not dry_run:
-        print("\nUpdating collection with test results...")
+        print(
+            f"\nUpdating inference report artifact '{INFERENCE_REPORT_ARTIFACT}'..."
+        )
         updated_results = {**previous_results, **results}
-        await update_collection(artifact_manager, updated_results)
+        await update_inference_report(artifact_manager, updated_results)
     else:
-        print("\nDry run enabled, not updating collection with test results")
+        print("\nDry run enabled, not updating the inference report artifact")
 
 
 if __name__ == "__main__":
