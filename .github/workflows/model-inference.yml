@@ -15,6 +15,10 @@ on:
         required: false
         default: false
         type: boolean
+      service_id:
+        description: 'Model-runner service id (leave empty for bioimage-io/model-runner)'
+        required: false
+        type: string
 
 jobs:
   test-bioimageio-model-inference:
@@ -56,6 +60,7 @@ jobs:
         # Set safe defaults for inputs (handle scheduled runs)
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
         SKIP_CACHE="${{ github.event.inputs.skip_cache || 'false' }}"
+        SERVICE_ID="${{ github.event.inputs.service_id || '' }}"
 
         # Build command arguments
         ARGS=""
@@ -67,6 +72,10 @@ jobs:
 
         if [ "$SKIP_CACHE" = "true" ]; then
           ARGS="$ARGS --skip-cache"
+        fi
+
+        if [ -n "$SERVICE_ID" ]; then
+          ARGS="$ARGS --service-id $SERVICE_ID"
         fi
 
         echo "Running: python -u bioengine_model_infer.py $ARGS"
