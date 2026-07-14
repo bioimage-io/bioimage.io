@@ -38,19 +38,29 @@ const formatClock = (ts: number): string =>
     second: '2-digit',
   });
 
-/** Format an elapsed duration in seconds as mm:ss. */
-const formatDuration = (sec: number): string => {
-  const s = Math.max(0, Math.floor(sec));
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-};
+/**
+ * Live elapsed time for the currently-running step: whole seconds, ticking
+ * "1s, 2s, 3s, ...". Steps are expected to finish in under a minute, so a
+ * seconds count reads better than mm:ss.
+ */
+const formatElapsed = (sec: number): string => `${Math.max(0, Math.floor(sec))}s`;
+
+/**
+ * Frozen duration for a finished step: one decimal, e.g. "2.4s". The decimal
+ * separator follows the viewer's locale (like the clock above), so a German
+ * viewer sees "2,4s".
+ */
+const formatDurationSec = (sec: number): string =>
+  `${Math.max(0, sec).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}s`;
 
 /**
  * Queue-position header plus a two-column step table used by the model test
  * dialog and the inference panel. The overall test start time sits on top,
  * above the queue position. Left column: bold step header + short description.
- * Right column: how long each step took (mm:ss) — computed from the step
- * timestamps — with the currently-running step ticking live and freezing at
- * `completedAt` when the test finishes. A skipped step (a later step started
+ * Right column: how long each step took — computed from the step timestamps —
+ * with the currently-running step ticking live in whole seconds ("17s") and a
+ * finished step showing its frozen duration to one decimal ("2.4s"). A skipped
+ * step (a later step started
  * while this one never did) shows an em dash; a step that hasn't started yet is
  * blank.
  */
@@ -145,8 +155,8 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
           let right: React.ReactNode = '';
           if (started) {
             right = isActive && anchorRef.current
-              ? formatDuration(nowSec - anchorRef.current.clientStart)
-              : formatDuration(stepEnd(i) - (step.startTs as number));
+              ? formatElapsed(nowSec - anchorRef.current.clientStart)
+              : formatDurationSec(stepEnd(i) - (step.startTs as number));
           } else if (skipped) {
             right = '—';
           }
