@@ -13,6 +13,10 @@ from hypha_rpc import connect_to_server, login
 from hypha_rpc.utils import ObjectProxy
 
 
+# Fully-qualified id of the model-runner service to test against. Overridable
+# via --service-id so a run can target a specific worker/cluster.
+DEFAULT_SERVICE_ID = "bioimage-io/model-runner"
+
 # Testing is submitted through the async model-runner API: ``test()`` returns a
 # run id immediately and the report is retrieved by polling
 # ``get_test_status(test_run_id)`` until its ``result`` field is populated.
@@ -86,6 +90,7 @@ async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
     reports_dir: Optional[Path] = None,
     skip_cache: bool = False,
+    service_id: str = DEFAULT_SERVICE_ID,
 ) -> None:
     """Test BioImage.IO models and generate test reports.
 
@@ -98,6 +103,7 @@ async def test_bmz_models(
         model_ids: List of model IDs to test. If None, fetches all models.
         reports_dir: Directory where per-model JSON test reports are written.
         skip_cache: Whether to skip cache during model testing.
+        service_id: Fully-qualified id of the model-runner service to use.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
@@ -110,8 +116,9 @@ async def test_bmz_models(
         {"server_url": server_url, "token": token, "method_timeout": 300}
     )
 
+    print(f"Using model-runner service '{service_id}'")
     model_runner = await server.get_service(
-        "bioimage-io/model-runner", {"mode": "select:min:get_load"}
+        service_id, {"mode": "select:min:get_load"}
     )
 
     current_runner_version = await fetch_runner_version(model_runner)
@@ -378,6 +385,11 @@ def main():
         action="store_true",
         help="Skip cache during model testing",
     )
+    parser.add_argument(
+        "--service-id",
+        default=DEFAULT_SERVICE_ID,
+        help=f"Model-runner service id to test against (default: {DEFAULT_SERVICE_ID})",
+    )
 
     args = parser.parse_args()
 
@@ -398,6 +410,7 @@ def main():
                 model_ids=args.model_ids,
                 reports_dir=reports_dir,
                 skip_cache=args.skip_cache,
+                service_id=args.service_id,
             )
         )
 

@@ -33,6 +33,10 @@ INFERENCE_REPORT_FILE = "inference_report.json"
 INFERENCE_TIMEOUT_SECONDS = 120
 INFERENCE_POLL_INTERVAL_SECONDS = 2
 
+# Fully-qualified id of the model-runner service to run inference on.
+# Overridable via --service-id so a run can target a specific worker/cluster.
+DEFAULT_SERVICE_ID = f"{WORKSPACE}/model-runner"
+
 
 def save_inference_summary(summary_file: str, summary: Dict[str, int | float]) -> None:
     summary_path = Path(summary_file)
@@ -257,6 +261,7 @@ async def check_bmz_model_inference(
     model_ids: Optional[List[str]] = None,
     summary_file: str = DEFAULT_INFERENCE_SUMMARY_PATH,
     skip_cache: bool = False,
+    service_id: str = DEFAULT_SERVICE_ID,
 ) -> None:
     """Run inference on BioImage.IO models and publish the inference report.
 
@@ -267,6 +272,7 @@ async def check_bmz_model_inference(
         skip_cache: When True, re-run inference even for models that previously
             passed and haven't changed since (bypasses the in-script result
             cache), and ask the model-runner to bypass its own cache too.
+        service_id: Fully-qualified id of the model-runner service to use.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
@@ -278,8 +284,9 @@ async def check_bmz_model_inference(
         {"server_url": SERVER_URL, "token": token, "method_timeout": 300}
     )
 
+    print(f"Using model-runner service '{service_id}'")
     runner = await server.get_service(
-        f"{WORKSPACE}/model-runner", {"mode": "select:min:get_load"}
+        service_id, {"mode": "select:min:get_load"}
     )
     artifact_manager = await server.get_service("public/artifact-manager")
 
@@ -429,6 +436,11 @@ if __name__ == "__main__":
         "(re-run inference even for previously-passed unchanged models, "
         "and ask the model-runner to bypass its own cache)",
     )
+    parser.add_argument(
+        "--service-id",
+        default=DEFAULT_SERVICE_ID,
+        help=f"Model-runner service id to run inference on (default: {DEFAULT_SERVICE_ID})",
+    )
 
     args = parser.parse_args()
 
@@ -441,5 +453,6 @@ if __name__ == "__main__":
             model_ids=args.model_ids,
             summary_file=args.summary_file,
             skip_cache=args.skip_cache,
+            service_id=args.service_id,
         )
     )
