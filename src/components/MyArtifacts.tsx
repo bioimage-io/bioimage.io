@@ -75,8 +75,13 @@ const MyArtifacts: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchQuery, setMyArtifactsPage]);
 
-  const loadArtifacts = async () => {
-    if (!artifactManager || !user) return;
+  const loadArtifacts = async (attempt = 0) => {
+    // Read the connection straight from the store rather than the render
+    // closure so that, after a reconnect, the retry uses the freshly rebuilt
+    // artifactManager instead of the stale one that just failed.
+    const am = useHyphaStore.getState().artifactManager;
+    const currentUser = useHyphaStore.getState().user;
+    if (!am || !currentUser) return;
 
     try {
       setLoading(true);
@@ -114,31 +119,31 @@ const MyArtifacts: React.FC = () => {
       } as const : null;
 
       const [createdRes, uploadedRes, stagedCreatedRes, stagedUploadedRes] = await Promise.all([
-        artifactManager.list({
+        am.list({
           ...listOpts,
-          filters: { created_by: user.id },
+          filters: { created_by: currentUser.id },
           keywords: baseKeywords,
         }),
-        user.email
-          ? artifactManager.list({
+        currentUser.email
+          ? am.list({
               ...listOpts,
-              keywords: [...baseKeywords, user.email],
+              keywords: [...baseKeywords, currentUser.email],
             })
           : Promise.resolve([]),
         stagedOpts
-          ? artifactManager.list({ ...stagedOpts, filters: { created_by: user.id }, keywords: baseKeywords })
+          ? am.list({ ...stagedOpts, filters: { created_by: currentUser.id }, keywords: baseKeywords })
           : Promise.resolve([]),
-        stagedOpts && user.email
-          ? artifactManager.list({ ...stagedOpts, keywords: [...baseKeywords, user.email] })
+        stagedOpts && currentUser.email
+          ? am.list({ ...stagedOpts, keywords: [...baseKeywords, currentUser.email] })
           : Promise.resolve([]),
       ]);
 
       // Post-filter (b): keywords-by-email returns anything mentioning the
       // string, so verify the uploader email is exact and the manifest is
       // ours, not the bot's, before counting an artifact as "uploaded by me".
-      const userEmail = user.email?.toLowerCase();
+      const userEmail = currentUser.email?.toLowerCase();
       const isMine = (a: any) =>
-        a?.created_by === user.id ||
+        a?.created_by === currentUser.id ||
         (userEmail && a?.manifest?.uploader?.email?.toLowerCase() === userEmail);
 
       const byId: Record<string, any> = {};
@@ -170,7 +175,7 @@ const MyArtifacts: React.FC = () => {
         const stagedReads = await Promise.all(
           stagingIds.map(async (id) => {
             try {
-              const detail = await artifactManager.read({ artifact_id: id, stage: true, _rkwargs: true });
+              const detail = await am.read({ artifact_id: id, stage: true, _rkwargs: true });
               return [id, detail?.manifest?.status ?? null] as [string, string | null];
             } catch {
               return [id, null] as [string, string | null];
@@ -192,7 +197,21 @@ const MyArtifacts: React.FC = () => {
       setError(null);
     } catch (err) {
       console.error('Error loading artifacts:', err);
-      setError('Failed to load artifacts');
+      // A dropped/stale Hypha socket surfaces here as an RPC error. On the
+      // first failure, try one guarded reconnection with the cached token and
+      // reload once. If reconnection fails, the store logs the user out and
+      // the "Login Required" screen replaces this view (no stuck error card).
+      if (attempt === 0) {
+        const reconnected = await useHyphaStore.getState().attemptReconnect();
+        if (reconnected && useHyphaStore.getState().isLoggedIn) {
+          return await loadArtifacts(1);
+        }
+        if (useHyphaStore.getState().isLoggedIn) {
+          setError('Failed to load artifacts');
+        }
+      } else {
+        setError('Failed to load artifacts');
+      }
     } finally {
       setLoading(false);
     }
@@ -343,7 +362,7 @@ const MyArtifacts: React.FC = () => {
                 </span>
               </div>
               <button
-                onClick={loadArtifacts}
+                onClick={() => loadArtifacts()}
                 disabled={loading}
                 className={`inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >

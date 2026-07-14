@@ -7,6 +7,27 @@ import { HYPHA_SERVER_URL } from '../config/hypha';
 let pendingConnectPromise: Promise<any> | null = null;
 let activeConnectKey: string | null = null;
 
+// Guards for attemptReconnect(): one shared in-flight promise so concurrent
+// callers (My Artifacts, Review, etc.) don't each fire their own reconnect,
+// plus a cooldown timestamp so a burst of failures doesn't hammer the server.
+let reconnectPromise: Promise<boolean> | null = null;
+let lastReconnectAt = 0;
+const RECONNECT_MAX_ATTEMPTS = 2;      // "once or twice" before logging out
+const RECONNECT_RETRY_DELAY_MS = 1500; // brief backoff between the two attempts
+const RECONNECT_COOLDOWN_MS = 8000;    // ignore repeat triggers within this window
+
+// Read the cached login token, honoring its stored expiry. Mirrors
+// LoginButton.getSavedToken so reconnection uses the same credential the
+// initial auto-login used.
+const getSavedToken = (): string | null => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    const expiry = localStorage.getItem('tokenExpiry');
+    if (expiry && new Date(expiry) > new Date()) return token;
+  }
+  return null;
+};
+
 
 // Add a type for connection config
 interface ConnectionConfig {
@@ -81,6 +102,11 @@ export interface HyphaState {
   markHyphaReachable: () => void;
   // Reconnect using the last-used token (reads from localStorage like LoginButton).
   reconnect: () => Promise<void>;
+  // Resilient reconnection for when a live RPC call fails on a stale socket.
+  // Retries the cached-token connect up to twice (deduped + rate-limited); if
+  // it still fails, logs the user out so the UI shows the not-logged-in state.
+  // Resolves true when a live connection is available afterwards.
+  attemptReconnect: () => Promise<boolean>;
 }
 
 export const useHyphaStore = create<HyphaState>((set, get) => ({
@@ -123,14 +149,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       : state
   ),
   reconnect: async () => {
-    const savedToken = (() => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        const expiry = localStorage.getItem('tokenExpiry');
-        if (expiry && new Date(expiry) > new Date()) return token;
-      }
-      return null;
-    })();
+    const savedToken = getSavedToken();
     // Reset dedup keys so connect() doesn't short-circuit when the WS
     // dropped but the config looks identical to the last successful run.
     activeConnectKey = null;
@@ -140,6 +159,55 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       token: savedToken ?? undefined,
       method_timeout: 300,
     });
+  },
+  attemptReconnect: async (): Promise<boolean> => {
+    // Dedup concurrent callers onto one in-flight reconnect.
+    if (reconnectPromise) return reconnectPromise;
+    // Rate-limit: after a recent attempt, don't fire again; report the
+    // current connection state instead so a burst of failing RPC calls
+    // doesn't trigger a storm of reconnects.
+    if (Date.now() - lastReconnectAt < RECONNECT_COOLDOWN_MS) {
+      return get().isConnected;
+    }
+
+    reconnectPromise = (async () => {
+      try {
+        for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt++) {
+          const savedToken = getSavedToken();
+          // No valid cached token -> nothing to reconnect with; fall through
+          // to the logout below so the UI clearly shows "not logged in".
+          if (!savedToken) break;
+          try {
+            // Reset dedup keys so connect() actually rebuilds the socket even
+            // though the config looks identical to the last successful run.
+            activeConnectKey = null;
+            pendingConnectPromise = null;
+            await get().connect({
+              server_url: HYPHA_SERVER_URL,
+              token: savedToken,
+              method_timeout: 300,
+            });
+            return true; // reconnected; connect() refreshed server + artifactManager
+          } catch (err) {
+            console.warn(`Hypha reconnect attempt ${attempt} failed:`, err);
+            if (attempt < RECONNECT_MAX_ATTEMPTS) {
+              await new Promise(resolve => setTimeout(resolve, RECONNECT_RETRY_DELAY_MS));
+            }
+          }
+        }
+        // Reconnection failed (or no valid token). Log the user out and drop
+        // the stale token so the app presents a clean not-logged-in state
+        // instead of a stuck error.
+        localStorage.removeItem('token');
+        localStorage.removeItem('tokenExpiry');
+        await get().logout();
+        return false;
+      } finally {
+        lastReconnectAt = Date.now();
+        reconnectPromise = null;
+      }
+    })();
+    return reconnectPromise;
   },
   myArtifactsPage: 1,
   myArtifactsTotalItems: 0,
