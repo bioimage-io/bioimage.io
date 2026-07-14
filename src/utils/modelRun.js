@@ -344,7 +344,7 @@ class BioEngineExecutor {
     }
 
     const request_id = ret;
-    const MAX_POLLS = 120; // 6 minutes at 3 s inter-poll delay
+    const MAX_POLLS = 180; // 6 minutes at 2 s inter-poll delay
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     for (let i = 0; i < MAX_POLLS; i++) {
@@ -361,7 +361,7 @@ class BioEngineExecutor {
         return status.result;
       }
 
-      await sleep(3000);
+      await sleep(2000);
     }
 
     throw new Error('Inference timed out after 6 minutes.');
