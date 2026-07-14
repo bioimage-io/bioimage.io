@@ -817,8 +817,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                   steps={[
                     {
                       key: 'model_download',
-                      header: 'Model download',
-                      description: 'Fetch the model from cache or download it',
+                      header: 'Preparing model',
+                      description: 'Check the cache and download any outdated model files',
                       startTs: inferProgress.model_download,
                     },
                     {

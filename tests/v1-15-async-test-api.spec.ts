@@ -13,7 +13,7 @@ import { test, expect } from '@playwright/test';
 //   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
 //   - The overall test start time sits on TOP, above the queue-position row
 //     (which holds at 0 once the request is dequeued).
-//   - The three step rows (Model download / Environment setup / Running) show
+//   - The three step rows (Preparing model / Environment setup / Running) show
 //     each step's duration (mm:ss), a dash when skipped, and the live-ticking
 //     duration for the step currently running.
 //   - On completion the dialog stays on the timeline ("Model Test Complete")
@@ -70,7 +70,7 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     await expect(page.getByText('Queue position')).toBeVisible();
 
     // Step 6: All three step rows are rendered (table is always shown).
-    await expect(page.getByText('Model download')).toBeVisible({ timeout: 240000 });
+    await expect(page.getByText('Preparing model')).toBeVisible({ timeout: 240000 });
     await expect(page.getByText('Environment setup')).toBeVisible();
     await expect(page.getByText('Running')).toBeVisible();
 

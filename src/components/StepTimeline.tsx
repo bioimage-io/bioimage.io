@@ -3,7 +3,7 @@ import { Box, Typography, Chip, Stack } from '@mui/material';
 
 export interface TimelineStep {
   key: string;
-  /** Bold few-word header, e.g. "Model download". */
+  /** Bold few-word header, e.g. "Preparing model". */
   header: string;
   /** Short explanation shown under the header. */
   description: string;
@@ -12,8 +12,9 @@ export interface TimelineStep {
 }
 
 interface StepTimelineProps {
-  /** Unix seconds when the whole test was submitted/queued. Shown on top. */
-  submittedAt: number | null;
+  /** Unix seconds when the whole test was submitted/queued. Shown on top when
+   *  provided (omitted for the inference panel). */
+  submittedAt?: number | null;
   /**
    * FIFO queue rank reported by the runner. Counts down to 0 and stays at 0
    * once the request is dequeued and running.
@@ -22,8 +23,8 @@ interface StepTimelineProps {
   /** Ordered steps. Each renders one table row. */
   steps: TimelineStep[];
   /** Unix seconds when the whole test finished. Freezes the running step's
-   *  duration; null while still in flight. */
-  completedAt: number | null;
+   *  duration; null/undefined while still in flight. */
+  completedAt?: number | null;
 }
 
 /** Format a unix-seconds timestamp as a clock time in the viewer's own timezone. */

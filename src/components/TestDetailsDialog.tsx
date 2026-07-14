@@ -87,8 +87,15 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   // the user opens the report (showReport). Compatibility reports always go
   // straight to the report.
   const showProgressView = isLoading || (type === 'test-report' && !showReport && progressInfo != null);
+  // The test is genuinely running (started → completed). We key the BioEngine
+  // logo animation on this rather than isLoading, because isLoading stays true
+  // through the post-test onTestComplete work (e.g. reloading artifact files),
+  // during which the test is already done and the timeline is frozen.
+  const testInProgress = isLoading
+    && progressInfo?.completedAt == null
+    && progressInfo?.resultTime == null;
   // The run has finished (result available) but we're still on the timeline.
-  const runFinished = showProgressView && !isLoading && !!data;
+  const runFinished = showProgressView && !testInProgress && !!data;
   // Debug logging
   React.useEffect(() => {
     if (open) {
@@ -194,8 +201,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth={isLoading ? 'xs' : 'lg'}
-      fullWidth={!isLoading}
+      maxWidth={showProgressView ? 'xs' : 'lg'}
+      fullWidth={!showProgressView}
       PaperProps={{
         sx: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -242,7 +249,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             <img
               src="/static/img/bioengine-logo-black.svg"
               alt="BioEngine"
-              className={isLoading ? 'animate-pulse' : ''}
+              className={testInProgress ? 'animate-pulse' : ''}
               style={{ height: '80px' }}
             />
 
@@ -255,8 +262,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                 steps={[
                   {
                     key: 'model_download',
-                    header: 'Model download',
-                    description: 'Fetch the model package from cache or download it',
+                    header: 'Preparing model',
+                    description: 'Check the cache and download any outdated model files',
                     startTs: progressInfo.modelDownload,
                   },
                   {
