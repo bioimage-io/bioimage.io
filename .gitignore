@@ -34,3 +34,9 @@ dist/
 
 # local scratch (agent working files, not for commit)
 .dev/
+
+# local reference checkouts of sibling repos (grepped side-by-side, not part of this repo)
+bioimageio-resources/
+
+# test output artifacts
+test-results/
