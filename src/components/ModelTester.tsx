@@ -5,6 +5,7 @@ import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
 import TestOptionsDialog from './TestOptionsDialog';
 import HintTooltip from './HintTooltip';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
+import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
 
 interface TestResult {
   name: string;
@@ -59,6 +60,26 @@ export interface ModelTesterHandle {
 export type { TestResult };
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/**
+ * Build the failed-test result shown in the dialog. When the failure is the
+ * transient "GPU runtime still starting" condition (same as the infer path),
+ * surface the friendly message instead of the raw traceback.
+ */
+const buildTestFailure = (error: unknown, fallbackMsg?: string): TestResult => {
+  const runtimeStarting = isRuntimeStartingError(error);
+  const rawMsg = error instanceof Error ? error.message : String(error);
+  return {
+    name: runtimeStarting ? 'BioEngine Starting' : 'Test Failed',
+    status: 'failed',
+    details: [{
+      name: runtimeStarting ? 'BioEngine Starting' : 'Error',
+      status: 'failed',
+      errors: [{ msg: runtimeStarting ? RUNTIME_STARTING_MESSAGE : (fallbackMsg ?? rawMsg), loc: ['test'] }],
+      warnings: [],
+    }],
+  };
+};
 
 const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   artifactId,
@@ -196,16 +217,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         if (result != null) {
           console.log('Test completed. Result:', result);
           if ('error' in result) {
-            finalResult = {
-              name: 'Test Failed',
-              status: 'failed',
-              details: [{
-                name: 'Error',
-                status: 'failed',
-                errors: [{ msg: result.error as string, loc: ['test'] }],
-                warnings: [],
-              }],
-            };
+            finalResult = buildTestFailure(result.error as string);
           } else {
             // Freeze the timeline on completion: prefer the server's
             // completed_at, else stamp the moment the result arrived.
@@ -249,16 +261,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
     } catch (err) {
       console.error('Test run failed:', err);
-      const failureResult: TestResult = {
-        name: 'Test Failed',
-        status: 'failed',
-        details: [{
-          name: 'Error',
-          status: 'failed',
-          errors: [{ msg: `Failed to run model test: ${err}`, loc: ['test'] }],
-          warnings: [],
-        }],
-      };
+      const failureResult = buildTestFailure(err, `Failed to run model test: ${err}`);
       setTestResult(failureResult);
       if (onTestComplete) {
         try {

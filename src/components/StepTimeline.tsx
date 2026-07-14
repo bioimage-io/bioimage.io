@@ -15,6 +15,9 @@ interface StepTimelineProps {
   /** Unix seconds when the whole test was submitted/queued. Shown on top when
    *  provided (omitted for the inference panel). */
   submittedAt?: number | null;
+  /** Label for the submitted-at row. Defaults to "Test started"; the inference
+   *  panel passes "Run started". */
+  startedLabel?: string;
   /**
    * FIFO queue rank reported by the runner. Counts down to 0 and stays at 0
    * once the request is dequeued and running.
@@ -51,7 +54,7 @@ const formatDuration = (sec: number): string => {
  * while this one never did) shows an em dash; a step that hasn't started yet is
  * blank.
  */
-const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, queuePosition, steps, completedAt }) => {
+const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel = 'Test started', queuePosition, steps, completedAt }) => {
   // Tick once a second so the active step's duration stays live.
   const [nowSec, setNowSec] = React.useState(() => Date.now() / 1000);
   React.useEffect(() => {
@@ -99,7 +102,7 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, queuePosition,
       {/* Overall test start time — on top, above the queue position. */}
       {submittedAt != null && (
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography variant="body2" color="text.secondary">Test started</Typography>
+          <Typography variant="body2" color="text.secondary">{startedLabel}</Typography>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
             {formatClock(submittedAt)}
           </Typography>

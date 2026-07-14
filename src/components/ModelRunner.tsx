@@ -13,14 +13,19 @@ import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
 import AdvancedOptions from './AdvancedOptions';
-import StepTimeline, { TimelineStep } from './StepTimeline';
+import InferenceProgressDialog, { InferenceProgress } from './InferenceProgressDialog';
+import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
 
 /** Progress dict emitted by get_infer_status on the v1.15.0 async API. */
 interface InferProgress {
   queue_position: number;
+  /** Unix seconds when the request was queued. */
+  submitted_at: number | null;
   model_download: number | null;
   env_setup: null;
   running: number | null;
+  /** Unix seconds when the run finished; null until then. Freezes the timeline. */
+  completed_at: number | null;
 }
 
 // Extend the ModelRunnerEngine type to properly type the runTiles method
@@ -142,13 +147,27 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [runner, setRunner] = useState<ExtendedModelRunnerEngine | null>(null);
   const [infoMessage, setInfoMessage] = useState<string>("");
   const [isError, setIsError] = useState<boolean>(false);
+  // Amber, non-alarming notice (e.g. "BioEngine starting shortly") — distinct
+  // from the red error state so a transient not-ready condition doesn't read
+  // like a hard failure.
+  const [isNotice, setIsNotice] = useState<boolean>(false);
   const [isWaiting, setIsWaiting] = useState<boolean>(false);
   const [inputLoaded, setInputLoaded] = useState<boolean>(false);
   const [tilingEnabled, setTilingEnabled] = useState<boolean>(false);
 
-  // v1.15+ async infer progress (null when idle).
-  // The StepTimeline that renders this owns its own per-second tick.
-  const [inferProgress, setInferProgress] = useState<InferProgress | null>(null);
+  // v1.15+ async infer progress, mapped for the progress dialog (null when
+  // idle). The StepTimeline inside the dialog owns its own per-second tick.
+  const [inferProgress, setInferProgress] = useState<InferenceProgress | null>(null);
+  // True while a run is in flight — gates the "View progress" button and the
+  // dialog's in-progress title/animation.
+  const [inferRunning, setInferRunning] = useState<boolean>(false);
+  // True once a run finishes successfully — shows the green completion message
+  // and the "View details" button that reopens the (now frozen) dialog.
+  const [inferCompleted, setInferCompleted] = useState<boolean>(false);
+  // Whether the Model Inference progress/complete dialog is open. Auto-opens on
+  // run start and auto-closes when the result returns; the inline buttons let
+  // the user reopen it.
+  const [inferDialogOpen, setInferDialogOpen] = useState<boolean>(false);
 
   // Tiling is inference-specific and stays local; the Server URL / Service ID
   // override come from the shared connection (conn).
@@ -208,10 +227,16 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     };
   }, []);
 
-  const setInfoPanel = (message: string, waiting: boolean = false, error: boolean = false) => {
+  const setInfoPanel = (
+    message: string,
+    waiting: boolean = false,
+    error: boolean = false,
+    notice: boolean = false,
+  ) => {
     setInfoMessage(message);
     setIsWaiting(waiting);
     setIsError(error);
+    setIsNotice(notice);
   };
 
   const updateButtonStates = (enabled: boolean, modelRunner = runner) => {
@@ -292,7 +317,18 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
     setIsLoading(true);
     setButtonEnabledRun(false);
+    // Reset any leftover state from a previous run and auto-open the progress
+    // dialog for this one.
+    setInferProgress(null);
+    setInferCompleted(false);
+    setInferRunning(true);
+    setInferDialogOpen(true);
     setInfoPanel("Running the model...", true);
+
+    // Browser-clock start time for the "Run started" display (see
+    // InferenceProgress). Using the runner's submitted_at could show a skewed
+    // wall-clock time.
+    const submittedAtClient = Date.now() / 1000;
 
     try {
       // Get the input image from the viewer
@@ -340,9 +376,23 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         parametersStore.additionalParameters,
         (msg: string) => setInfoPanel(msg, true),
         tilingEnabled,
-        (status: InferProgress) => setInferProgress(status)
+        (status: InferProgress) => setInferProgress({
+          submittedAt: submittedAtClient,
+          queuePosition: status.queue_position ?? 0,
+          modelDownload: status.model_download ?? null,
+          running: status.running ?? null,
+          completedAt: status.completed_at ?? null,
+        })
       );
-      
+
+      // Result is back: freeze the timeline (prefer the runner's completed_at,
+      // else stamp now) and auto-close the in-progress dialog so the output is
+      // visible in the viewer.
+      setInferProgress(prev =>
+        prev ? { ...prev, completedAt: prev.completedAt ?? Date.now() / 1000 } : prev
+      );
+      setInferDialogOpen(false);
+
       // Display the results
       if (runner.isImg2Img()) {
         // Image segmentation/transformation model
@@ -352,16 +402,37 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         // Classification model
         await viewerControl.showTableFromTensor(outTensor, "output");
       }
-      
-      setInfoPanel("Model execution completed successfully!");
+
+      // Surface the green success message inline; the frozen timeline stays
+      // available behind the "View details" button.
+      setInferCompleted(true);
+      setInfoPanel("", false, false);
     } catch (error) {
       console.error('Failed to run model:', error);
-      setInfoPanel("Failed to run the model. See console for details.", false, true);
-    } finally {
+      setInferDialogOpen(false);
       setInferProgress(null);
+      setInferCompleted(false);
+      // The GPU runtime not being ready yet is a transient, expected condition
+      // (e.g. right after the model runner app is updated) — show a friendly
+      // amber notice instead of the raw traceback.
+      if (isRuntimeStartingError(error)) {
+        setInfoPanel(RUNTIME_STARTING_MESSAGE, false, false, true);
+      } else {
+        setInfoPanel("Failed to run the model. See console for details.", false, true);
+      }
+    } finally {
+      setInferRunning(false);
       setIsLoading(false);
       setButtonEnabledRun(true);
     }
+  };
+
+  // Reset the inference progress/complete state and close its dialog (used
+  // before a new action so a stale completed message doesn't linger).
+  const clearInferPanel = () => {
+    setInferProgress(null);
+    setInferCompleted(false);
+    setInferDialogOpen(false);
   };
 
   const setupRunner = async () => {
@@ -436,12 +507,18 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     } catch (error) {
       console.error('Failed to setup runner:', error);
       const errMsg = error instanceof Error ? error.message : String(error);
-      const errorMessage = errMsg.includes('Container element')
-        ? "Failed to create container element. Please make sure the container callback is properly implemented."
-        : errMsg.includes('Service not found')
-          ? `The selected model-runner cluster does not currently expose a service for this account. Try switching the slider to the other cluster.`
-          : "Failed to setup the model runner. See console for details.";
-      setInfoPanel(errorMessage, false, true);
+      // Runtime still spinning up (expected right after a model-runner update):
+      // show the friendly amber notice rather than a setup error.
+      if (isRuntimeStartingError(error)) {
+        setInfoPanel(RUNTIME_STARTING_MESSAGE, false, false, true);
+      } else {
+        const errorMessage = errMsg.includes('Container element')
+          ? "Failed to create container element. Please make sure the container callback is properly implemented."
+          : errMsg.includes('Service not found')
+            ? `The selected model-runner cluster does not currently expose a service for this account. Try switching the slider to the other cluster.`
+            : "Failed to setup the model runner. See console for details.";
+        setInfoPanel(errorMessage, false, true);
+      }
       setIsLoading(false);
       initializingRef.current = false;
     }
@@ -449,7 +526,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
   const loadTestInput = async () => {
     if (!runner || !viewerControl) return;
-    
+
+    clearInferPanel();
     setInfoPanel("Loading test input...", true);
     
     try {
@@ -519,7 +597,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
   const loadTestOutput = async () => {
     if (!runner || !viewerControl) return;
-    
+
+    clearInferPanel();
     setInfoPanel("Loading test output...", true);
     
     try {
@@ -760,47 +839,49 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
 
 
       {/* Enhanced Status Message - moved below buttons */}
-      {(infoMessage || isLoading || isWaiting || !modelInitialized) && (
+      {(infoMessage || isLoading || isWaiting || !modelInitialized || inferCompleted) && (
         <div className={`mt-4 px-4 py-3 rounded-lg border transition-all duration-300 ${
-          isError 
-            ? 'bg-red-50 border-red-200 text-red-800' 
-            : isWaiting || isLoading || !modelInitialized
-              ? 'bg-blue-50 border-blue-200 text-blue-800'
-              : 'bg-green-50 border-green-200 text-green-800'
+          isError
+            ? 'bg-red-50 border-red-200 text-red-800'
+            : isNotice
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : isWaiting || isLoading || !modelInitialized
+                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                : 'bg-green-50 border-green-200 text-green-800'
         }`}>
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               {/* Show spinner for loading states */}
               {(isWaiting || isLoading || (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn)) && (
                 <div className="flex-shrink-0">
-                  <div 
+                  <div
                     style={{
                       animation: 'modelRunnerSpin 1s linear infinite',
                       display: 'inline-block'
                     }}
                   >
-                    <svg 
-                      className="w-5 h-5" 
+                    <svg
+                      className="w-5 h-5"
                       viewBox="0 0 24 24"
                       fill="none"
                     >
-                      <circle 
-                        cx="12" 
-                        cy="12" 
-                        r="10" 
-                        stroke="currentColor" 
-                        strokeWidth="4" 
-                        strokeDasharray="31.416" 
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        strokeDasharray="31.416"
                         strokeDashoffset="31.416"
                         opacity="0.3"
                       />
-                      <circle 
-                        cx="12" 
-                        cy="12" 
-                        r="10" 
-                        stroke="currentColor" 
-                        strokeWidth="4" 
-                        strokeDasharray="31.416" 
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        strokeDasharray="31.416"
                         strokeDashoffset="23.562"
                         strokeLinecap="round"
                       />
@@ -808,41 +889,56 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
                   </div>
                 </div>
               )}
-              
-              {/* Infer progress panel (v1.15.0 async API) or plain status text.
-                  Hidden again once the result returns (inferProgress → null). */}
-              {inferProgress ? (
-                <StepTimeline
-                  queuePosition={inferProgress.queue_position}
-                  steps={[
-                    {
-                      key: 'model_download',
-                      header: 'Preparing model',
-                      description: 'Check the cache and download any outdated model files',
-                      startTs: inferProgress.model_download,
-                    },
-                    {
-                      key: 'inference',
-                      header: 'Inference',
-                      description: 'Run the model on your input',
-                      startTs: inferProgress.running,
-                    },
-                  ] as TimelineStep[]}
-                />
-              ) : (
-                <div className="text-base font-medium">
-                  {infoMessage ||
-                    (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
-                      ? "Initializing ImageJ.JS..."
-                      : !isLoggedIn
-                        ? "Please log in to use the model runner"
-                        : !hyphaCoreAPI || !isHyphaCoreReady
-                          ? "Connecting to Hypha..."
-                          : "Ready"
-                    )}
-                </div>
-              )}
+
+              {/* Plain status text. The step timeline (run start / queue / prep /
+                  running) now lives in the Model Inference dialog, opened via the
+                  buttons on the right. */}
+              <div className="text-base font-medium min-w-0">
+                {inferCompleted
+                  ? "Model execution completed successfully!"
+                  : (infoMessage ||
+                      (!modelInitialized && artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
+                        ? "Initializing ImageJ.JS..."
+                        : !isLoggedIn
+                          ? "Please log in to use the model runner"
+                          : !hyphaCoreAPI || !isHyphaCoreReady
+                            ? "Connecting to Hypha..."
+                            : "Ready"
+                      ))}
+              </div>
             </div>
+
+            {/* View-details button — reopens the frozen Model Inference Complete
+                dialog after a successful run. */}
+            {inferCompleted && !inferDialogOpen && (
+              <button
+                onClick={() => setInferDialogOpen(true)}
+                title="View inference details"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-green-700 transition-transform duration-150 ease-out hover:bg-green-100 active:scale-95"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View details
+              </button>
+            )}
+
+            {/* View-progress button — reopens the Model Inference in Progress
+                dialog if the user closed it mid-run. */}
+            {inferRunning && !inferCompleted && !inferDialogOpen && (
+              <button
+                onClick={() => setInferDialogOpen(true)}
+                title="View inference progress"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-blue-700 transition-transform duration-150 ease-out hover:bg-blue-100 active:scale-95"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View progress
+              </button>
+            )}
 
             {/* Reload button - only show when there's an error */}
             {isError && (
@@ -897,6 +993,18 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Model Inference progress/complete dialog — mirrors the model-test
+          dialog. Auto-opens on run start, auto-closes when the result returns,
+          and is reopened via the inline "View progress" / "View details"
+          buttons. */}
+      <InferenceProgressDialog
+        open={inferDialogOpen}
+        onClose={() => setInferDialogOpen(false)}
+        isRunning={inferRunning}
+        progress={inferProgress}
+        loadingMessage={infoMessage}
+      />
     </div>
   );
 };
