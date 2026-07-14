@@ -28,3 +28,6 @@ bioimageio_test_reports/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+.playwright-browsers/
+dist/

@@ -4,12 +4,31 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
-// Silence the benign "ResizeObserver loop" warnings some browsers emit when a
-// resize callback triggers layout that doesn't settle within one frame (e.g.
-// the Monaco editor / MUI re-measuring when a panel opens). Delivery is simply
-// deferred to the next frame — nothing is broken — but CRA's dev error overlay
-// treats every window error as fatal. Handle it in the capture phase so this
-// runs before the overlay's listener and can stop it from surfacing.
+// Browsers emit "ResizeObserver loop completed with undelivered notifications"
+// (and the older "loop limit exceeded" variant) when a resize callback triggers
+// layout that doesn't settle within one frame — e.g. the Monaco editor / MUI /
+// OpenLayers re-measuring on load. Delivery is simply deferred to the next
+// frame; nothing is broken. CRA ships two dev overlays (react-error-overlay and
+// webpack-dev-server-client-overlay) that surface it as a fatal error.
+//
+// Fix it at the source: defer every ResizeObserver callback into a
+// requestAnimationFrame so it no longer runs inside the browser's observation
+// step, which is what makes the loop "undeliverable". This prevents the error
+// from ever being thrown, so neither overlay can catch it. The captured
+// `entries` (with their contentRect) stay valid across the one-frame defer.
+if (typeof window !== 'undefined' && typeof window.ResizeObserver !== 'undefined') {
+  const NativeResizeObserver = window.ResizeObserver;
+  window.ResizeObserver = class extends NativeResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      super((entries, observer) => {
+        window.requestAnimationFrame(() => callback(entries, observer));
+      });
+    }
+  };
+}
+
+// Belt-and-suspenders: also swallow the message if it still reaches the window
+// error handler (capture phase, so it runs before the overlays' listeners).
 const IGNORED_RESIZE_OBSERVER_ERRORS = [
   'ResizeObserver loop limit exceeded',
   'ResizeObserver loop completed with undelivered notifications',
