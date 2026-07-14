@@ -741,12 +741,21 @@ const Edit: React.FC = () => {
   };
 
   const handleFileSelect = async (file: FileNode) => {
-    // test_report.json is shown in the TestDetailsDialog, not the raw editor
+    // test_report.json is shown in the TestDetailsDialog, not the raw editor.
+    // Read it from the dedicated bioimage-io/test-reports collection; only fall
+    // back to the clicked file's own content if that collection has no report.
     if (file.name === 'test_report.json') {
       try {
-        const raw = await fetchFileContent(file);
-        const text = typeof raw === 'string' ? raw : raw instanceof ArrayBuffer
-          ? new TextDecoder().decode(raw) : null;
+        let text: string | null = null;
+        if (artifactId) {
+          const res = await fetch(resolveTestReportUrl(artifactId, isStaged));
+          if (res.ok) text = await res.text();
+        }
+        if (text === null) {
+          const raw = await fetchFileContent(file);
+          text = typeof raw === 'string' ? raw : raw instanceof ArrayBuffer
+            ? new TextDecoder().decode(raw) : null;
+        }
         setTestReportData(text ? JSON.parse(text) : null);
       } catch {
         setTestReportData(null);

@@ -19,11 +19,13 @@ import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
+import HintTooltip from './HintTooltip';
 import { resolveHyphaUrl, resolveTestReportUrl, resolveInferenceReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -129,7 +131,7 @@ const ArtifactDetails = () => {
       return 'https://github.com/bioimage-io/core-bioimage-io-python';
     }
     if (lower === 'bioengine') {
-      return 'https://bioimage-io.github.io/bioengine/';
+      return 'https://bioimage.io/#/bioengine';
     }
     return partnerService.getPartnerByName(name)?.link;
   };
@@ -306,11 +308,13 @@ const ArtifactDetails = () => {
       }
 
       try {
-        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
-        // fall back to the legacy location on the model artifact itself.
-        let response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
+        // Read the test report from the dedicated bioimage-io/test-reports
+        // collection (per-model test-report-<id> artifact). No legacy fallback:
+        // models without a report here simply show no BioEngine entry.
+        const response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
         if (!response.ok) {
-          response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
+          setTestReportData(null);
+          return;
         }
         const testReportJson = await response.json();
 
@@ -374,12 +378,9 @@ const ArtifactDetails = () => {
         setRawErrorContent(null);
         setDetailedTestReport(null);
 
-        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
-        // fall back to the legacy location on the model artifact itself.
-        let response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
-        if (!response.ok) {
-          response = await fetch(resolveHyphaUrl('test_report.json', selectedResource.id, true));
-        }
+        // Read the test report from the dedicated bioimage-io/test-reports
+        // collection (per-model test-report-<id> artifact).
+        const response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
         const responseText = await response.text();
         
         try {
@@ -786,13 +787,18 @@ const ArtifactDetails = () => {
             
             {selectedResource?.manifest?.type === 'model' && (
               <>
-                {!showModelRunner && (
-                  <>
-                  <Tooltip
-                    title={!isLoggedIn ? "Please log in to test run models" : ""}
-                    arrow
-                    open={!isLoggedIn && isTestButtonHovered && !bioengineStatus}
-                  >
+                {!showModelRunner && (() => {
+                  // Hint shown on hover while the button is disabled: prompt to
+                  // log in, or explain that the model has no BioEngine inference
+                  // report yet (the grey state). Mirrors the Review & Publish
+                  // button's HintTooltip.
+                  const testRunHint = !isLoggedIn
+                    ? 'Please log in to test run models'
+                    : !bioengineStatus
+                      ? 'This model has not been validated on the BioEngine yet.'
+                      : undefined;
+                  return (
+                  <HintTooltip hint={testRunHint}>
                     <div
                       onMouseEnter={() => setIsTestButtonHovered(true)}
                       onMouseLeave={() => setIsTestButtonHovered(false)}
@@ -849,9 +855,9 @@ const ArtifactDetails = () => {
                         Test Run Model
                       </Button>
                     </div>
-                  </Tooltip>
-                  </>
-                )}
+                  </HintTooltip>
+                  );
+                })()}
                 {/* Test Report Popover */}
                 <Popover
                   open={Boolean(testReportPopoverAnchorEl)}
@@ -1432,10 +1438,10 @@ const ArtifactDetails = () => {
                         allEntries.push({ type: 'software', name: bioimageCoreEntry[0], data: bioimageCoreEntry[1] });
                       }
                       
-                      // Add bioengine entry after bioimageio.core if test report data exists
-                      if (testReportData) {
-                        allEntries.push({ type: 'bioengine', name: 'bioengine', data: testReportData });
-                      }
+                      // Always list bioengine after bioimageio.core. The result
+                      // chip is only rendered when a test report exists in the
+                      // test-reports collection (data may be null otherwise).
+                      allEntries.push({ type: 'bioengine', name: 'bioengine', data: testReportData });
                       
                       // Add remaining entries
                       otherEntries.forEach(([name, data]) => {
@@ -1450,12 +1456,15 @@ const ArtifactDetails = () => {
                               const reports = selectedResource?.manifest?.test_summary;
                               const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
                               
-                              // Extract bioimageio.core version from env
-                              const bioimageioCoreVersion = entry.data.env?.find(
+                              // The bioengine row is always listed; the result
+                              // chip + pass/fail icon only appear when a test
+                              // report exists in the test-reports collection.
+                              const hasReport = !!entry.data;
+                              const bioimageioCoreVersion = entry.data?.env?.find(
                                 (pkg: any[]) => pkg[0] === 'bioimageio.core'
                               )?.[1] || 'unknown';
-                              
-                              const isPassed = entry.data.status === 'passed';
+
+                              const isPassed = entry.data?.status === 'passed';
                               
                               return (
                                 <>
@@ -1476,7 +1485,15 @@ const ArtifactDetails = () => {
                                       }
                                     }}
                                   >
-                                    {isPassed ? (
+                                    {!hasReport ? (
+                                      <RadioButtonUncheckedIcon
+                                        sx={{
+                                          color: '#9ca3af',
+                                          fontSize: 20,
+                                          flexShrink: 0
+                                        }}
+                                      />
+                                    ) : isPassed ? (
                                       <CheckCircleIcon
                                         sx={{
                                           color: '#22c55e',
@@ -1531,35 +1548,46 @@ const ArtifactDetails = () => {
                                       bioengine
                                       <OpenInNewIcon sx={{ fontSize: 12, opacity: 0.5 }} />
                                     </Link>
-                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                      <Chip
-                                        label={bioimageioCoreVersion}
-                                        size="small"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          fetchDetailedTestReport();
-                                        }}
-                                        sx={{
-                                          height: '20px',
-                                          backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                          color: isPassed ? '#16a34a' : '#dc2626',
-                                          borderRadius: '4px',
-                                          fontWeight: 600,
-                                          fontSize: '0.65rem',
-                                          border: isPassed ? '1.5px solid #22c55e' : '1.5px solid #ef4444',
-                                          cursor: 'pointer',
-                                          transition: 'all 0.2s ease',
-                                          '& .MuiChip-label': {
-                                            px: 0.75,
-                                            py: 0
-                                          },
-                                          '&:hover': {
-                                            backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
-                                            transform: 'scale(1.05)',
-                                          }
-                                        }}
-                                      />
-                                    </Box>
+                                    {hasReport ? (
+                                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
+                                        <Chip
+                                          label={bioimageioCoreVersion}
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            fetchDetailedTestReport();
+                                          }}
+                                          sx={{
+                                            height: '20px',
+                                            backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                            color: isPassed ? '#16a34a' : '#dc2626',
+                                            borderRadius: '4px',
+                                            fontWeight: 600,
+                                            fontSize: '0.65rem',
+                                            border: isPassed ? '1.5px solid #22c55e' : '1.5px solid #ef4444',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            '& .MuiChip-label': {
+                                              px: 0.75,
+                                              py: 0
+                                            },
+                                            '&:hover': {
+                                              backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                                              transform: 'scale(1.05)',
+                                            }
+                                          }}
+                                        />
+                                      </Box>
+                                    ) : (
+                                      <Box sx={{ flex: 1 }}>
+                                        <Typography
+                                          variant="caption"
+                                          sx={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.7rem' }}
+                                        >
+                                          not tested
+                                        </Typography>
+                                      </Box>
+                                    )}
                                   </Box>
                                   <Divider sx={{ my: 1, opacity: 0.3 }} />
                                 </>
