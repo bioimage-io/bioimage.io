@@ -30,10 +30,14 @@ import StepTimeline, { TimelineStep } from './StepTimeline';
  */
 export interface ProgressInfoV2 {
   version: 'v2';
+  /** Unix seconds when the job was submitted/queued (v1.15.3+). */
+  submittedAt?: number | null;
   queuePosition: number;
   modelDownload: number | null;
   envSetup: number | null;
   running: number | null;
+  /** Unix seconds when the job finished (v1.15.3+); null until then. */
+  completedAt?: number | null;
   /** Client-side Date.now()/1000 of the poll that first carried a non-null result. */
   resultTime?: number;
 }
@@ -54,6 +58,14 @@ interface TestDetailsDialogProps {
   type: 'test-report' | 'compatibility';
   partnerName?: string; // For compatibility reports
   partnerVersion?: string; // For compatibility reports
+  /**
+   * When false (default true), a finished test keeps showing the step timeline
+   * with a "View Test Report" button instead of jumping straight to the report,
+   * letting the user review the steps first. Clicking the button calls
+   * onViewReport, which flips this to true.
+   */
+  showReport?: boolean;
+  onViewReport?: () => void;
 }
 
 const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
@@ -68,7 +80,15 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   type,
   partnerName,
   partnerVersion,
+  showReport = true,
+  onViewReport,
 }) => {
+  // Show the progress/timeline view while loading, and after completion until
+  // the user opens the report (showReport). Compatibility reports always go
+  // straight to the report.
+  const showProgressView = isLoading || (type === 'test-report' && !showReport && progressInfo != null);
+  // The run has finished (result available) but we're still on the timeline.
+  const runFinished = showProgressView && !isLoading && !!data;
   // Debug logging
   React.useEffect(() => {
     if (open) {
@@ -132,6 +152,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   const getDialogTitle = () => {
     if (type === 'compatibility') return 'Compatibility Test Details';
     if (isLoading) return 'Model Testing in Progress';
+    if (showProgressView) return 'Model Test Complete';
     return 'Test Report Details';
   };
 
@@ -216,19 +237,21 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
       </DialogTitle>
       
       <DialogContent dividers sx={{ p: 0 }}>
-        {isLoading ? (
+        {showProgressView ? (
           <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2.5 }}>
             <img
               src="/static/img/bioengine-logo-black.svg"
               alt="BioEngine"
-              className="animate-pulse"
+              className={isLoading ? 'animate-pulse' : ''}
               style={{ height: '80px' }}
             />
 
             {progressInfo ? (
-              /* v1.15+ step timeline: queue on top, per-step start times. */
+              /* v1.15+ step timeline: overall start on top, per-step durations. */
               <StepTimeline
+                submittedAt={progressInfo.submittedAt ?? null}
                 queuePosition={progressInfo.queuePosition}
+                completedAt={progressInfo.completedAt ?? progressInfo.resultTime ?? null}
                 steps={[
                   {
                     key: 'model_download',
@@ -257,6 +280,20 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   {loadingMessage || 'Running model tests...'}
                 </Typography>
               </Box>
+            )}
+
+            {/* Once finished, let the user review the steps, then open the report. */}
+            {runFinished && (
+              <button
+                type="button"
+                onClick={onViewReport}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform active:scale-[0.97]"
+              >
+                View Test Report
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             )}
           </Box>
         ) : isInvalidJson ? (

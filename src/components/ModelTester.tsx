@@ -77,6 +77,10 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
   const [progressInfo, setProgressInfo] = useState<ProgressInfo | null>(null);
+  // After a run finishes we keep showing the step timeline; the user opens the
+  // report explicitly. `showReport` flips to true on that click (and is true by
+  // default so opening a stored report via the pill goes straight to it).
+  const [showReport, setShowReport] = useState(true);
   // Options dialog (custom environment + skip cache) is owned here so every
   // Test Model button opens the same dialog with the same defaults.
   const [showOptionsDialog, setShowOptionsDialog] = useState(false);
@@ -88,6 +92,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
     setIsLoading(true);
     setTestResult(null);
+    setShowReport(false);
     setLoadingStep('Connecting to model runner...');
     setProgressInfo(null);
     setIsDialogOpen(true);
@@ -124,6 +129,9 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
       const test_run_id = testResponse;
       console.log(`Async test run started, id: ${test_run_id}`);
+      // Fallback for the overall start time if the runner predates v1.15.3
+      // (which added submitted_at / completed_at to the status dict).
+      const submittedAtClient = Date.now() / 1000;
 
       let finalResult: TestResult | null = null;
       const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
@@ -131,15 +139,18 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       for (let i = 0; i < MAX_POLLS; i++) {
         const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
 
-        // v1.15 status shape: { queue_position, model_download, env_setup, running, result }.
-        const { queue_position, model_download, env_setup, running, result } = status;
+        // v1.15 status shape: { queue_position, model_download, env_setup,
+        // running, result }; v1.15.3 adds submitted_at + completed_at.
+        const { queue_position, model_download, env_setup, running, result, submitted_at, completed_at } = status;
 
         setProgressInfo({
           version: 'v2',
+          submittedAt: submitted_at ?? submittedAtClient,
           queuePosition: queue_position ?? 0,
           modelDownload: model_download ?? null,
           envSetup: env_setup ?? null,
           running: running ?? null,
+          completedAt: completed_at ?? null,
         });
 
         // Text label for aria / fallback.
@@ -169,9 +180,10 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
               }],
             };
           } else {
-            // Stamp the result time so the dialog can show a final running duration
+            // Freeze the timeline on completion: prefer the server's
+            // completed_at, else stamp the moment the result arrived.
             setProgressInfo(prev => prev?.version === 'v2'
-              ? { ...prev, resultTime: Date.now() / 1000 }
+              ? { ...prev, resultTime: Date.now() / 1000, completedAt: prev.completedAt ?? completed_at ?? Date.now() / 1000 }
               : prev);
             finalResult = result as TestResult;
           }
@@ -225,8 +237,15 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
     } finally {
       setLoadingStep('');
-      setProgressInfo(null);
       setIsLoading(false);
+      // Keep the step timeline visible after completion so the user can review
+      // it and open the report via the button. Freeze the active step if
+      // nothing marked it done (e.g. an error before a result arrived).
+      setProgressInfo(prev =>
+        prev?.version === 'v2' && prev.completedAt == null && prev.resultTime == null
+          ? { ...prev, completedAt: Date.now() / 1000 }
+          : prev
+      );
     }
   };
 
@@ -303,7 +322,13 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             className="h-full"
           >
             <button
-              onClick={() => pillClickable && setIsDialogOpen(true)}
+              onClick={() => {
+                if (!pillClickable) return;
+                // The pill represents the finished result → open the report
+                // directly (the timeline+button flow is for a fresh run).
+                if (!isLoading && displayResult) setShowReport(true);
+                setIsDialogOpen(true);
+              }}
               className={getPillClass()}
             >
               {isLoading ? (
@@ -352,6 +377,8 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         loadingMessage={loadingStep}
         progressInfo={progressInfo ?? undefined}
         type="test-report"
+        showReport={showReport}
+        onViewReport={() => setShowReport(true)}
       />
     </div>
   );

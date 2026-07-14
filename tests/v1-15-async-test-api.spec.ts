@@ -11,12 +11,13 @@ import { test, expect } from '@playwright/test';
 //   - The deNBI runner site is selected in the Advanced Options popover (v1.15.2 async API).
 //   - The shared "Run Model Test" options dialog opens when "Test Model" is clicked.
 //   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
-//   - The queue-position row sits on TOP of the step table and holds at 0 once
-//     the request is dequeued (it is never hidden).
-//   - The three step rows (Model download / Environment setup / Running) each show
-//     their start time in the user's timezone, a dash when skipped, and the live
-//     elapsed seconds in brackets for the step currently running.
-//   - After completion the dialog title reverts to "Test Report Details".
+//   - The overall test start time sits on TOP, above the queue-position row
+//     (which holds at 0 once the request is dequeued).
+//   - The three step rows (Model download / Environment setup / Running) show
+//     each step's duration (mm:ss), a dash when skipped, and the live-ticking
+//     duration for the step currently running.
+//   - On completion the dialog stays on the timeline ("Model Test Complete")
+//     with a "View Test Report" button; the report opens only when clicked.
 
 const MODEL_ID = 'bioimage-io/affable-shark';
 const MODEL_URL_ID = encodeURIComponent(MODEL_ID); // bioimage-io%2Faffable-shark
@@ -64,26 +65,29 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // Step 4: TestDetailsDialog opens automatically; title changes while loading.
     await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
 
-    // Step 5: Queue position sits on top of the table and is always present
-    // while the test is in flight (it holds at 0 once running, never hidden).
-    await expect(page.getByText('Queue position')).toBeVisible({ timeout: 120000 });
+    // Step 5: The overall test start time sits on top, above the queue position.
+    await expect(page.getByText('Test started')).toBeVisible({ timeout: 120000 });
+    await expect(page.getByText('Queue position')).toBeVisible();
 
     // Step 6: All three step rows are rendered (table is always shown).
     await expect(page.getByText('Model download')).toBeVisible({ timeout: 240000 });
     await expect(page.getByText('Environment setup')).toBeVisible();
     await expect(page.getByText('Running')).toBeVisible();
 
-    // Step 7: Once a step is running, its right-hand cell shows a wall-clock
-    // start time (hh:mm:ss) and the active step appends live elapsed seconds.
-    const startTimeCell = page.locator('text=/\\d{1,2}:\\d{2}:\\d{2}/');
-    await expect(startTimeCell.first()).toBeVisible({ timeout: 240000 });
-    await expect(page.locator('text=/\\(\\d+s\\)/').first()).toBeVisible({ timeout: 30000 });
+    // Step 7: The right-hand cell shows each step's duration (mm:ss).
+    await expect(page.locator('text=/^\\d{2}:\\d{2}$/').first()).toBeVisible({ timeout: 240000 });
 
-    // Step 8: Wait for completion — title reverts to "Test Report Details".
-    await expect(page.getByText('Test Report Details')).toBeVisible({ timeout: 240000 });
+    // Step 8: On completion the dialog stays on the timeline (title "Model Test
+    // Complete") and offers a "View Test Report" button — the report does NOT
+    // auto-open, so the user can review the steps first.
+    await expect(page.getByText('Model Test Complete')).toBeVisible({ timeout: 240000 });
+    const viewReport = page.getByRole('button', { name: 'View Test Report' });
+    await expect(viewReport).toBeVisible();
+    await expect(page.getByText('Test Report Details')).toHaveCount(0);
 
-    // Step 9: A "passed" or "failed" status chip is shown in the report header
-    // (the first such chip — detail rows carry their own status chips too).
+    // Step 9: Only after clicking the button does the report open.
+    await viewReport.click();
+    await expect(page.getByText('Test Report Details')).toBeVisible({ timeout: 5000 });
     await expect(
       page.getByText(/^passed$/).or(page.getByText(/^failed$/)).first()
     ).toBeVisible({ timeout: 5000 });

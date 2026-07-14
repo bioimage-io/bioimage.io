@@ -12,41 +12,52 @@ export interface TimelineStep {
 }
 
 interface StepTimelineProps {
+  /** Unix seconds when the whole test was submitted/queued. Shown on top. */
+  submittedAt: number | null;
   /**
    * FIFO queue rank reported by the runner. Counts down to 0 and stays at 0
-   * once the request is dequeued and running. Rendered on top of the table.
+   * once the request is dequeued and running.
    */
   queuePosition: number;
   /** Ordered steps. Each renders one table row. */
   steps: TimelineStep[];
+  /** Unix seconds when the whole test finished. Freezes the running step's
+   *  duration; null while still in flight. */
+  completedAt: number | null;
 }
 
-/**
- * Format a unix-seconds timestamp as a clock time in the viewer's own
- * timezone (toLocaleTimeString defaults to the browser locale + zone).
- */
-const formatStartTime = (ts: number): string =>
+/** Format a unix-seconds timestamp as a clock time in the viewer's own timezone. */
+const formatClock = (ts: number): string =>
   new Date(ts * 1000).toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   });
 
+/** Format an elapsed duration in seconds as mm:ss. */
+const formatDuration = (sec: number): string => {
+  const s = Math.max(0, Math.floor(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
 /**
- * Queue-position header plus a two-column step table used by both the model
- * test dialog and the inference panel. Left column: bold step header with a
- * short description. Right column: the wall-clock time the step started, in
- * the user's timezone — blank until it starts, an em dash if it was skipped
- * (a later step started while this one never did), and the live elapsed
- * seconds in brackets while the step is the one currently running.
+ * Queue-position header plus a two-column step table used by the model test
+ * dialog and the inference panel. The overall test start time sits on top,
+ * above the queue position. Left column: bold step header + short description.
+ * Right column: how long each step took (mm:ss) — computed from the step
+ * timestamps — with the currently-running step ticking live and freezing at
+ * `completedAt` when the test finishes. A skipped step (a later step started
+ * while this one never did) shows an em dash; a step that hasn't started yet is
+ * blank.
  */
-const StepTimeline: React.FC<StepTimelineProps> = ({ queuePosition, steps }) => {
-  // Tick once a second so the active step's elapsed counter stays live.
+const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, queuePosition, steps, completedAt }) => {
+  // Tick once a second so the active step's duration stays live.
   const [nowSec, setNowSec] = React.useState(() => Date.now() / 1000);
   React.useEffect(() => {
+    if (completedAt != null) return; // frozen once finished
     const id = setInterval(() => setNowSec(Date.now() / 1000), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [completedAt]);
 
   // The currently-running step is the last one that carries a start time.
   let activeIdx = -1;
@@ -56,9 +67,28 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ queuePosition, steps }) => 
 
   const running = queuePosition <= 0;
 
+  // End timestamp for a step = the next started step's start, else the overall
+  // completion (or now, while still running) for the active/last step.
+  const stepEnd = (i: number): number => {
+    for (let j = i + 1; j < steps.length; j++) {
+      if (steps[j].startTs != null) return steps[j].startTs as number;
+    }
+    return completedAt ?? nowSec;
+  };
+
   return (
     <Box sx={{ width: '100%', maxWidth: 360 }}>
-      {/* Queue position — on top, always visible; holds at 0 once running. */}
+      {/* Overall test start time — on top, above the queue position. */}
+      {submittedAt != null && (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Typography variant="body2" color="text.secondary">Test started</Typography>
+          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
+            {formatClock(submittedAt)}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Queue position — holds at 0 once running. */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
           Queue position
@@ -79,22 +109,13 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ queuePosition, steps }) => 
       <Stack spacing={1.25}>
         {steps.map((step, i) => {
           const started = step.startTs != null;
-          const isActive = i === activeIdx;
+          const isActive = i === activeIdx && completedAt == null;
           // Skipped: never started, yet a later step already has a start time.
           const skipped = !started && steps.slice(i + 1).some(s => s.startTs != null);
 
           let right: React.ReactNode = '';
           if (started) {
-            right = (
-              <>
-                {formatStartTime(step.startTs as number)}
-                {isActive && (
-                  <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 0.75 }}>
-                    ({Math.max(0, Math.floor(nowSec - (step.startTs as number)))}s)
-                  </Typography>
-                )}
-              </>
-            );
+            right = formatDuration(stepEnd(i) - (step.startTs as number));
           } else if (skipped) {
             right = '—';
           }
