@@ -69,7 +69,15 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
     if (s.startTs != null) activeIdx = i;
   });
 
-  const running = queuePosition <= 0;
+  // Queue-position chip. The runner reports queue_position = 1 while this
+  // request is the active/running one, 0 once it is done, and N (>1) while
+  // N-1 requests are still ahead of it. Show a green "1" while running, a grey
+  // "0" once complete, and an amber "#N" while queued.
+  const queueChip = queuePosition <= 0
+    ? { label: '0', bg: 'rgba(107, 114, 128, 0.1)', fg: '#4b5563', bd: 'rgba(107, 114, 128, 0.3)' }
+    : queuePosition === 1
+      ? { label: '1', bg: 'rgba(34, 197, 94, 0.1)', fg: '#15803d', bd: 'rgba(34, 197, 94, 0.3)' }
+      : { label: `#${queuePosition}`, bg: 'rgba(245, 158, 11, 0.1)', fg: '#b45309', bd: 'rgba(245, 158, 11, 0.3)' };
 
   // Live timer for the running step: anchor it to the browser clock the moment
   // the step becomes active so it starts at ~0:00. The step timestamps come
@@ -109,20 +117,20 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
         </Box>
       )}
 
-      {/* Queue position — holds at 0 once running. */}
+      {/* Queue position — green "1" while running, grey "0" once complete. */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
           Queue position
         </Typography>
         <Chip
-          label={running ? '0' : `#${queuePosition}`}
+          label={queueChip.label}
           size="small"
           sx={{
             borderRadius: '8px',
             fontWeight: 600,
-            backgroundColor: running ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-            color: running ? '#15803d' : '#b45309',
-            border: `1px solid ${running ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            backgroundColor: queueChip.bg,
+            color: queueChip.fg,
+            border: `1px solid ${queueChip.bd}`,
           }}
         />
       </Box>
