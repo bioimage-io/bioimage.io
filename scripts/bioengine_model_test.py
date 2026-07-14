@@ -13,6 +13,46 @@ from hypha_rpc import connect_to_server, login
 from hypha_rpc.utils import ObjectProxy
 
 
+# Testing is submitted through the async model-runner API: ``test()`` returns a
+# run id immediately and the report is retrieved by polling
+# ``get_test_status(test_run_id)`` until its ``result`` field is populated.
+TEST_TIMEOUT_SECONDS = 300
+TEST_POLL_INTERVAL_SECONDS = 3
+
+
+async def run_test(
+    runner: ObjectProxy, model_id: str, skip_cache: bool
+) -> dict:
+    """Submit a model test and wait for the report via the async runner API.
+
+    ``test()`` returns a run id string on the v1.15+ async API; the report is
+    then retrieved by polling ``get_test_status(test_run_id)`` until its
+    ``result`` field is populated. A ``result`` carrying an ``error`` key is
+    surfaced as a ``RuntimeError``. The runner publishes the report to the
+    ``bioimage-io/test-reports`` collection itself. Raises
+    ``asyncio.TimeoutError`` when the run does not complete within
+    ``TEST_TIMEOUT_SECONDS``.
+    """
+    run_id = await runner.test(model_id=model_id, stage=False, skip_cache=skip_cache)
+
+    # Legacy synchronous runners returned the report dict directly instead of a
+    # run id; accept that so the script keeps working during a rollout.
+    if not isinstance(run_id, str):
+        return run_id
+
+    deadline = time.time() + TEST_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        status = await runner.get_test_status(test_run_id=run_id)
+        result = status.get("result") if isinstance(status, dict) else None
+        if result is not None:
+            if isinstance(result, dict) and "error" in result:
+                raise RuntimeError(result["error"])
+            return result
+        await asyncio.sleep(TEST_POLL_INTERVAL_SECONDS)
+
+    raise asyncio.TimeoutError()
+
+
 async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
     """Ask the deployed model-runner which BioEngine artifact version it was built from.
 
@@ -44,18 +84,18 @@ async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
 
 async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
-    attach_test_report: bool = True,
     reports_dir: Optional[Path] = None,
     skip_cache: bool = False,
 ) -> None:
     """Test BioImage.IO models and generate test reports.
 
     Connects to the Hypha server, runs tests on specified models (or all models
-    if none specified), and optionally updates artifact manifests with reports.
+    if none specified), and writes per-model JSON reports locally for the CI
+    summary. The model-runner publishes each report to the
+    ``bioimage-io/test-reports`` collection itself.
 
     Args:
         model_ids: List of model IDs to test. If None, fetches all models.
-        attach_test_report: Whether model_runner.test should attach test_report.json to the artifact.
         reports_dir: Directory where per-model JSON test reports are written.
         skip_cache: Whether to skip cache during model testing.
 
@@ -113,14 +153,8 @@ async def test_bmz_models(
 
         try:
             print(f"Testing model '{model_id}'...")
-            test_report = await asyncio.wait_for(
-                model_runner.test(
-                    model_id=model_id,
-                    stage=False,
-                    skip_cache=skip_cache,
-                    attach_test_report=attach_test_report,
-                ),
-                timeout=300,  # 5 minutes timeout
+            test_report = await run_test(
+                model_runner, model_id=model_id, skip_cache=skip_cache
             )
 
             model_execution_time = time.time() - model_start_time
@@ -330,17 +364,6 @@ def main():
         help="Directory for writing test reports and reading them in --analyze-reports (default: ../bioimageio_test_reports)",
     )
     parser.add_argument(
-        "--no-attach-test-report",
-        action="store_false",
-        dest="attach_test_report",
-        help="Do not attach test_report.json to the artifact via model_runner.test",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run tests but don't update any artifacts",
-    )
-    parser.add_argument(
         "--analyze-reports",
         action="store_true",
         help="Analyze existing test reports in the reports_dir and output summary for GitHub Actions",
@@ -358,11 +381,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Handle dry-run mode
-    if args.dry_run:
-        args.attach_test_report = False
-        print("Running in dry-run mode - test_report.json will not be attached to the artifact")
-
     reports_dir = (
         args.reports_dir
         or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
@@ -378,7 +396,6 @@ def main():
         asyncio.run(
             test_bmz_models(
                 model_ids=args.model_ids,
-                attach_test_report=args.attach_test_report,
                 reports_dir=reports_dir,
                 skip_cache=args.skip_cache,
             )

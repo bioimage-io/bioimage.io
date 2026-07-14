@@ -24,7 +24,7 @@ import DevicesIcon from '@mui/icons-material/Devices';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
-import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl, resolveInferenceReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -49,13 +49,20 @@ import { HYPHA_SERVER_URL } from '../config/hypha';
 let cachedInferenceResults: Record<string, any> | null = null;
 let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
 
-const getInferenceResults = async (artifactManager: any) => {
+// Inference results now live in a dedicated artifact under the
+// bioimage-io/test-reports collection (written by
+// scripts/bioengine_model_infer.py), not the collection manifest. The report
+// file is world-readable, so a plain fetch works without the artifact manager.
+const getInferenceResults = async () => {
   if (cachedInferenceResults) return cachedInferenceResults;
   if (inferenceResultsPromise) return inferenceResultsPromise;
 
-  inferenceResultsPromise = artifactManager.read('bioimage-io/bioimage.io')
-    .then((collection: any) => {
-      cachedInferenceResults = collection.manifest?.bioengine_inference || {};
+  inferenceResultsPromise = fetch(resolveInferenceReportUrl())
+    .then(async (response: Response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to fetch inference report: ${response.status}`);
+      }
+      cachedInferenceResults = (await response.json()) || {};
       return cachedInferenceResults;
     })
     .catch((error: any) => {
@@ -328,7 +335,7 @@ const ArtifactDetails = () => {
       if (!artifactManager || !selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
 
       try {
-        const inferenceResults = await getInferenceResults(artifactManager);
+        const inferenceResults = await getInferenceResults();
         const modelId = selectedResource.id.split('/').pop();
         
         if (modelId && inferenceResults?.[modelId]) {

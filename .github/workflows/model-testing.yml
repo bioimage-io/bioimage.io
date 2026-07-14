@@ -10,11 +10,6 @@ on:
         description: 'Specific model IDs to test (comma-separated, leave empty for all)'
         required: false
         type: string
-      dry_run:
-        description: "Run in dry-run mode (don't update artifacts)"
-        required: false
-        default: false
-        type: boolean
       skip_cache:
         description: 'Skip cache during model testing'
         required: false
@@ -59,7 +54,6 @@ jobs:
 
         # Set safe defaults for inputs (handle scheduled runs)
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
-        DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
         SKIP_CACHE="${{ github.event.inputs.skip_cache || 'false' }}"
 
         # Build command arguments
@@ -68,10 +62,6 @@ jobs:
         if [ -n "$MODEL_IDS" ]; then
           MODEL_IDS_SPACE=$(echo "$MODEL_IDS" | tr ',' ' ')
           ARGS="$ARGS --model-ids $MODEL_IDS_SPACE"
-        fi
-
-        if [ "$DRY_RUN" = "true" ]; then
-          ARGS="$ARGS --dry-run"
         fi
 
         if [ "$SKIP_CACHE" = "true" ]; then
