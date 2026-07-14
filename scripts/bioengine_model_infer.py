@@ -255,15 +255,15 @@ async def run_inference(
 
 async def check_bmz_model_inference(
     model_ids: Optional[List[str]] = None,
-    dry_run: bool = False,
     summary_file: str = DEFAULT_INFERENCE_SUMMARY_PATH,
     skip_cache: bool = False,
 ) -> None:
-    """Test BioImage.IO model and generate test report.
+    """Run inference on BioImage.IO models and publish the inference report.
 
     Args:
-        model_id: The ID of the model to test.
-        result_dir: Directory to store JSON test results.
+        model_ids: Model IDs to check. If None, checks every model in the
+            collection.
+        summary_file: Path to write the CI summary JSON to.
         skip_cache: When True, re-run inference even for models that previously
             passed and haven't changed since (bypasses the in-script result
             cache), and ask the model-runner to bypass its own cache too.
@@ -398,29 +398,19 @@ async def check_bmz_model_inference(
     save_inference_summary(summary_file, summary)
 
     # Publish the merged inference results to the report artifact
-    if not dry_run:
-        print(
-            f"\nUpdating inference report artifact '{INFERENCE_REPORT_ARTIFACT}'..."
-        )
-        updated_results = {**previous_results, **results}
-        await update_inference_report(artifact_manager, updated_results)
-    else:
-        print("\nDry run enabled, not updating the inference report artifact")
+    print(f"\nUpdating inference report artifact '{INFERENCE_REPORT_ARTIFACT}'...")
+    updated_results = {**previous_results, **results}
+    await update_inference_report(artifact_manager, updated_results)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Test BioImage.IO models and generate test reports"
+        description="Run inference on BioImage.IO models and publish the inference report"
     )
     parser.add_argument(
         "--model-ids",
         nargs="+",
         help="Specific model IDs to test (default: test all models)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run tests but don't update any artifacts",
     )
     parser.add_argument(
         "--summary-file",
@@ -449,7 +439,6 @@ if __name__ == "__main__":
     asyncio.run(
         check_bmz_model_inference(
             model_ids=args.model_ids,
-            dry_run=args.dry_run,
             summary_file=args.summary_file,
             skip_cache=args.skip_cache,
         )

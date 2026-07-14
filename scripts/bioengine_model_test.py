@@ -364,13 +364,6 @@ def main():
         help="Directory for writing test reports and reading them in --analyze-reports (default: ../bioimageio_test_reports)",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Accepted for CLI compatibility. The async model-runner publishes "
-        "each report to the bioimage-io/test-reports collection itself, so this "
-        "flag no longer suppresses publishing; it only prints a note.",
-    )
-    parser.add_argument(
         "--analyze-reports",
         action="store_true",
         help="Analyze existing test reports in the reports_dir and output summary for GitHub Actions",
@@ -387,14 +380,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # The async model-runner publishes reports to the test-reports collection
-    # itself; there is no per-call opt-out, so dry-run cannot suppress it.
-    if args.dry_run:
-        print(
-            "Note: --dry-run set, but the model-runner publishes test reports to "
-            "the bioimage-io/test-reports collection regardless."
-        )
 
     reports_dir = (
         args.reports_dir
