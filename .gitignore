@@ -31,3 +31,6 @@ yarn-error.log*
 
 .playwright-browsers/
 dist/
+
+# local scratch (agent working files, not for commit)
+.dev/
