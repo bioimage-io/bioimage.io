@@ -32,7 +32,29 @@
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     
     <title>BioImage.IO - Model Zoo</title>
-    
+
+    <!-- ResizeObserver loop guard. Defers every ResizeObserver callback one
+         frame so it no longer runs inside the browser's observation step — the
+         condition that makes the benign "ResizeObserver loop completed with
+         undelivered notifications" error fire. This runs before the app bundle
+         so every library (Monaco, MUI, OpenLayers, …) uses the wrapped version,
+         even ones that capture window.ResizeObserver at import time. -->
+    <script>
+      (function () {
+        if (typeof window.ResizeObserver === 'undefined') return;
+        var Native = window.ResizeObserver;
+        function PatchedResizeObserver(callback) {
+          return new Native(function (entries, observer) {
+            window.requestAnimationFrame(function () {
+              try { callback(entries, observer); } catch (e) { /* swallow */ }
+            });
+          });
+        }
+        PatchedResizeObserver.prototype = Native.prototype;
+        window.ResizeObserver = PatchedResizeObserver;
+      })();
+    </script>
+
     <!-- Service Worker Cleanup -->
     <script>
       (function() {
