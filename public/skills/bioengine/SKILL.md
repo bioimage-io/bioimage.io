@@ -1,6 +1,6 @@
 ---
 name: bioengine
-description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report at the public Hypha collection `bioimage-io/bioengine-skill-issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
+description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report at the shared public Hypha collection `bioimage-io/skill-issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
 license: MIT
 metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
@@ -479,7 +479,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 ## Leave a feedback report
 
-Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the public collection `bioimage-io/bioengine-skill-issues`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
+Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the shared public collection `bioimage-io/skill-issues` (feedback for every bioimage.io skill lands here; the `skill: "bioengine"` field below tags it). The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
 
 **When to file a report (any of these is a trigger):**
 
@@ -538,12 +538,13 @@ async def submit_feedback(report_md_path: str, slug: str, title: str,
 
     date = datetime.date.today().isoformat()
     report = await am.create(
-        parent_id="bioimage-io/bioengine-skill-issues",
-        alias=f"report-{date}-{slug}",            # e.g. report-2026-06-05-slurm-berzelius
+        parent_id="bioimage-io/skill-issues",
+        alias=f"report-{date}-bioengine-{slug}",  # e.g. report-2026-06-05-bioengine-slurm-berzelius
         type="report",
         manifest={
             "name": title,
             "description": summary,
+            "skill": "bioengine",                 # REQUIRED — which skill this report is about
             "tags": tags or [],                   # e.g. ["worker-setup", "slurm", "cluster:berzelius"]
         },
         stage=True,
@@ -564,4 +565,4 @@ async def submit_feedback(report_md_path: str, slug: str, title: str,
 
 Useful tags for triage: `worker-setup`, `slurm`, `single-machine`, `external-cluster`, `app:model-runner`, `app:cellpose-finetuning`, `cli`, `docs`, `bug-launcher`, `bug-worker`, `undocumented-flag`, `cluster:<name>`. Add more freely.
 
-The same snippet + the full template + the latest tag list are also stored on the collection's manifest (`am.read("bioimage-io/bioengine-skill-issues").manifest`) — fetch from there if you suspect this section is stale.
+The same snippet + the full template + the latest tag list are also stored on the collection's manifest (`am.read("bioimage-io/skill-issues").manifest`) — fetch from there if you suspect this section is stale.

@@ -434,6 +434,34 @@ asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", pack
 - **7c — Website / submission issues** (upload flow, Hypha API, bioimage.io UI) → file against `bioimage-io/bioimage.io`.
 - **7d — Skill improvements** — if these instructions were confusing or missing steps, file against `bioimage-io/bioimage.io` with a concrete draft of the improved text. Skill source lives at `public/skills/bioimageio-models/`.
 - **7e — Success example** — on a successful submission, append the model to [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) so future runs can learn from what worked. Use the append template in `audit-templates.md`.
+- **7f — Skill feedback (shared Hypha collection)** — if *this skill itself* was confusing, stale, or contradicted the live system (distinct from the spec/core/website bugs in 7a–7c), also file a structured report in the shared **`bioimage-io/skill-issues`** collection, tagged `skill: "bioimageio-models"`. Maintainers triage that collection across every bioimage.io skill. Any authenticated Hypha token works (the collection grants `@: r+`); do **not** include secrets — reports are public.
+
+```python
+import datetime, os, httpx
+from hypha_rpc import connect_to_server
+
+async def submit_skill_feedback(report_md_path, slug, title, summary, tags=None):
+    server = await connect_to_server({"server_url": "https://hypha.aicell.io",
+                                      "token": os.environ["HYPHA_TOKEN"]})
+    am = await server.get_service("public/artifact-manager")
+    date = datetime.date.today().isoformat()
+    report = await am.create(
+        parent_id="bioimage-io/skill-issues",
+        alias=f"report-{date}-bioimageio-models-{slug}",
+        type="report",
+        manifest={"name": title, "description": summary,
+                  "skill": "bioimageio-models", "tags": tags or []},
+        stage=True,
+    )
+    put_url = await am.put_file(report.id, file_path="report.md")
+    async with httpx.AsyncClient() as c:
+        with open(report_md_path, "rb") as f:
+            (await c.put(put_url, content=f.read())).raise_for_status()
+    await am.commit(report.id)
+    return report.id
+```
+
+The `report.md` section structure + the full tag list live on the collection manifest — `am.read("bioimage-io/skill-issues").manifest` — fetch from there if this section looks stale.
 
 ---
 
