@@ -4,6 +4,7 @@ import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners
 import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
 import TestOptionsDialog from './TestOptionsDialog';
 import HintTooltip from './HintTooltip';
+import { resolveTestReportUrl } from '../utils/urlHelpers';
 
 interface TestResult {
   name: string;
@@ -129,9 +130,35 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
       const test_run_id = testResponse;
       console.log(`Async test run started, id: ${test_run_id}`);
-      // Fallback for the overall start time if the runner predates v1.15.3
-      // (which added submitted_at / completed_at to the status dict).
+      // Overall start time for the "Test started" display. We use the browser's
+      // clock (when the run was kicked off) rather than the runner's
+      // submitted_at so the shown time matches the user's own wall clock — the
+      // runner's clock can be skewed by minutes, which would otherwise show a
+      // start time several minutes off.
       const submittedAtClient = Date.now() / 1000;
+
+      // Load the authoritative test report from the test-report artifact
+      // collection rather than the inline `result` from get_test_status. The
+      // runner commits the report to the collection before it exposes `result`,
+      // so it's already there; we poll briefly (cache-busted) until the stored
+      // copy reflects THIS run (matching tested_at) to avoid a stale prior
+      // report. Returns null if the collection can't be reached.
+      const loadStoredReport = async (expectedTestedAt?: number): Promise<TestResult | null> => {
+        const base = resolveTestReportUrl(artifactId!, !!isStaged);
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            const res = await fetch(`${base}&t=${Date.now()}`);
+            if (res.ok) {
+              const report = await res.json();
+              if (expectedTestedAt == null || Number(report?.tested_at) === Number(expectedTestedAt)) {
+                return report as TestResult;
+              }
+            }
+          } catch { /* transient — retry */ }
+          await sleep(1500);
+        }
+        return null;
+      };
 
       let finalResult: TestResult | null = null;
       const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
@@ -141,11 +168,11 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
         // v1.15 status shape: { queue_position, model_download, env_setup,
         // running, result }; v1.15.3 adds submitted_at + completed_at.
-        const { queue_position, model_download, env_setup, running, result, submitted_at, completed_at } = status;
+        const { queue_position, model_download, env_setup, running, result, completed_at } = status;
 
         setProgressInfo({
           version: 'v2',
-          submittedAt: submitted_at ?? submittedAtClient,
+          submittedAt: submittedAtClient,
           queuePosition: queue_position ?? 0,
           modelDownload: model_download ?? null,
           envSetup: env_setup ?? null,
@@ -185,7 +212,12 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             setProgressInfo(prev => prev?.version === 'v2'
               ? { ...prev, resultTime: Date.now() / 1000, completedAt: prev.completedAt ?? completed_at ?? Date.now() / 1000 }
               : prev);
-            finalResult = result as TestResult;
+            // Discard the inline `result` payload; load the report from the
+            // artifact collection instead. `tested_at` is used only to confirm
+            // the stored copy is from this run. Fall back to the inline result
+            // if the collection is unreachable.
+            const expectedTestedAt = (result as any)?.tested_at;
+            finalResult = (await loadStoredReport(expectedTestedAt)) ?? (result as TestResult);
           }
           break;
         }

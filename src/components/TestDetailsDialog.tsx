@@ -247,10 +247,12 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
         {showProgressView ? (
           <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2.5 }}>
             <img
-              src="/static/img/bioengine-logo-black.svg"
+              src={testInProgress
+                ? '/static/img/bioengine-logo-black.svg'
+                : '/static/img/bioengine-logo-black-static.svg'}
               alt="BioEngine"
               className={testInProgress ? 'animate-pulse' : ''}
-              style={{ height: '80px' }}
+              style={{ height: '64px' }}
             />
 
             {progressInfo ? (
@@ -413,6 +415,11 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                       {reportData.metadata_completeness !== undefined && (
                         <Typography variant="body2" color="text.secondary">
                           <strong>Metadata Completeness:</strong> {(reportData.metadata_completeness * 100).toFixed(1)}%
+                        </Typography>
+                      )}
+                      {reportData.tested_at !== undefined && reportData.tested_at !== null && (
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Tested at:</strong> {new Date(Number(reportData.tested_at) * 1000).toLocaleString()}
                         </Typography>
                       )}
                     </>

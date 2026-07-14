@@ -68,8 +68,25 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, queuePosition,
 
   const running = queuePosition <= 0;
 
-  // End timestamp for a step = the next started step's start, else the overall
-  // completion (or now, while still running) for the active/last step.
+  // Live timer for the running step: anchor it to the browser clock the moment
+  // the step becomes active so it starts at ~0:00. The step timestamps come
+  // from the runner; computing "browser now − runner startTs" mixes two
+  // machines' clocks, and any skew between them (both are unix epoch, but the
+  // machines can still disagree on "now") shows up immediately — that is why
+  // the timer jumped straight to e.g. 6:30. Completed steps keep using the
+  // runner's timestamps on both ends, so they stay skew-free.
+  const activeStepKey = activeIdx >= 0 && completedAt == null ? steps[activeIdx].key : null;
+  const anchorRef = React.useRef<{ key: string; clientStart: number } | null>(null);
+  if (activeStepKey) {
+    if (anchorRef.current?.key !== activeStepKey) {
+      anchorRef.current = { key: activeStepKey, clientStart: Date.now() / 1000 };
+    }
+  } else {
+    anchorRef.current = null;
+  }
+
+  // End timestamp for a completed step = the next started step's start, else
+  // the overall completion timestamp.
   const stepEnd = (i: number): number => {
     for (let j = i + 1; j < steps.length; j++) {
       if (steps[j].startTs != null) return steps[j].startTs as number;
@@ -116,7 +133,9 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, queuePosition,
 
           let right: React.ReactNode = '';
           if (started) {
-            right = formatDuration(stepEnd(i) - (step.startTs as number));
+            right = isActive && anchorRef.current
+              ? formatDuration(nowSec - anchorRef.current.clientStart)
+              : formatDuration(stepEnd(i) - (step.startTs as number));
           } else if (skipped) {
             right = '—';
           }
