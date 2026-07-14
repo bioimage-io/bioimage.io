@@ -115,7 +115,7 @@ const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
             />
             <span className="text-xs text-gray-500">
-              Leave empty to use the default Hypha server. Set to a private BioEngine to validate or test against it.
+              Leave empty to use the default Hypha server.
             </span>
           </div>
 
@@ -141,7 +141,7 @@ const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
             />
             <span className="text-xs text-gray-500">
-              Pick a cluster on the right to populate this field, or type a custom service id (e.g. a private BioEngine).
+              Switch between clusters to populate this field, or type a custom service id (e.g. a model-runner application on a private BioEngine).
             </span>
           </div>
 
