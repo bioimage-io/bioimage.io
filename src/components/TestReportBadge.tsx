@@ -15,7 +15,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import InfoIcon from '@mui/icons-material/Info';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
-import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
+import { resolveTestReportUrl } from '../utils/urlHelpers';
 import TestReportDialog from './TestReportDialog';
 
 interface TestReportBadgeProps {
@@ -88,12 +88,9 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
         setRawErrorContent(null);
         setDetailedTestReport(null);
 
-        // Try the new dedicated test-report collection first (model-runner v1.13.2+),
-        // fall back to the legacy location on the model artifact itself.
-        let response = await fetch(resolveTestReportUrl(artifact.id, false));
-        if (!response.ok) {
-          response = await fetch(resolveHyphaUrl('test_report.json', artifact.id, true));
-        }
+        // Read the test report from the dedicated bioimage-io/test-reports
+        // collection (per-model test-report-<id> artifact).
+        const response = await fetch(resolveTestReportUrl(artifact.id, false));
         const responseText = await response.text();
         
         try {
