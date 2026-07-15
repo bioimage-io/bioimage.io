@@ -3,6 +3,7 @@ import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import ArtifactDetailsSkeleton from './ArtifactDetailsSkeleton';
 import { Button, Box, Typography, Chip, Grid, Card, CardContent, Avatar, Link, Stack, Divider, IconButton, CircularProgress, Alert, Accordion, AccordionSummary, AccordionDetails, Paper, Popover, Tooltip } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
@@ -622,19 +623,8 @@ const ArtifactDetails = () => {
     };
   }, []);
 
-  // Add this overlay spinner component
-  const LoadingOverlay = () => (
-    <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white/80 backdrop-blur-lg rounded-xl p-8 flex flex-col items-center shadow-lg border border-white/50">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-300 border-t-blue-600 mb-4"></div>
-        <div className="text-lg font-medium text-gray-700">Loading Artifact Details...</div>
-        <div className="text-sm text-gray-500 mt-1">Please wait while we fetch the data</div>
-      </div>
-    </div>
-  );
-
   if (isLoading) {
-    return <LoadingOverlay />;
+    return <ArtifactDetailsSkeleton />;
   }
 
   if (error) {

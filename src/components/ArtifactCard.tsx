@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Box, Typography, Stack, Chip } from '@mui/material';
+import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Box, Typography, Stack, Chip, Skeleton } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -23,6 +23,7 @@ interface ResourceCardProps {
 export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const covers = artifact.manifest.covers || [];
   const navigate = useNavigate();
   const [showCopied, setShowCopied] = useState(false);
@@ -148,9 +149,11 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     }
   };
 
-  // Reset thumbnail fallback state when the user navigates to a different cover image.
+  // Reset thumbnail fallback + load state when the user navigates to a different
+  // cover image, so the new cover fades in from its placeholder.
   useEffect(() => {
     setThumbnailFailed(false);
+    setImgLoaded(false);
   }, [currentImageIndex]);
 
   // In the overview grid, prefer the thumbnail (lower bandwidth); fall back to
@@ -286,25 +289,50 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
 
       <div style={{ position: 'relative', paddingTop: '56.25%', borderRadius: '16px 16px 0 0', overflow: 'hidden' }}> {/* 16:9 aspect ratio container */}
         {covers.length > 0 ? (
-          <CardMedia
-            onClick={handleClick}
-            component="img"
-            image={getCurrentCoverUrl()}
-            onError={() => setThumbnailFailed(true)}
-            alt={artifact.manifest.name}
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              transition: 'transform 0.3s ease',
-              '&:hover': {
-                transform: 'scale(1.02)',
-              }
-            }}
-          />
+          <>
+            {/* Shimmer placeholder shown until the cover finishes decoding, so the
+                card never flashes an empty box while the thumbnail downloads. */}
+            {!imgLoaded && (
+              <Skeleton
+                variant="rectangular"
+                animation="pulse"
+                sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+              />
+            )}
+            <CardMedia
+              onClick={handleClick}
+              component="img"
+              image={getCurrentCoverUrl()}
+              onLoad={() => setImgLoaded(true)}
+              // First error: retry with the full-res original. Second error: give
+              // up and reveal so the placeholder does not shimmer forever.
+              onError={() => (thumbnailFailed ? setImgLoaded(true) : setThumbnailFailed(true))}
+              loading="lazy"
+              decoding="async"
+              alt={artifact.manifest.name}
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                // Fade + gentle scale in on load (strong ease-out); never pops in.
+                opacity: imgLoaded ? 1 : 0,
+                transform: imgLoaded ? 'scale(1)' : 'scale(0.98)',
+                transition:
+                  'opacity 250ms ease-out, transform 250ms cubic-bezier(0.23, 1, 0.32, 1)',
+                '&:hover': {
+                  transform: 'scale(1.02)',
+                },
+                // Reduced motion: fade only, no movement.
+                '@media (prefers-reduced-motion: reduce)': {
+                  transform: 'none',
+                  transition: 'opacity 200ms ease-out',
+                },
+              }}
+            />
+          </>
         ) : (
           <div
             style={{

@@ -3,9 +3,18 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
+import ArtifactCardSkeleton from './ArtifactCardSkeleton';
 import PartnerScroll from './PartnerScroll';
-import { Grid } from '@mui/material';
+import { Grid, LinearProgress } from '@mui/material';
+import { keyframes } from '@emotion/react';
 import TagSelection from './TagSelection';
+
+// Gentle entrance for cards as a page of results arrives. Staggered per card
+// (capped) so the grid cascades in rather than popping all at once.
+const fadeInUp = keyframes`
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 
 interface ResourceGridProps {
   type?: 'model' | 'application' | 'notebook' | 'dataset';
@@ -133,17 +142,6 @@ export const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }
     </div>
   );
 };
-
-// Add this overlay spinner component
-const LoadingOverlay = () => (
-  <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50">
-    <div className="bg-white/80 backdrop-blur-lg rounded-xl p-8 flex flex-col items-center shadow-lg border border-white/50">
-      <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-300 border-t-blue-600 mb-4"></div>
-      <div className="text-lg font-medium text-gray-700">Loading resources...</div>
-      <div className="text-sm text-gray-500 mt-1">Please wait while we fetch the latest data</div>
-    </div>
-  </div>
-);
 
 export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [loading, setLoading] = useState(true);
@@ -347,8 +345,14 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           <div className="absolute inset-0 w-full h-2 bg-gradient-to-b from-blue-50/20 to-transparent transform translate-y-1"></div>
         </div>
 
-        {/* Show loading overlay when loading (but not when just typing) */}
-        {loading && !isTyping && <LoadingOverlay />}
+        {/* Non-blocking top progress bar while fetching (but not when just typing).
+            Replaces the old full-screen blocking overlay: content stays visible so
+            the page never blanks out, which is far faster to the eye under load. */}
+        {loading && !isTyping && (
+          <LinearProgress
+            sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: 2 }}
+          />
+        )}
 
         <div className="community-partners mb-4">
           <div className="partner-logos">
@@ -424,25 +428,61 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
           </div>
         )}
 
-        <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
-          {resources.map((artifact) => (
-            <Grid
-              item
-              key={artifact.id}
-              xs={12}
-              sm={6}
-              md={4}
-              lg={3}
-              sx={{
-                minWidth: { xs: 'auto', sm: 280 },
-                maxWidth: { xs: '100%', sm: 320 },
-                margin: '0 auto'
-              }}
-            >
-              <ArtifactCard artifact={artifact} />
-            </Grid>
-          ))}
-        </Grid>
+        {/* First load with no results yet -> skeleton grid so structure appears
+            instantly. Refetching with results already on screen -> keep them
+            visible and dimmed (stale-while-revalidate) instead of clearing. */}
+        <div
+          style={{
+            opacity: loading && !isTyping && resources.length > 0 ? 0.55 : 1,
+            transition: 'opacity 200ms ease-out',
+            pointerEvents: loading && !isTyping && resources.length > 0 ? 'none' : 'auto',
+          }}
+        >
+          <Grid container spacing={2} sx={{ padding: { xs: 0.5, sm: 1, md: 2 } }}>
+            {loading && resources.length === 0
+              ? Array.from({ length: itemsPerPage }).map((_, index) => (
+                  <Grid
+                    item
+                    key={`skeleton-${index}`}
+                    xs={12}
+                    sm={6}
+                    md={4}
+                    lg={3}
+                    sx={{
+                      minWidth: { xs: 'auto', sm: 280 },
+                      maxWidth: { xs: '100%', sm: 320 },
+                      margin: '0 auto'
+                    }}
+                  >
+                    <ArtifactCardSkeleton />
+                  </Grid>
+                ))
+              : resources.map((artifact, index) => (
+                  <Grid
+                    item
+                    key={artifact.id}
+                    xs={12}
+                    sm={6}
+                    md={4}
+                    lg={3}
+                    sx={{
+                      minWidth: { xs: 'auto', sm: 280 },
+                      maxWidth: { xs: '100%', sm: 320 },
+                      margin: '0 auto',
+                      // Staggered entrance, capped at 8 cards so later rows are
+                      // not held back; disabled under reduced-motion.
+                      animation: `${fadeInUp} 300ms ease-out both`,
+                      animationDelay: `${Math.min(index, 7) * 40}ms`,
+                      '@media (prefers-reduced-motion: reduce)': {
+                        animation: 'none',
+                      },
+                    }}
+                  >
+                    <ArtifactCard artifact={artifact} />
+                  </Grid>
+                ))}
+          </Grid>
+        </div>
 
         {totalPages > 1 && (
           <Pagination
