@@ -27,15 +27,15 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-inference-v1
@@ -104,13 +104,13 @@ jobs:
           echo "**Deployed model-runner version:** ${RUNNER_VERSION:-unknown}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "| Inference Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
-          echo "|------------------|-------|-------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Timeout | $TIMEOUT | $TOTAL_MODELS | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Inference Result | Count | Rate |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------------|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | $PASSED | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $FAILED | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timeout | $TIMEOUT | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Passed includes skipped models that were already previously passed." >> $GITHUB_STEP_SUMMARY
+          echo "Counts reflect each model's latest known status. Unchanged models keep their cached result (both previously-passed and previously-failed) when the runner version is unchanged; only timeouts are always retried." >> $GITHUB_STEP_SUMMARY
           echo "Timeouts are included in the failed count." >> $GITHUB_STEP_SUMMARY
           echo "Cached results from a previous runner version are re-tested when the runner version is known and differs from the stored stamp; entries without a stored stamp are also re-tested once the current runner version is known so they pick one up." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

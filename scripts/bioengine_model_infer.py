@@ -269,9 +269,9 @@ async def check_bmz_model_inference(
         model_ids: Model IDs to check. If None, checks every model in the
             collection.
         summary_file: Path to write the CI summary JSON to.
-        skip_cache: When True, re-run inference even for models that previously
-            passed and haven't changed since (bypasses the in-script result
-            cache), and ask the model-runner to bypass its own cache too.
+        skip_cache: When True, re-run inference even for unchanged models that
+            previously passed or failed (bypasses the in-script result cache),
+            and ask the model-runner to bypass its own cache too.
         service_id: Fully-qualified id of the model-runner service to use.
 
     Raises:
@@ -306,7 +306,6 @@ async def check_bmz_model_inference(
     # Iterate over models and test inference
     results = {}
     skipped_models = 0
-    timeout_models = 0
     runner_version_invalidations = 0
     for model_id in model_ids:
         model_start_time = time.time()
@@ -327,14 +326,24 @@ async def check_bmz_model_inference(
                 and stored_runner_version != current_runner_version
             )
             latest_change = await get_latest_change(artifact_manager, model_id)
+            # Strict cache: skip both previously-passed and previously-failed
+            # inference calls when the model has not changed since it was last
+            # checked and the model-runner version is unchanged. A failed
+            # inference is a deterministic property of (model, runner version),
+            # so re-running an unchanged model against the same runner can only
+            # reproduce the same failure. Timeouts are excluded on purpose: they
+            # are usually transient (cold start / load) rather than a stable
+            # model property, so they are always retried.
             if (
                 not skip_cache
                 and not runner_version_changed
                 and latest_change <= last_test_at
-                and last_test_status == "passed"
+                and last_test_status in ("passed", "failed")
             ):
                 print(
-                    f"-> Model '{model_id}' has not changed since last test, skipping inference"
+                    f"-> Model '{model_id}' has not changed since last inference "
+                    f"(cached status '{last_test_status}') and the runner version "
+                    "is unchanged, skipping"
                 )
                 skipped_models += 1
                 continue
@@ -364,7 +373,6 @@ async def check_bmz_model_inference(
             print(f"-> Model '{model_id}' inference timed out after 2 minutes")
             status = "timeout"
             message = "Test timed out after 2 minutes"
-            timeout_models += 1
 
         except Exception as e:
             print(f"-> Model '{model_id}' inference failed with error: {str(e)}")
@@ -390,14 +398,28 @@ async def check_bmz_model_inference(
         print("Runner version unknown; results stamped with null runner_version")
     print(json.dumps(results, indent=2))
 
+    # Merge freshly-run results over the previous report so cached (skipped)
+    # models keep their last known status.
+    updated_results = {**previous_results, **results}
+
+    # Derive the summary from the final status of every model in scope, so that
+    # cached passed and cached failed models land in the correct bucket instead
+    # of all skipped models being counted as passed.
+    def final_status(mid: str) -> str:
+        return str(updated_results.get(mid, {}).get("status") or "never tested")
+
+    passed = sum(1 for mid in model_ids if final_status(mid) == "passed")
+    timeout = sum(1 for mid in model_ids if final_status(mid) == "timeout")
+    # A timeout is a failed inference call; keep it in the failed total while
+    # also reporting it on its own line.
+    failed = sum(1 for mid in model_ids if final_status(mid) == "failed") + timeout
+
     summary = {
         "total_models": len(model_ids),
         "skipped": skipped_models,
-        "passed": sum(1 for result in results.values() if result["status"] == "passed")
-        + skipped_models,
-        "failed": sum(1 for result in results.values() if result["status"] == "failed")
-        + timeout_models,
-        "timeout": timeout_models,
+        "passed": passed,
+        "failed": failed,
+        "timeout": timeout,
         "execution_time_seconds": round(execution_time, 2),
         "runner_version": current_runner_version,
         "runner_version_invalidations": runner_version_invalidations,
@@ -406,7 +428,6 @@ async def check_bmz_model_inference(
 
     # Publish the merged inference results to the report artifact
     print(f"\nUpdating inference report artifact '{INFERENCE_REPORT_ARTIFACT}'...")
-    updated_results = {**previous_results, **results}
     await update_inference_report(artifact_manager, updated_results)
 
 
@@ -433,8 +454,8 @@ if __name__ == "__main__":
         "--skip-cache",
         action="store_true",
         help="Skip cache during inference checks "
-        "(re-run inference even for previously-passed unchanged models, "
-        "and ask the model-runner to bypass its own cache)",
+        "(re-run inference even for previously-passed or previously-failed "
+        "unchanged models, and ask the model-runner to bypass its own cache)",
     )
     parser.add_argument(
         "--service-id",

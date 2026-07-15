@@ -27,15 +27,15 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
@@ -87,7 +87,7 @@ jobs:
         fi
 
     - name: Upload test reports as artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       if: always()
       with:
         name: bioimageio-test-reports-${{ github.run_number }}
@@ -111,13 +111,13 @@ jobs:
           echo "**Deployed model-runner version:** ${RUNNER_VERSION:-unknown}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "| Test Result | Count | Total | Rate |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------------|-------|-------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Passed | $PASSED | $TOTAL_MODELS | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Valid Format | $VALID_FORMAT | $TOTAL_MODELS | ${VALID_FORMAT_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | $FAILED | $TOTAL_MODELS | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Service Timeout | $TIMEOUT | $TOTAL_MODELS | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Service Error | $ERROR | $TOTAL_MODELS | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Result | Count | Rate |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | $PASSED | ${PASSED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Valid Format | $VALID_FORMAT | ${VALID_FORMAT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $FAILED | ${FAILED_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Timeout | $TIMEOUT | ${TIMEOUT_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Error | $ERROR | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Failed excludes service-timeout and service-error." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
