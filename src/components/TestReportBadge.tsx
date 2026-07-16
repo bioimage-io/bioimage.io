@@ -90,7 +90,9 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
 
         // Read the test report from the dedicated bioimage-io/test-reports
         // collection (per-model test-report-<id> artifact).
-        const response = await fetch(resolveTestReportUrl(artifact.id, false));
+        // Cache-bust: the report is overwritten in place on re-test, so a plain
+        // fetch can serve a stale copy from the browser cache.
+        const response = await fetch(`${resolveTestReportUrl(artifact.id, false)}&t=${Date.now()}`);
         const responseText = await response.text();
         
         try {

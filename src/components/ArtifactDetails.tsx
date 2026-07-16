@@ -312,7 +312,8 @@ const ArtifactDetails = () => {
         // Read the test report from the dedicated bioimage-io/test-reports
         // collection (per-model test-report-<id> artifact). No legacy fallback:
         // models without a report here simply show no BioEngine entry.
-        const response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
+        // Cache-bust: the report is overwritten in place on re-test.
+        const response = await fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`);
         if (!response.ok) {
           setTestReportData(null);
           return;
@@ -381,7 +382,8 @@ const ArtifactDetails = () => {
 
         // Read the test report from the dedicated bioimage-io/test-reports
         // collection (per-model test-report-<id> artifact).
-        const response = await fetch(resolveTestReportUrl(selectedResource.id, isStaged));
+        // Cache-bust: the report is overwritten in place on re-test.
+        const response = await fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`);
         const responseText = await response.text();
         
         try {

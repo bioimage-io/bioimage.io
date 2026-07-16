@@ -322,7 +322,10 @@ const Edit: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const url = resolveTestReportUrl(artifactId, isStaged);
+        // Cache-bust: the report file is overwritten in place when a model is
+        // re-tested, so a plain fetch can serve a stale (e.g. previously-failed)
+        // copy from the browser cache. Matches ModelTester's loadStoredReport.
+        const url = `${resolveTestReportUrl(artifactId, isStaged)}&t=${Date.now()}`;
         const res = await fetch(url);
         if (cancelled || !res.ok) {
           setStoredTestReport(null);
