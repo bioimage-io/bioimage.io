@@ -13,6 +13,7 @@ import {
   Stack,
   Alert,
   Paper,
+  Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -376,13 +377,30 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     color: getStatusColor(data.status),
                     borderRadius: '8px',
                     fontWeight: 500,
-                    border: `1px solid ${data.status === 'passed' 
-                      ? 'rgba(34, 197, 94, 0.2)' 
+                    border: `1px solid ${data.status === 'passed'
+                      ? 'rgba(34, 197, 94, 0.2)'
                       : data.status === 'valid-format'
                       ? 'rgba(249, 115, 22, 0.2)'
                       : 'rgba(239, 68, 68, 0.2)'}`,
                   }}
                 />
+                {/* Surface when the model was tested in its own declared conda
+                    environment (bioimageio.core runtime_env="as-described"), i.e.
+                    it is NOT compatible with the standard model-runner environment. */}
+                {data?.test_environment === 'custom' && (
+                  <Tooltip title="This model was tested inside its own declared environment, so it is not compatible with the standard model-runner environment.">
+                    <Chip
+                      label="custom-environment"
+                      sx={{
+                        backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                        color: '#c2410c',
+                        borderRadius: '8px',
+                        fontWeight: 500,
+                        border: '1px solid rgba(249, 115, 22, 0.2)',
+                      }}
+                    />
+                  </Tooltip>
+                )}
               </Box>
               
               <Stack spacing={1}>
