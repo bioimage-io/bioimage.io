@@ -300,6 +300,11 @@ const Edit: React.FC = () => {
   // inside ReviewPublishArtifact (Submit for Review needs an extra
   // confirmation when status !== 'passed').
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
+  // Whether the user has initiated a Test Model run at least once this session.
+  // Required (for a brand-new model) before Review & Publish enables — a run
+  // counts even if it fails, so reviewers can see the model and help debug.
+  // Reset when the artifact / staging version changes.
+  const [hasTestedThisSession, setHasTestedThisSession] = useState(false);
   const [testReportDialogOpen, setTestReportDialogOpen] = useState(false);
   const [testReportData, setTestReportData] = useState<any>(null);
 
@@ -312,6 +317,8 @@ const Edit: React.FC = () => {
   // the artifact or staging mode changes. Shows inline in the Test Model pill so
   // the editor always reflects the current test outcome without re-running.
   useEffect(() => {
+    // New artifact / staging version — a prior session's test run no longer counts.
+    setHasTestedThisSession(false);
     if (!artifactId || !artifactType || artifactType !== 'model') {
       setStoredTestReport(null);
       setIsTestReportOutdated(false);
@@ -1605,6 +1612,8 @@ const Edit: React.FC = () => {
           isContentValid={isContentValid}
           hasContentChanged={hasContentChanged}
           lastTestResult={lastTestResult}
+          storedTestReport={storedTestReport}
+          isStoredReportOutdated={isTestReportOutdated}
           rdfFileName={rdfFileName}
         />
       );
@@ -2502,6 +2511,7 @@ const Edit: React.FC = () => {
             artifactId={artifactId}
             isStaged={isStaged}
             isDisabled={!server}
+            onTestStart={() => setHasTestedThisSession(true)}
             onTestComplete={async (result) => {
               if (result) setLastTestResult(result);
               await loadArtifactFiles();
@@ -2566,17 +2576,24 @@ const Edit: React.FC = () => {
             the uploader's own Hypha permissions, which they do hold. */}
         {canEditArtifact && !hasPublishedVersion && (() => {
           if (!isStaged) return null;
-          const needsTest = artifactType === 'model' && artifactId;
-          const alreadySubmitted = artifactInfo?.manifest?.status === 'request-review';
-          const disabled = shouldDisableActions || (needsTest && !lastTestResult && !alreadySubmitted);
+          // A non-passing test no longer blocks submission — the confirmation
+          // dialog in ReviewPublishArtifact is the safeguard there. But the user
+          // must still have run Test Model at least once this session (a failing
+          // run counts, so reviewers can see the model and help debug), OR a
+          // remote test report must already exist for the artifact, OR the model
+          // must already be under review.
+          const isModel = artifactType === 'model' && !!artifactId;
+          const isInReview = artifactInfo?.manifest?.status === 'request-review';
+          const hasRemoteTestReport = storedTestReport != null;
+          const testGateSatisfied =
+            !isModel || hasTestedThisSession || hasRemoteTestReport || isInReview;
+          const disabled = shouldDisableActions || !testGateSatisfied;
           const hint = !disabled ? undefined
             : shouldDisableActions
               ? (hasContentChanged
                   ? `Save your ${rdfFileName} changes first before reviewing and publishing.`
                   : `Fix the ${rdfFileName} validation errors first before reviewing and publishing.`)
-              : (needsTest && !lastTestResult && !alreadySubmitted)
-                ? 'Run Test Model first.'
-                : undefined;
+              : 'Run Test Model at least once before submitting for review.';
           return (
             <HintTooltip hint={hint} className="w-full sm:w-auto">
               <button

@@ -33,6 +33,11 @@ interface ModelTesterProps {
   className?: string;
   onTestComplete?: (result?: TestResult) => void | Promise<void>;
   /**
+   * Fired when a test run is actually initiated (before any result), so a parent
+   * can record that the user has run Test Model at least once this session.
+   */
+  onTestStart?: () => void;
+  /**
    * When provided, use this caller-owned runner state instead of the
    * component's internal `useModelRunners()` instance. Lets a parent share
    * one runner selection across multiple sibling components (e.g. the
@@ -86,6 +91,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   isStaged,
   isDisabled,
   onTestComplete,
+  onTestStart,
   className = '',
   modelRunners,
   storedTestReport,
@@ -111,6 +117,10 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
   const runTest = async () => {
     if (!artifactId || !server) return;
+
+    // Signal that the user has run Test Model at least once this session — the
+    // Review & Publish gate needs this even if the run ultimately fails.
+    onTestStart?.();
 
     setIsLoading(true);
     setTestResult(null);

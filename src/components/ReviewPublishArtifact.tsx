@@ -32,6 +32,14 @@ interface ReviewPublishArtifactProps {
    * dialog rendering the failing checks before firing handleSubmit.
    */
   lastTestResult?: TestResult | null;
+  /**
+   * Remote test report from the test-report collection, if any. Used as a
+   * fallback when there's no in-session result so a model that already passed
+   * remotely isn't re-prompted with the confirmation dialog.
+   */
+  storedTestReport?: TestResult | null;
+  /** Whether the stored test report is stale relative to the current artifact (greys the pill). */
+  isStoredReportOutdated?: boolean;
   /** Actual RDF spec filename used by this artifact ('bioimageio.yaml' or 'rdf.yaml'). */
   rdfFileName?: string;
 }
@@ -44,6 +52,8 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   onPublish,
   isContentValid,
   lastTestResult,
+  storedTestReport,
+  isStoredReportOutdated,
   hasContentChanged,
   defaultComment,
   rdfFileName = 'bioimageio.yaml',
@@ -80,7 +90,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     setShowPublishDialog(false);
   };
 
-  const { artifactManager } = useHyphaStore();
+  const { artifactManager, isLoggedIn } = useHyphaStore();
   // Surface Hypha errors (e.g. the PermissionError non-workspace-admin users
   // hit when the request-review edit path lands on `bioimage-io/bioimage.io`
   // without stage=True) so they aren't swallowed by console.error only.
@@ -90,7 +100,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   // handleSubmit. See the failing-test dialog rendered near the bottom of
   // this component.
   const [showFailingTestConfirm, setShowFailingTestConfirm] = useState<boolean>(false);
-  const isTestPassing = lastTestResult?.status === 'passed';
+  // Prefer the fresh in-session result; fall back to the remote report so a
+  // model that already passed remotely isn't re-prompted. Drives both the
+  // dialog skip and what the dialog renders.
+  const effectiveTestResult = lastTestResult ?? storedTestReport ?? null;
+  const isTestPassing = effectiveTestResult?.status === 'passed';
 
   const attemptSubmit = () => {
     if (!isTestPassing) {
@@ -249,6 +263,8 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                       isStaged={isStaged}
                       isDisabled={shouldDisableActions}
                       modelRunners={conn.modelRunners}
+                      storedTestReport={storedTestReport}
+                      isStoredReportOutdated={isStoredReportOutdated}
                     />
                   </>
                 )}
@@ -578,26 +594,30 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
                 d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
             </svg>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Test did not pass — submit anyway?</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {effectiveTestResult ? 'Test did not pass. Submit anyway?' : 'Model not tested. Submit anyway?'}
+              </h3>
               <p className="text-sm text-gray-600 mt-1">
-                Reviewers will see this failing report. You can also cancel, fix the issue in the editor, and re-run Test Model before submitting.
+                {effectiveTestResult
+                  ? 'Reviewers will see this failing report. You can also cancel, fix the issue in the editor, and re-run Test Model before submitting.'
+                  : 'This model has no completed test report to attach. You can also cancel and run Test Model first.'}
               </p>
             </div>
           </div>
 
-          {lastTestResult && (
+          {effectiveTestResult && (
             <div className="border border-gray-200 rounded-md overflow-hidden max-h-72 overflow-y-auto">
               <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2 text-sm">
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border
-                  ${lastTestResult.status === 'passed'
+                  ${effectiveTestResult.status === 'passed'
                     ? 'bg-green-50 text-green-700 border-green-200'
                     : 'bg-red-50 text-red-700 border-red-200'}`}>
-                  {lastTestResult.status}
+                  {effectiveTestResult.status}
                 </span>
-                <span className="font-medium text-gray-800">{lastTestResult.name}</span>
+                <span className="font-medium text-gray-800">{effectiveTestResult.name}</span>
               </div>
               <ul className="divide-y divide-gray-100">
-                {lastTestResult.details?.map((detail, idx) => (
+                {effectiveTestResult.details?.map((detail, idx) => (
                   <li key={idx} className="px-4 py-2 text-sm">
                     <div className="flex items-center gap-2">
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border
