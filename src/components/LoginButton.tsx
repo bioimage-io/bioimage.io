@@ -42,8 +42,13 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
-  const { client, user, connect, setUser, server, isConnecting, isConnected, logout } = useHyphaStore();
+  const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, logout } = useHyphaStore();
   const navigate = useNavigate();
+  // Whether this user may open the /review page (collection admin) and, if so,
+  // how many models are pending review (manifest.status === 'request-review',
+  // excluding models in 'revision'). Drives the dropdown Review entry + badge.
+  const [canAccessReview, setCanAccessReview] = useState(false);
+  const [reviewCount, setReviewCount] = useState(0);
   const location = useLocation(); // Get location
   const autoLoginAttemptedRef = useRef(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -60,6 +65,56 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Determine review-page access (collection admin) and, for admins, count the
+  // models pending review. Staged manifests aren't keyword-indexed, so the
+  // status lives only on each staged read — mirror ReviewArtifacts and read the
+  // staged children individually, counting only 'request-review' (not 'revision').
+  useEffect(() => {
+    let cancelled = false;
+    const loadReviewAccess = async () => {
+      if (!artifactManager || !user) {
+        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+        return;
+      }
+      try {
+        const collection = await artifactManager.read({
+          artifact_id: 'bioimage-io/bioimage.io',
+          _rkwargs: true,
+        });
+        const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
+                        user.roles?.includes('admin');
+        if (cancelled) return;
+        setCanAccessReview(!!isAdmin);
+        if (!isAdmin) { setReviewCount(0); return; }
+
+        const stagedResp = await artifactManager.list({
+          parent_id: 'bioimage-io/bioimage.io',
+          stage: true,
+          limit: 1000,
+          pagination: true,
+          _rkwargs: true,
+        });
+        const stagedItems: any[] = stagedResp?.items ?? [];
+        const reads = await Promise.all(
+          stagedItems.map(async (a: any) => {
+            try {
+              return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true });
+            } catch {
+              return null;
+            }
+          })
+        );
+        if (cancelled) return;
+        setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'request-review').length);
+      } catch (err) {
+        console.error('Error loading review access/count:', err);
+        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+      }
+    };
+    loadReviewAccess();
+    return () => { cancelled = true; };
+  }, [artifactManager, user]);
 
   // Monitor for test button highlight state
   useEffect(() => {
@@ -263,7 +318,22 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               >
                 My Artifacts
               </Link>
-              
+
+              {canAccessReview && (
+                <Link
+                  to="/review"
+                  className="flex items-center justify-between px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  <span>Review</span>
+                  {reviewCount > 0 && (
+                    <span className="ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-600 text-white text-xs font-semibold leading-none">
+                      {reviewCount}
+                    </span>
+                  )}
+                </Link>
+              )}
+
               <Link
                 to="/bioengine"
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
