@@ -62,12 +62,77 @@ The `bioengine call` command is the generic interface for calling any service me
 | Search models | `bioengine call bioimage-io/model-runner search_models --args '{"keywords": [...], "limit": 10}' --json` |
 | Model metadata/RDF | `bioengine call bioimage-io/model-runner get_model_rdf --args '{"model_id": "<id>"}' --json` |
 | Model documentation | `bioengine call bioimage-io/model-runner get_model_documentation --args '{"model_id": "<id>"}' --json` |
-| Validate RDF | `bioengine call bioimage-io/model-runner validate --args '{"model_id": "<id>"}' --json` |
-| Test model | `bioengine call bioimage-io/model-runner test --args '{"model_id": "<id>"}' --json` |
-| Run inference | `bioengine call <ws>/<worker_client_id>-<replica_id>:model-runner infer --args '{"model_id": "<id>", "inputs": "<url-or-tensor>"}' --json` (resolve the concrete service ID as shown above) |
+| Validate RDF | `bioengine call bioimage-io/model-runner validate --args '{"rdf_dict": {...}}' --json` (takes the parsed RDF dict, **not** a `model_id`) |
+| Test model (submit) | `bioengine call bioimage-io/model-runner test --args '{"model_id": "<id>"}' --json` → returns a `test_run_id` |
+| Test status (poll) | `bioengine call bioimage-io/model-runner get_test_status --args '{"test_run_id": "<id>"}' --json` |
+| Run inference (submit) | `bioengine call <ws>/<worker_client_id>-<replica_id>:model-runner infer --args '{"model_id": "<id>", "inputs": "<url>"}' --json` → returns a `request_id` |
+| Infer status (poll) | `bioengine call <...>:model-runner get_infer_status --args '{"request_id": "<id>"}' --json` |
 | List methods | `bioengine call bioimage-io/model-runner --list-methods` |
 
 All commands accept `--json` for machine-parseable output.
+
+> **`infer()` and `test()` are asynchronous.** Each returns a **job id** immediately, not a result. Poll `get_infer_status(request_id=...)` / `get_test_status(test_run_id=...)` until the job is terminal (`completed_at` set, `queue_position == 0`); the `result` field then holds the inference dict / test report, or `{"error": "..."}` on failure. The `bioengine call` CLI does **not** poll for you — do it in a loop, or use the Python helpers in [§ Async job API](#async-job-api--infer-and-test-return-job-ids) below.
+
+## Async job API — `infer()` and `test()` return job ids
+
+Both `infer()` and `test()` are **submit-and-poll**. Calling them enqueues a background job on the worker and returns a short id string right away; you then poll a status method until the job is terminal and read its `result`. This keeps the GPU free while requests queue and lets large downloads happen off the RPC call.
+
+The shared status shape (same for infer and test):
+
+```python
+{
+  "queue_position": int,          # 1-based rank in line; 1 = running now, 0 = done
+  "submitted_at":   float,        # unix ts when queued
+  "model_download": float | None, # ts the download step started
+  "env_setup":      float | None, # ts (custom-env test runs only; None otherwise)
+  "running":        float | None, # ts the GPU work started
+  "completed_at":   float | None, # ts finished; None until terminal
+  "result":         dict | None,  # inference dict / test report on success,
+                                  # {"error": "..."} on failure, None until done
+}
+```
+
+Job registries are **in-memory per Entry replica** and expire after completion (infer ~1 h, test ~24 h). A job id is only known to the replica that created it, and is lost on replica restart — poll it through to completion rather than stashing the id for later.
+
+Two blocking helpers used throughout this skill. `mr` is the resolved model-runner handle (see [Service ID](#service-id--discover-before-calling)):
+
+```python
+import asyncio, time
+
+async def run_infer(mr, model_id, inputs, *, poll=1.0, timeout=300, **kwargs):
+    """Submit an inference job and block until the result dict is ready.
+    Extra kwargs (weights_format, device, return_download_url, ...) pass through."""
+    request_id = await mr.infer(model_id=model_id, inputs=inputs, **kwargs)
+    deadline = time.monotonic() + timeout
+    while True:
+        st = await mr.get_infer_status(request_id=request_id)
+        if st["completed_at"] is not None:                 # queue_position == 0
+            result = st["result"]
+            if isinstance(result, dict) and "error" in result:
+                raise RuntimeError(f"inference failed: {result['error']}")
+            return result
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"infer {request_id} timed out after {timeout}s")
+        await asyncio.sleep(poll)
+
+async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
+    """Submit a test job and block until the report is ready.
+    Extra kwargs: stage, skip_cache, custom_environment."""
+    test_run_id = await mr.test(model_id=model_id, **kwargs)
+    deadline = time.monotonic() + timeout
+    while True:
+        st = await mr.get_test_status(test_run_id=test_run_id)
+        if st["completed_at"] is not None:
+            report = st["result"]
+            if isinstance(report, dict) and "error" in report:
+                raise RuntimeError(f"test failed: {report['error']}")
+            return report
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"test {test_run_id} timed out after {timeout}s")
+        await asyncio.sleep(poll)
+```
+
+Everywhere below, `await run_infer(mr, model_id, inputs)` returns the output dict directly — it is the submit-and-poll wrapper, not a raw `mr.infer` (which returns only the id).
 
 ## Default operating mode
 
@@ -75,19 +140,21 @@ All commands accept `--json` for machine-parseable output.
 - Input formats: `.npy` (lossless, preferred), `.tif`/`.tiff`, `.png`.
 - Output format: `.npy` by default; `.tif` if output path ends in `.tif`.
 - Default to models that pass BioImage.IO checks (omit `--ignore-checks` unless necessary).
-- **Output keys vary by model** — read `outputs[0].id` from the RDF via `bioengine runner info`, not assume `"output0"`.
+- **Output keys vary by model** — read `outputs[0].id` from the RDF (`get_model_rdf`), not assume `"output0"`.
 - **Search keywords**: AND-matched against model tags. If a keyword like `"denoising"` returns few results, try synonyms: `"restoration"`, `"noise"`. Use `assets/search_keywords.yaml` for known working presets.
 - **RDF objects**: `get_model_rdf` via RPC returns `ObjectProxy` (not plain dict). JSON-serialize with `json.dumps(rdf, default=str)` if needed.
 
 ## Single model inference workflow
 
 ```text
-- [ ] Step 1: Search for models — bioengine runner search --keywords <task>
-- [ ] Step 2: Inspect the best candidate — bioengine runner info <model-id>
+- [ ] Step 1: Search for models — call search_models(keywords=[...])
+- [ ] Step 2: Inspect the best candidate — call get_model_rdf(model_id)
 - [ ] Step 3: Read model documentation — get_model_documentation(model_id) — verify domain compatibility
-- [ ] Step 4: Run inference — bioengine runner infer <model-id> --input image.tif --output result.npy
-- [ ] Step 5: Validate output — load result.npy with numpy, check shape and values
+- [ ] Step 4: Run inference — submit infer(model_id, inputs), then poll get_infer_status
+- [ ] Step 5: Validate output — load result array with numpy, check shape and values
 ```
+
+There is no `bioengine runner` command group — everything is `bioengine call <svc> <method>`. Inference is asynchronous: `infer` returns a `request_id`, then you poll `get_infer_status`.
 
 ```bash
 # Full example (CLI form — assumes BIOENGINE_WORKER_SERVICE_ID is set
@@ -96,17 +163,23 @@ bioengine call <model-runner-concrete-svc-id> search_models \
     --args '{"keywords": ["nuclei", "segmentation"], "limit": 5}' --json
 bioengine call <model-runner-concrete-svc-id> get_model_rdf \
     --args '{"model_id": "affable-shark"}' --json
-bioengine call <model-runner-concrete-svc-id> infer \
-    --args '{"model_id": "affable-shark", "inputs": "<url-or-tensor>"}' --json
+
+# Inference: submit → get a request_id → poll until completed_at is set.
+REQ=$(bioengine call <model-runner-concrete-svc-id> infer \
+    --args '{"model_id": "affable-shark", "inputs": "<url>"}' --json)
+bioengine call <model-runner-concrete-svc-id> get_infer_status \
+    --args "{\"request_id\": $REQ}" --json     # repeat until "result" is populated
 ```
+
+In Python, the `run_infer` helper above wraps this submit-and-poll loop.
 
 ### Direct Python — the actual API
 
-Direct `await mr.infer(...)` is the API. There is no `scripts/utils.py` helper module — you import `numpy` / `httpx` / `tifffile` etc. and write the small amount of tensor-prep glue yourself.
+Submit-and-poll `infer()` is the API — use the `run_infer` helper from [§ Async job API](#async-job-api--infer-and-test-return-job-ids). There is no `scripts/utils.py` helper module — you import `numpy` / `httpx` / `tifffile` etc. and write the small amount of tensor-prep glue yourself.
 
 ```python
 from hypha_rpc import connect_to_server
-import httpx, numpy as np, io
+import asyncio, time, httpx, numpy as np, io
 
 # 1. Resolve the concrete model-runner service ID (see "Service ID — discover before calling" above)
 s = await connect_to_server({"server_url": "https://hypha.aicell.io",
@@ -121,13 +194,17 @@ rdf = await mr.get_model_rdf(model_id="affable-shark")
 input_axes = rdf["inputs"][0].get("axes", "bcyx")   # e.g. "bcyx" (RDF 0.4.x) or [{name:"b"},...] (0.5.x)
 output_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
 
-# 3. Run inference — `inputs` accepts an HTTPS URL OR a serialised tensor.
-#    For models with bundled test inputs, the URL pattern is:
+# 3. Run inference via run_infer (submit + poll get_infer_status; see § Async job API).
+#    `inputs` accepts an HTTPS URL OR a serialised tensor. For models with bundled
+#    test inputs, the URL pattern is:
 #      https://hypha.aicell.io/<workspace>/artifacts/<model-alias>/files/<relative-source>
 #    where <relative-source> is what `rdf.inputs[0].test_tensor.source` returns.
 test_url = f"https://hypha.aicell.io/bioimage-io/artifacts/affable-shark/files/test_input_0.npy"
-result = await mr.infer(model_id="affable-shark", inputs=test_url)
-output_array = np.asarray(result[output_key])         # output_key is e.g. "output0"
+result = await run_infer(mr, "affable-shark", test_url)   # returns the output dict
+output_array = np.asarray(result[output_key])              # output_key is e.g. "output0"
+
+#    A bare `await mr.infer(...)` instead returns only the request_id string —
+#    you would then have to poll get_infer_status yourself.
 
 # 4. (Optional) percentile-normalise / reshape your own input array before sending.
 #    A tiny inline helper is usually enough — there is no library to import.
@@ -145,7 +222,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 - [ ] Step 2: Search models — use keywords from assets/search_keywords.yaml
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
-- [ ] Step 5: Run all suitable models on the same input — loop `await mr.infer(model_id=..., inputs=<url>)`
+- [ ] Step 5: Run all suitable models on the same input — loop `await run_infer(mr, model_id, <url>)` (submit+poll wrapper; see § Async job API)
 - [ ] Step 6: Score models — compute mAP over IoU thresholds 0.1–0.95 (step 0.05). Use whatever IoU library is appropriate to your task; for instance segmentation, a small Hungarian-matching helper computing F1 per threshold is enough. Pixel-level IoU/Dice you can compute inline with numpy.
 - [ ] Step 7: Save all artifacts to comparison_results/
 - [ ] Step 8: Generate Illustration 1 (F1 vs IoU threshold curve), Illustration 2 (montage)
@@ -164,7 +241,7 @@ results = {}
 for model_id in model_ids:
     rdf = await mr.get_model_rdf(model_id=model_id)
     out_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
-    r = await mr.infer(model_id=model_id, inputs=test_url)
+    r = await run_infer(mr, model_id, test_url)   # submit + poll; see § Async job API
     results[model_id] = np.asarray(r[out_key])
     np.save(f"comparison_results/{model_id}_output.npy", results[model_id])
 ```
@@ -574,19 +651,24 @@ If the user has ground truth for **some** images, run both: report supervised mA
 ## Validation / testing workflow
 
 ```text
-- [ ] Step 1: validate — format compliance check (pass rdf_dict, not a file path)
-- [ ] Step 2: test — runs official BioImage.IO test suite (may be cached)
-- [ ] Step 3: Review output — check status (passed/failed) and details
+- [ ] Step 1: validate — synchronous format compliance check (pass rdf_dict, not a file path)
+- [ ] Step 2: test — submit; runs the official BioImage.IO test suite on GPU (may be cached)
+- [ ] Step 3: poll get_test_status until completed_at is set; read result (the report)
+- [ ] Step 4: Review report — check report["status"] (passed / valid-format / failed) and details
 ```
 
 ```bash
-# validate takes rdf_dict (the parsed YAML as a dict), not a file path
+# validate is synchronous and takes rdf_dict (the parsed YAML as a dict), not a file path
 bioengine call bioimage-io/model-runner validate --args '{"rdf_dict": {"type": "model", ...}}' --json
 
-# test takes model_id
-bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant"}' --json
+# test is asynchronous: submit returns a test_run_id, then poll get_test_status.
+RUN=$(bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant"}' --json)
+bioengine call bioimage-io/model-runner get_test_status --args "{\"test_run_id\": $RUN}" --json
+# skip_cache forces a fresh package download + re-test:
 bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant", "skip_cache": true}' --json
 ```
+
+In Python, `report = await run_test(mr, "ambitious-ant")` submits and polls in one call (see [§ Async job API](#async-job-api--infer-and-test-return-job-ids)). Pass `custom_environment=True` for a model that declares a `dependencies` conda env (test-only; the report auto-publishes to the `bioimage-io/test-reports` collection).
 
 ## Inference retry on OOM
 
@@ -595,16 +677,16 @@ GPU workers can return an out-of-memory error when multiple jobs are running sim
 Wrap every inference call in a retry loop:
 
 ```python
-import time, requests
+import asyncio
 
 async def infer_with_retry(mr, model_id, inputs, max_retries=3, retry_delay=15):
-    """Run inference, retrying on OOM errors with exponential back-off.
-    `mr` is the resolved model-runner handle (see "Direct Python — the actual API").
+    """Run inference (submit + poll via run_infer), retrying on OOM with back-off.
+    `mr` is the resolved model-runner handle; `run_infer` is from § Async job API.
+    The OOM surfaces from get_infer_status's result["error"], which run_infer re-raises.
     """
     for attempt in range(max_retries):
         try:
-            result = await mr.infer(model_id=model_id, inputs=inputs)
-            return result
+            return await run_infer(mr, model_id, inputs)
         except Exception as e:
             err = str(e).lower()
             is_oom = any(kw in err for kw in [
@@ -613,7 +695,7 @@ async def infer_with_retry(mr, model_id, inputs, max_retries=3, retry_delay=15):
             if is_oom and attempt < max_retries - 1:
                 wait = retry_delay * (attempt + 1)   # 15s, 30s, 45s
                 print(f"  OOM on {model_id} (attempt {attempt+1}), retrying in {wait}s…")
-                time.sleep(wait)
+                await asyncio.sleep(wait)
             else:
                 raise
 ```
@@ -758,20 +840,21 @@ When in doubt, call `search_models(keywords=[...])` first — these IDs are stab
 
 ## `infer()` input convention
 
-`mr.infer(model_id, inputs)` accepts:
+`mr.infer(model_id, inputs)` accepts these `inputs` types (and returns a `request_id` — poll `get_infer_status`, or use `run_infer`):
 
 | `inputs` type | Behaviour |
 |---|---|
 | `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
+| `str` file path from `get_upload_url` | Upload the array to the presigned URL first, then pass the returned `file_path`. Preferred for large arrays. |
 | `numpy.ndarray` | Sent over RPC. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
-| `dict[str, np.ndarray]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
+| `dict[str, np.ndarray \| str]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
 
-Return value is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read it from the RDF; do **not** hard-code `"output0"`:
+Once resolved, the `result` (from `get_infer_status` / `run_infer`) is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read the key from the RDF; do **not** hard-code `"output0"`:
 
 ```python
 rdf = await mr.get_model_rdf(model_id=model_id)
 out_key = rdf["outputs"][0]["id"]
-result = await mr.infer(model_id=model_id, inputs=image)
+result = await run_infer(mr, model_id, image)   # submit + poll; see § Async job API
 masks = np.asarray(result[out_key])
 ```
 

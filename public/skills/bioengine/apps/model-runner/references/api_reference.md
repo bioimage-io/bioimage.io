@@ -7,7 +7,9 @@
 - `get_model_rdf`
 - `get_upload_url`
 - `infer`
+- `get_infer_status`
 - `test`
+- `get_test_status`
 - `validate`
 - `get_upload_url` — Supported File Formats
 
@@ -188,8 +190,8 @@ np.save(buffer, image.astype(np.float32))
 async with httpx.AsyncClient() as client:
     await client.put(upload_info["upload_url"], content=buffer.getvalue())
 
-# 3. Use file_path in infer call
-result = await mr.infer(model_id="model-id", inputs=upload_info["file_path"])
+# 3. Use file_path in infer call (async: returns a request_id — poll get_infer_status)
+request_id = await mr.infer(model_id="model-id", inputs=upload_info["file_path"])
 ```
 
 ### Curl Usage
@@ -216,6 +218,8 @@ curl -fsSL -X PUT --data-binary @/path/to/image.npy "$UPLOAD_URL"
 
 Run inference on a bioimage.io model.
 
+**Asynchronous.** `infer` enqueues a job and returns a `request_id` string immediately. Poll `get_infer_status(request_id=...)` until `completed_at` is set (`queue_position == 0`); its `result` is the output dict (or `{"error": "..."}` on failure). See [`get_infer_status`](#get_infer_status) below.
+
 ### Parameters
 
 | Name | Type | Required | Default | Description |
@@ -235,46 +239,53 @@ Run inference on a bioimage.io model.
 
 1. ~~**Numpy array** (Hypha RPC only)~~: **Do not use** — RPC direct numpy transfer hangs with no error or timeout. Use file path instead.
 
+Each `infer` call returns a `request_id`; the examples below then resolve it via `get_infer_status`.
+
 2. **File path** (recommended — all access methods): Upload first via `get_upload_url`
    ```python
-   result = await mr.infer(model_id="affable-shark", inputs="temp/uuid.npy", return_download_url=True)
+   request_id = await mr.infer(model_id="affable-shark", inputs="temp/uuid.npy", return_download_url=True)
    ```
 
 3. **HTTP/HTTPS URL**: Direct URL to a downloadable `.npy` or image file
    ```python
-   result = await mr.infer(model_id="affable-shark", inputs="https://example.com/image.npy", return_download_url=True)
+   request_id = await mr.infer(model_id="affable-shark", inputs="https://example.com/image.npy", return_download_url=True)
    ```
 
 4. **Dict** (multi-input models): Map input names to file paths or URLs
    ```python
-   result = await mr.infer(model_id="multi-input-model", inputs={"input0": "temp/file1.npy", "input1": "temp/file2.npy"}, return_download_url=True)
+   request_id = await mr.infer(model_id="multi-input-model", inputs={"input0": "temp/file1.npy", "input1": "temp/file2.npy"}, return_download_url=True)
    ```
 
 ### Response
 
-With `return_download_url=True`:
+`infer` returns the `request_id` string. The **`result`** you read from `get_infer_status` is a dict keyed by output id. With `return_download_url=True`:
 ```json
 {"output0": "https://hypha.aicell.io/s3/.../temp/uuid.npy?X-Amz-..."}
 ```
+Without it, each value is the raw numpy array instead of a URL.
 
 > **Output keys vary by model** — do not assume `"output0"`. Always read the output key from the model RDF: `rdf["outputs"][0]["id"]` (0.5.x) or `rdf["outputs"][0]["name"]` (0.4.x). Common examples: `"output0"` (affable-shark), `"prediction"` (dazzling-spider). Use `next(iter(result.values()))` as a fallback when key is unknown.
 
 ### HTTP POST Usage
 
+The POST returns a `request_id`; poll the `get_infer_status` endpoint until the result is ready.
+
 ```bash
-curl -X POST "https://hypha.aicell.io/bioimage-io/services/model-runner/infer" \
+REQ=$(curl -s -X POST "https://hypha.aicell.io/bioimage-io/services/model-runner/infer" \
   -H "Content-Type: application/json" \
   -d '{
     "model_id": "affable-shark",
     "inputs": "temp/c8058bf8-a43a-47c0-9b56-b315005c9503.npy",
     "return_download_url": true
-  }'
+  }')
+# then poll:
+curl -s "https://hypha.aicell.io/bioimage-io/services/model-runner/get_infer_status?request_id=$REQ"
 ```
 
 ### Download Results
 
 ```bash
-# Download .npy result
+# Once get_infer_status result is populated (return_download_url=True), download each output URL:
 curl -fsSL --compressed --output result.npy "<download_url>"
 
 # Load in Python
@@ -284,55 +295,82 @@ result = np.load("result.npy")
 
 ---
 
+## `get_infer_status`
+
+Poll for an `infer` job's progress and result.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `request_id` | `str` | **Yes** | The id returned by `infer`. |
+
+### Response
+
+Shared progress dict — terminal when `completed_at` is not `null` (`queue_position == 0`):
+
+```json
+{
+  "queue_position": 0,
+  "submitted_at": 1735689590.0,
+  "model_download": 1735689600.0,
+  "env_setup": null,
+  "running": 1735689630.0,
+  "completed_at": 1735689645.0,
+  "result": {"output0": "https://…/temp/uuid.npy?X-Amz-…"}
+}
+```
+
+`result` holds the output dict on success or `{"error": "..."}` on failure. Requests live in memory per Entry replica and expire ~1 h after completion.
+
+---
+
 ## `test`
 
 Run the official bioimage.io test suite on a model.
 
-Every invocation runs the model in a **child process** for GPU/CUDA
-context isolation — no residual VRAM stays pinned in the RuntimeApp
-across calls.
+**Asynchronous.** `test` returns a `test_run_id` string; poll [`get_test_status`](#get_test_status) until terminal, then read `result` (the report). Each run executes the model in a **child process** for GPU/CUDA context isolation — no residual VRAM stays pinned across calls. The report is **auto-published** to the `bioimage-io/test-reports` collection (`staged/` slot when `stage=True`, else `published/`) under the app's own credentials — there is no `attach_test_report` / `hypha_token` parameter.
 
 ### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `model_id` | `str` | **Yes** | — | Model identifier |
-| `stage` | `bool` | No | `false` | Use staged version instead of the published one |
+| `stage` | `bool` | No | `false` | Test the staged version instead of the published one; report lands in the `staged/` slot |
 | `skip_cache` | `bool` | No | `false` | Force a fresh model download and bypass cached test results |
-| `custom_environment` | `bool` | No | `false` | If `true`, run inside the conda env declared by the model's own weights description (via `mamba`, env cleaned up after). If `false`, run in the RuntimeApp's shared venv — the same one that serves `infer()`. |
-| `attach_test_report` | `bool` | No | `false` | If `true`, upload `test_report.json` to the artifact and add a compact `test_summary` entry to its manifest. Does NOT change the artifact's `staged`/`published` lifecycle status. |
-| `hypha_token` | `str \| null` | No | `null` | Caller's personal Hypha token. **Required** when `attach_test_report=true` — all artifact writes are performed under this token (not the runner's service credentials) so edits are attributed to the actual user. |
-
-### Response
-
-```json
-{
-    "status": "passed",
-    "details": "All tests passed successfully."
-}
-```
+| `custom_environment` | `bool` | No | `false` | If `true`, run inside the conda env declared by the model's own weights `dependencies` (built via `mamba`, **cached** on the shared PVC and LRU-evicted — not deleted per call). Test-only: `infer()` always uses the shared venv. If `false`, run in the RuntimeApp's shared venv — the same one that serves `infer()`. |
 
 ### Usage
 
 ```python
-# Default: standard runtime, no artifact write
-report = await mr.test(model_id="affable-shark")
-print(report["status"])  # "passed", "valid-format", or "failed"
+# Submit — returns a run id, not the report.
+test_run_id = await mr.test(model_id="affable-shark")
 
-# Custom conda env from the model's rdf.yaml
-report = await mr.test(
-    model_id="resourceful-lizard",
-    custom_environment=True,
-)
+# Poll until terminal, then read the report.
+import asyncio
+while True:
+    status = await mr.get_test_status(test_run_id=test_run_id)
+    if status["completed_at"] is not None:
+        break
+    await asyncio.sleep(2)
+report = status["result"]
+print(report["status"])   # "passed", "valid-format", or "failed"
 
-# Publish the report back to the artifact
-token = await server.generate_token()  # short-lived personal token
-report = await mr.test(
-    model_id="affable-shark",
-    attach_test_report=True,
-    hypha_token=token,
-)
+# Model with a custom conda env declared via the weights `dependencies` field:
+test_run_id = await mr.test(model_id="resourceful-lizard", custom_environment=True)
 ```
+
+---
+
+## `get_test_status`
+
+Poll for a `test` job's progress and result. Same shape as [`get_infer_status`](#get_infer_status); `result` holds the test report (`result["status"]`) on success or `{"error": "..."}` on failure. Runs expire ~24 h after completion.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `test_run_id` | `str` | **Yes** | The id returned by `test`. |
 
 ---
 

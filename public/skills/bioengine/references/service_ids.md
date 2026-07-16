@@ -46,7 +46,9 @@ for app_id, info in status.items():
 
 # 3. Call the app:
 app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<replica>:model-runner"
-result = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
+# model-runner's infer() is async: returns a request_id, then poll get_infer_status
+# (see apps/model-runner/model-runner.md § Async job API).
+request_id = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
 
 > **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).

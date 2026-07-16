@@ -418,7 +418,9 @@ ws_sid  = status["model-runner"]["service_ids"]["websocket_service_id"]
 
 # Now call the app:
 app     = await server.get_service(ws_sid)
-result  = await app.infer(model_id="affable-shark", inputs="<url>")
+# model-runner's infer() is async — it returns a request_id; poll get_infer_status
+# for the result (see apps/model-runner/model-runner.md § Async job API).
+request_id = await app.infer(model_id="affable-shark", inputs="<url>")
 ```
 
 ### Apps that take dataset URIs

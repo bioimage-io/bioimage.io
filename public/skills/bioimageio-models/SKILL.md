@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.8"
+  version: "1.9"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -12,6 +12,24 @@ metadata:
 You are an expert assistant helping a researcher contribute their trained deep learning model to the **BioImage Model Zoo** (https://bioimage.io). The Zoo hosts standardized, FAIR AI models for microscopy image analysis, deployed across tools like ilastik, deepImageJ, QuPath, Fiji, and napari.
 
 Your job: gather information, build a valid `rdf.yaml` package, validate it, submit it, and **report any issues you encounter along the way** so the Zoo infrastructure keeps improving.
+
+## Integrity — non-negotiable
+
+**The goal is a genuinely useful, reliable model that the bioimage-analysis community will download, trust, and keep using** — not a green checkmark. Every rule below exists to serve that goal, and shortcutting a rule quietly destroys the very thing that makes a submission worth publishing. Read the *why*, not just the *don't*: these are the reasons a careful uploader wants to follow the guidelines, and violating any of them also wastes reviewer time and gets the model rejected.
+
+- **Never fabricate, copy, edit, or hand-pick test tensors to force validation to pass.** `test_output.npy` must be the genuine result of running the declared preprocessing → declared weights → declared postprocessing on `test_input.npy`. If that pipeline errors, fix the model or the RDF and report the error — do **not** paste the expected output in by hand.
+- **Never write architecture / `forward()` code that special-cases the test input.** Detecting the sample/test tensor (by shape, hash, or value) and returning a stored output — or any input-conditional shortcut that isn't part of the real computation — is cheating, full stop. The dynamic reproducibility test compares only the **single declared `(test_input, test_output)` pair** at a loose tolerance (`rtol = atol = 1e-3`), so it *cannot* tell a real model apart from one that merely memorised that one pair. **Passing the test is necessary, not sufficient.** Curators inspect the architecture and will reject models that don't genuinely compute their output.
+
+  *Why the reproducibility test matters:* it is the community's guarantee that the model produces the **same, correct result** when someone else runs it on their own machine. That reproducibility is exactly what lets a researcher rely on the model's output in their analysis. A faked test buys nothing real — it may go green, but the underlying model is broken, so the first user who runs it on their own data gets nonsense, notices immediately, and never trusts that model (or, by extension, the Zoo) again. Honest testing is how you earn a model that people actually adopt; faking it produces a model that is used once and abandoned.
+
+- **Never smuggle dependencies into the package.** Do not vendor an entire library, a wheel, a git checkout, or a base64/zip-encoded blob into the package and decode-and-import it at runtime. If the model needs packages outside the shared BioEngine runtime, use a *sanctioned* path — export to TorchScript/ONNX (fully servable), or declare a conda environment file via the weights entry's `dependencies` field (test-only). Both are covered in [architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md).
+
+  *Why bundling a library breaks the model:* it may run in the exact environment you built it in, but a published model's whole point is to run **elsewhere** — on a user's laptop, a different OS/CPU/GPU, a cluster. A hard-coded, encoded copy of a library is frozen to your machine: it can fail to import on a different platform, and it silently drifts out of sync when the *real* dependencies (torch, numpy, the framework) are upgraded around it, so the model that "passed" quietly stops working. Declaring dependencies the sanctioned way lets them resolve and update correctly wherever the model lands — that portability is what makes a model *reusable* instead of a one-machine curiosity.
+
+- **Reference large public weights by URL, don't duplicate them.** When the real trained weights are already published at a stable upstream location (HuggingFace, Zenodo), point the weights `source` at the direct file URL with its `sha256` rather than copying the bytes into the package (see Phase 2). This keeps provenance clear, keeps the package small, and ties the model to the canonical, maintained weights.
+- **A clean package is ~5–9 files** — exactly what `rdf.yaml` references, nothing more. If `generated/` is much larger, something is being bundled that shouldn't be.
+
+In short: the checks are proxies for real qualities users depend on — **reproducibility, portability, and honest provenance**. Optimise for those and the checks pass naturally; optimise for the checks alone and you ship a model that fails the people it was meant to help.
 
 > **How to load the linked reference files.** Every `references/...` and `scripts/...` link below resolves to a raw file served from this same site (e.g. `https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if you have a local clone of the repo. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest that strips the exact YAML fields, SHA256 lines, and code you need to copy verbatim. Treat each reference file as canonical source, not as a webpage.
 
@@ -90,9 +108,19 @@ curl -L "https://zenodo.org/records/RECORD_ID/files/FILENAME" -o FILENAME
 
 Every package has exactly one primary weight format. Decide before you copy anything — `rdf.yaml` is the source of truth for what belongs in the upload, and the primary format determines whether an architecture `.py` needs to travel with the weights.
 
+> **Runtimes: pick one framework, all are supported.** `bioimageio.core` (and the BioEngine model runner's universal runtime) support **PyTorch (`pytorch_state_dict`), TorchScript, ONNX, and TensorFlow/Keras (`tensorflow_saved_model_bundle`, `keras_hdf5`, `keras_v3`)** — all backends are installed side by side. A model must declare **at least one** weight format; it does **not** need to provide all of them. `bioimageio test` runs *every* format present, so extra formats mean extra checks, not required ones. Match your format to how the model was trained/exported; only `tensorflow_js` is unsupported for testing.
+
 - **`pytorch_state_dict` — preferred when the architecture can be shared cleanly.** Most transparent: reviewers and downstream users can inspect both the architecture (`.py`) and the trained weights (`.pt`). Requires a self-contained architecture file — see [architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the fixed BioEngine runtime constraints. Add ONNX or TorchScript as **secondary** formats with `parent: pytorch_state_dict` to broaden backend coverage without re-declaring the model.
 - **`torchscript` or `onnx` — embedded graph, no `.py`.** The architecture is baked into the weight file. Do **not** ship an architecture `.py` alongside these formats; it will be ignored at best and become stale at worst. Use when the architecture is proprietary, too complex to rewrite portably, or already exported by upstream.
 - **Source checkpoints stay outside the package.** A `checkpoint.pth`, HuggingFace snapshot, or Zenodo record you started from is *provenance* — cite it in `cite:` or `training_data:`, don't copy it into `generated/`. The only weight files that belong in the package are the ones `rdf.yaml` actually references.
+- **A weights `source` may be a remote URL, not just a local file.** `bioimageio.core` fetches the `source` and verifies its `sha256` whether it is a package-relative path or an `https://…` URL. For large **public foundation-model weights** (e.g. Cellpose-SAM checkpoints on HuggingFace), point `source` at the **direct download URL** with the declared `sha256` instead of duplicating the bytes into the package:
+  ```yaml
+  weights:
+    pytorch_state_dict:
+      source: https://huggingface.co/OWNER/REPO/resolve/main/checkpoint.pt   # direct file, not a /tree/ page
+      sha256: <checkpoint-sha256>
+  ```
+  Use a `resolve/main/<file>` (or Zenodo `records/<id>/files/<file>`) direct link — a `/tree/` or landing page is not downloadable. For **gated** HuggingFace weights, the BioEngine model runner injects an `HF_READ_TOKEN` when localizing the file, so a gated `resolve/` URL works remotely; locally you must be logged in to fetch it.
 
 ### Build steps
 
@@ -202,7 +230,7 @@ printf 'generated/\n' >> model_package/.gitignore
 
 ### Architecture file rules (pytorch_state_dict only)
 
-If the model ships `pytorch_state_dict` weights, the architecture `.py` must be self-contained and use only the fixed set of packages pre-installed on the BioEngine model runner (`torch==2.5.1`, `torchvision==0.20.1`, `numpy==1.26.4`, `bioimageio.core==0.10.0`, `onnxruntime==1.20.1`, plus a few others — no `conda_env` support, no per-model installs). See [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the full list, the rules on imports / constructor args / self-containment, and Bad/Good examples. When rewriting isn't feasible (e.g. Cellpose backbones), export to TorchScript or ONNX and skip the `.py` entirely.
+If the model ships `pytorch_state_dict` weights, the architecture `.py` must be self-contained and use only the fixed set of packages pre-installed on the BioEngine model runner (`torch==2.5.1`, `torchvision==0.20.1`, `numpy==1.26.4`, `bioimageio.core==0.10.4`, `onnxruntime==1.20.1`, `timm`, plus a few others). See [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the full list, the rules on imports / constructor args / self-containment, and Bad/Good examples. When the architecture can't be rewritten into that runtime (e.g. Cellpose backbones), you have two sanctioned options — **do not bundle the missing library into the package**: export to TorchScript/ONNX and skip the `.py` (fully servable), or declare a conda environment file via the weights entry's `dependencies` field for a test-only submission (not servable via `infer()`). Both are detailed in the reference.
 
 Full field reference and annotated example:
 - [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
@@ -254,6 +282,9 @@ conda run -n bioimageio bioimageio test model_package/generated/rdf.yaml
 Loads the model, runs on `test_input.npy`, compares to `test_output.npy`.
 Fix shape/dtype/preprocessing errors and rerun.
 
+- **This is an honesty check, not just a shape check.** It runs the *real* model on the declared input and compares to the declared output at `rtol = atol = 1e-3`. A green result only means "the declared pair is reproducible" — it does not prove the architecture is genuine (see [Integrity](#integrity--non-negotiable)). Make the model actually run; don't engineer the pair to match.
+- **Device.** `bioimageio.core` auto-selects the device — CUDA when `torch.cuda.is_available()`, else CPU — so the architecture must be **device-agnostic**: don't hardcode `.cuda()` or `.cpu()` in the model; `bioimageio.core` moves the module and inputs onto the chosen device. To force a device locally, pass `devices=["cpu"]` / `["cuda"]` to `test_model(...)`. The BioEngine runner tests and serves on GPU, so verify on CUDA when you have one.
+
 Common dynamic test failures:
 - `__init__() got an unexpected keyword argument 'ignore_cleanup_errors'` — Python 3.8/3.9 with `bioimageio.core >= 0.8`. Use the pinned versions above or upgrade to Python 3.10+.
 - `torch.load(weights_only=True) failed` — weights contain numpy/metadata; extract pure state dict:
@@ -296,7 +327,12 @@ failures, then submit for curator review. Do not skip review — without it, the
 ### Step 6a — Run BioEngine remote test on the staged artifact
 
 The BioEngine test runs the model on managed GPU infrastructure and compares outputs to the
-test tensors you provided. Use the `bioimage-io/model-runner` service with `stage=True`:
+test tensors you provided. Use the `bioimage-io/model-runner` service with `stage=True`.
+
+**`test()` is asynchronous** — it returns a `test_run_id` immediately; you then poll
+`get_test_status(test_run_id)` until the run finishes. The report is **auto-published** to the
+`bioimage-io/test-reports` collection (the `staged/` slot when `stage=True`) — there is no
+`attach_test_report` parameter, and contributors do not write to that collection themselves.
 
 ```python
 import asyncio
@@ -311,7 +347,7 @@ async def run_bioengine_test(artifact_id: str, token: str):
     async with connect_to_server({
         "server_url": "https://hypha.aicell.io",
         "token": token,
-        "method_timeout": 300,   # tests can take several minutes
+        "method_timeout": 300,
     }) as server:
         runner = await server.get_service(
             "bioimage-io/model-runner",
@@ -319,28 +355,45 @@ async def run_bioengine_test(artifact_id: str, token: str):
         )
         # model_id is the short alias only (no "bioimage-io/" prefix)
         model_id = artifact_id.split("/")[-1]
-        test_report = await asyncio.wait_for(
-            runner.test(
-                model_id=model_id,
-                stage=True,              # load from staging, not published collection
-                skip_cache=True,
-                attach_test_report=False,  # don't write back to artifact yet
-            ),
-            timeout=300,
+
+        # Submit — returns a run id, not the report.
+        test_run_id = await runner.test(
+            model_id=model_id,
+            stage=True,        # load from staging, not the published collection
+            skip_cache=True,   # force a fresh package download + re-test
         )
-        print("Status:", test_report.get("status"))
-        print(json.dumps(test_report, indent=2))
-        return test_report
+
+        # Poll until terminal. queue_position == 0 (completed_at set) means done;
+        # ``result`` then holds the report, or {"error": ...} on failure.
+        for _ in range(150):                 # ~5 min at 2 s cadence
+            status = await runner.get_test_status(test_run_id=test_run_id)
+            if status["completed_at"] is not None:
+                break
+            await asyncio.sleep(2)
+        else:
+            raise TimeoutError(f"test run {test_run_id} did not finish in time")
+
+        report = status["result"]
+        if isinstance(report, dict) and "error" in report:
+            raise RuntimeError(f"BioEngine test failed: {report['error']}")
+        print("Status:", report.get("status"))
+        print(json.dumps(report, indent=2))
+        return report
 
 report = asyncio.run(run_bioengine_test("bioimage-io/affable-shark", token="YOUR_TOKEN"))
 ```
 
-**Test report statuses:**
+**Report statuses (`report["status"]`):**
 - `passed` — all outputs matched; proceed to Step 6b
 - `valid-format` — YAML valid but inference not confirmed; check details
 - `failed` — output mismatch or runtime error; see Step 6a-fix
-- `service-timeout` — took > 5 min; retry once, then contact maintainers
-- `service-error` — BioEngine infrastructure error; retry once
+
+If a **model needs dependencies outside the shared runtime** and you packaged it with a
+`dependencies: environment.yaml` weights entry, add `custom_environment=True` to the `test()`
+call so the runner builds and tests inside that conda env (first run is slow; see
+[architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md)).
+Such a model is testable but **not servable for inference** on the shared runtime — prefer a
+TorchScript/ONNX export if it must be runnable via `infer()`.
 
 ### Step 6a-fix — Fixing remote test failures
 

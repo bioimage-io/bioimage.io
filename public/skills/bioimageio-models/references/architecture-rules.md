@@ -29,17 +29,24 @@ format and add TorchScript / ONNX as *secondary* formats with
 
 ## Fixed BioEngine runtime
 
-The BioEngine model runner runs inside a Ray Serve deployment that has
-a **fixed set of pre-installed packages**. There is no `conda_env`
-support, no `pip install` at deploy time, no way to add packages
-per-model. Your architecture file must work with only:
+The BioEngine model runner **serves inference** from a Ray Serve
+deployment with a **fixed set of pre-installed packages**. For the
+`infer()` path there is no per-model install and no way to add
+packages — your architecture file must run against only this set
+(kept in sync with
+`apps/model-runner/requirements-runtime.txt`):
 
 ```
 torch==2.5.1          torchvision==0.20.1   numpy==1.26.4
-tensorflow==2.16.1    bioimageio.core==0.10.0  onnxruntime==1.20.1
+tensorflow==2.16.1    bioimageio.core==0.10.4  onnxruntime==1.20.1
 careamics==0.0.16     cellpose==3.1.1.2     stardist==0.9.1
-xarray==2025.1.2
+xarray==2025.1.2      timm==1.0.27
 ```
+
+(The **test** path can additionally build a per-model conda env — see
+"If your model genuinely needs deps outside the shared runtime" below —
+but that env is used only for `bioimageio test`, never for serving
+`infer()`.)
 
 ## Rules
 
@@ -53,11 +60,27 @@ xarray==2025.1.2
   at deploy time.
 - **Self-contained.** The `.py` file must define the full model class
   with all layers inline. No relative imports, no local helper modules.
-- **No `conda_env` in `rdf.yaml` for models that should be served by
-  the shared BioEngine runtime.** The default `test()` and
-  `infer()` code paths both use the RuntimeApp's own venv (the pinned
-  set below), so declaring a custom conda env for a
-  runtime-compatible model just adds cost with no benefit.
+- **Never vendor a library into the package to dodge the runtime.**
+  Do not commit a wheel, a git checkout, or a base64/zip-encoded blob
+  of a package and decode-and-`import` it at runtime. This is cheating,
+  it will be rejected at review, and it isn't even necessary — use one
+  of the two sanctioned paths below. Beyond that, it *breaks the model
+  for real users*: a frozen encoded copy is pinned to your machine, so
+  it can fail to import on a different OS/CPU/GPU and silently drifts
+  out of sync when the real dependencies are upgraded around it — the
+  model that "passed" quietly stops working wherever it's downloaded.
+  A clean package is ~5–9 real files (the ones `rdf.yaml` references);
+  a package carrying an encoded library is the tell-tale sign something
+  went wrong.
+- **Device-agnostic.** Don't hardcode `.cuda()`, `.cpu()`, or a
+  `device=` default in the model — `bioimageio.core` selects the device
+  (CUDA when available, else CPU) and moves the module and inputs onto
+  it. Hardcoding a device breaks portability and can crash on the
+  CPU-only leg of validation.
+- **No custom env needed when the runtime already fits.** If the model
+  runs on the pinned set above, do **not** add a `dependencies` conda
+  env — the default `test()` and `infer()` paths both use the shared
+  venv, so a redundant env just adds a slow mamba solve with no benefit.
 - **Keep the import block small.** For most models `import torch`,
   `import torch.nn as nn`, `import numpy as np` is all you need. Import
   cellpose / careamics / tensorflow only when the model actually depends
@@ -68,22 +91,72 @@ xarray==2025.1.2
 
 ### If your model genuinely needs deps outside the shared runtime
 
-- **Declare a `conda_env` in `rdf.yaml`** with the extra packages
-  and expect callers to opt into
-  `test(..., custom_environment=True)`. That path spawns
-  `mamba env create` from the model's declared spec, runs
-  `bioimageio test` inside the fresh env, and removes it on both
-  success and failure. First run is slow (~10 min for a full torch
-  env solve + install); subsequent runs reuse the cached env in
-  ~1-2 min. **Only the test path** honours `custom_environment` —
-  regular `infer()` still uses the shared runtime, so the model
-  will not be servable for inference outside its own env.
-- **Alternative — extend the shared runtime.** For packages that
-  would benefit multiple models, open an issue at
-  <https://github.com/aicell-lab/bioengine> requesting the pin be
-  added to `apps/model-runner/requirements-runtime.txt`. Include
-  the exact version and a one-line rationale for why it can't be
-  replaced with native `torch` / `numpy` code.
+Two sanctioned paths, in order of preference. **Never** bundle the
+library into the package instead.
+
+1. **Preferred — export to TorchScript or ONNX.** Both formats embed
+   the architecture in the weight file, drop the `.py` entirely, and
+   run on the shared runtime, so the model stays **fully servable via
+   `infer()`**. This is the right choice for Cellpose / StarDist
+   backbones and anything else that can't be rewritten into the pinned
+   set. See "When the original is too complex" below.
+
+2. **Test-only — declare a conda environment file via `dependencies`.**
+   On the `pytorch_state_dict` (or `tensorflow_saved_model_bundle`)
+   weights entry, point the spec's `dependencies` field at a bundled
+   `environment.yaml`:
+
+   ```yaml
+   weights:
+     pytorch_state_dict:
+       source: weights.pt
+       sha256: <weights-sha256>
+       architecture:
+         source: architecture.py
+         callable: MyModel
+         sha256: <arch-sha256>
+       pytorch_version: "2.7.1"          # must match the env's torch pin
+       dependencies:
+         source: environment.yaml         # a real conda env file, .yaml/.yml
+         sha256: <environment-yaml-sha256>
+   ```
+
+   with, e.g.:
+
+   ```yaml
+   name: bioimageio-model-runtime
+   channels: [conda-forge, nodefaults]
+   dependencies:
+     - python=3.11
+     - pip
+     - pip:
+         - bioimageio.core==0.10.4
+         - torch==2.7.1
+         - torchvision==0.22.1
+         - cellpose==4.2.1.1
+         - segment-anything==1.0
+   ```
+
+   Callers opt in with `test(..., custom_environment=True)`. The runner
+   computes the env via `bioimageio.spec.get_conda_env`, builds it with
+   `mamba`, runs `bioimageio test` inside it, and **caches** it on the
+   shared PVC (LRU-evicted under a size ceiling — not deleted per call).
+   First build is slow (~10 min for a full torch solve); later runs
+   reuse the cached env in ~1–2 min. The env file must include a
+   `pytorch` compatible with the entry's `pytorch_version`.
+
+   > **Critical limitation:** `custom_environment` is honoured **only on
+   > the test path**. `infer()` always uses the shared runtime, so a
+   > model that depends on a custom env is testable but **not servable**
+   > on the public model-runner. If the model must run via `infer()`,
+   > use path 1 (TorchScript/ONNX) instead.
+
+3. **Or extend the shared runtime.** For packages that would benefit
+   multiple models, open an issue at
+   <https://github.com/aicell-lab/bioengine> requesting the pin be
+   added to `apps/model-runner/requirements-runtime.txt`. Include the
+   exact version and a one-line rationale for why it can't be replaced
+   with native `torch` / `numpy` code.
 
 ## Bad — will fail on BioEngine
 

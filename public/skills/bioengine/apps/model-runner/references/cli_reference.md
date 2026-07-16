@@ -1,220 +1,105 @@
-# BioEngine CLI Reference — runner commands
+# BioEngine CLI Reference — model-runner via `bioengine call`
 
-CLI source: `/data/wei/workspace/bioengine-paper/bioengine_cli/runner.py`  
-Install: `pip install "bioengine @ git+https://github.com/aicell-lab/bioengine-worker.git"`  
-Entry point: `bioengine runner <command>`
-
-## Command summary
+There is **no `bioengine runner` command group**. The CLI exposes exactly three top-level commands — `call`, `apps`, `cluster` — and every model-runner operation is a service method invoked through the generic `bioengine call`:
 
 ```
-bioengine runner search   Search BioImage.IO models
-bioengine runner info     Show model metadata and I/O spec
-bioengine runner test     Run official BioImage.IO test suite
-bioengine runner infer    Run inference on a local image file
-bioengine runner validate Validate a local rdf.yaml file
-bioengine runner compare  Run multiple models on the same input
+bioengine call <SERVICE_ID> <METHOD> --args '<json>' [--json]
 ```
 
----
+Install (Python ≥ 3.11):
 
-## `bioengine runner search`
-
-```
-Usage: bioengine runner search [OPTIONS]
-
-Search for runnable models in the BioImage.IO collection.
-
-Options:
-  -k, --keywords WORD    Keyword(s) to filter models (repeat for multiple)
-  -n, --limit N          Max results [default: 10]
-  --ignore-checks        Include models that failed BioEngine inference tests
-  --json                 Output raw JSON list
-  --server-url URL       Override server (default: https://hypha.aicell.io)
-```
-
-**Examples:**
 ```bash
-bioengine runner search --keywords nuclei segmentation --limit 5
-bioengine runner search --keywords denoising --json
-bioengine runner search --limit 20   # all runnable models
+pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"
 ```
 
-**JSON output schema:**
-```json
-[
-  {"model_id": "affable-shark", "description": "Nucleus segmentation for fluorescence microscopy"},
-  {"model_id": "ambitious-ant", "description": "..."}
-]
-```
+## Resolving `<SERVICE_ID>`
 
----
+`bioimage-io/model-runner` alone is the WebRTC offer proxy and does **not** expose the methods. Resolve the concrete per-worker per-replica id first (see the "Service ID — discover before calling" section in `model-runner.md`), then either pass it directly or set it once:
 
-## `bioengine runner info`
-
-```
-Usage: bioengine runner info [OPTIONS] MODEL_ID
-
-Show metadata and input/output specification for a model.
-
-Arguments:
-  MODEL_ID   BioImage.IO model ID (e.g. 'affable-shark')
-
-Options:
-  --stage    Use staged (draft) version
-  --json     Output full RDF as JSON
-```
-
-**Examples:**
 ```bash
-bioengine runner info affable-shark
-bioengine runner info ambitious-ant --json
+export BIOENGINE_WORKER_SERVICE_ID=bioimage-io/bioengine-worker-<site>-<hash>:bioengine-worker
+# then use the concrete <ws>/<worker_client_id>-<replica_id>:model-runner id with bioengine call
 ```
 
-**Human output includes:** model name, description, tags, input axes/dtype, output axes/dtype, weight formats.
+Below, `<svc>` stands for that resolved model-runner service id.
 
----
+## Operation → command map
 
-## `bioengine runner infer`
+| Operation | Method | Command |
+|---|---|---|
+| Search models | `search_models` | `bioengine call <svc> search_models --args '{"keywords": ["nuclei","segmentation"], "limit": 5}' --json` |
+| Model metadata / I-O spec | `get_model_rdf` | `bioengine call <svc> get_model_rdf --args '{"model_id": "affable-shark"}' --json` |
+| Model documentation | `get_model_documentation` | `bioengine call <svc> get_model_documentation --args '{"model_id": "affable-shark"}' --json` |
+| Validate an RDF dict | `validate` | `bioengine call <svc> validate --args '{"rdf_dict": {"type":"model", ...}}' --json` |
+| Test a model (submit) | `test` | `bioengine call <svc> test --args '{"model_id": "ambitious-ant"}' --json` → `test_run_id` |
+| Test status (poll) | `get_test_status` | `bioengine call <svc> get_test_status --args '{"test_run_id": "<id>"}' --json` |
+| Request an upload URL | `get_upload_url` | `bioengine call <svc> get_upload_url --args '{"file_type": ".npy"}' --json` |
+| Run inference (submit) | `infer` | `bioengine call <svc> infer --args '{"model_id": "affable-shark", "inputs": "<url-or-file_path>"}' --json` → `request_id` |
+| Infer status (poll) | `get_infer_status` | `bioengine call <svc> get_infer_status --args '{"request_id": "<id>"}' --json` |
 
-```
-Usage: bioengine runner infer [OPTIONS] MODEL_ID
+All commands accept `--json` for machine-parseable output.
 
-Run inference on a BioImage.IO model with a local image file.
+## `infer` and `test` are asynchronous — submit then poll
 
-Arguments:
-  MODEL_ID   BioImage.IO model ID
+Neither returns a result directly. `infer` returns a `request_id`, `test` returns a `test_run_id`; you poll the matching status method until the job is terminal (`completed_at` set, `queue_position == 0`) and read its `result`:
 
-Options:
-  -i, --input PATH             Input image file (.npy, .tif, .tiff, .png) [required]
-  -o, --output PATH            Output file path [default: result.npy]
-  --device [cuda|cpu]          Computation device (auto if omitted)
-  --weights-format FORMAT      Preferred weights format
-  --skip-cache                 Force model re-download
-  --blocksize N                Override tiling block size
-  --json                       Output download URLs as JSON instead of saving
-```
+- `infer` → poll `get_infer_status(request_id=...)`; `result` is the output dict (or `{"error": "..."}`).
+- `test` → poll `get_test_status(test_run_id=...)`; `result` is the BioImage.IO test report (`result["status"]` ∈ `passed` / `valid-format` / `failed`).
 
-**Supported input formats:**
-- `.npy` — numpy binary (lossless, preserves exact dtype/shape)
-- `.tif` / `.tiff` — TIFF via tifffile (float32, multi-channel, 3-D)
-- `.png` — PNG via PIL (uint8)
+The report auto-publishes to the `bioimage-io/test-reports` collection — there is no `attach_test_report` parameter. Pass `custom_environment=True` to `test` for a model that declares a `dependencies` conda env (test-only path).
 
-**Output format** is determined by the output file extension:
-- `.npy` — lossless (recommended)
-- `.tif` / `.tiff` — TIFF
-- `.png` — normalised uint8
-
-**Workflow internally:**
-1. Read input file → numpy array
-2. Upload array to BioEngine S3 temp storage (1h TTL) via `get_upload_url`
-3. Call `service.infer(model_id, inputs=file_path, return_download_url=True)`
-4. Download result `.npy` from presigned URL
-5. Write to output path
-
-**Examples:**
 ```bash
-bioengine runner infer affable-shark --input cells.tif --output mask.npy
-bioengine runner infer ambitious-ant --input image.npy --output result.tif --device cuda
+# Inference, end to end (submit → poll):
+REQ=$(bioengine call <svc> infer --args '{"model_id": "affable-shark", "inputs": "https://…/test_input_0.npy"}' --json)
+bioengine call <svc> get_infer_status --args "{\"request_id\": $REQ}" --json    # repeat until "result" is set
+
+# Test, end to end:
+RUN=$(bioengine call <svc> test --args '{"model_id": "ambitious-ant"}' --json)
+bioengine call <svc> get_test_status --args "{\"test_run_id\": $RUN}" --json    # repeat until "completed_at" is set
 ```
 
----
+The Python `run_infer` / `run_test` helpers in `model-runner.md` wrap this submit-and-poll loop.
 
-## `bioengine runner test`
+## Uploading a local image for inference
 
-```
-Usage: bioengine runner test [OPTIONS] MODEL_ID
+`infer` does not read local files. Upload first, then pass the returned `file_path`:
 
-Run the official BioImage.IO test suite on a model.
+1. `get_upload_url --args '{"file_type": ".npy"}'` → `{upload_url, file_path}`.
+2. `PUT` the serialized array (`.npy` is lossless and preferred) to `upload_url`.
+3. `infer --args '{"model_id": "<id>", "inputs": "<file_path>", "return_download_url": true}'`.
+4. Poll `get_infer_status`; with `return_download_url=true` the `result` maps output keys to presigned download URLs (valid ~1 h).
 
-Options:
-  --skip-cache              Force re-download and re-run (bypass cache)
-  --stage                   Use staged version
-  --extra-packages PKG      Extra pip packages for test env (repeat for multiple)
-  --json                    Output test report as JSON
-```
+Supported `file_type` values for `get_upload_url`: `.npy`, `.png`, `.tiff`/`.tif`, `.jpeg`/`.jpg`.
 
-**Examples:**
-```bash
-bioengine runner test ambitious-ant
-bioengine runner test ambitious-ant --skip-cache
-```
+## `infer` parameters
 
-**Output:** `[PASSED]` or `[FAILED]` + details. Exit code 1 on failure.
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `model_id` | str | — | Model nickname (the RDF `id`), not the `bioimage-io/` artifact id. |
+| `inputs` | ndarray \| str \| dict | — | HTTPS URL, `get_upload_url` file path, raw array, or `{input_id: url/path/array}` for multi-input. |
+| `weights_format` | str \| null | null | `pytorch_state_dict` / `torchscript` / `onnx` / `tensorflow_saved_model`; auto if null. |
+| `device` | `"cuda"`\|`"cpu"`\|null | null | Auto-selects based on availability if null. |
+| `default_blocksize_parameter` | int \| null | null | Override tiling block size (tiled models only). |
+| `return_download_url` | bool | false | Return presigned S3 URLs instead of raw arrays. |
+| `skip_cache` | bool | false | Force a model re-download before inference. |
 
----
+## `test` parameters
 
-## `bioengine runner validate`
-
-```
-Usage: bioengine runner validate [OPTIONS] RDF_PATH
-
-Validate a BioImage.IO RDF (rdf.yaml) file against the specification.
-
-Arguments:
-  RDF_PATH   Path to local rdf.yaml file
-
-Options:
-  --json     Output validation result as JSON
-```
-
-**Examples:**
-```bash
-bioengine runner validate ./my-model/rdf.yaml
-```
-
----
-
-## `bioengine runner compare`
-
-```
-Usage: bioengine runner compare [OPTIONS] MODEL_ID...
-
-Run the same input image through multiple models and save all outputs.
-
-Arguments:
-  MODEL_ID...   One or more model IDs
-
-Options:
-  -i, --input PATH         Input image file [required]
-  --output-dir DIR         Directory for output files [default: comparison_results]
-  --device [cuda|cpu]      Computation device
-  --json                   Output summary as JSON
-```
-
-**Examples:**
-```bash
-bioengine runner compare affable-shark ambitious-ant --input cells.tif
-bioengine runner compare model-a model-b model-c --input image.npy --output-dir results/
-```
-
-**Output:** Per-model `.npy` files + `comparison_summary.json` in output-dir.
-
----
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `model_id` | str | — | Model nickname. |
+| `stage` | bool | false | Test the staged version; report lands in the `staged/` slot. |
+| `skip_cache` | bool | false | Force a fresh package download + re-test. |
+| `custom_environment` | bool | false | Run inside the model's declared `dependencies` conda env (test-only; env cached on the shared PVC, LRU-evicted). |
 
 ## Environment variables
 
 | Variable | Description | Default |
 |---|---|---|
-| `BIOENGINE_SERVER_URL` | Hypha server URL | `https://hypha.aicell.io` |
+| `BIOENGINE_WORKER_SERVICE_ID` | Concrete worker service id used to resolve app service ids | — |
 
-No auth token needed for any runner command — the model-runner service is public.
-
----
+No auth token is required to read from or run the public `bioimage-io/model-runner`; a token is only needed for your own workspace/worker.
 
 ## Error handling
 
-All errors print a human-readable message to stderr and exit with code 1:
-```
-Error: Could not fetch model 'bad-id': ...
-Hint:  Check that the model ID is correct. Use `bioengine runner search` to find valid IDs.
-```
-
-For agents: check exit code; non-zero means failure. Parse `--json` output for structured data.
-
----
-
-## Implementation notes
-
-- Async internally: all network calls use `asyncio.run()` wrapped in synchronous Click commands.
-- Upload is always via `.npy` for lossless transfer; `return_download_url=True` is always used so results are fetched as HTTP downloads rather than direct RPC (more reliable for large arrays).
-- API parameters verified against `bioengine-worker/bioengine_apps/model-runner/entry_deployment.py`.
+`bioengine call` prints errors to stderr and exits non-zero. For async jobs, a *submitted* job that later fails surfaces as `result: {"error": "..."}` in the status poll — the submit call itself may have already returned `0`. Always inspect the polled `result`.
