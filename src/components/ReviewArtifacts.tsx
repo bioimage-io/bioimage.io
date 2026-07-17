@@ -380,11 +380,22 @@ const ReviewArtifacts: React.FC = () => {
       
       const acceptanceComment = `Accepted by ${user?.id || 'reviewer'}`;
 
+      // List items may not carry `.staging`, so read the authoritative staged
+      // state first. Gating the commit on a possibly-absent `artifact.staging`
+      // would silently skip publishing and leave the model unaccepted.
       let currentArtifact = artifact;
+      try {
+        currentArtifact = await artifactManager.read({
+          artifact_id: artifact.id,
+          stage: true,
+          _rkwargs: true
+        });
+      } catch {
+        // Fall back to the list item if the staged read fails.
+      }
 
-      // Check if artifact is in staging mode
-      if (artifact.staging) {
-        // Artifact is staged - commit it first, then use committed data
+      // Commit staged changes so the model gets/updates its published version.
+      if (currentArtifact.staging) {
         currentArtifact = await artifactManager.commit({
           artifact_id: artifact.id,
           comment: acceptanceComment,
@@ -406,7 +417,7 @@ const ReviewArtifacts: React.FC = () => {
       await loadArtifacts();
     } catch (error) {
       console.error('Error accepting artifact:', error);
-      setError('Failed to accept artifact');
+      setError(`Failed to accept artifact: ${(error as any)?.message || error}`);
     } finally {
       setAcceptLoading(prev => ({ ...prev, [artifact.id]: false }));
     }
