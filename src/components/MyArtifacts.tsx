@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
+import { getIsReviewer } from '../utils/roles';
 import Upload from './Upload';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
@@ -52,7 +53,7 @@ const MyArtifacts: React.FC = () => {
   const [showStagedOnly, setShowStagedOnly] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
-  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
+  const [isReviewer, setIsReviewer] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
@@ -226,13 +227,11 @@ const MyArtifacts: React.FC = () => {
         _rkwargs: true
       });
       if (user) {
-        const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
-                       user.roles?.includes('admin');
-        setIsCollectionAdmin(isAdmin);
+        setIsReviewer(getIsReviewer(user, collection.config));
       }
     } catch (error) {
-      console.error('Error checking collection admin status:', error);
-      setIsCollectionAdmin(false);
+      console.error('Error checking reviewer status:', error);
+      setIsReviewer(false);
     }
   };
 
@@ -310,8 +309,8 @@ const MyArtifacts: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Admin Info Box */}
-      {isCollectionAdmin && (
+      {/* Reviewer Info Box */}
+      {isReviewer && (
         <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4 mx-4 mt-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -457,7 +456,7 @@ const MyArtifacts: React.FC = () => {
                     }}
                     isStaged={!!artifact.staging || !!artifact._stagedOnly}
                     artifactType={artifact.type}
-                    isCollectionAdmin={isCollectionAdmin}
+                    isReviewer={isReviewer}
                   />
                 </div>
               ))}

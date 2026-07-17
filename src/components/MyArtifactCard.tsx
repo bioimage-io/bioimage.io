@@ -23,7 +23,7 @@ interface AdminResourceCardProps {
   createdAt?: number;
   lastModified?: number;
   artifactType?: string;
-  isCollectionAdmin?: boolean;
+  isReviewer?: boolean;
   id: string;
   emoji?: string;
   isLoading?: boolean;
@@ -43,7 +43,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   createdAt,
   lastModified,
   artifactType,
-  isCollectionAdmin = false,
+  isReviewer = false,
   id,
   emoji,
   isLoading = false,
@@ -165,7 +165,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               capability is workspace-owner-only, so takedowns go through
               the bioimageiobot admin channel.
             */}
-            {isStaged && isCollectionAdmin && onDelete && (
+            {isStaged && isReviewer && onDelete && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
                 className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"

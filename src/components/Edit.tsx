@@ -14,6 +14,7 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { getArtifactRights, getIsReviewer } from '../utils/roles';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
@@ -246,14 +247,14 @@ const Edit: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     return window.innerWidth >= 1024; // 1024px is the lg breakpoint in Tailwind
   });
-  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
-  // `canEditArtifact` is broader than `isCollectionAdmin`: it also covers the
+  // Reviewer = may edit/commit/discard ANY model (collection rw+ or site-admin).
+  // See utils/roles.ts. Delete is gated per-artifact via canDeleteArtifact below.
+  const [isReviewer, setIsReviewer] = useState(false);
+  // `canEditArtifact` is broader than `isReviewer`: it also covers the
   // per-artifact uploader/editor case (Hypha grants `edit`/`commit`/`put_file`
   // tokens on the artifact's `_permissions[user.id]` to uploaders, even when
   // they aren't in the collection-level permissions map). Use this in any
   // gate that semantically asks "may this user write to THIS artifact".
-  // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
-  // the uploader-email validation in `validateRdfContent`).
   const [canEditArtifact, setCanEditArtifact] = useState(false);
   // `canStageArtifact` is the STRICT subset of canEditArtifact that maps to
   // actual Hypha server-side 'edit' permission on the artifact itself.
@@ -572,33 +573,21 @@ const Edit: React.FC = () => {
         });
 
         if (user) {
-          // Collection-wide: user is in bioimage-io.config.permissions
-          // (any role) or has site-admin role.
-          const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
-                         user.roles?.includes('admin');
-          setIsCollectionAdmin(isAdmin);
+          // Collection-wide reviewer role (edit/commit/discard any model) and
+          // the stricter delete-capable admin role. See utils/roles.ts.
+          const isReviewer = getIsReviewer(user, collection.config);
+          setIsReviewer(isReviewer);
 
-          // Per-artifact: user is an uploader/editor on THIS artifact.
-          // Three signals, any one of which is sufficient:
-          //   - collection admin (already covers anything)
-          //   - artifact._permissions[user.id] contains 'edit' (or '*')
-          //   - manifest.uploader.email matches user.email (uploader by email)
-          const artPerms = (artifact as any)?._permissions?.[user.id];
-          const hasArtifactEdit = Array.isArray(artPerms)
-            ? artPerms.includes('edit') || artPerms.includes('*')
-            : artPerms === '*';
-          const hasArtifactDelete = Array.isArray(artPerms)
-            ? artPerms.includes('delete') || artPerms.includes('*')
-            : artPerms === '*';
-          const uploaderEmail = (artifact?.manifest as any)?.uploader?.email?.toLowerCase?.();
-          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
-          setCanEditArtifact(isAdmin || hasArtifactEdit || matchesUploaderEmail);
-          setCanStageArtifact(hasArtifactEdit || matchesUploaderEmail);
+          // Per-artifact rights reflect the actual Hypha permission on THIS
+          // artifact, so staging/deleting gate on them (not the broad role).
+          const { isUploader, hasArtifactEdit, hasArtifactDelete } = getArtifactRights(user, artifact);
+          setCanEditArtifact(isReviewer || hasArtifactEdit || isUploader);
+          setCanStageArtifact(hasArtifactEdit || isUploader);
           setCanDeleteArtifact(hasArtifactDelete);
         }
       } catch (error) {
-        console.error('Error checking collection admin status:', error);
-        setIsCollectionAdmin(false);
+        console.error('Error checking reviewer status:', error);
+        setIsReviewer(false);
         setCanEditArtifact(false);
         setCanStageArtifact(false);
         setCanDeleteArtifact(false);
@@ -820,8 +809,9 @@ const Edit: React.FC = () => {
         errors.push(`The 'id_emoji' field must be "${artifactEmoji}"`);
       }
 
-      // Only check uploader email if not a collection admin
-      if (!isCollectionAdmin) {
+      // Only check uploader email if not a reviewer (moderators may edit
+      // other users' models, so their own email need not match the uploader).
+      if (!isReviewer) {
         // Check uploader email only if it exists
         if (manifest.uploader?.email && manifest.uploader.email !== userEmail) {
           errors.push(`The uploader email must be "${userEmail}"`);
@@ -946,8 +936,9 @@ const Edit: React.FC = () => {
           let content = contentToSave;
           let manifest = yaml.load(content) as any;
 
-          // Only add/update uploader info if not a collection admin and uploader is missing
-          if (!isCollectionAdmin) {
+          // Only add/update uploader info if not a reviewer and uploader is missing
+          // (a moderator saving another user's model must not overwrite the uploader).
+          if (!isReviewer) {
             if (!manifest.uploader?.email) {
               manifest.uploader = {
                 ...manifest.uploader,
@@ -1582,7 +1573,7 @@ const Edit: React.FC = () => {
           artifactInfo={artifactInfo}
           artifactId={artifactId!}
           isStaged={isStaged}
-          isCollectionAdmin={isCollectionAdmin}
+          isReviewer={isReviewer}
           onPublish={handlePublish}
           isContentValid={isContentValid}
           hasContentChanged={hasContentChanged}
@@ -2084,7 +2075,7 @@ const Edit: React.FC = () => {
       }
     }
 
-  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
+  }, [artifactId, artifactInfo, artifactManager, files, isReviewer, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,

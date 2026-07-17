@@ -21,7 +21,7 @@ interface ReviewPublishArtifactProps {
   artifactInfo: ArtifactInfo | null;
   artifactId: string;
   isStaged: boolean;
-  isCollectionAdmin: boolean;
+  isReviewer: boolean;
   onPublish: () => void;
   isContentValid: boolean;
   hasContentChanged: boolean;
@@ -48,7 +48,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   artifactInfo,
   artifactId,
   isStaged,
-  isCollectionAdmin,
+  isReviewer,
   onPublish,
   isContentValid,
   lastTestResult,
@@ -380,7 +380,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
 
       {/* Admin Review Area */}
-      {isCollectionAdmin && (
+      {isReviewer && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow p-6 border border-blue-100">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -436,7 +436,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
       )}
 
       {/* Advanced Zone for non-admins */}
-      {!isCollectionAdmin && (
+      {!isReviewer && (
         <Disclosure>
           {({ open }) => (
             <div className="bg-gray-50 rounded-lg shadow">

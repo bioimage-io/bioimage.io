@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
+import { getArtifactRights, getIsReviewer } from '../utils/roles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ArtifactDetailsSkeleton from './ArtifactDetailsSkeleton';
@@ -153,35 +154,20 @@ const ArtifactDetails = () => {
       try {
         const artifact: any = selectedResource;
         if (artifact) {
-          const artPerms = artifact._permissions?.[user.id];
-          const hasArtifactEdit = Array.isArray(artPerms)
-            ? artPerms.includes('edit') || artPerms.includes('*')
-            : artPerms === '*';
-          const uploaderEmail = artifact.manifest?.uploader?.email?.toLowerCase?.();
-          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
-          if (
-            (artifact.created_by && artifact.created_by === user.id) ||
-            matchesUploaderEmail ||
-            hasArtifactEdit
-          ) {
+          // Uploader or per-artifact edit right is enough to enter the editor.
+          const { isUploader, hasArtifactEdit } = getArtifactRights(user, artifact);
+          if (isUploader || hasArtifactEdit) {
             setCanEdit(true);
             return;
           }
         }
 
+        // Otherwise fall back to the collection-wide reviewer/admin role.
         const collection = await artifactManager.read({
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true
         });
-
-        if (user && collection.config?.permissions) {
-          const userPermission = collection.config.permissions[user.id];
-          const hasWritePermission = userPermission === 'rw' || userPermission === 'rw+' || userPermission === '*';
-          const isAdmin = user.roles?.includes('admin');
-          setCanEdit(hasWritePermission || isAdmin);
-        } else {
-          setCanEdit(user.roles?.includes('admin') || false);
-        }
+        setCanEdit(getIsReviewer(user, collection.config));
       } catch (error) {
         console.error('Error checking edit permissions:', error);
         setCanEdit(false);

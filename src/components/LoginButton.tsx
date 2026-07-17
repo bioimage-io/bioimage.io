@@ -6,6 +6,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
+import { getIsReviewer } from '../utils/roles';
 
 interface User {
   email: string;
@@ -82,11 +83,10 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true,
         });
-        const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
-                        user.roles?.includes('admin');
+        const canReview = getIsReviewer(user, collection.config);
         if (cancelled) return;
-        setCanAccessReview(!!isAdmin);
-        if (!isAdmin) { setReviewCount(0); return; }
+        setCanAccessReview(canReview);
+        if (!canReview) { setReviewCount(0); return; }
 
         const stagedResp = await artifactManager.list({
           parent_id: 'bioimage-io/bioimage.io',
