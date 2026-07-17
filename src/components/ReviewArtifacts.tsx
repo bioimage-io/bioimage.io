@@ -15,6 +15,7 @@ import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
+import { getIsReviewer } from '../utils/roles';
 
 // Define view mode type for the dropdown
 type ViewMode = 'published' | 'staging' | 'pending';
@@ -73,6 +74,8 @@ const ReviewArtifacts: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [acceptLoading, setAcceptLoading] = useState<{[key: string]: boolean}>({});
+  // null = still resolving; false = logged in but not a reviewer (guard the page).
+  const [isReviewer, setIsReviewer] = useState<boolean | null>(null);
 
   // View mode options for the dropdown
   const viewModeOptions = [
@@ -102,11 +105,35 @@ const ReviewArtifacts: React.FC = () => {
     }
   }, [viewMode, searchParams, setSearchParams]);
 
+  // Resolve reviewer access (guards the page for non-reviewers who navigate
+  // to /review directly, since the dropdown link is only hidden, not enforced).
   useEffect(() => {
-    if (isLoggedIn && user) {
+    let cancelled = false;
+    const check = async () => {
+      if (!artifactManager || !user) {
+        if (!cancelled) setIsReviewer(isLoggedIn ? null : false);
+        return;
+      }
+      try {
+        const collection = await artifactManager.read({
+          artifact_id: 'bioimage-io/bioimage.io',
+          _rkwargs: true,
+        });
+        if (!cancelled) setIsReviewer(getIsReviewer(user, collection.config));
+      } catch (err) {
+        console.error('Error checking reviewer access:', err);
+        if (!cancelled) setIsReviewer(false);
+      }
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [artifactManager, user, isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn && user && isReviewer) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, viewMode, reviewArtifactsPage, serverSearchQuery]);
+  }, [artifactManager, user, isLoggedIn, isReviewer, viewMode, reviewArtifactsPage, serverSearchQuery]);
 
   // Add debounced server search
   useEffect(() => {
@@ -435,6 +462,34 @@ const ReviewArtifacts: React.FC = () => {
           </h2>
           <p className="text-gray-500 mb-4">
             Please login with admin credentials to review artifacts
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Logged in but access not yet resolved: avoid flashing the page.
+  if (isReviewer === null) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <ArrowPathIcon className="h-8 w-8 text-gray-400 animate-spin" />
+      </div>
+    );
+  }
+
+  // Logged in but not a reviewer: block access (the dropdown link is only hidden).
+  if (!isReviewer) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="mb-4">
+            <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-gray-400" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Reviewer Access Required
+          </h2>
+          <p className="text-gray-500 mb-4">
+            Your account is not a reviewer of the BioImage Model Zoo.
           </p>
         </div>
       </div>
