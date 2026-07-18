@@ -458,7 +458,6 @@ const MyArtifacts: React.FC = () => {
                     }}
                     isStaged={!!artifact.staging || !!artifact._stagedOnly}
                     artifactType={artifact.type}
-                    isReviewer={isReviewer}
                     isPublished={isPublished(artifact)}
                     onRequestDeletion={() => setArtifactToRequestDeletion(artifact)}
                   />
