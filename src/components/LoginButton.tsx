@@ -6,7 +6,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { getIsReviewer } from '../utils/roles';
+import { getIsReviewer, getIsCollectionAdmin } from '../utils/roles';
 
 interface User {
   email: string;
@@ -331,6 +331,16 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                       {reviewCount}
                     </span>
                   )}
+                </Link>
+              )}
+
+              {getIsCollectionAdmin(user) && (
+                <Link
+                  to="/deletion-requests"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Deletion Requests
                 </Link>
               )}
 
