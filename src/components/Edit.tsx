@@ -15,6 +15,7 @@ import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { getArtifactRights, getIsReviewer } from '../utils/roles';
+import { isInternalArtifactFile } from '../utils/internalFiles';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
@@ -103,9 +104,6 @@ const getReferencedFiles = (manifest: any): Set<string> => {
 const isFileUnreferenced = (fileName: string, manifest: any): boolean => {
   // Never grey out the RDF spec file
   if (isRdfFileName(fileName)) return false;
-  
-  // Never grey out comments.json (created during the review process)
-  if (fileName === 'comments.json') return false;
 
   const referencedFiles = getReferencedFiles(manifest);
   
@@ -130,7 +128,6 @@ interface FileNode {
   isDirectory: boolean;
   children?: FileNode[];
   edited?: boolean;
-  isCommentsFile?: boolean;
   fileSize?: number;
 }
 
@@ -594,11 +591,15 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
 
+      // Hide internal platform files (e.g. comments.json) from the file list so
+      // they can't be accidentally edited or deleted — by anyone, incl. admins.
+      const visibleFiles = (fileList || []).filter((file: any) => !isInternalArtifactFile(file.name));
+
       // Track the max content-file mtime so the test-report staleness check
       // compares like-for-like file mtimes.
-      setLatestModelFileModified(maxModelFileMtime(fileList));
+      setLatestModelFileModified(maxModelFileMtime(visibleFiles));
 
-      if (!fileList || fileList.length === 0) {
+      if (visibleFiles.length === 0) {
         setFiles([]);
         setUploadStatus({
           message: currentIsStaged ? 'New version created. Upload files to get started.' : 'No files found',
@@ -609,12 +610,11 @@ const Edit: React.FC = () => {
       }
 
       // Convert the file list to FileNode format without fetching content
-      const nodes: FileNode[] = fileList.map((file: any) => ({
+      const nodes: FileNode[] = visibleFiles.map((file: any) => ({
         name: file.name,
         path: file.name,
         isDirectory: file.type === 'directory',
         children: file.type === 'directory' ? [] : undefined,
-        isCommentsFile: file.name === 'comments.json'
       }));
 
       setFiles(nodes);

@@ -25,6 +25,7 @@ import {
   ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
 import { HYPHA_SERVER_URL } from '../config/hypha';
+import { isInternalArtifactFile } from '../utils/internalFiles';
 
 interface FileInfo {
   type: string;
@@ -70,7 +71,8 @@ const ArtifactFiles: React.FC<ArtifactFilesProps> = ({
       }
       
       const filesData = await response.json();
-      setFiles(filesData);
+      // Hide internal platform files (e.g. comments.json) from the public list.
+      setFiles(Array.isArray(filesData) ? filesData.filter((f: any) => !isInternalArtifactFile(f?.name)) : filesData);
     } catch (err) {
       console.error('Error fetching files:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch files');
