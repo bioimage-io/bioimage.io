@@ -9,8 +9,9 @@ const COLLECTION_ID = 'bioimage-io/bioimage.io';
 interface Row {
   id: string;
   name: string;
-  request: DeletionRequest | null; // null => orphaned (versionless) artifact
+  request: DeletionRequest | null; // set => marked for deletion
   published: boolean;
+  orphan: boolean; // dead row: no committed version AND no active staging session
 }
 
 /**
@@ -66,13 +67,18 @@ const DeletionRequests: React.FC = () => {
       for (const art of reads) {
         if (!art) continue;
         const request = getDeletionRequest(art);
-        const versionless = !isPublished(art);
-        if (!request && !versionless) continue; // neither marked nor orphaned
+        // A genuine orphan is a dead row: no committed version AND no active
+        // staging session. A versionless artifact that IS staging is a pending
+        // upload-in-progress (someone's unsubmitted/under-review work), NOT an
+        // orphan — do not surface it here as deletable.
+        const orphan = !isPublished(art) && !art.staging;
+        if (!request && !orphan) continue;
         next.push({
           id: art.id,
           name: art.manifest?.name || art.id.split('/').pop() || art.id,
           request,
           published: isPublished(art),
+          orphan,
         });
       }
       // Marked-for-deletion first, then orphans; most recent request on top.
@@ -144,7 +150,7 @@ const DeletionRequests: React.FC = () => {
   }
 
   const requests = rows.filter((r) => r.request);
-  const orphans = rows.filter((r) => !r.request);
+  const orphans = rows.filter((r) => !r.request && r.orphan);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -223,7 +229,9 @@ const DeletionRequests: React.FC = () => {
               Orphaned artifacts ({orphans.length})
             </h2>
             <p className="text-xs text-gray-400 mb-3">
-              Versionless artifacts with no committed version — usually abandoned uploads. Safe to remove.
+              Dead rows with no committed version and no active staging session — abandoned/broken
+              artifacts. (Versionless uploads that are still staged are pending submissions, not orphans,
+              and are not listed here.)
             </p>
             {orphans.length === 0 ? (
               <p className="text-sm text-gray-400">No orphaned artifacts found.</p>
