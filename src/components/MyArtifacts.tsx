@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { getIsReviewer } from '../utils/roles';
+import { getIsReviewer, isPublished } from '../utils/roles';
+import RequestDeletionDialog from './RequestDeletionDialog';
 import Upload from './Upload';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiLoginBoxLine } from 'react-icons/ri';
@@ -54,6 +55,7 @@ const MyArtifacts: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<Artifact | null>(null);
   const [isReviewer, setIsReviewer] = useState(false);
+  const [artifactToRequestDeletion, setArtifactToRequestDeletion] = useState<Artifact | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
@@ -457,6 +459,8 @@ const MyArtifacts: React.FC = () => {
                     isStaged={!!artifact.staging || !!artifact._stagedOnly}
                     artifactType={artifact.type}
                     isReviewer={isReviewer}
+                    isPublished={isPublished(artifact)}
+                    onRequestDeletion={() => setArtifactToRequestDeletion(artifact)}
                   />
                 </div>
               ))}
@@ -559,8 +563,19 @@ const MyArtifacts: React.FC = () => {
         </Dialog>
       </Transition.Root>
 
+      {/* Request Deletion Dialog (mark a published model; site-admin finalizes) */}
+      {artifactToRequestDeletion && user && (
+        <RequestDeletionDialog
+          artifact={artifactToRequestDeletion}
+          artifactManager={artifactManager}
+          user={user}
+          onClose={() => setArtifactToRequestDeletion(null)}
+          onRequested={() => { loadArtifacts(); }}
+        />
+      )}
+
     </div>
   );
 };
 
-export default MyArtifacts; 
+export default MyArtifacts;

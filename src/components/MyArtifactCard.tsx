@@ -24,6 +24,8 @@ interface AdminResourceCardProps {
   lastModified?: number;
   artifactType?: string;
   isReviewer?: boolean;
+  isPublished?: boolean;
+  onRequestDeletion?: () => void;
   id: string;
   emoji?: string;
   isLoading?: boolean;
@@ -44,6 +46,8 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   lastModified,
   artifactType,
   isReviewer = false,
+  isPublished = false,
+  onRequestDeletion,
   id,
   emoji,
   isLoading = false,
@@ -174,6 +178,21 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               >
                 <TrashIcon className="w-5 h-5" />
                 <span className="ml-1">Delete</span>
+              </button>
+            )}
+            {/*
+              Published models can't be deleted from the UI — request deletion
+              (with a reason) and a collection admin finalizes the takedown.
+            */}
+            {isPublished && onRequestDeletion && (
+              <button
+                onClick={(e) => handleClick(e, onRequestDeletion)}
+                className="flex items-center p-2 text-gray-600 hover:text-amber-600 rounded-lg hover:bg-amber-50"
+                title="Request deletion"
+                disabled={isLoading}
+              >
+                <TrashIcon className="w-5 h-5" />
+                <span className="ml-1">Request deletion</span>
               </button>
             )}
           </div>
