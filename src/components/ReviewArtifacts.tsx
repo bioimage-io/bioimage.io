@@ -16,6 +16,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
 import { getIsReviewer } from '../utils/roles';
+import RequestDeletionDialog from './RequestDeletionDialog';
 
 // Define view mode type for the dropdown
 type ViewMode = 'published' | 'staging' | 'pending';
@@ -70,7 +71,9 @@ const ReviewArtifacts: React.FC = () => {
   const [approveLoading, setApproveLoading] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [deleteIdConfirmation, setDeleteIdConfirmation] = useState('');
+  // Model marked for deletion via the reviewer flow (opens RequestDeletionDialog).
+  // Reviewers cannot delete directly; a site-admin finalizes on the Deletion page.
+  const [artifactToRequestDeletion, setArtifactToRequestDeletion] = useState<Artifact | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [acceptLoading, setAcceptLoading] = useState<{[key: string]: boolean}>({});
@@ -280,67 +283,29 @@ const ReviewArtifacts: React.FC = () => {
     }
   };
 
-  // Define a function to check if the delete button should be disabled
-  const isDeleteButtonDisabled = (): boolean => {
-    // If delete is loading, disable the button
-    if (deleteLoading) return true;
-    
-    // For published models, require ID confirmation
-    if (viewMode === 'published' && artifactToDelete) {
-      const artifactShortId = artifactToDelete.id.split('/').pop() || '';
-      return deleteIdConfirmation !== artifactShortId;
-    }
-    
-    // For other types, no ID confirmation needed
-    return false;
-  };
-
-  const handleDeleteArtifact = async () => {
+  // Discard the staged changes of a PUBLISHED model (reverts to the committed
+  // version). Only offered when the model has a committed version — never on a
+  // versionless model, where discard would leave an orphan. Whole-model removal
+  // goes through the Deletion Request flow instead (reviewers can't delete).
+  const handleDiscardStaged = async () => {
     if (!artifactToDelete || !artifactManager) return;
-    
-    // For published models, require ID confirmation
-    if (viewMode === 'published') {
-      const artifactShortId = artifactToDelete.id.split('/').pop() || '';
-      if (deleteIdConfirmation !== artifactShortId) {
-        setError('ID confirmation does not match. Deletion canceled.');
-        return;
-      }
-    }
-
     try {
-      const versionToDelete = viewMode === 'published' ? "latest" : "stage";
       setDeleteLoading(true);
-      console.log("DEBUG:", {artifactToDelete, version: versionToDelete})
-      if (versionToDelete == "stage") {
-        // call discard instead of delete
-        await artifactManager.discard({
-          artifact_id: artifactToDelete.id,
-          _rkwargs: true
-        });
-      } else {
-        await artifactManager.delete({
-          artifact_id: artifactToDelete.id,
-          version: versionToDelete,
-          delete_files: true,
-          recursive: true,
-          _rkwargs: true
-        });
-      }
-      // Close the dialog immediately after successful deletion
+      await artifactManager.discard({
+        artifact_id: artifactToDelete.id,
+        _rkwargs: true
+      });
       setIsDeleteDialogOpen(false);
       setArtifactToDelete(null);
-      setDeleteIdConfirmation(''); // Reset the confirmation field
-      
-      // Then refresh the list
       try {
         await loadArtifacts();
       } catch (refreshErr) {
-        console.error('Error refreshing artifacts after deletion:', refreshErr);
-        setError('Artifact was deleted, but there was an error refreshing the list. Please refresh manually.');
+        console.error('Error refreshing artifacts after discard:', refreshErr);
+        setError('Staged changes were discarded, but refreshing the list failed. Please refresh manually.');
       }
     } catch (err) {
-      console.error('Error deleting artifact:', err);
-      setError('Failed to delete artifact');
+      console.error('Error discarding staged changes:', err);
+      setError('Failed to discard staged changes');
     } finally {
       setDeleteLoading(false);
     }
@@ -914,19 +879,30 @@ const ReviewArtifacts: React.FC = () => {
                                   </>
                                 )}
                                 <Menu.Item>
-                                  {({ active }) => (
-                                    <button
-                                      onClick={() => {
-                                        setArtifactToDelete(artifact);
-                                        setIsDeleteDialogOpen(true);
-                                      }}
-                                      className={`${
-                                        active ? 'bg-gray-100' : ''
-                                      } flex w-full items-center px-4 py-2 text-sm text-red-600`}
-                                    >
-                                      Delete {viewMode === 'published' ? "Published Model" : ""}
-                                    </button>
-                                  )}
+                                  {({ active }) => {
+                                    // Staged edits on a PUBLISHED model can be discarded (revert to
+                                    // committed). Everything else (versionless drafts, or removing a
+                                    // published model) goes through the Deletion Request flow —
+                                    // reviewers can't delete, and discarding a draft would orphan it.
+                                    const canDiscard = viewMode !== 'published' && ((artifact.versions?.length ?? 0) > 0);
+                                    return (
+                                      <button
+                                        onClick={() => {
+                                          if (canDiscard) {
+                                            setArtifactToDelete(artifact);
+                                            setIsDeleteDialogOpen(true);
+                                          } else {
+                                            setArtifactToRequestDeletion(artifact);
+                                          }
+                                        }}
+                                        className={`${
+                                          active ? 'bg-gray-100' : ''
+                                        } flex w-full items-center px-4 py-2 text-sm ${canDiscard ? 'text-gray-700' : 'text-red-600'}`}
+                                      >
+                                        {canDiscard ? 'Discard staged changes' : 'Request deletion'}
+                                      </button>
+                                    );
+                                  }}
                                 </Menu.Item>
                               </Menu.Items>
                             </Transition>
@@ -1082,7 +1058,7 @@ const ReviewArtifacts: React.FC = () => {
         </Dialog>
       </Transition.Root>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Discard Staged Changes Confirmation Dialog */}
       <Transition.Root show={isDeleteDialogOpen} as={Fragment}>
         <Dialog as="div" className="relative z-10" onClose={setIsDeleteDialogOpen}>
           <Transition.Child
@@ -1101,63 +1077,29 @@ const ReviewArtifacts: React.FC = () => {
             <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
               <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
                 <div className="sm:flex sm:items-start">
-                  <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                    <ExclamationTriangleIcon className="h-6 w-6 text-red-600" />
+                  <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <ExclamationTriangleIcon className="h-6 w-6 text-amber-600" />
                   </div>
                   <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                     <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
-                      Delete {viewMode === 'published' ? "Published Model" : "Staged Version"}
+                      Discard staged changes
                     </Dialog.Title>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
-                        Are you sure you want to delete this {viewMode === 'published' ? "published model" : "staged version"}? 
-                        {viewMode === 'published' && " This will remove the model from the public Model Zoo."}
-                        {" "}This action cannot be undone.
+                        This reverts the model to its last published version, discarding the staged
+                        edits under review. The published model itself is not removed.
                       </p>
-                      
-                      {viewMode === 'published' && (
-                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
-                          <div className="flex">
-                            <ExclamationTriangleIcon className="h-5 w-5 text-red-600 flex-shrink-0 mr-2" />
-                            <div>
-                              <h4 className="text-sm font-medium text-red-800">Warning: Deleting Published Models</h4>
-                              <div className="mt-2 text-sm text-red-700">
-                                <p>Please try to avoid deleting published models as this can produce broken links in publications, documentation, and user workflows that reference this model.</p>
-                                <p className="mt-2">Only delete if you are absolutely certain this model should be removed from the Model Zoo.</p>
-                              </div>
-                              
-                              <div className="mt-4">
-                                <label htmlFor="confirm-deletion" className="block text-sm font-medium text-red-700">
-                                  To confirm deletion, please type the model ID: <span className="font-mono font-bold">{artifactToDelete?.id?.split('/').pop()}</span>
-                                </label>
-                                <div className="mt-1">
-                                  <input
-                                    type="text"
-                                    name="confirm-deletion"
-                                    id="confirm-deletion"
-                                    className="block w-full rounded-md border-red-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-                                    placeholder="Enter model ID to confirm"
-                                    value={deleteIdConfirmation}
-                                    onChange={(e) => setDeleteIdConfirmation(e.target.value)}
-                                    disabled={deleteLoading}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
                 <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
                     type="button"
-                    className={`inline-flex w-full justify-center rounded-md ${deleteLoading ? 'bg-red-400' : 'bg-red-600 hover:bg-red-500'} px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${
-                      isDeleteButtonDisabled() ? 'cursor-not-allowed opacity-60' : ''
+                    className={`inline-flex w-full justify-center rounded-md ${deleteLoading ? 'bg-amber-400' : 'bg-amber-600 hover:bg-amber-500'} px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${
+                      deleteLoading ? 'cursor-not-allowed opacity-60' : ''
                     }`}
-                    onClick={handleDeleteArtifact}
-                    disabled={isDeleteButtonDisabled()}
+                    onClick={handleDiscardStaged}
+                    disabled={deleteLoading}
                   >
                     {deleteLoading ? (
                       <div className="flex items-center">
@@ -1165,9 +1107,9 @@ const ReviewArtifacts: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Deleting...
+                        Discarding...
                       </div>
-                    ) : "Delete"}
+                    ) : "Discard changes"}
                   </button>
                   <button
                     type="button"
@@ -1175,7 +1117,6 @@ const ReviewArtifacts: React.FC = () => {
                     onClick={() => {
                       setIsDeleteDialogOpen(false);
                       setArtifactToDelete(null);
-                      setDeleteIdConfirmation(''); // Reset the confirmation field when canceling
                     }}
                     disabled={deleteLoading}
                   >
@@ -1187,6 +1128,17 @@ const ReviewArtifacts: React.FC = () => {
           </div>
         </Dialog>
       </Transition.Root>
+
+      {/* Request Deletion Dialog (reviewer marks a model; site-admin finalizes) */}
+      {artifactToRequestDeletion && user && (
+        <RequestDeletionDialog
+          artifact={artifactToRequestDeletion}
+          artifactManager={artifactManager}
+          user={user}
+          onClose={() => setArtifactToRequestDeletion(null)}
+          onRequested={() => { loadArtifacts(); }}
+        />
+      )}
 
       {artifacts.length > 0 && (
         <div className="mt-6 max-w-screen-lg mx-auto">
