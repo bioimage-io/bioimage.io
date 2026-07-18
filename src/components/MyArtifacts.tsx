@@ -103,66 +103,69 @@ const MyArtifacts: React.FC = () => {
       // _rkwargs: true tells the JS hypha-rpc client to treat this object as
       // kwargs (it strips the marker before the wire-send — see hypha-rpc
       // websocket.js around line 1153).
-      const listOpts = {
-        parent_id: "bioimage-io/bioimage.io",
-        stage: showStagedOnly ? "stage" : "all",
-        limit: 100,  // grab a wide page; client-side paginates the merged result
-        _rkwargs: true,
-      } as const;
+      const COLLECTION = "bioimage-io/bioimage.io";
 
-      // When showing "All Versions" we also need the staged manifests to:
-      // (a) include staged-only artifacts that stage=all misses entirely
-      // (b) surface the staged manifest's review status (e.g. request-review)
-      //     for dual artifacts whose committed manifest has no status field
-      const stagedOpts = !showStagedOnly ? {
-        parent_id: "bioimage-io/bioimage.io",
-        stage: "stage",
-        limit: 100,
-        _rkwargs: true,
-      } as const : null;
-
-      const [createdRes, uploadedRes, stagedCreatedRes, stagedUploadedRes] = await Promise.all([
-        am.list({
-          ...listOpts,
-          filters: { created_by: currentUser.id },
-          keywords: baseKeywords,
-        }),
-        currentUser.email
+      // Committed artifacts ARE server-side filter/keyword indexed, so query
+      // them by created_by / uploader-email. STAGED artifacts are NOT indexed —
+      // a filtered staged query returns nothing (which is why unsubmitted,
+      // versionless staged drafts never used to appear here) — so we fetch ALL
+      // staged children and filter by ownership client-side below.
+      const [createdRes, uploadedRes, stagedAllRes] = await Promise.all([
+        showStagedOnly
+          ? Promise.resolve([])
+          : am.list({
+              parent_id: COLLECTION,
+              stage: "all",
+              limit: 100,
+              filters: { created_by: currentUser.id },
+              keywords: baseKeywords,
+              _rkwargs: true,
+            }),
+        (!showStagedOnly && currentUser.email)
           ? am.list({
-              ...listOpts,
+              parent_id: COLLECTION,
+              stage: "all",
+              limit: 100,
               keywords: [...baseKeywords, currentUser.email],
+              _rkwargs: true,
             })
           : Promise.resolve([]),
-        stagedOpts
-          ? am.list({ ...stagedOpts, filters: { created_by: currentUser.id }, keywords: baseKeywords })
-          : Promise.resolve([]),
-        stagedOpts && currentUser.email
-          ? am.list({ ...stagedOpts, keywords: [...baseKeywords, currentUser.email] })
-          : Promise.resolve([]),
+        am.list({ parent_id: COLLECTION, stage: true, limit: 1000, _rkwargs: true }),
       ]);
 
-      // Post-filter (b): keywords-by-email returns anything mentioning the
-      // string, so verify the uploader email is exact and the manifest is
-      // ours, not the bot's, before counting an artifact as "uploaded by me".
+      // Post-filter: keywords-by-email returns anything mentioning the string,
+      // and staged is unfiltered, so verify ownership client-side (created_by is
+      // the id, e.g. github|NNN; uploader email is the fallback signal).
       const userEmail = currentUser.email?.toLowerCase();
       const isMine = (a: any) =>
         a?.created_by === currentUser.id ||
         (userEmail && a?.manifest?.uploader?.email?.toLowerCase() === userEmail);
+      // Staged isn't keyword-indexed either, so apply the search text client-side.
+      const q = serverSearchQuery.trim().toLowerCase();
+      const matchesSearch = (a: any) =>
+        !q ||
+        a?.manifest?.name?.toLowerCase?.().includes(q) ||
+        a?.manifest?.description?.toLowerCase?.().includes(q) ||
+        a?.id?.toLowerCase?.().includes(q) ||
+        a?.alias?.toLowerCase?.().includes(q);
 
       const byId: Record<string, any> = {};
       for (const a of [...(createdRes || []), ...(uploadedRes || [])]) {
         if (a?.id && isMine(a)) byId[a.id] = a;
       }
 
-      // Merge staged data: enrich dual artifacts with staged status and add
-      // staged-only artifacts that stage=all missed entirely.
-      for (const a of [...(stagedCreatedRes || []), ...(stagedUploadedRes || [])]) {
-        if (!a?.id || !isMine(a)) continue;
+      // Merge staged data: enrich dual artifacts (published + staged edits) with
+      // their staging flag, and add staged-ONLY artifacts — the user's
+      // unsubmitted/in-review drafts — that the committed query never returns.
+      const stagedItems: any[] = Array.isArray(stagedAllRes)
+        ? stagedAllRes
+        : ((stagedAllRes as any)?.items ?? []);
+      for (const a of stagedItems) {
+        if (!a?.id || !isMine(a) || !matchesSearch(a)) continue;
         if (byId[a.id]) {
           byId[a.id] = { ...byId[a.id], staging: byId[a.id].staging ?? true };
         } else {
-          // Staged-only artifact: stage=all returned nothing for it.
-          // Mark it explicitly so the card shows the "Staged" badge.
+          // Staged-only artifact: mark it so the card shows the "Staged" badge.
           byId[a.id] = { ...a, staging: true, _stagedOnly: true };
         }
       }
