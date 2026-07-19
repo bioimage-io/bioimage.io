@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
-import { getIsCollectionAdmin, isPublished } from '../utils/roles';
+import { getIsCollectionAdmin, fetchCollectionOwners, isPublished } from '../utils/roles';
 import { DeletionRequest, getDeletionRequest } from '../utils/deletionRequest';
 
 const COLLECTION_ID = 'bioimage-io/bioimage.io';
@@ -20,7 +20,7 @@ interface Row {
  * empty versionless orphan artifacts. Deleting requires typing the model id.
  */
 const DeletionRequests: React.FC = () => {
-  const { artifactManager, user, isLoggedIn } = useHyphaStore();
+  const { artifactManager, user, isLoggedIn, server } = useHyphaStore();
 
   // null = still resolving; false = logged in but not a collection admin.
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
@@ -34,8 +34,17 @@ const DeletionRequests: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    setIsAdmin(isLoggedIn ? getIsCollectionAdmin(user) : false);
-  }, [user, isLoggedIn]);
+    let cancelled = false;
+    (async () => {
+      if (!isLoggedIn || !user || !server) {
+        if (!cancelled) setIsAdmin(false);
+        return;
+      }
+      const owners = await fetchCollectionOwners(server);
+      if (!cancelled) setIsAdmin(getIsCollectionAdmin(user, owners));
+    })();
+    return () => { cancelled = true; };
+  }, [user, isLoggedIn, server]);
 
   const loadRows = useCallback(async () => {
     if (!artifactManager) return;

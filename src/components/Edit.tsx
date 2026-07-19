@@ -162,7 +162,9 @@ interface ValidationResult {
  */
 const maxModelFileMtime = (fileList: any[]): number | null => {
   const mtimes = (fileList || [])
-    .filter(f => f?.type === 'file' && typeof f?.last_modified === 'number')
+    // Exclude internal files (e.g. comments.json): a new review comment must
+    // not bump the model's mtime and falsely mark its test report as stale.
+    .filter(f => f?.type === 'file' && typeof f?.last_modified === 'number' && !isInternalArtifactFile(f?.name))
     .map(f => f.last_modified as number);
   return mtimes.length ? Math.max(...mtimes) : null;
 };
@@ -1021,9 +1023,17 @@ const Edit: React.FC = () => {
             finalSavedContent = content;
             
             // Merge the existing manifest with the new one from the editor
+            // `status` is a platform-controlled field owned by the review flow
+            // (request-review / revision / accepted / published / deletion-requested).
+            // It isn't part of the bioimageio spec, so strip it from the user's
+            // rdf.yaml-derived manifest — otherwise a user could set their own
+            // status by adding a `status:` line. Keep the existing value instead.
+            // (id / id_emoji are already enforced by validateRdfContent.)
+            const manifestWithoutStatus: Record<string, any> = { ...(manifest || {}) };
+            delete manifestWithoutStatus.status;
             const mergedManifest: Record<string, any> = {
               ...existingManifest,
-              ...manifest
+              ...manifestWithoutStatus
             };
 
             // Upload the rdf.yaml file

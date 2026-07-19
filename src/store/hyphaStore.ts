@@ -320,8 +320,10 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
 
-      // Construct the base URL
-      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
+      // Construct the base URL. Order by newest first; `manifest.score` was a
+      // remnant of when test results lived in the artifact and is unset on
+      // ~every model, so it produced an effectively-random order — dropped.
+      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=created_at>`;
 
       // Prepare filters object
       const filters: any = {};
@@ -366,8 +368,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const response = await fetch(url);
       const data = await response.json();
 
+      // Hide models that aren't approved for the public zoo: those awaiting
+      // review or sent back for revision. Everything else stays visible —
+      // including `deletion-requested` (still valid until an admin removes it)
+      // and legacy models with no status. Hypha filters have no negation
+      // operator, so this is done client-side (only affects a handful of items).
+      const HIDDEN_GRID_STATUSES = ['request-review', 'revision'];
+      const visibleItems = (data.items || []).filter(
+        (it: any) => !HIDDEN_GRID_STATUSES.includes(it?.manifest?.status)
+      );
+
       set({
-        resources: data.items || [],
+        resources: visibleItems,
         totalItems: data.total || 0,
         isLoading: false
       });

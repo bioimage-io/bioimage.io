@@ -45,13 +45,39 @@ export function getIsReviewer(
   return typeof code === 'string' && REVIEWER_CODES.has(code);
 }
 
+/** The Hypha workspace that owns the model collection. */
+export const COLLECTION_WORKSPACE = 'bioimage-io';
+
 /**
- * Collection admin: delete-capable moderator (site / workspace owner). Only
- * these users may finalize a deletion on the Deletion Request page. Reviewers
- * (rw+) cannot delete; uploaders may delete only their own unpublished models.
+ * Collection admin: a delete-capable moderator. Delete under `bioimage-io/*` is
+ * granted by **workspace ownership** (Wei, Nils, …), NOT the global Hypha
+ * `admin` role — workspace owners report an empty `roles` array yet can delete,
+ * which is exactly why the old `roles.includes('admin')` check hid the Deletion
+ * Request page from the very people meant to use it. So gate on membership in
+ * the `bioimage-io` workspace `owners` list (fetched via fetchCollectionOwners),
+ * keeping global admins as an additional allow.
  */
-export function getIsCollectionAdmin(user: RoleUser | null | undefined): boolean {
-  return !!user?.roles?.includes('admin');
+export function getIsCollectionAdmin(
+  user: RoleUser | null | undefined,
+  owners?: string[] | null,
+): boolean {
+  if (!user) return false;
+  if (user.roles?.includes('admin')) return true;
+  return Array.isArray(owners) && !!user.id && owners.includes(user.id);
+}
+
+/**
+ * Fetch the `bioimage-io` workspace owners (the delete-capable admins). Works
+ * cross-workspace from a normal user session; returns [] on any error so the
+ * caller simply treats the user as non-admin.
+ */
+export async function fetchCollectionOwners(server: any): Promise<string[]> {
+  try {
+    const info = await server.getWorkspaceInfo(COLLECTION_WORKSPACE);
+    return (info && (info.owners as string[])) || [];
+  } catch {
+    return [];
+  }
 }
 
 export interface ArtifactRights {
