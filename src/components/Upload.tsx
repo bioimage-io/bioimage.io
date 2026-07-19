@@ -17,6 +17,7 @@ import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { updateManifestSha256 } from '../utils/sha-handling';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
+import { isInternalArtifactFile } from '../utils/internalFiles';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -1043,8 +1044,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true
       });
 
-      // Upload remaining files (manifest already uploaded above)
-      const remainingFiles = updatedFiles.filter(file => !endsWithRdfFileName(file.path));
+      // Upload remaining files (manifest already uploaded above). Skip internal
+      // platform files (e.g. comments.json) in case the user's package already
+      // contains one — the review comment thread must not be overwritten.
+      const remainingFiles = updatedFiles.filter(
+        file => !endsWithRdfFileName(file.path) && !isInternalArtifactFile(file.name)
+      );
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
 
