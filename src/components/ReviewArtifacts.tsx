@@ -390,6 +390,12 @@ const ReviewArtifacts: React.FC = () => {
   // versionless model, where discard would leave an orphan. Whole-model removal
   // goes through the Deletion Request flow instead (reviewers can't delete).
   const handleDiscardStaged = async () => {
+    // Temporarily disabled — the Hypha `discard` deletes in-place staged files
+    // from the committed version without restoring them (permanent data loss).
+    // The menu item is disabled; guard here too so it can never fire.
+    console.warn('Discard is temporarily disabled pending a Hypha backend fix.');
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!artifactToDelete || !artifactManager) return;
     try {
       setDeleteLoading(true);
@@ -1121,12 +1127,16 @@ const ReviewArtifacts: React.FC = () => {
                                         </Menu.Item>
                                       )}
                                       {canDiscard && (
-                                        <Menu.Item>
-                                          {({ active }) => (
-                                            <button onClick={() => { setArtifactToDelete(artifact); setIsDeleteDialogOpen(true); }}
-                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700`}>
-                                              Discard staged changes
-                                            </button>
+                                        <Menu.Item disabled>
+                                          {() => (
+                                            // Temporarily disabled: Hypha `discard` deletes in-place
+                                            // staged files from the committed version without restoring
+                                            // them (permanent data loss). Re-enable once the backend is fixed.
+                                            <Tooltip title="Temporarily disabled: discarding staged edits can delete committed files due to a Hypha bug. Re-enabled once the backend is fixed." placement="left" arrow>
+                                              <span className={`${item} text-gray-400 opacity-50 cursor-not-allowed`}>
+                                                Discard staged changes
+                                              </span>
+                                            </Tooltip>
                                           )}
                                         </Menu.Item>
                                       )}

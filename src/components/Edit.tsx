@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox, Tooltip } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
@@ -513,6 +513,13 @@ const Edit: React.FC = () => {
   };
 
   const handleDiscardChanges = async () => {
+    // Temporarily disabled — see the disabled Discard button below. The Hypha
+    // `discard` deletes in-place staged files from the committed version without
+    // restoring them, permanently losing committed content. Guard here too so
+    // the destructive call can never fire while the button is disabled.
+    console.warn('Discard is temporarily disabled pending a Hypha backend fix.');
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!artifactManager || !artifactId) return;
     try {
       setUploadStatus({ message: 'Discarding staged changes...', severity: 'info' });
@@ -2513,16 +2520,30 @@ const Edit: React.FC = () => {
                   </svg>
                   Commit
                 </button>
-                <button
-                  onClick={handleDiscardChanges}
-                  disabled={uploadStatus?.severity === 'info'}
-                  className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-white text-red-600 border border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                {/* Discard is temporarily disabled: the Hypha `discard` for an
+                    in-place (edit_version) staging session deletes the edited
+                    files from the committed version without restoring them,
+                    permanently losing committed content. Re-enable once the
+                    Hypha backend stages/discards in a separate prefix. */}
+                <Tooltip
+                  title="Temporarily disabled: discarding staged edits can delete committed files due to a Hypha bug. Commit your changes, or contact an admin to revert. Re-enabled once the backend is fixed."
+                  placement="top"
+                  arrow
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Discard
-                </button>
+                  <span className="w-full sm:w-auto inline-flex">
+                    <button
+                      onClick={handleDiscardChanges}
+                      disabled
+                      aria-disabled="true"
+                      className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-white text-red-400 border border-red-200 opacity-50 cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Discard
+                    </button>
+                  </span>
+                </Tooltip>
               </>
             );
         })()}
