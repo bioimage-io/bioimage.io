@@ -159,7 +159,7 @@ const ReviewArtifacts: React.FC = () => {
         // Pending-review models must remain staged (not committed) until a
         // curator accepts them. Hypha keyword search only indexes committed
         // manifests, so we list all staged artifacts, read each staged manifest
-        // individually, and filter client-side for status='request-review'.
+        // individually, and filter client-side for status='in-review'.
         const stagedResp = await artifactManager.list({
           parent_id: "bioimage-io/bioimage.io",
           stage: true,
@@ -188,10 +188,10 @@ const ReviewArtifacts: React.FC = () => {
         // Request-review items appear first (truly pending); revision items
         // follow so the reviewer can track them and help the developer.
         let reviewPending: Artifact[] = stagedReads.filter(
-          (a: any): a is Artifact => a?.manifest?.status === 'request-review'
+          (a: any): a is Artifact => a?.manifest?.status === 'in-review'
         );
         let revisionNeeded: Artifact[] = stagedReads.filter(
-          (a: any): a is Artifact => a?.manifest?.status === 'revision'
+          (a: any): a is Artifact => a?.manifest?.status === 'in-revision'
         );
 
         if (serverSearchQuery.trim()) {
@@ -317,7 +317,7 @@ const ReviewArtifacts: React.FC = () => {
       const updatedManifest = { ...artifact.manifest };
       updatedManifest.status = newStatus;
 
-      if (newStatus == "accepted"){
+      if (newStatus == "published"){
         // commit the artifact to the model zoo
         await artifactManager.commit({
           artifact_id: artifact.id,
@@ -345,10 +345,10 @@ const ReviewArtifacts: React.FC = () => {
   };
 
   const pendingReviewCount = viewMode === 'pending'
-    ? artifacts.filter(a => a.manifest?.status === 'request-review').length
+    ? artifacts.filter(a => a.manifest?.status === 'in-review').length
     : 0;
   const revisionCount = viewMode === 'pending'
-    ? artifacts.filter(a => a.manifest?.status === 'revision').length
+    ? artifacts.filter(a => a.manifest?.status === 'in-revision').length
     : 0;
 
   const handleCopyId = (artifactId: string) => {
@@ -395,12 +395,12 @@ const ReviewArtifacts: React.FC = () => {
         });
       }
 
-      // Update manifest status to 'accepted' using the latest manifest
+      // Update manifest status to 'published' using the latest manifest
       await artifactManager.edit({
         artifact_id: artifact.id,
         manifest: {
           ...currentArtifact.manifest,
-          status: 'accepted'
+          status: 'published'
         },
         _rkwargs: true
       });
@@ -718,7 +718,7 @@ const ReviewArtifacts: React.FC = () => {
           ) : (
             <div className="bg-white shadow overflow-hidden sm:rounded-md">
               {/* Section header for pending-review view */}
-              {viewMode === 'pending' && artifacts.some(a => a.manifest?.status === 'request-review') && (
+              {viewMode === 'pending' && artifacts.some(a => a.manifest?.status === 'in-review') && (
                 <div className="px-6 pt-4 pb-2">
                   <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
                     Awaiting Review
@@ -729,8 +729,8 @@ const ReviewArtifacts: React.FC = () => {
                 {artifacts.map((artifact, index) => {
                   const isFirstRevision =
                     viewMode === 'pending' &&
-                    artifact.manifest?.status === 'revision' &&
-                    (index === 0 || artifacts[index - 1]?.manifest?.status !== 'revision');
+                    artifact.manifest?.status === 'in-revision' &&
+                    (index === 0 || artifacts[index - 1]?.manifest?.status !== 'in-revision');
                   return (
                   <React.Fragment key={artifact.id}>
                     {isFirstRevision && (
@@ -843,7 +843,7 @@ const ReviewArtifacts: React.FC = () => {
                                     <Menu.Item>
                                       {({ active }) => (
                                         <button
-                                          onClick={() => handleStatusChange(artifact, 'revision')}
+                                          onClick={() => handleStatusChange(artifact, 'in-revision')}
                                           className={`${
                                             active ? 'bg-gray-100' : ''
                                           } flex w-full items-center px-4 py-2 text-sm text-gray-700`}

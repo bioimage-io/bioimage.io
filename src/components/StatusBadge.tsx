@@ -10,14 +10,15 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) =>
   if (!status) return null;
 
   const getStatusConfig = (status: string) => {
+    // Unified model workflow vocabulary. Deletion is NOT a status (see the
+    // request_deletion field). draft -> in-review -> in-revision -> published.
     const configs = {
-      'request-review': { color: 'yellow', text: 'Request for Review' },
-      'in-review': { color: 'blue', text: 'In Review' },
-      'revision': { color: 'red', text: 'Needs Revision' },
-      'accepted': { color: 'green', text: 'Accepted' },
-      'draft': { color: 'gray', text: 'Draft' }
+      'draft': { color: 'gray', text: 'Draft' },
+      'in-review': { color: 'yellow', text: 'In Review' },
+      'in-revision': { color: 'red', text: 'Needs Revision' },
+      'published': { color: 'green', text: 'Published' }
     } as const;
-    
+
     return configs[status.toLowerCase() as keyof typeof configs] || null;
   };
 

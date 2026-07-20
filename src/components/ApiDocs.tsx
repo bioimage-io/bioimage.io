@@ -719,7 +719,7 @@ def upload_new_model():
         print(f"✅ Model committed successfully!")
         
         # Step 5: Request review (optional)
-        model_manifest["status"] = "request-review"
+        model_manifest["status"] = "in-review"
         response = requests.post(
             f"{BASE_URL}/public/services/artifact-manager/edit",
             json={
@@ -2068,7 +2068,7 @@ main().catch(console.error);`}
                   <li><strong>Published:</strong> Final version, publicly available and immutable</li>
                 </ul>
                 <p className="mt-2">
-                  Use <code>version="draft"</code> when creating, then update status to "request-review" when ready.
+                  Use <code>version="draft"</code> when creating, then update status to "in-review" when ready.
                 </p>
               </div>
             </details>
@@ -2139,7 +2139,7 @@ main().catch(console.error);`}
                   <li>Create an account and generate an API token</li>
                   <li>Use the upload example in the "Getting Started" section to create your model</li>
                   <li>Upload all required files (weights, rdf.yaml, cover image, etc.)</li>
-                  <li>Set status to "request-review" when ready</li>
+                  <li>Set status to "in-review" when ready</li>
                   <li>The BioImage.io team will review and publish your model</li>
                 </ol>
               </div>

@@ -944,11 +944,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const emoji = findEmoji(collection.config, manifest.type, noun);
       setGeneratedEmoji(emoji);
 
-      // Update the manifest with the id and emoji, preserving other fields
+      // Update the manifest with the id and emoji, preserving other fields.
+      // A freshly uploaded model starts as `draft` (not yet submitted for
+      // review); "Submit for Review" moves it to `in-review`.
       const updatedManifest = {
         ...manifest,
         id: shortId,
         id_emoji: emoji,
+        status: 'draft',
         // If there's an existing config, preserve other config fields
         config: manifest.config ? {
           ...manifest.config,

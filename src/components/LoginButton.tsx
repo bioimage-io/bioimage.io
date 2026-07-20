@@ -46,8 +46,8 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, logout } = useHyphaStore();
   const navigate = useNavigate();
   // Whether this user may open the /review page (collection admin) and, if so,
-  // how many models are pending review (manifest.status === 'request-review',
-  // excluding models in 'revision'). Drives the dropdown Review entry + badge.
+  // how many models are pending review (manifest.status === 'in-review',
+  // excluding models in 'in-revision'). Drives the dropdown Review entry + badge.
   const [canAccessReview, setCanAccessReview] = useState(false);
   const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
@@ -71,7 +71,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // Determine review-page access (collection admin) and, for admins, count the
   // models pending review. Staged manifests aren't keyword-indexed, so the
   // status lives only on each staged read — mirror ReviewArtifacts and read the
-  // staged children individually, counting only 'request-review' (not 'revision').
+  // staged children individually, counting only 'in-review' (not 'in-revision').
   useEffect(() => {
     let cancelled = false;
     const loadReviewAccess = async () => {
@@ -111,7 +111,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           })
         );
         if (cancelled) return;
-        setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'request-review').length);
+        setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'in-review').length);
       } catch (err) {
         console.error('Error loading review access/count:', err);
         if (!cancelled) { setCanAccessReview(false); setIsCollectionAdmin(false); setReviewCount(0); }

@@ -122,11 +122,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         stage: true,
         manifest: {
           ...artifactInfo.manifest,
-          status: 'request-review'
+          status: 'in-review'
         },
         _rkwargs: true
       });
-      setStatus('request-review');
+      setStatus('in-review');
       setShowReviewDialog(false);
     } catch (error: any) {
       console.error('Error submitting for review:', error);
@@ -272,7 +272,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           
             {artifactId && isStaged && (
               <>
-                {status !== 'request-review' ? (
+                {status !== 'in-review' ? (
                   <button
                     onClick={() => setShowReviewDialog(true)}
                     disabled={shouldDisableActions}
@@ -316,7 +316,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
             </div>
             
             {/* Info box for models under review */}
-            {status === 'request-review' && (
+            {status === 'in-review' && (
               <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <svg className="w-6 h-6 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

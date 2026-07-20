@@ -368,12 +368,13 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const response = await fetch(url);
       const data = await response.json();
 
-      // Hide models that aren't approved for the public zoo: those awaiting
-      // review or sent back for revision. Everything else stays visible —
-      // including `deletion-requested` (still valid until an admin removes it)
-      // and legacy models with no status. Hypha filters have no negation
-      // operator, so this is done client-side (only affects a handful of items).
-      const HIDDEN_GRID_STATUSES = ['request-review', 'revision'];
+      // Hide models that aren't approved for the public zoo: drafts, those under
+      // review, or sent back for revision. Everything else stays visible —
+      // `published` and legacy no-status models. Deletion is a separate
+      // request_deletion field (a deletion-requested model keeps its published
+      // status and stays visible until an admin removes it). Hypha filters have
+      // no negation operator, so this is done client-side (a handful of items).
+      const HIDDEN_GRID_STATUSES = ['draft', 'in-review', 'in-revision'];
       const visibleItems = (data.items || []).filter(
         (it: any) => !HIDDEN_GRID_STATUSES.includes(it?.manifest?.status)
       );

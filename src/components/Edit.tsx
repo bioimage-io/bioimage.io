@@ -2540,7 +2540,7 @@ const Edit: React.FC = () => {
           // remote test report must already exist for the artifact, OR the model
           // must already be under review.
           const isModel = artifactType === 'model' && !!artifactId;
-          const isInReview = artifactInfo?.manifest?.status === 'request-review';
+          const isInReview = artifactInfo?.manifest?.status === 'in-review';
           const hasRemoteTestReport = storedTestReport != null;
           const testGateSatisfied =
             !isModel || hasTestedThisSession || hasRemoteTestReport || isInReview;
