@@ -20,36 +20,47 @@ on the vestigial `manifest.score` on model artifacts.
 Current report manifest: `{name, description, id, id_emoji, score}`. The card
 (`ArtifactCard`) also renders `covers`, `tags`, and optionally `badges` — so add:
 - **`tags`** — card tag chips.
-- **`covers`** — the cover *path* list (e.g. `["cover.png"]`); the card builds the
-  image URL from `bioimage-io/artifacts/<id>/files/<cover>` (file stays in the
-  model collection, but the report must carry the path).
-- **A numeric tiebreaker** (model `download_count` or `created_at`) — the coarse
-  `0/0.5/1` score ties every passed model at `1.0`; the report artifact's own
-  `download_count` is ~0, so denormalize the model's for popularity/recency
-  tie-break (`order_by=manifest.score>,manifest.download_count>`).
-- Optional: `badges` (partner links), `authors`/`uploader`.
+- **`covers`** — the cover *path* list (e.g. `["cover.png"]`), **not** a full URL
+  (see "Cover / thumbnail resolution" below).
+- **`metadata_completeness`** — the secondary sort key (high = better; producer
+  side, from the model-runner app). Breaks the coarse-`score` ties deterministically
+  so the grid isn't randomly arranged.
+- Optional: `icon` (fallback thumbnail), `badges` (partner links), `authors`/`uploader`.
 
-## Score contract (producer side — bioengine/CI)
-- Each report artifact's `manifest.score`: `0` failed, `0.5` valid-format, `1`
-  passed. Formula may evolve; the frontend only sorts by it, so changes need **no
-  frontend change**.
+## Score / ordering contract (producer side — bioengine/model-runner)
+- `manifest.score`: `0` failed, `0.5` valid-format, `1` passed. Formula may evolve;
+  the frontend only sorts by it, so changes need **no frontend change**.
+- `manifest.metadata_completeness`: numeric, high = better. Secondary sort key.
+- Grid ordering: **`order_by=manifest.score>,manifest.metadata_completeness>`**
+  (both descending). Verified Hypha honors multi-field `order_by`.
 - Reports are (re)generated on the daily CI run or a manual "test" from the UI
-  (skip-cache), which also refreshes the denormalized `name`.
+  (skip-cache), which also refreshes the denormalized `name`/`tags`/`covers`.
+
+## Cover / thumbnail resolution (decision: path in report, URL resolved by website)
+- The report carries the cover **path** (`covers`), and **the website resolves the
+  URL** via the existing shared helper `resolveCoverThumbnailUrl(coverPath, id)`
+  (`ArtifactCard.tsx:164`), which points at the model's own file in the bioimage-io
+  collection. The model-runner must **not** store a full thumbnail URL.
+- Why: the same `(coverPath, id)` + same resolver is used in **browse** (path from
+  report), **search** (path from `bioimage.io` manifest) and **detail** — so the
+  image is **identical everywhere** and always loaded from `bioimage-io/bioimage.io`.
+  A precomputed URL in the report could drift from search/detail resolution and show
+  a different image (exactly what must be avoided).
 
 ## Card composition (no heavy denormalization)
 For each report `test-report-<id>`:
 - **nickname / id** = `<id>` (stable; it's the report id itself).
-- **emoji** = derived from the id (animal in the nickname) — no storage.
-- **name** = report `manifest.name` (refreshed on retest; eventually consistent).
-- **cover** = loaded from the **model** collection by id
-  (`/bioimage-io/artifacts/<id>/files/<cover>`) — covers are files, not manifest,
-  so no denormalization.
+- **emoji** = report `id_emoji` (or derived from the id).
+- **name / description / tags** = report manifest (refreshed on retest).
+- **cover** = report `covers` path → `resolveCoverThumbnailUrl(path, id)` → file in
+  the model collection (shared resolver — same image as search/detail).
 - **score / test outcome badge** = report `manifest.score`.
 
 ## Two modes in `fetchResources`
 1. **Browse (no search query):**
-   - Source: `test-reports` children, `order_by=manifest.score>,download_count>`
-     (score primary, downloads/`created_at` tie-break), paginated server-side.
+   - Source: `test-reports` children,
+     `order_by=manifest.score>,manifest.metadata_completeness>` (score primary,
+     metadata_completeness secondary), paginated server-side.
    - Native quality gate: only models with a report appear.
 2. **Search (has query):**
    - Source: **`bioimage.io` collection** keyword search (rich index:
