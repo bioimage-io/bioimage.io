@@ -512,7 +512,22 @@ const ReviewArtifacts: React.FC = () => {
         },
         _rkwargs: true
       });
-      
+
+      // Flip the model's test report to `type: "published-model"` so it appears
+      // in the public grid immediately (the grid filters on that type). The
+      // model-runner sets this when it writes the report; doing it here avoids
+      // waiting for the next test run. Best-effort: a model may have no report yet.
+      const shortId = artifact.id.split('/').pop();
+      try {
+        await artifactManager.edit({
+          artifact_id: `bioimage-io/test-report-${shortId}`,
+          type: 'published-model',
+          _rkwargs: true
+        });
+      } catch (reportErr) {
+        console.warn(`Could not flip test-report type for ${shortId} (no report yet?):`, reportErr);
+      }
+
       // Refresh the list
       await loadArtifacts();
     } catch (error) {
