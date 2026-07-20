@@ -46,7 +46,8 @@ const ReviewArtifacts: React.FC = () => {
     reviewArtifactsTotalItems,
     setReviewArtifactsPage,
     setReviewArtifactsTotalItems,
-    itemsPerPage 
+    setPendingReviewCount,
+    itemsPerPage
   } = useHyphaStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -210,6 +211,13 @@ const ReviewArtifacts: React.FC = () => {
               return null;
             }
           })
+        );
+
+        // Keep the shared dropdown badge in sync: total in-review models
+        // (unfiltered by type/search), refreshed whenever the pending view loads
+        // — including after an accept / send-to-revision / withdraw-revision.
+        setPendingReviewCount(
+          stagedReads.filter((a: any) => a?.manifest?.status === 'in-review').length
         );
 
         // Separate request-review from revision-needed so we can sort them.

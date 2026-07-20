@@ -85,6 +85,11 @@ export interface HyphaState {
   myArtifactsTotalItems: number;
   reviewArtifactsPage: number;
   reviewArtifactsTotalItems: number;
+  // Count of models awaiting review (status 'in-review', excluding 'in-revision').
+  // Shared so the dropdown badge and the review page stay in sync.
+  pendingReviewCount: number;
+  refreshPendingReviewCount: () => Promise<void>;
+  setPendingReviewCount: (n: number) => void;
   setMyArtifactsPage: (page: number) => void;
   setMyArtifactsTotalItems: (total: number) => void;
   setReviewArtifactsPage: (page: number) => void;
@@ -213,6 +218,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   myArtifactsTotalItems: 0,
   reviewArtifactsPage: 1,
   reviewArtifactsTotalItems: 0,
+  pendingReviewCount: 0,
   setServer: (server) => set({ server }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
@@ -538,6 +544,37 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setMyArtifactsTotalItems: (total) => set({ myArtifactsTotalItems: total }),
   setReviewArtifactsPage: (page) => set({ reviewArtifactsPage: page }),
   setReviewArtifactsTotalItems: (total) => set({ reviewArtifactsTotalItems: total }),
+
+  // Recount models awaiting review (status 'in-review', NOT 'in-revision').
+  // Staged manifests aren't keyword-indexed, so list the staged children and read
+  // each staged manifest individually (same approach the review page uses).
+  refreshPendingReviewCount: async () => {
+    const am = get().artifactManager;
+    if (!am) return;
+    try {
+      const resp = await am.list({
+        parent_id: 'bioimage-io/bioimage.io',
+        stage: true,
+        limit: 1000,
+        pagination: true,
+        _rkwargs: true,
+      });
+      const items: any[] = resp?.items ?? [];
+      const reads = await Promise.all(
+        items.map(async (a: any) => {
+          try {
+            return await am.read({ artifact_id: a.id, stage: true, _rkwargs: true });
+          } catch {
+            return null;
+          }
+        })
+      );
+      set({ pendingReviewCount: reads.filter((a: any) => a?.manifest?.status === 'in-review').length });
+    } catch (err) {
+      console.error('Error refreshing pending-review count:', err);
+    }
+  },
+  setPendingReviewCount: (n) => set({ pendingReviewCount: n }),
   logout: async () => {
     const currentServer = get().server;
     if (currentServer && typeof currentServer.disconnect === 'function') {

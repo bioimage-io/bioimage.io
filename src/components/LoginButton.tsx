@@ -43,13 +43,12 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
-  const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, logout } = useHyphaStore();
+  const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, logout, pendingReviewCount, refreshPendingReviewCount } = useHyphaStore();
   const navigate = useNavigate();
   // Whether this user may open the /review page (collection admin) and, if so,
   // how many models are pending review (manifest.status === 'in-review',
   // excluding models in 'in-revision'). Drives the dropdown Review entry + badge.
   const [canAccessReview, setCanAccessReview] = useState(false);
-  const [reviewCount, setReviewCount] = useState(0);
   const location = useLocation(); // Get location
   const autoLoginAttemptedRef = useRef(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -75,7 +74,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     let cancelled = false;
     const loadReviewAccess = async () => {
       if (!artifactManager || !user) {
-        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+        if (!cancelled) setCanAccessReview(false);
         return;
       }
       try {
@@ -86,30 +85,12 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
         const canReview = getIsReviewer(user, collection.config);
         if (cancelled) return;
         setCanAccessReview(canReview);
-        if (!canReview) { setReviewCount(0); return; }
-
-        const stagedResp = await artifactManager.list({
-          parent_id: 'bioimage-io/bioimage.io',
-          stage: true,
-          limit: 1000,
-          pagination: true,
-          _rkwargs: true,
-        });
-        const stagedItems: any[] = stagedResp?.items ?? [];
-        const reads = await Promise.all(
-          stagedItems.map(async (a: any) => {
-            try {
-              return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true });
-            } catch {
-              return null;
-            }
-          })
-        );
-        if (cancelled) return;
-        setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'in-review').length);
+        // Count lives in the store (refreshPendingReviewCount) so the review page
+        // can update this badge after an accept / send-to-revision.
+        if (canReview) await refreshPendingReviewCount();
       } catch (err) {
-        console.error('Error loading review access/count:', err);
-        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+        console.error('Error loading review access:', err);
+        if (!cancelled) setCanAccessReview(false);
       }
     };
     loadReviewAccess();
@@ -326,9 +307,9 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                   onClick={() => setIsDropdownOpen(false)}
                 >
                   <span>Review</span>
-                  {reviewCount > 0 && (
+                  {pendingReviewCount > 0 && (
                     <span className="ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-600 text-white text-xs font-semibold leading-none">
-                      {reviewCount}
+                      {pendingReviewCount}
                     </span>
                   )}
                 </Link>
