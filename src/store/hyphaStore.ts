@@ -320,6 +320,42 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
 
+      const resourceType = get().resourceType;
+      const hasQuery = !!(searchQuery && searchQuery.trim());
+      const hasFilters = !!(
+        (filterOptions?.tags && filterOptions.tags.length) ||
+        filterOptions?.partnerLink ||
+        filterOptions?.manifest
+      );
+
+      // BROWSE MODE — the public models grid is sourced from the test-reports
+      // collection: only tested models appear, and we order by the report's
+      // `score` (with `metadata_completeness` as a deterministic tiebreaker so
+      // the grid isn't randomly arranged). Each card resolves its cover from the
+      // MODEL collection by id (resolveCoverThumbnailUrl), identical to search
+      // and detail — so the same image loads everywhere. Only for the model grid
+      // and only when not searching/filtering (those still go to the collection,
+      // which has the rich keyword index). Reports not yet re-tested with the new
+      // runner have a null score and sort to the end until CI fills them in.
+      if (resourceType === 'model' && !hasQuery && !hasFilters) {
+        const reportUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-reports/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&order_by=${encodeURIComponent('manifest.score>,manifest.metadata_completeness>')}`;
+        const reportResp = await fetch(reportUrl);
+        const reportData = await reportResp.json();
+        const resources = (reportData.items || []).map((report: any) => {
+          const m = report.manifest || {};
+          // The model's COLLECTION alias is the report alias minus the
+          // `test-report-` prefix (e.g. test-report-ambitious-ant -> ambitious-ant).
+          // Do NOT use manifest.id: for Zenodo-deposited models that is the DOI
+          // (e.g. 10.5281/zenodo.../...), which is not the collection alias and
+          // would break cover/detail resolution. The alias is what covers, links
+          // and the detail page resolve against in bioimage-io/bioimage.io.
+          const modelId = (report.id?.split('/').pop() || '').replace(/^test-report-/, '');
+          return { id: `bioimage-io/${modelId}`, type: 'model', manifest: m };
+        });
+        set({ resources, totalItems: reportData.total || 0, isLoading: false });
+        return;
+      }
+
       // Construct the base URL. Order by newest first; `manifest.score` was a
       // remnant of when test results lived in the artifact and is unset on
       // ~every model, so it produced an effectively-random order — dropped.
