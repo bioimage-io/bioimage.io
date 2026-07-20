@@ -987,12 +987,17 @@ const ReviewArtifacts: React.FC = () => {
                                   const hasDeletionReq = !!artifact.manifest?.request_deletion;
                                   // Discard: only staged edits on a published model (the Staging view).
                                   const canDiscard = viewMode === 'staging';
-                                  // Accept staged changes: commit the staged version (Staging + Pending).
-                                  const canAccept = viewMode === 'staging' || viewMode === 'pending';
-                                  // Request deletion: published models, or versionless models in review/revision
-                                  // (needs a manifest that can carry the flag).
+                                  // Commit the staged version: "Accept staged changes" in the Staging
+                                  // view; "Publish model" for an in-review submission. NOT for
+                                  // in-revision models (they go back to in-review first).
+                                  const canAccept = viewMode === 'staging' || (viewMode === 'pending' && status === 'in-review');
+                                  // Request deletion: published models (Published view) or versionless
+                                  // in-review/in-revision models. NOT in the Staging view — the request
+                                  // would live in the same staging session as the edits and be wiped by
+                                  // a discard.
                                   const canRequestDeletion = !hasDeletionReq &&
-                                    (published || (!published && (status === 'in-review' || status === 'in-revision')));
+                                    (viewMode === 'published' ||
+                                     (viewMode === 'pending' && (status === 'in-review' || status === 'in-revision')));
                                   // Withdraw deletion request: published + in-review/in-revision; disabled while a
                                   // published model is in staging (can't cleanly commit the withdrawal).
                                   const canWithdrawDeletion = hasDeletionReq &&
@@ -1033,9 +1038,9 @@ const ReviewArtifacts: React.FC = () => {
                                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                   </svg>
-                                                  Accepting...
+                                                  {viewMode === 'staging' ? 'Accepting...' : 'Publishing...'}
                                                 </div>
-                                              ) : "Accept staged changes"}
+                                              ) : (viewMode === 'staging' ? "Accept staged changes" : "Publish model")}
                                             </button>
                                           )}
                                         </Menu.Item>
