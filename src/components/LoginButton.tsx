@@ -6,7 +6,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners } from '../utils/roles';
+import { getIsReviewer } from '../utils/roles';
 
 interface User {
   email: string;
@@ -49,7 +49,6 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // how many models are pending review (manifest.status === 'in-review',
   // excluding models in 'in-revision'). Drives the dropdown Review entry + badge.
   const [canAccessReview, setCanAccessReview] = useState(false);
-  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const location = useLocation(); // Get location
   const autoLoginAttemptedRef = useRef(false);
@@ -76,7 +75,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     let cancelled = false;
     const loadReviewAccess = async () => {
       if (!artifactManager || !user) {
-        if (!cancelled) { setCanAccessReview(false); setIsCollectionAdmin(false); setReviewCount(0); }
+        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
         return;
       }
       try {
@@ -85,12 +84,8 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           _rkwargs: true,
         });
         const canReview = getIsReviewer(user, collection.config);
-        // Deletion-request page is for delete-capable admins = bioimage-io
-        // workspace owners (not the global 'admin' role). See utils/roles.ts.
-        const owners = await fetchCollectionOwners(server);
         if (cancelled) return;
         setCanAccessReview(canReview);
-        setIsCollectionAdmin(getIsCollectionAdmin(user, owners));
         if (!canReview) { setReviewCount(0); return; }
 
         const stagedResp = await artifactManager.list({
@@ -114,7 +109,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
         setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'in-review').length);
       } catch (err) {
         console.error('Error loading review access/count:', err);
-        if (!cancelled) { setCanAccessReview(false); setIsCollectionAdmin(false); setReviewCount(0); }
+        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
       }
     };
     loadReviewAccess();
@@ -336,16 +331,6 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                       {reviewCount}
                     </span>
                   )}
-                </Link>
-              )}
-
-              {isCollectionAdmin && (
-                <Link
-                  to="/deletion-requests"
-                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  onClick={() => setIsDropdownOpen(false)}
-                >
-                  Deletion Requests
                 </Link>
               )}
 

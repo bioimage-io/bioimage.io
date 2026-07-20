@@ -16,7 +16,6 @@ import './github-markdown.css'
 import { HyphaProvider } from './HyphaContext';
 import AdminDashboard from './pages/AdminDashboard';
 import ReviewArtifacts from './components/ReviewArtifacts';
-import DeletionRequests from './components/DeletionRequests';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/bioengine/BioEngineHome';
@@ -101,7 +100,6 @@ const AppContent: React.FC = () => {
           <Route path="/edit/:artifactId/:version?" element={<Edit />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/review" element={<ReviewArtifacts />} />
-          <Route path="/deletion-requests" element={<DeletionRequests />} />
           <Route path="/api" element={<ApiDocs />} />
           <Route path="/toc" element={<TermsOfService />} />
           <Route path="/bioengine" element={<BioEngineHome />} />

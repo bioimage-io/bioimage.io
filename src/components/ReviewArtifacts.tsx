@@ -15,11 +15,12 @@ import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
-import { getIsReviewer } from '../utils/roles';
+import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners } from '../utils/roles';
 import RequestDeletionDialog from './RequestDeletionDialog';
+import DeletionRequests from './DeletionRequests';
 
-// Define view mode type for the dropdown
-type ViewMode = 'published' | 'staging' | 'pending';
+// Define view mode type for the dropdown. 'deletion' is admin-only.
+type ViewMode = 'published' | 'staging' | 'pending' | 'deletion';
 
 interface Artifact {
   id: string;
@@ -36,10 +37,11 @@ interface Artifact {
 }
 
 const ReviewArtifacts: React.FC = () => {
-  const { 
-    artifactManager, 
-    user, 
+  const {
+    artifactManager,
+    user,
     isLoggedIn,
+    server,
     reviewArtifactsPage,
     reviewArtifactsTotalItems,
     setReviewArtifactsPage,
@@ -62,7 +64,7 @@ const ReviewArtifacts: React.FC = () => {
   // Initialize viewMode from URL parameter or default to 'pending'
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const showParam = searchParams.get('show');
-    if (showParam === 'published' || showParam === 'staging' || showParam === 'pending') {
+    if (showParam === 'published' || showParam === 'staging' || showParam === 'pending' || showParam === 'deletion') {
       return showParam as ViewMode;
     }
     return 'pending';
@@ -79,6 +81,8 @@ const ReviewArtifacts: React.FC = () => {
   const [acceptLoading, setAcceptLoading] = useState<{[key: string]: boolean}>({});
   // null = still resolving; false = logged in but not a reviewer (guard the page).
   const [isReviewer, setIsReviewer] = useState<boolean | null>(null);
+  // Site admin (bioimage-io workspace owner) — gates the Deletion Request view.
+  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
 
   // Resource-type filter (the review page spans all types; /models etc. are
   // per-type). 'all' preserves the original all-types behavior.
@@ -96,11 +100,13 @@ const ReviewArtifacts: React.FC = () => {
   };
   const matchesType = (a: any) => typeFilter === 'all' || a?.type === typeFilter;
 
-  // View mode options for the dropdown
+  // View mode options for the dropdown. Deletion Request is site-admin only and
+  // sits below Pending Review.
   const viewModeOptions = [
     { id: 'published', name: 'Published' },
     { id: 'staging', name: 'Staging' },
-    { id: 'pending', name: 'Pending Review' }
+    { id: 'pending', name: 'Pending Review' },
+    ...(isCollectionAdmin ? [{ id: 'deletion', name: 'Deletion Request' }] : [])
   ];
 
   // Function to handle view mode changes with URL updates
@@ -139,14 +145,17 @@ const ReviewArtifacts: React.FC = () => {
           _rkwargs: true,
         });
         if (!cancelled) setIsReviewer(getIsReviewer(user, collection.config));
+        // Site-admin (workspace owner) gates the Deletion Request view.
+        const owners = server ? await fetchCollectionOwners(server) : [];
+        if (!cancelled) setIsCollectionAdmin(getIsCollectionAdmin(user, owners));
       } catch (err) {
         console.error('Error checking reviewer access:', err);
-        if (!cancelled) setIsReviewer(false);
+        if (!cancelled) { setIsReviewer(false); setIsCollectionAdmin(false); }
       }
     };
     check();
     return () => { cancelled = true; };
-  }, [artifactManager, user, isLoggedIn]);
+  }, [artifactManager, user, isLoggedIn, server]);
 
   useEffect(() => {
     if (isLoggedIn && user && isReviewer) {
@@ -166,6 +175,9 @@ const ReviewArtifacts: React.FC = () => {
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
+    // The Deletion Request view renders the DeletionRequests component, which
+    // loads its own data — nothing to fetch here.
+    if (viewMode === 'deletion') { setArtifacts([]); return; }
 
     try {
       setLoading(true);
@@ -458,6 +470,42 @@ const ReviewArtifacts: React.FC = () => {
     }
   };
 
+  // Move an in-revision model back to in-review (undo a revision request).
+  const handleWithdrawRevision = async (artifact: Artifact) => {
+    if (!artifactManager || !artifact.manifest) return;
+    try {
+      await artifactManager.edit({
+        artifact_id: artifact.id,
+        manifest: { ...artifact.manifest, status: 'in-review' },
+        stage: true,
+        _rkwargs: true
+      });
+      await loadArtifacts();
+    } catch (err) {
+      console.error('Error withdrawing revision:', err);
+      setError('Failed to withdraw revision');
+    }
+  };
+
+  // Remove a model's deletion request (drop the request_deletion field).
+  const handleWithdrawDeletion = async (artifact: Artifact) => {
+    if (!artifactManager || !artifact.manifest) return;
+    try {
+      const manifest = { ...artifact.manifest };
+      delete manifest.request_deletion;
+      await artifactManager.edit({
+        artifact_id: artifact.id,
+        manifest,
+        stage: true,
+        _rkwargs: true
+      });
+      await loadArtifacts();
+    } catch (err) {
+      console.error('Error withdrawing deletion request:', err);
+      setError('Failed to withdraw deletion request');
+    }
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -510,8 +558,9 @@ const ReviewArtifacts: React.FC = () => {
         <div className="py-6 max-w-screen-lg mx-auto">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
-              {viewMode === 'published' ? "Manage Published Artifacts" : 
-               viewMode === 'staging' ? "Review Staged Artifacts" : 
+              {viewMode === 'published' ? "Manage Published Artifacts" :
+               viewMode === 'staging' ? "Review Staged Artifacts" :
+               viewMode === 'deletion' ? "Deletion Requests" :
                "Review Pending Artifacts"}
             </h1>
             <div className="flex items-center space-x-4">
@@ -631,7 +680,7 @@ const ReviewArtifacts: React.FC = () => {
           </div>
 
           {/* Info Box with Collapsible Guidelines */}
-          {(viewMode !== 'published' || artifacts.length > 0) && (
+          {viewMode !== 'deletion' && (viewMode !== 'published' || artifacts.length > 0) && (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex">
                 <div className="flex-shrink-0">
@@ -780,6 +829,9 @@ const ReviewArtifacts: React.FC = () => {
         </div>
       </div>
 
+      {viewMode === 'deletion' ? (
+        <DeletionRequests />
+      ) : (
       <div className="p-6">
         <div className="max-w-screen-lg mx-auto">
           {loading ? (
@@ -899,10 +951,20 @@ const ReviewArtifacts: React.FC = () => {
                         </div>
                         <div className="flex gap-2 items-center">
                           <button
-                            onClick={() => navigate(`/edit/${encodeURIComponent(artifact.id)}/${viewMode === 'published' ? '' : 'stage'}?tab=review&from=${encodeURIComponent('/review?show=' + viewMode)}`)}
+                            onClick={() => {
+                              const back = encodeURIComponent('/review?show=' + viewMode);
+                              // Published: open the editor. Staging: open the staged
+                              // editor (Edit, not Review). Pending: open on the review tab.
+                              const path = viewMode === 'published'
+                                ? `/edit/${encodeURIComponent(artifact.id)}?from=${back}`
+                                : viewMode === 'pending'
+                                  ? `/edit/${encodeURIComponent(artifact.id)}/stage?tab=review&from=${back}`
+                                  : `/edit/${encodeURIComponent(artifact.id)}/stage?from=${back}`;
+                              navigate(path);
+                            }}
                             className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
-                            {viewMode === 'published' ? "Edit" : "Review"}
+                            {viewMode === 'pending' ? "Review" : "Edit"}
                           </button>
                           
                           <Menu as="div" className="relative">
@@ -918,73 +980,101 @@ const ReviewArtifacts: React.FC = () => {
                               leaveFrom="transform opacity-100 scale-100"
                               leaveTo="transform opacity-0 scale-95"
                             >
-                              <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                                {viewMode !== 'published' && (
-                                  <>
-                                    <Menu.Item>
-                                      {({ active }) => (
-                                        <button
-                                          onClick={() => handleStatusChange(artifact, 'in-revision')}
-                                          className={`${
-                                            active ? 'bg-gray-100' : ''
-                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700`}
-                                        >
-                                          Request Revision
-                                        </button>
+                              <Menu.Items className="absolute right-0 z-10 mt-2 w-52 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                {(() => {
+                                  const status = artifact.manifest?.status;
+                                  const published = (artifact.versions?.length ?? 0) > 0;
+                                  const hasDeletionReq = !!artifact.manifest?.request_deletion;
+                                  // Discard: only staged edits on a published model (the Staging view).
+                                  const canDiscard = viewMode === 'staging';
+                                  // Accept staged changes: commit the staged version (Staging + Pending).
+                                  const canAccept = viewMode === 'staging' || viewMode === 'pending';
+                                  // Request deletion: published models, or versionless models in review/revision
+                                  // (needs a manifest that can carry the flag).
+                                  const canRequestDeletion = !hasDeletionReq &&
+                                    (published || (!published && (status === 'in-review' || status === 'in-revision')));
+                                  // Withdraw deletion request: published + in-review/in-revision; disabled while a
+                                  // published model is in staging (can't cleanly commit the withdrawal).
+                                  const canWithdrawDeletion = hasDeletionReq &&
+                                    (published || status === 'in-review' || status === 'in-revision');
+                                  const withdrawDisabled = published && viewMode === 'staging';
+                                  // canAccept is true for pending (and staging), so it already
+                                  // covers "are there action buttons above the deletion items".
+                                  const showDivider = (canAccept || canDiscard) &&
+                                    (canRequestDeletion || canWithdrawDeletion);
+                                  const item = 'flex w-full items-center px-4 py-2 text-sm';
+                                  return (
+                                    <>
+                                      {viewMode === 'pending' && (
+                                        <Menu.Item>
+                                          {({ active }) => (
+                                            status === 'in-revision' ? (
+                                              <button onClick={() => handleWithdrawRevision(artifact)}
+                                                className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700`}>
+                                                Withdraw Revision
+                                              </button>
+                                            ) : (
+                                              <button onClick={() => handleStatusChange(artifact, 'in-revision')}
+                                                className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700`}>
+                                                Request Revision
+                                              </button>
+                                            )
+                                          )}
+                                        </Menu.Item>
                                       )}
-                                    </Menu.Item>
-                                    <Menu.Item>
-                                      {({ active }) => (
-                                        <button
-                                          onClick={() => handleAccept(artifact)}
-                                          disabled={acceptLoading[artifact.id]}
-                                          className={`${
-                                            active ? 'bg-gray-100' : ''
-                                          } flex w-full items-center px-4 py-2 text-sm text-gray-700 ${
-                                            acceptLoading[artifact.id] ? 'opacity-50 cursor-not-allowed' : ''
-                                          }`}
-                                        >
-                                          {acceptLoading[artifact.id] ? (
-                                            <div className="flex items-center">
-                                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                              </svg>
-                                              Accepting...
-                                            </div>
-                                          ) : "Accept"}
-                                        </button>
+                                      {canAccept && (
+                                        <Menu.Item>
+                                          {({ active }) => (
+                                            <button onClick={() => handleAccept(artifact)} disabled={acceptLoading[artifact.id]}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700 ${acceptLoading[artifact.id] ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                              {acceptLoading[artifact.id] ? (
+                                                <div className="flex items-center">
+                                                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                  </svg>
+                                                  Accepting...
+                                                </div>
+                                              ) : "Accept staged changes"}
+                                            </button>
+                                          )}
+                                        </Menu.Item>
                                       )}
-                                    </Menu.Item>
-                                    <div className="border-t border-gray-100" />
-                                  </>
-                                )}
-                                <Menu.Item>
-                                  {({ active }) => {
-                                    // Staged edits on a PUBLISHED model can be discarded (revert to
-                                    // committed). Everything else (versionless drafts, or removing a
-                                    // published model) goes through the Deletion Request flow —
-                                    // reviewers can't delete, and discarding a draft would orphan it.
-                                    const canDiscard = viewMode !== 'published' && ((artifact.versions?.length ?? 0) > 0);
-                                    return (
-                                      <button
-                                        onClick={() => {
-                                          if (canDiscard) {
-                                            setArtifactToDelete(artifact);
-                                            setIsDeleteDialogOpen(true);
-                                          } else {
-                                            setArtifactToRequestDeletion(artifact);
-                                          }
-                                        }}
-                                        className={`${
-                                          active ? 'bg-gray-100' : ''
-                                        } flex w-full items-center px-4 py-2 text-sm ${canDiscard ? 'text-gray-700' : 'text-red-600'}`}
-                                      >
-                                        {canDiscard ? 'Discard staged changes' : 'Request deletion'}
-                                      </button>
-                                    );
-                                  }}
-                                </Menu.Item>
+                                      {canDiscard && (
+                                        <Menu.Item>
+                                          {({ active }) => (
+                                            <button onClick={() => { setArtifactToDelete(artifact); setIsDeleteDialogOpen(true); }}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700`}>
+                                              Discard staged changes
+                                            </button>
+                                          )}
+                                        </Menu.Item>
+                                      )}
+                                      {showDivider && <div className="border-t border-gray-100" />}
+                                      {canRequestDeletion && (
+                                        <Menu.Item>
+                                          {({ active }) => (
+                                            <button onClick={() => setArtifactToRequestDeletion(artifact)}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600`}>
+                                              Request deletion
+                                            </button>
+                                          )}
+                                        </Menu.Item>
+                                      )}
+                                      {canWithdrawDeletion && (
+                                        <Menu.Item disabled={withdrawDisabled}>
+                                          {({ active }) => (
+                                            <button onClick={() => handleWithdrawDeletion(artifact)} disabled={withdrawDisabled}
+                                              title={withdrawDisabled ? 'Commit or discard the staged changes first' : undefined}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700 ${withdrawDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                              Withdraw deletion request
+                                            </button>
+                                          )}
+                                        </Menu.Item>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </Menu.Items>
                             </Transition>
                           </Menu>
@@ -1000,6 +1090,7 @@ const ReviewArtifacts: React.FC = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* Approve Dialog */}
       <Transition.Root show={isApproveDialogOpen} as={Fragment}>
