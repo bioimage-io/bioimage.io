@@ -74,7 +74,7 @@ async def submit_model(package_dir: str, token: str):
             parent_id=PARENT_ID,
             alias="{animal_adjective}-{animal}",   # generates a memorable 2-word animal name
             type="model",
-            manifest=manifest,
+            manifest={**manifest, "status": "draft"},   # new submissions start as a draft
             stage=True,         # Staged = not publicly visible yet; goes to curator review
             overwrite=False,
         )
@@ -201,10 +201,10 @@ After uploading, follow these steps (covered in SKILL.md Phase 6):
 
 1. **Run BioEngine remote test** — `bioimage-io/model-runner` service, `stage=True`
 2. **Fix failures** — re-upload changed files via `am.edit()` + `am.put_file()`, then retest
-3. **Request review** — `am.edit(version="stage", manifest={...status: "request-review"})`
+3. **Request review** — `am.edit(stage=True, manifest={...status: "in-review"})`
 4. Curators review: metadata quality, license, BioEngine test results
-5. If `revision` status: fix, retest, request review again
-6. Once `accepted`: curator commits and publishes → model appears on https://bioimage.io with a DOI
+5. If `in-revision` status: fix, retest, request review again
+6. Once accepted: curator commits and publishes → model appears on https://bioimage.io with `status: published` and a DOI
 
 **Typical review time:** 1–5 business days.
 
@@ -237,7 +237,7 @@ Use these operations when the user wants to pull back a submission or remove it 
 
 ### Withdraw from review (go back to draft)
 
-Removes the `status: "request-review"` from the manifest so curators no longer see it.
+Sets `status` back to `"draft"` so curators no longer see it in the review queue.
 The artifact remains in staging and can be edited and re-submitted.
 
 ```python
@@ -247,7 +247,7 @@ from hypha_rpc import connect_to_server
 async def withdraw(artifact_id: str, token: str, package_dir: str):
     with open(f"{package_dir}/rdf.yaml") as f:
         manifest = yaml.safe_load(f)
-    manifest.pop("status", None)   # remove status field entirely
+    manifest["status"] = "draft"   # back to draft (not submitted for review)
 
     async with connect_to_server({
         "server_url": "https://hypha.aicell.io",
@@ -257,7 +257,7 @@ async def withdraw(artifact_id: str, token: str, package_dir: str):
         am = await server.get_service("public/artifact-manager")
         await am.edit(
             artifact_id=artifact_id,
-            version="stage",
+            stage=True,   # use stage=True, NOT version="stage" (causes PermissionError)
             manifest=manifest,
         )
         print(f"Withdrawn from review. Artifact is now a draft again: {artifact_id}")
@@ -290,14 +290,16 @@ async def delete_staged(artifact_id: str, token: str):
 asyncio.run(delete_staged("bioimage-io/affable-shark", token="YOUR_TOKEN"))
 ```
 
-**Artifact status lifecycle:**
+**Artifact status lifecycle** (unified vocabulary):
 ```
-(created) → draft → request-review → in-review → accepted → published
-                         ↑                              ↓
-                     withdraw()                    revision → (fix & re-submit)
-                         ↓
-                    discard() / delete()
+(created) → draft → in-review → published
+              ↑          ↓
+          withdraw()  in-revision → (fix & re-submit → in-review)
+              ↓
+        discard() / delete()
 ```
+Statuses: `draft` (not submitted) · `in-review` (awaiting curator) ·
+`in-revision` (curator requested changes) · `published` (committed & live).
 
 ---
 
