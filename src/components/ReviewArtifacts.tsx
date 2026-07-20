@@ -209,27 +209,54 @@ const ReviewArtifacts: React.FC = () => {
         setReviewArtifactsTotalItems(pending.length);
         const start = (reviewArtifactsPage - 1) * itemsPerPage;
         setArtifacts(pending.slice(start, start + itemsPerPage));
-      } else {
-        const filters: any = {};
-        const keywords: string[] = [];
-
-        if (serverSearchQuery.trim()) {
-          keywords.push(serverSearchQuery.trim());
-        }
-
-        const response = await artifactManager.list({
+      } else if (viewMode === 'staging') {
+        // Staging: models that are already published (>=1 committed version) AND
+        // currently have an active staging session. list(stage:true) returns
+        // every staged child (incl. versionless drafts and pending-review), so
+        // keep only those with a committed version.
+        const resp = await artifactManager.list({
           parent_id: "bioimage-io/bioimage.io",
-          filters,
-          keywords,
-          stage: viewMode === 'published' ? false : true,
-          limit: itemsPerPage,
-          offset: (reviewArtifactsPage - 1) * itemsPerPage,
+          stage: true,
+          limit: 1000,
           pagination: true,
           _rkwargs: true
         });
+        let items: Artifact[] = (resp.items ?? []).filter(
+          (a: any) => (a.versions?.length ?? 0) > 0
+        );
+        if (serverSearchQuery.trim()) {
+          const q = serverSearchQuery.trim().toLowerCase();
+          items = items.filter((a: any) =>
+            a.manifest?.name?.toLowerCase().includes(q) ||
+            a.manifest?.description?.toLowerCase().includes(q) ||
+            (a.id ?? '').toLowerCase().includes(q)
+          );
+        }
+        setReviewArtifactsTotalItems(items.length);
+        const start = (reviewArtifactsPage - 1) * itemsPerPage;
+        setArtifacts(items.slice(start, start + itemsPerPage));
+      } else {
+        // Published: committed models that are live in the zoo — status
+        // `published` or none (legacy). Exclude the not-yet-approved states
+        // (draft / in-review / in-revision) that shouldn't appear as published.
+        const keywords: string[] = [];
+        if (serverSearchQuery.trim()) keywords.push(serverSearchQuery.trim());
 
-        setArtifacts(response.items);
-        setReviewArtifactsTotalItems(response.total);
+        const response = await artifactManager.list({
+          parent_id: "bioimage-io/bioimage.io",
+          keywords,
+          stage: false,
+          limit: 1000,
+          pagination: true,
+          _rkwargs: true
+        });
+        const NON_PUBLISHED = ['draft', 'in-review', 'in-revision'];
+        const items: Artifact[] = (response.items ?? []).filter(
+          (a: any) => !NON_PUBLISHED.includes(a.manifest?.status)
+        );
+        setReviewArtifactsTotalItems(items.length);
+        const start = (reviewArtifactsPage - 1) * itemsPerPage;
+        setArtifacts(items.slice(start, start + itemsPerPage));
       }
     } catch (err) {
       console.error('Error loading artifacts:', err);
