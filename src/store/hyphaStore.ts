@@ -347,17 +347,30 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         const reportUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-reports/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&order_by=${encodeURIComponent('manifest.score>,manifest.metadata_completeness>')}`;
         const reportResp = await fetch(reportUrl);
         const reportData = await reportResp.json();
-        const resources = (reportData.items || []).map((report: any) => {
-          const m = report.manifest || {};
-          // The model's COLLECTION alias is the report alias minus the
-          // `test-report-` prefix (e.g. test-report-ambitious-ant -> ambitious-ant).
-          // Do NOT use manifest.id: for Zenodo-deposited models that is the DOI
-          // (e.g. 10.5281/zenodo.../...), which is not the collection alias and
-          // would break cover/detail resolution. The alias is what covers, links
-          // and the detail page resolve against in bioimage-io/bioimage.io.
-          const modelId = (report.id?.split('/').pop() || '').replace(/^test-report-/, '');
-          return { id: `bioimage-io/${modelId}`, type: 'model', manifest: m };
-        });
+        const resources = (reportData.items || [])
+          .filter((report: any) => {
+            const alias = report.id?.split('/').pop() || '';
+            // Only per-model reports: skip the consolidated `inference-report`
+            // and any other non `test-report-` prefixed child in the collection.
+            if (!alias.startsWith('test-report-')) return false;
+            // Skip generic stubs ("Test report for <id>") the runner writes for
+            // models it couldn't resolve to a published entry (staged/unpublished
+            // or orphaned). Published models carry their real name here.
+            const name = (report.manifest?.name || '').toLowerCase();
+            if (name.startsWith('test report for')) return false;
+            return true;
+          })
+          .map((report: any) => {
+            const m = report.manifest || {};
+            // The model's COLLECTION alias is the report alias minus the
+            // `test-report-` prefix (e.g. test-report-ambitious-ant -> ambitious-ant).
+            // Do NOT use manifest.id: for Zenodo-deposited models that is the DOI
+            // (e.g. 10.5281/zenodo.../...), which is not the collection alias and
+            // would break cover/detail resolution. The alias is what covers, links
+            // and the detail page resolve against in bioimage-io/bioimage.io.
+            const modelId = (report.id?.split('/').pop() || '').replace(/^test-report-/, '');
+            return { id: `bioimage-io/${modelId}`, type: 'model', manifest: m };
+          });
         set({ resources, totalItems: reportData.total || 0, isLoading: false });
         return;
       }

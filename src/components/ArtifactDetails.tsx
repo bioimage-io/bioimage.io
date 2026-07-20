@@ -1474,23 +1474,25 @@ const ArtifactDetails = () => {
                                         }}
                                       />
                                     )}
-                                    {partnerIcons.get('bioengine') && (
-                                      <Box
-                                        component="img"
-                                        src={partnerIcons.get('bioengine')}
-                                        alt="bioengine"
-                                        sx={{
-                                          width: 20,
-                                          height: 20,
-                                          objectFit: 'contain',
-                                          flexShrink: 0,
-                                        }}
-                                        onError={(e) => {
-                                          const img = e.target as HTMLImageElement;
-                                          img.style.display = 'none';
-                                        }}
-                                      />
-                                    )}
+                                    {/* Always show the BioEngine logo. partnerIcons is only
+                                        populated when the collection-CI compatibility summary
+                                        loads, so fall back to the static asset when it's absent
+                                        (e.g. a newly published model with no summary yet). */}
+                                    <Box
+                                      component="img"
+                                      src={partnerIcons.get('bioengine') || '/static/img/bioengine-icon.svg'}
+                                      alt="bioengine"
+                                      sx={{
+                                        width: 20,
+                                        height: 20,
+                                        objectFit: 'contain',
+                                        flexShrink: 0,
+                                      }}
+                                      onError={(e) => {
+                                        const img = e.target as HTMLImageElement;
+                                        img.style.display = 'none';
+                                      }}
+                                    />
                                     <Link
                                       href={getSoftwareDocsUrl('bioengine')}
                                       target="_blank"
@@ -1564,28 +1566,8 @@ const ArtifactDetails = () => {
                           
                           // Check status across all versions
                           const versionEntries = Object.entries(versions);
-                          
-                          // Sort versions to find the latest one (semantic version sorting)
-                          const sortedVersions = [...versionEntries].sort((a, b) => {
-                            const parseVersion = (v: string) => {
-                              const parts = v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
-                              return parts;
-                            };
-                            const aParts = parseVersion(a[0]);
-                            const bParts = parseVersion(b[0]);
-                            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                              const aVal = aParts[i] || 0;
-                              const bVal = bParts[i] || 0;
-                              if (aVal !== bVal) return bVal - aVal; // Descending order (latest first)
-                            }
-                            return 0;
-                          });
-                          
-                          // Get the latest version's status
-                          const latestVersionData = sortedVersions.length > 0 ? sortedVersions[0][1] as any : null;
-                          const latestPassed = latestVersionData?.status === 'passed';
-                          
-                          const allPassed = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'passed');
+
+                          // Green if the model passed on ANY tested version of this software.
                           const anyPassed = versionEntries.some(([_, versionData]: [string, any]) => versionData.status === 'passed');
                           const allNotApplicable = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'not-applicable');
 
@@ -1607,18 +1589,14 @@ const ArtifactDetails = () => {
                                 }
                               }}
                             >
-                              {allPassed || latestPassed ? (
+                              {/* Green whenever the model passes on ANY tested version
+                                  of this software (previously this was orange unless the
+                                  latest version also passed). Grey = not-applicable, red =
+                                  no version passed. */}
+                              {anyPassed ? (
                                 <CheckCircleIcon
                                   sx={{
                                     color: '#22c55e',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              ) : anyPassed ? (
-                                <CheckCircleIcon
-                                  sx={{
-                                    color: '#f59e0b',
                                     fontSize: 20,
                                     flexShrink: 0
                                   }}
@@ -1697,7 +1675,17 @@ const ArtifactDetails = () => {
                                 );
                               })()}
                               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                {Object.entries(versions).map(([version, versionData]: [string, any]) => {
+                                {[...Object.entries(versions)].sort((a, b) => {
+                                  // Show newest version first (descending semantic version):
+                                  // 0.10.4, 0.10.3, …, 0.9.6, 0.9.5.
+                                  const parse = (v: string) => v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
+                                  const av = parse(a[0]), bv = parse(b[0]);
+                                  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+                                    const d = (bv[i] || 0) - (av[i] || 0);
+                                    if (d !== 0) return d;
+                                  }
+                                  return 0;
+                                }).map(([version, versionData]: [string, any]) => {
                                   const isPassed = versionData.status === 'passed';
                                   const isNotApplicable = versionData.status === 'not-applicable';
                                   

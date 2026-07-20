@@ -30,7 +30,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
 
-  const { setSelectedResource, user, isLoggedIn, artifactManager } = useHyphaStore();
+  const { setSelectedResource, fetchResource, user, isLoggedIn, artifactManager } = useHyphaStore();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
 
   // Check if user has edit permissions
@@ -110,7 +110,14 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const handlePreviewOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // Seed with the card's manifest for an instant render, then load the FULL
+    // model from the bioimage.io collection. In browse mode the card only holds
+    // the thin test-reports manifest (name/id/emoji/description/tags/cover), so
+    // without this the preview would be missing authors, inputs/outputs, weights,
+    // documentation, covers, etc. fetchResource resolves by id against the model
+    // collection (same as the detail route).
     setSelectedResource(artifact);
+    fetchResource(artifact.id);
     setPreviewOpen(true);
   };
 
