@@ -6,7 +6,7 @@ import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { Dialog, Transition, Switch, Listbox } from '@headlessui/react';
 import { Fragment } from 'react';
 import { ExclamationTriangleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
-import { EllipsisVerticalIcon } from '@heroicons/react/24/outline';
+import { EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { Menu } from '@headlessui/react';
 import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
@@ -15,9 +15,10 @@ import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
-import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners } from '../utils/roles';
+import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished } from '../utils/roles';
+import { getDeletionRequest } from '../utils/deletionRequest';
 import RequestDeletionDialog from './RequestDeletionDialog';
-import DeletionRequests from './DeletionRequests';
+import DeclineDeletionDialog from './DeclineDeletionDialog';
 
 // Define view mode type for the dropdown. 'deletion' is admin-only.
 type ViewMode = 'published' | 'staging' | 'pending' | 'deletion';
@@ -77,6 +78,12 @@ const ReviewArtifacts: React.FC = () => {
   // Model marked for deletion via the reviewer flow (opens RequestDeletionDialog).
   // Reviewers cannot delete directly; a site-admin finalizes on the Deletion page.
   const [artifactToRequestDeletion, setArtifactToRequestDeletion] = useState<Artifact | null>(null);
+  // Decline-deletion (Deletion Request view): opens DeclineDeletionDialog (requires a reason).
+  const [artifactToDeclineDeletion, setArtifactToDeclineDeletion] = useState<Artifact | null>(null);
+  // Finalize-delete (Deletion Request view): requires typing the model id.
+  const [artifactToFinalize, setArtifactToFinalize] = useState<Artifact | null>(null);
+  const [finalizeConfirm, setFinalizeConfirm] = useState('');
+  const [finalizeLoading, setFinalizeLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [acceptLoading, setAcceptLoading] = useState<{[key: string]: boolean}>({});
@@ -176,15 +183,47 @@ const ReviewArtifacts: React.FC = () => {
 
   const loadArtifacts = async () => {
     if (!artifactManager) return;
-    // The Deletion Request view renders the DeletionRequests component, which
-    // loads its own data — nothing to fetch here.
-    if (viewMode === 'deletion') { setArtifacts([]); return; }
 
     try {
       setLoading(true);
       setError(null);
 
-      if (viewMode === 'pending') {
+      if (viewMode === 'deletion') {
+        // Models marked for deletion (manifest.request_deletion) plus versionless
+        // orphan artifacts — read each staged child, same as the pending view.
+        const resp = await artifactManager.list({
+          parent_id: "bioimage-io/bioimage.io",
+          stage: true,
+          limit: 1000,
+          pagination: true,
+          _rkwargs: true
+        });
+        const items: Artifact[] = resp.items ?? [];
+        const reads = await Promise.all(
+          items.map(async (a: Artifact) => {
+            try { return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true }); }
+            catch { return null; }
+          })
+        );
+        let marked: Artifact[] = (reads.filter(Boolean) as Artifact[]).filter((a: any) => {
+          const orphan = !isPublished(a) && !a.staging;
+          return (getDeletionRequest(a) || orphan) && matchesType(a);
+        });
+        if (serverSearchQuery.trim()) {
+          const q = serverSearchQuery.trim().toLowerCase();
+          marked = marked.filter((a: any) =>
+            a.manifest?.name?.toLowerCase().includes(q) || (a.id ?? '').toLowerCase().includes(q));
+        }
+        // Marked-for-deletion first (most recent request on top), then orphans.
+        marked.sort((a: any, b: any) => {
+          const ra = getDeletionRequest(a), rb = getDeletionRequest(b);
+          if (!!ra !== !!rb) return ra ? -1 : 1;
+          return (rb?.requested_at || 0) - (ra?.requested_at || 0);
+        });
+        setReviewArtifactsTotalItems(marked.length);
+        const start = (reviewArtifactsPage - 1) * itemsPerPage;
+        setArtifacts(marked.slice(start, start + itemsPerPage));
+      } else if (viewMode === 'pending') {
         // Pending-review models must remain staged (not committed) until a
         // curator accepts them. Hypha keyword search only indexes committed
         // manifests, so we list all staged artifacts, read each staged manifest
@@ -495,22 +534,31 @@ const ReviewArtifacts: React.FC = () => {
     }
   };
 
-  // Remove a model's deletion request (drop the request_deletion field).
-  const handleWithdrawDeletion = async (artifact: Artifact) => {
-    if (!artifactManager || !artifact.manifest) return;
+  // Finalize a deletion (Deletion Request view). Requires typing the model id.
+  const handleFinalizeDelete = async () => {
+    if (!artifactToFinalize || !artifactManager) return;
+    const shortId = artifactToFinalize.id.split('/').pop() || '';
+    if (finalizeConfirm.trim() !== shortId) {
+      setError('ID confirmation does not match. Deletion cancelled.');
+      return;
+    }
+    setFinalizeLoading(true);
+    setError(null);
     try {
-      const manifest = { ...artifact.manifest };
-      delete manifest.request_deletion;
-      await artifactManager.edit({
-        artifact_id: artifact.id,
-        manifest,
-        stage: true,
+      await artifactManager.delete({
+        artifact_id: artifactToFinalize.id,
+        delete_files: true,
+        recursive: true,
         _rkwargs: true
       });
+      setArtifactToFinalize(null);
+      setFinalizeConfirm('');
       await loadArtifacts();
-    } catch (err) {
-      console.error('Error withdrawing deletion request:', err);
-      setError('Failed to withdraw deletion request');
+    } catch (err: any) {
+      console.error('Error deleting artifact:', err);
+      setError(`Failed to delete ${shortId}: ${err?.message || err}`);
+    } finally {
+      setFinalizeLoading(false);
     }
   };
 
@@ -837,9 +885,6 @@ const ReviewArtifacts: React.FC = () => {
         </div>
       </div>
 
-      {viewMode === 'deletion' ? (
-        <DeletionRequests />
-      ) : (
       <div className="p-6">
         <div className="max-w-screen-lg mx-auto">
           {loading ? (
@@ -956,23 +1001,42 @@ const ReviewArtifacts: React.FC = () => {
                               ))}
                             </div>
                           )}
+
+                          {/* Deletion view: show the request reason + requester below the thumbnails. */}
+                          {viewMode === 'deletion' && (
+                            artifact.manifest?.request_deletion ? (
+                              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                                <p className="text-sm text-red-800">
+                                  <span className="font-medium">Deletion requested:</span> {artifact.manifest.request_deletion.reason}
+                                </p>
+                                <p className="text-xs text-red-500 mt-1">
+                                  Requested by {artifact.manifest.request_deletion.requested_by_email || artifact.manifest.request_deletion.requested_by}
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                <p className="text-sm text-gray-600">Orphaned artifact — no committed version.</p>
+                              </div>
+                            )
+                          )}
                         </div>
                         <div className="flex gap-2 items-center">
                           <button
                             onClick={() => {
                               const back = encodeURIComponent('/review?show=' + viewMode);
                               // Published: open the editor. Staging: open the staged
-                              // editor (Edit, not Review). Pending: open on the review tab.
+                              // editor (Edit, not Review). Pending & Deletion: open on
+                              // the review tab of the staged editor to inspect it.
                               const path = viewMode === 'published'
                                 ? `/edit/${encodeURIComponent(artifact.id)}?from=${back}`
-                                : viewMode === 'pending'
+                                : (viewMode === 'pending' || viewMode === 'deletion')
                                   ? `/edit/${encodeURIComponent(artifact.id)}/stage?tab=review&from=${back}`
                                   : `/edit/${encodeURIComponent(artifact.id)}/stage?from=${back}`;
                               navigate(path);
                             }}
                             className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
-                            {viewMode === 'pending' ? "Review" : "Edit"}
+                            {viewMode === 'pending' || viewMode === 'deletion' ? "Review" : "Edit"}
                           </button>
                           
                           <Menu as="div" className="relative">
@@ -999,20 +1063,21 @@ const ReviewArtifacts: React.FC = () => {
                                   // view; "Publish model" for an in-review submission. NOT for
                                   // in-revision models (they go back to in-review first).
                                   const canAccept = viewMode === 'staging' || (viewMode === 'pending' && status === 'in-review');
+                                  const inStaging = !!(artifact as any).staging;
                                   // Request deletion: published models (Published view) or versionless
-                                  // in-review/in-revision models. Also shown in the Staging view, but
-                                  // DISABLED — the request would live in the same staging session as the
-                                  // edits and be wiped by a discard, so the reviewer must commit/discard
-                                  // first.
+                                  // in-review/in-revision models. Not in the Staging view at all. In the
+                                  // Published view it's disabled while the model has a staging session —
+                                  // the request would share that staging and be wiped by a discard.
                                   const canRequestDeletion = !hasDeletionReq &&
-                                    (viewMode === 'published' || viewMode === 'staging' ||
+                                    (viewMode === 'published' ||
                                      (viewMode === 'pending' && (status === 'in-review' || status === 'in-revision')));
-                                  const requestDeletionDisabled = viewMode === 'staging';
+                                  const requestDeletionDisabled = viewMode === 'published' && inStaging;
+                                  const stagingTip = 'This model is currently in staging mode. Discard or commit the changes before requesting a deletion.';
                                   // Withdraw deletion request: published + in-review/in-revision; disabled while a
                                   // published model is in staging (can't cleanly commit the withdrawal).
                                   const canWithdrawDeletion = hasDeletionReq &&
                                     (published || status === 'in-review' || status === 'in-revision');
-                                  const withdrawDisabled = published && viewMode === 'staging';
+                                  const withdrawDisabled = viewMode === 'staging';
                                   // canAccept is true for pending (and staging), so it already
                                   // covers "are there action buttons above the deletion items".
                                   const showDivider = (canAccept || canDiscard) &&
@@ -1069,10 +1134,27 @@ const ReviewArtifacts: React.FC = () => {
                                       {canRequestDeletion && (
                                         <Menu.Item disabled={requestDeletionDisabled}>
                                           {({ active }) => (
-                                            <button onClick={() => setArtifactToRequestDeletion(artifact)} disabled={requestDeletionDisabled}
-                                              title={requestDeletionDisabled ? 'This model is currently in staging mode. Discard or commit the changes before requesting a deletion.' : undefined}
-                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600 ${requestDeletionDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                              Request deletion
+                                            requestDeletionDisabled ? (
+                                              <Tooltip title={stagingTip} placement="left" arrow>
+                                                <span className={`${item} text-red-600 opacity-50 cursor-not-allowed`}>
+                                                  Request deletion
+                                                </span>
+                                              </Tooltip>
+                                            ) : (
+                                              <button onClick={() => setArtifactToRequestDeletion(artifact)}
+                                                className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600`}>
+                                                Request deletion
+                                              </button>
+                                            )
+                                          )}
+                                        </Menu.Item>
+                                      )}
+                                      {viewMode === 'deletion' && (
+                                        <Menu.Item>
+                                          {({ active }) => (
+                                            <button onClick={() => { setArtifactToFinalize(artifact); setFinalizeConfirm(''); }}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600`}>
+                                              {hasDeletionReq ? 'Accept deletion request' : 'Delete permanently'}
                                             </button>
                                           )}
                                         </Menu.Item>
@@ -1080,11 +1162,18 @@ const ReviewArtifacts: React.FC = () => {
                                       {canWithdrawDeletion && (
                                         <Menu.Item disabled={withdrawDisabled}>
                                           {({ active }) => (
-                                            <button onClick={() => handleWithdrawDeletion(artifact)} disabled={withdrawDisabled}
-                                              title={withdrawDisabled ? 'Commit or discard the staged changes first' : undefined}
-                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700 ${withdrawDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                              Withdraw deletion request
-                                            </button>
+                                            withdrawDisabled ? (
+                                              <Tooltip title={stagingTip} placement="left" arrow>
+                                                <span className={`${item} text-gray-700 opacity-50 cursor-not-allowed`}>
+                                                  Decline deletion request
+                                                </span>
+                                              </Tooltip>
+                                            ) : (
+                                              <button onClick={() => setArtifactToDeclineDeletion(artifact)}
+                                                className={`${active ? 'bg-gray-100' : ''} ${item} text-gray-700`}>
+                                                Decline deletion request
+                                              </button>
+                                            )
                                           )}
                                         </Menu.Item>
                                       )}
@@ -1106,7 +1195,6 @@ const ReviewArtifacts: React.FC = () => {
           )}
         </div>
       </div>
-      )}
 
       {/* Approve Dialog */}
       <Transition.Root show={isApproveDialogOpen} as={Fragment}>
@@ -1327,6 +1415,91 @@ const ReviewArtifacts: React.FC = () => {
           onRequested={() => { loadArtifacts(); }}
         />
       )}
+
+      {/* Decline Deletion Dialog (deletion view: keep the model, reason to comments) */}
+      {artifactToDeclineDeletion && user && (
+        <DeclineDeletionDialog
+          artifact={artifactToDeclineDeletion}
+          artifactManager={artifactManager}
+          user={user}
+          onClose={() => setArtifactToDeclineDeletion(null)}
+          onDeclined={() => { loadArtifacts(); }}
+        />
+      )}
+
+      {/* Accept Deletion Request Dialog — permanently delete; requires typing the id */}
+      <Transition.Root show={!!artifactToFinalize} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={() => { if (!finalizeLoading) { setArtifactToFinalize(null); setFinalizeConfirm(''); } }}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 z-10 overflow-y-auto">
+            <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+              <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6">
+                <div className="sm:flex sm:items-start">
+                  <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <TrashIcon className="h-6 w-6 text-red-600" />
+                  </div>
+                  <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
+                    <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
+                      Accept deletion request
+                    </Dialog.Title>
+                    <div className="mt-2 space-y-3">
+                      <p className="text-sm text-gray-500">
+                        This permanently deletes the model and all of its files. This cannot be undone.
+                        Type the model id{' '}
+                        <span className="font-mono font-semibold text-gray-700">
+                          {artifactToFinalize?.id?.split('/').pop()}
+                        </span>{' '}
+                        to confirm.
+                      </p>
+                      <input
+                        type="text"
+                        value={finalizeConfirm}
+                        onChange={(e) => setFinalizeConfirm(e.target.value)}
+                        placeholder="Enter model id"
+                        disabled={finalizeLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                  <button
+                    type="button"
+                    className={`inline-flex w-full justify-center rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${
+                      finalizeConfirm.trim() === (artifactToFinalize?.id?.split('/').pop() || '') && !finalizeLoading
+                        ? 'bg-red-600 hover:bg-red-500'
+                        : 'bg-red-300 cursor-not-allowed'
+                    }`}
+                    onClick={handleFinalizeDelete}
+                    disabled={finalizeLoading || finalizeConfirm.trim() !== (artifactToFinalize?.id?.split('/').pop() || '')}
+                  >
+                    {finalizeLoading ? 'Deleting…' : 'Delete permanently'}
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                    onClick={() => { setArtifactToFinalize(null); setFinalizeConfirm(''); }}
+                    disabled={finalizeLoading}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </Dialog.Panel>
+            </div>
+          </div>
+        </Dialog>
+      </Transition.Root>
 
       {artifacts.length > 0 && (
         <div className="mt-6 max-w-screen-lg mx-auto">

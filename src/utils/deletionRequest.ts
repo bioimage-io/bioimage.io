@@ -31,12 +31,12 @@ export function getDeletionRequest(artifact: any): DeletionRequest | null {
   return null;
 }
 
-// Append a "Deletion requested" entry to comments.json (best-effort). The
-// artifact must already be in staging (requestDeletion stages it first).
-async function appendDeletionComment(
+// Append an entry to comments.json (best-effort). The artifact must already be
+// in staging (the caller stages it first).
+async function appendComment(
   artifactManager: any,
   artifactId: string,
-  reason: string,
+  content: string,
   user: RoleUser,
 ): Promise<void> {
   let comments: Comment[] = [];
@@ -58,7 +58,7 @@ async function appendDeletionComment(
 
   comments.push({
     id: uuidv4(),
-    content: `🗑️ Deletion requested — ${reason}`,
+    content,
     userId: user.id,
     userName: user.email || user.id,
     createdAt: new Date().toISOString(),
@@ -120,9 +120,52 @@ export async function requestDeletion(
   });
 
   try {
-    await appendDeletionComment(artifactManager, artifact.id, trimmed, user);
+    await appendComment(artifactManager, artifact.id, `🗑️ Deletion requested — ${trimmed}`, user);
   } catch (e) {
     // Reason is still preserved on manifest.request_deletion; comment is a bonus.
     console.error('Failed to append deletion-request comment:', e);
+  }
+}
+
+/**
+ * Decline a deletion request with a required reason. Drops the
+ * `manifest.request_deletion` flag (staged, never committed) and appends the
+ * decline reason to the comment thread so the requester sees why it was denied.
+ * Throws if the reason is empty.
+ */
+export async function declineDeletion(
+  artifactManager: any,
+  artifact: any,
+  reason: string,
+  user: RoleUser,
+): Promise<void> {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    throw new Error('A reason is required to decline a deletion request.');
+  }
+
+  // Read the freshest full manifest (staged if present, else committed) so we
+  // don't drop fields when replacing the staged manifest.
+  let current: any;
+  try {
+    current = await artifactManager.read({ artifact_id: artifact.id, stage: true, _rkwargs: true });
+  } catch {
+    current = await artifactManager.read({ artifact_id: artifact.id, _rkwargs: true });
+  }
+
+  const manifest = { ...(current?.manifest || {}) };
+  delete manifest.request_deletion;
+
+  await artifactManager.edit({
+    artifact_id: artifact.id,
+    manifest,
+    stage: true,
+    _rkwargs: true,
+  });
+
+  try {
+    await appendComment(artifactManager, artifact.id, `↩️ Deletion request declined — ${trimmed}`, user);
+  } catch (e) {
+    console.error('Failed to append deletion-decline comment:', e);
   }
 }
