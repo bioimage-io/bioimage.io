@@ -16,6 +16,19 @@ on the vestigial `manifest.score` on model artifacts.
 - Hypha `order_by` supports **multiple keys** (verified:
   `order_by=manifest.score>,download_count>` works) → coarse scores can tie-break.
 
+## Report manifest fields the grid card needs (producer side)
+Current report manifest: `{name, description, id, id_emoji, score}`. The card
+(`ArtifactCard`) also renders `covers`, `tags`, and optionally `badges` — so add:
+- **`tags`** — card tag chips.
+- **`covers`** — the cover *path* list (e.g. `["cover.png"]`); the card builds the
+  image URL from `bioimage-io/artifacts/<id>/files/<cover>` (file stays in the
+  model collection, but the report must carry the path).
+- **A numeric tiebreaker** (model `download_count` or `created_at`) — the coarse
+  `0/0.5/1` score ties every passed model at `1.0`; the report artifact's own
+  `download_count` is ~0, so denormalize the model's for popularity/recency
+  tie-break (`order_by=manifest.score>,manifest.download_count>`).
+- Optional: `badges` (partner links), `authors`/`uploader`.
+
 ## Score contract (producer side — bioengine/CI)
 - Each report artifact's `manifest.score`: `0` failed, `0.5` valid-format, `1`
   passed. Formula may evolve; the frontend only sorts by it, so changes need **no
@@ -47,20 +60,14 @@ For each report `test-report-<id>`:
    - Search **surfaces any published model** (including not-yet-tested ones) for
      findability — intentionally broader than browse.
 
-## Status reconciliation (the one open nuance the data exposed)
-- Reports exist for some **non-published** models too: e.g. `self-disciplined-octopus`
-  is committed but `in-review`, and has a (failing) published-slot report. So
-  "has a report" ≠ "is published".
-- Therefore the browse grid must **still exclude `in-review` / `in-revision` /
-  `draft`** models, or they leak in.
-- Options (decide with CI/status coordination):
-  a. **CI only maintains published-slot reports for `published` models** — then
-     "has published report" ≈ published; cleanest, no per-item status lookup.
-  b. **Denormalize `status` into the report manifest** (refreshed on retest) and
-     filter on it in the grid query (`filters` can `$in` the allowed statuses).
-  c. Frontend cross-checks status per item (extra lookups — avoid).
-- Recommended: (a) + (b) as belt-and-suspenders (report carries `status`, CI keeps
-  it fresh, grid filters `status $in [published]` and treats missing as published).
+## Status: no extra grid filter needed
+- Invariant (CI policy): **a published-slot report exists only for published
+  models** → "has a report" == "is published". So the browse grid needs **no**
+  status filter for `in-review` / `in-revision` / `draft`.
+- Known one-off exception: `self-disciplined-octopus` was mistakenly committed
+  while still in review (by an earlier agent). It fails its test, so its `score`
+  sorts it to the very bottom, and the maintainer (Fynn) will fix it. No code
+  handling required — anomalies self-correct via low score.
 
 ## Supersedes
 - The current **client-side status blocklist** (`hyphaStore.fetchResources`) is
