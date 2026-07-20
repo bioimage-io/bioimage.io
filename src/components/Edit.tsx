@@ -493,7 +493,7 @@ const Edit: React.FC = () => {
     try {
       setUploadStatus({ message: 'Preparing staged version for editing...', severity: 'info' });
       await artifactManager.edit({ artifact_id: artifactId, stage: true, _rkwargs: true });
-      navigate(`/edit/${artifactId}/stage`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}/stage`);
     } catch (error) {
       console.error('Error staging artifact:', error);
       setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
@@ -505,7 +505,7 @@ const Edit: React.FC = () => {
     try {
       setUploadStatus({ message: 'Committing changes...', severity: 'info' });
       await commitIfStaged('Updated model');
-      navigate(`/edit/${artifactId}`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
       console.error('Error committing staged changes:', error);
       setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
@@ -517,7 +517,7 @@ const Edit: React.FC = () => {
     try {
       setUploadStatus({ message: 'Discarding staged changes...', severity: 'info' });
       await artifactManager.discard({ artifact_id: artifactId, _rkwargs: true });
-      navigate(`/edit/${artifactId}`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
       console.error('Error discarding staged changes:', error);
       setUploadStatus({ message: 'Failed to discard changes', severity: 'error' });
