@@ -80,6 +80,22 @@ const ReviewArtifacts: React.FC = () => {
   // null = still resolving; false = logged in but not a reviewer (guard the page).
   const [isReviewer, setIsReviewer] = useState<boolean | null>(null);
 
+  // Resource-type filter (the review page spans all types; /models etc. are
+  // per-type). 'all' preserves the original all-types behavior.
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const typeOptions = [
+    { id: 'all', name: 'All types' },
+    { id: 'model', name: 'Models' },
+    { id: 'application', name: 'Applications' },
+    { id: 'dataset', name: 'Datasets' },
+    { id: 'notebook', name: 'Notebooks' }
+  ];
+  const handleTypeChange = (newType: string) => {
+    setTypeFilter(newType);
+    setReviewArtifactsPage(1);
+  };
+  const matchesType = (a: any) => typeFilter === 'all' || a?.type === typeFilter;
+
   // View mode options for the dropdown
   const viewModeOptions = [
     { id: 'published', name: 'Published' },
@@ -136,7 +152,7 @@ const ReviewArtifacts: React.FC = () => {
     if (isLoggedIn && user && isReviewer) {
       loadArtifacts();
     }
-  }, [artifactManager, user, isLoggedIn, isReviewer, viewMode, reviewArtifactsPage, serverSearchQuery]);
+  }, [artifactManager, user, isLoggedIn, isReviewer, viewMode, typeFilter, reviewArtifactsPage, serverSearchQuery]);
 
   // Add debounced server search
   useEffect(() => {
@@ -188,10 +204,10 @@ const ReviewArtifacts: React.FC = () => {
         // Request-review items appear first (truly pending); revision items
         // follow so the reviewer can track them and help the developer.
         let reviewPending: Artifact[] = stagedReads.filter(
-          (a: any): a is Artifact => a?.manifest?.status === 'in-review'
+          (a: any): a is Artifact => a?.manifest?.status === 'in-review' && matchesType(a)
         );
         let revisionNeeded: Artifact[] = stagedReads.filter(
-          (a: any): a is Artifact => a?.manifest?.status === 'in-revision'
+          (a: any): a is Artifact => a?.manifest?.status === 'in-revision' && matchesType(a)
         );
 
         if (serverSearchQuery.trim()) {
@@ -222,7 +238,7 @@ const ReviewArtifacts: React.FC = () => {
           _rkwargs: true
         });
         let items: Artifact[] = (resp.items ?? []).filter(
-          (a: any) => (a.versions?.length ?? 0) > 0
+          (a: any) => (a.versions?.length ?? 0) > 0 && matchesType(a)
         );
         if (serverSearchQuery.trim()) {
           const q = serverSearchQuery.trim().toLowerCase();
@@ -252,7 +268,7 @@ const ReviewArtifacts: React.FC = () => {
         });
         const NON_PUBLISHED = ['draft', 'in-review', 'in-revision'];
         const items: Artifact[] = (response.items ?? []).filter(
-          (a: any) => !NON_PUBLISHED.includes(a.manifest?.status)
+          (a: any) => !NON_PUBLISHED.includes(a.manifest?.status) && matchesType(a)
         );
         setReviewArtifactsTotalItems(items.length);
         const start = (reviewArtifactsPage - 1) * itemsPerPage;
@@ -499,6 +515,44 @@ const ReviewArtifacts: React.FC = () => {
                "Review Pending Artifacts"}
             </h1>
             <div className="flex items-center space-x-4">
+              <div className="relative w-44">
+                <Listbox value={typeFilter} onChange={handleTypeChange}>
+                  <div className="relative mt-1">
+                    <Listbox.Button className="relative w-full cursor-default rounded-lg bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:outline-none focus-visible:border-blue-500 focus-visible:ring-2 sm:text-sm">
+                      <span className="block truncate">
+                        {typeOptions.find(o => o.id === typeFilter)?.name}
+                      </span>
+                      <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <ChevronDownIcon className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                      </span>
+                    </Listbox.Button>
+                    <Transition as={Fragment} leave="transition ease-in duration-100" leaveFrom="opacity-100" leaveTo="opacity-0">
+                      <Listbox.Options className="absolute mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm z-10">
+                        {typeOptions.map((option) => (
+                          <Listbox.Option
+                            key={option.id}
+                            className={({ active }) =>
+                              `relative cursor-default select-none py-2 pl-10 pr-4 ${active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'}`
+                            }
+                            value={option.id}
+                          >
+                            {({ selected }) => (
+                              <>
+                                <span className={`block truncate ${selected ? 'font-medium' : 'font-normal'}`}>{option.name}</span>
+                                {selected ? (
+                                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
+                                    <CheckCircleIcon className="h-5 w-5" aria-hidden="true" />
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                          </Listbox.Option>
+                        ))}
+                      </Listbox.Options>
+                    </Transition>
+                  </div>
+                </Listbox>
+              </div>
               <div className="relative w-64">
                 <Listbox value={viewMode} onChange={handleViewModeChange}>
                   <div className="relative mt-1">
