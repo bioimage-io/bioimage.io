@@ -1000,12 +1000,14 @@ const ReviewArtifacts: React.FC = () => {
                                   // in-revision models (they go back to in-review first).
                                   const canAccept = viewMode === 'staging' || (viewMode === 'pending' && status === 'in-review');
                                   // Request deletion: published models (Published view) or versionless
-                                  // in-review/in-revision models. NOT in the Staging view — the request
-                                  // would live in the same staging session as the edits and be wiped by
-                                  // a discard.
+                                  // in-review/in-revision models. Also shown in the Staging view, but
+                                  // DISABLED — the request would live in the same staging session as the
+                                  // edits and be wiped by a discard, so the reviewer must commit/discard
+                                  // first.
                                   const canRequestDeletion = !hasDeletionReq &&
-                                    (viewMode === 'published' ||
+                                    (viewMode === 'published' || viewMode === 'staging' ||
                                      (viewMode === 'pending' && (status === 'in-review' || status === 'in-revision')));
+                                  const requestDeletionDisabled = viewMode === 'staging';
                                   // Withdraw deletion request: published + in-review/in-revision; disabled while a
                                   // published model is in staging (can't cleanly commit the withdrawal).
                                   const canWithdrawDeletion = hasDeletionReq &&
@@ -1065,10 +1067,11 @@ const ReviewArtifacts: React.FC = () => {
                                       )}
                                       {showDivider && <div className="border-t border-gray-100" />}
                                       {canRequestDeletion && (
-                                        <Menu.Item>
+                                        <Menu.Item disabled={requestDeletionDisabled}>
                                           {({ active }) => (
-                                            <button onClick={() => setArtifactToRequestDeletion(artifact)}
-                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600`}>
+                                            <button onClick={() => setArtifactToRequestDeletion(artifact)} disabled={requestDeletionDisabled}
+                                              title={requestDeletionDisabled ? 'This model is currently in staging mode. Discard or commit the changes before requesting a deletion.' : undefined}
+                                              className={`${active ? 'bg-gray-100' : ''} ${item} text-red-600 ${requestDeletionDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                               Request deletion
                                             </button>
                                           )}
