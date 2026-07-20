@@ -356,6 +356,39 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         return;
       }
 
+      // SEARCH MODE for models — fetch committed models and filter client-side by
+      // name / description / tags AND the alias (nickname), so a model is findable
+      // by its memorable id, which the server keyword index does not cover. This
+      // sources from the model collection (rich data) and surfaces any published
+      // model. partnerLink searches fall through to the keyword path below.
+      if (resourceType === 'model' && hasQuery && !filterOptions?.partnerLink) {
+        const q = (searchQuery || '').trim().toLowerCase();
+        const tagFilters = (filterOptions?.tags || []).map(t => String(t).toLowerCase());
+        const searchUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&limit=2000&stage=false&filters=${encodeURIComponent(JSON.stringify({ type: 'model' }))}&order_by=created_at>`;
+        const searchResp = await fetch(searchUrl);
+        const searchData = await searchResp.json();
+        const HIDDEN = ['draft', 'in-review', 'in-revision'];
+        const matches = (searchData.items || []).filter((it: any) => {
+          const m = it.manifest || {};
+          if (HIDDEN.includes(m.status)) return false;
+          const tags = (m.tags || []).map((t: any) => String(t).toLowerCase());
+          if (tagFilters.length && !tagFilters.every(t => tags.includes(t))) return false;
+          const alias = (it.id || '').split('/').pop().toLowerCase();
+          return (
+            alias.includes(q) ||
+            m.name?.toLowerCase().includes(q) ||
+            m.description?.toLowerCase().includes(q) ||
+            tags.some((t: string) => t.includes(q))
+          );
+        });
+        set({
+          resources: matches.slice(offset, offset + get().itemsPerPage),
+          totalItems: matches.length,
+          isLoading: false
+        });
+        return;
+      }
+
       // Construct the base URL. Order by newest first; `manifest.score` was a
       // remnant of when test results lived in the artifact and is unset on
       // ~every model, so it produced an effectively-random order — dropped.
