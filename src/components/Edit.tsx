@@ -476,16 +476,23 @@ const Edit: React.FC = () => {
   // a no-op, since the changes have already landed in the committed version.
   const commitIfStaged = async (comment: string): Promise<void> => {
     if (!artifactManager || !artifactId) return;
-    const fresh = await artifactManager.read({
-      artifact_id: artifactId,
-      _rkwargs: true
-    });
-    if (fresh?.staging == null) return;
-    await artifactManager.commit({
-      artifact_id: artifactId,
-      comment,
-      _rkwargs: true
-    });
+    // Don't gate on a client-side `staging` field: the default (committed) read
+    // reports staging=null by backend design — it's only surfaced on a
+    // stage=true read. Instead attempt the commit and treat the backend's
+    // "Artifact must be in staging mode to commit" assertion (already committed /
+    // nothing staged) as a no-op. This preserves the auto-stage race-tolerance
+    // (handleSave / onDrop / the setTimeout recursion may have already committed).
+    try {
+      await artifactManager.commit({
+        artifact_id: artifactId,
+        comment,
+        _rkwargs: true
+      });
+    } catch (err) {
+      const msg = String((err as any)?.message ?? err);
+      if (/staging mode to commit|must be in staging/i.test(msg)) return;
+      throw err;
+    }
   };
 
   const handleStageForEditing = async () => {

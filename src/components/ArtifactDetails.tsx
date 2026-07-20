@@ -288,16 +288,12 @@ const ArtifactDetails = () => {
         return;
       }
 
-      const testSummary = selectedResource?.manifest?.test_summary;
-      if (!testSummary) {
-        setTestReportData(null);
-        return;
-      }
-
       try {
-        // Read the test report from the dedicated bioimage-io/test-reports
-        // collection (per-model test-report-<id> artifact). No legacy fallback:
-        // models without a report here simply show no BioEngine entry.
+        // Read the test report straight from the dedicated bioimage-io/test-reports
+        // collection (per-model test-report-<id> artifact). This is the sole,
+        // authoritative source — independent of the deprecated manifest
+        // `test_summary` field and of the collection-CI compatibility summary.
+        // A 404 simply means no BioEngine report yet.
         // Cache-bust: the report is overwritten in place on re-test.
         const response = await fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`);
         if (!response.ok) {
@@ -319,7 +315,7 @@ const ArtifactDetails = () => {
 
     fetchCompatibilityData();
     fetchTestReport();
-  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_summary, version, latestVersion]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
 
   // Fetch BioEngine inference status
   useEffect(() => {
@@ -405,23 +401,20 @@ const ArtifactDetails = () => {
     }
   };
 
-  // Helper to get test report status for the embedded button icon
-  const getTestReportStatus = () => {
-    const testSummary = selectedResource?.manifest?.test_summary;
-    if (!testSummary) return null;
-    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
-    if (!reports || reports.length === 0) return null;
-    const passedCount = reports.filter((r: TestReport) => r.status === 'passed').length;
-    if (passedCount === reports.length) return 'all-passed';
-    if (passedCount > 0) return 'some-passed';
-    return 'none-passed';
-  };
-
+  // Summarize the BioEngine test for the popover list. Sourced from the
+  // test-reports collection (testReportData), NOT the deprecated manifest
+  // `test_summary`. The collection stores one DetailedTestReport per model, so
+  // this yields a single summary row.
   const getTestReports = (): TestReport[] | null => {
-    const testSummary = selectedResource?.manifest?.test_summary;
-    if (!testSummary) return null;
-    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
-    return reports || null;
+    if (!testReportData) return null;
+    const coreVer = testReportData.env?.find(
+      (pkg: any[]) => pkg[0] === 'bioimageio.core'
+    )?.[1];
+    return [{
+      name: testReportData.name || 'BioEngine test',
+      status: testReportData.status === 'passed' ? 'passed' : testReportData.status,
+      runtime: coreVer ? `bioimageio.core ${coreVer}` : (testReportData.status || ''),
+    }];
   };
 
   const handleDownload = () => {
@@ -1377,18 +1370,15 @@ const ArtifactDetails = () => {
                   </Box>
                 )}
 
-                {compatibilityError && !isLoadingCompatibility && (
-                  <Alert severity="info" sx={{ borderRadius: '12px' }}>
-                    Compatibility data not available for this version
-                  </Alert>
-                )}
-
-                {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
+                {!isLoadingCompatibility && (
                   <Stack spacing={0.75}>
-                    {/* Test Results - Software with Version Chips */}
-                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (() => {
+                    {/* BioEngine is sourced independently from the test-reports
+                        collection, so it renders here regardless of whether the
+                        collection-CI compatibility summary exists yet. Partner-tool
+                        rows come from that summary and may lag for new models. */}
+                    {(() => {
                       // Sort software entries: bioimageio.core first, then bioengine (if exists), then rest alphabetically
-                      const softwareEntries = Object.entries(compatibilityData.tests);
+                      const softwareEntries = Object.entries(compatibilityData?.tests || {});
                       const sortedEntries = softwareEntries.sort(([nameA], [nameB]) => {
                         const isBioImageCoreA = nameA.toLowerCase().includes('bioimageio.core') || nameA.toLowerCase().includes('bioimage.io');
                         const isBioImageCoreB = nameB.toLowerCase().includes('bioimageio.core') || nameB.toLowerCase().includes('bioimage.io');
@@ -1430,10 +1420,6 @@ const ArtifactDetails = () => {
                         <>
                           {allEntries.map((entry, index) => {
                             if (entry.type === 'bioengine') {
-                              // Render bioengine entry
-                              const reports = selectedResource?.manifest?.test_summary;
-                              const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
-                              
                               // The bioengine row is always listed; the result
                               // chip + pass/fail icon only appear when a test
                               // report exists in the test-reports collection.
@@ -1783,6 +1769,11 @@ const ArtifactDetails = () => {
                         })}
                       </>
                     )})()}
+                    {(!compatibilityData?.tests || Object.keys(compatibilityData.tests).length === 0) && (
+                      <Alert severity="info" sx={{ borderRadius: '12px', mt: 0.5 }}>
+                        Partner-tool compatibility is still being generated for this version.
+                      </Alert>
+                    )}
                   </Stack>
                 )}
               </CardContent>

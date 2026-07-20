@@ -978,7 +978,17 @@ const ReviewArtifacts: React.FC = () => {
                               <StatusBadge status={artifact.manifest?.status} size="small" />
                             </div>
                           <p className="mt-1 text-sm text-gray-500">
-                            Submitted by: {artifact.created_by}
+                            Submitted by: {(() => {
+                              // manifest.uploader (email + optional name) is far more
+                              // human-readable than the opaque created_by id (which can
+                              // even be a session id). Fall back to created_by when the
+                              // uploader block is absent (~4/53 staged models).
+                              const up = artifact.manifest?.uploader;
+                              const email = up?.email;
+                              const name = up?.name;
+                              if (email && name) return `${name} <${email}>`;
+                              return email || name || artifact.created_by;
+                            })()}
                           </p>
                           <p className="mt-1 text-sm text-gray-500">
                             {artifact.manifest?.description || 'No description'}

@@ -40,14 +40,19 @@ const TestReportBadge: React.FC<TestReportBadgeProps> = ({
   const [rawErrorContent, setRawErrorContent] = useState<string | null>(null);
   const [isInvalidJson, setIsInvalidJson] = useState(false);
 
-  // Helper function to get reports array from both old and new format
+  // Summarize the BioEngine test from the test-reports collection
+  // (detailedTestReport), NOT the deprecated manifest `test_summary`. The
+  // collection stores one DetailedTestReport per model → a single summary row.
   const getReports = (): TestReport[] | null => {
-    const testSummary = artifact.manifest.test_summary;
-    if (!testSummary) return null;
-    
-    // Handle both old array format and new object format
-    const reports = Array.isArray(testSummary) ? testSummary : testSummary.reports;
-    return reports || null;
+    if (!detailedTestReport) return null;
+    const coreVer = detailedTestReport.env?.find(
+      (pkg: any[]) => pkg[0] === 'bioimageio.core'
+    )?.[1];
+    return [{
+      name: detailedTestReport.name || 'BioEngine test',
+      status: detailedTestReport.status === 'passed' ? 'passed' : detailedTestReport.status,
+      runtime: coreVer ? `bioimageio.core ${coreVer}` : (detailedTestReport.status || ''),
+    }];
   };
 
   // Test report status logic
