@@ -557,6 +557,18 @@ const ReviewArtifacts: React.FC = () => {
         recursive: true,
         _rkwargs: true
       });
+      // Also remove the model's test report so it doesn't linger as an orphan in
+      // the test-reports collection. Best-effort: a model may have no report.
+      try {
+        await artifactManager.delete({
+          artifact_id: `bioimage-io/test-report-${shortId}`,
+          delete_files: true,
+          recursive: true,
+          _rkwargs: true
+        });
+      } catch (reportErr) {
+        console.warn(`No test report to delete for ${shortId} (or deletion failed):`, reportErr);
+      }
       setArtifactToFinalize(null);
       setFinalizeConfirm('');
       await loadArtifacts();

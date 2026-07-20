@@ -356,6 +356,73 @@ def clear_existing_test_reports(reports_dir: Path) -> None:
     print(f"Cleared {removed_count} existing JSON report file(s) in: {reports_dir}")
 
 
+async def cleanup_orphan_test_reports(dry_run: bool = False) -> None:
+    """Delete per-model test reports whose model no longer exists in the zoo.
+
+    Scans the ``bioimage-io/test-reports`` collection and removes any
+    ``test-report-<id>`` artifact whose ``<id>`` model is not present in
+    ``bioimage-io/bioimage.io`` (neither committed nor staged). The consolidated
+    ``inference-report`` and any non ``test-report-`` prefixed member are left
+    untouched. Deletion is best-effort: a permission error on one report is
+    logged and the sweep continues.
+
+    Args:
+        dry_run: If True, only report what would be deleted.
+    """
+    server_url = "https://hypha.aicell.io"
+    token = os.environ.get("HYPHA_TOKEN") or await login({"server_url": server_url})
+    server = await connect_to_server(
+        {"server_url": server_url, "token": token, "method_timeout": 120}
+    )
+    am = await server.get_service("public/artifact-manager")
+
+    # Existing model aliases (committed AND staged), so we never delete a report
+    # for a model that still exists in any form.
+    existing = set()
+    for stage in (False, True):
+        try:
+            listed = await am.list(
+                parent_id="bioimage-io/bioimage.io",
+                stage=stage,
+                limit=10000,
+                pagination=True,
+            )
+            for it in listed.get("items", []):
+                existing.add(it["id"].split("/")[-1])
+        except Exception as e:  # pragma: no cover - defensive
+            print(f"Warning: failed to list models (stage={stage}): {e}", file=sys.stderr)
+
+    reports = await am.list(
+        parent_id="bioimage-io/test-reports", limit=10000, pagination=True
+    )
+    orphans = []
+    for it in reports.get("items", []):
+        alias = it["id"].split("/")[-1]
+        if not alias.startswith("test-report-"):
+            continue  # keep inference-report and other non per-model members
+        model_alias = alias[len("test-report-") :]
+        if model_alias not in existing:
+            orphans.append(it["id"])
+
+    print(
+        f"Orphan cleanup: {len(orphans)} test report(s) for models no longer in the zoo"
+    )
+    deleted = 0
+    for aid in orphans:
+        short = aid.split("/")[-1]
+        if dry_run:
+            print(f"  [dry-run] would delete {short}")
+            continue
+        try:
+            await am.delete(artifact_id=aid, delete_files=True, recursive=True)
+            deleted += 1
+            print(f"  deleted {short}")
+        except Exception as e:
+            print(f"  FAILED to delete {short}: {e}", file=sys.stderr)
+    if not dry_run:
+        print(f"Orphan cleanup: deleted {deleted}/{len(orphans)} report(s)")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Test BioImage.IO models and generate test summaries"
@@ -381,6 +448,16 @@ def main():
         help="Clear existing JSON files in reports_dir before running tests",
     )
     parser.add_argument(
+        "--cleanup-orphans",
+        action="store_true",
+        help="Delete test-report artifacts for models that no longer exist in the bioimage.io collection, then exit",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --cleanup-orphans, only report which reports would be deleted",
+    )
+    parser.add_argument(
         "--skip-cache",
         action="store_true",
         help="Skip cache during model testing",
@@ -398,7 +475,9 @@ def main():
         or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
     )
 
-    if args.analyze_reports:
+    if args.cleanup_orphans:
+        asyncio.run(cleanup_orphan_test_reports(dry_run=args.dry_run))
+    elif args.analyze_reports:
         # Set default reports_dir if not provided
         analyze_existing_test_reports(reports_dir)
     else:

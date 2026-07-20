@@ -86,6 +86,17 @@ jobs:
           exit $EXIT_CODE
         fi
 
+    - name: Clean up orphaned test reports
+      if: always()
+      env:
+        HYPHA_TOKEN: ${{ secrets.HYPHA_TOKEN }}
+      run: |
+        cd scripts
+        # Remove test-report artifacts whose model no longer exists in the
+        # bioimage.io collection (committed or staged). Best-effort: never fail
+        # the workflow on cleanup errors.
+        python -u bioengine_model_test.py --cleanup-orphans || echo "⚠️ Orphan cleanup encountered errors (continuing)"
+
     - name: Upload test reports as artifact
       uses: actions/upload-artifact@v6
       if: always()
