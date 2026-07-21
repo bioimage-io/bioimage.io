@@ -264,6 +264,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               /* v1.15+ step timeline: overall start on top, per-step durations. */
               <StepTimeline
                 submittedAt={progressInfo.submittedAt ?? null}
+                fallbackQueuePosition={progressInfo.queuePosition ?? null}
                 completedAt={progressInfo.completedAt ?? progressInfo.resultTime ?? null}
                 steps={[
                   {

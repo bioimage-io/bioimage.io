@@ -25,6 +25,10 @@ interface StepTimelineProps {
   /** Label for the submitted-at row. Defaults to "Test started"; the inference
    *  panel passes "Run started". */
   startedLabel?: string;
+  /** Flat top-level queue position from the runner (legacy field). Used as a
+   *  fallback for the first not-yet-started step when that step carries no
+   *  per-step queue_position, so a queue is still shown during the wait. */
+  fallbackQueuePosition?: number | null;
   /** Ordered steps. Each renders one table row. */
   steps: TimelineStep[];
   /** Unix seconds when the whole job finished. Freezes any running step's
@@ -68,7 +72,15 @@ const formatDurationSec = (sec: number): string =>
  *   - skipped → an em dash (a later step started while this one never did);
  *   - not yet reached → blank.
  */
-const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel = 'Test started', steps, completedAt }) => {
+const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel = 'Test started', fallbackQueuePosition, steps, completedAt }) => {
+  // First step that hasn't started executing yet — the flat top-level queue
+  // position (if any) applies to it when it has no per-step queue of its own.
+  const firstPendingIdx = steps.findIndex(s => s.startTs == null);
+  const effectiveQueue = (step: TimelineStep, i: number): number | null => {
+    if (step.queuePosition != null) return step.queuePosition;
+    if (i === firstPendingIdx && completedAt == null) return fallbackQueuePosition ?? null;
+    return null;
+  };
   // Tick once a second so a running step's elapsed stays live.
   const [nowSec, setNowSec] = React.useState(() => Date.now() / 1000);
   React.useEffect(() => {
@@ -107,20 +119,21 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
 
       <Stack spacing={1.25}>
         {steps.map((step, i) => {
-          const queued = (step.queuePosition ?? 0) > 0;
+          const q = effectiveQueue(step, i);
+          const queued = (q ?? 0) > 0;
           const running = isRunning(step);
           const started = step.startTs != null;
           const done = started && !running;
           // Skipped: never started, not queued/reached, yet a later step has a start.
           const skipped =
-            !started && step.queuePosition == null && steps.slice(i + 1).some(s => s.startTs != null);
+            !started && q == null && steps.slice(i + 1).some(s => s.startTs != null);
           const isActive = running;
 
           let right: React.ReactNode = '';
           if (queued) {
             right = (
               <Chip
-                label={`Queued (${step.queuePosition} ahead)`}
+                label={`Queued (${q} ahead)`}
                 size="small"
                 sx={{
                   borderRadius: '8px',
@@ -133,7 +146,7 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
             );
           } else if (running) {
             right = (
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, color: '#15803d', whiteSpace: 'nowrap' }}>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' }}>
                 {formatElapsed(nowSec - (step.startTs as number))}
               </Typography>
             );

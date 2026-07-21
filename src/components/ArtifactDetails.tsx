@@ -295,9 +295,15 @@ const ArtifactDetails = () => {
 
   // Derive the BioEngine inference-check status from the model's test-report
   // SCORE — no separate inference-report artifact needed. The score encodes:
-  // 1 (valid format) + 0..1 (metadata completeness) + 2 (inference passes in the
-  // standard env) + 4 (all tests pass). The inference check passes iff the "2"
-  // bit is set, i.e. score in [3,5) or [7,9). The detailed pass/fail + error is
+  //   score = 1·(valid format) + 2·(inference passes in the standard env)
+  //           + 4·(all tests pass) + metadataCompleteness (a 0..1 fraction).
+  // A bit-mask (floor(score) & 2) is NOT safe: metadata completeness can be
+  // exactly 1.0, which carries into the integer part and flips the mask (e.g.
+  // valid+inference+meta=1 → 4.0 → floor&2 == 0). Valid format is a prerequisite
+  // for the inference/tests tiers, so the only reachable integer sums are
+  // {0,1,3,5,7}; adding the 0..1 metadata offset, the inference tier occupies
+  // score ∈ [3,4] (1+2+meta) or [7,8] (1+2+4+meta). Decode by range, which is
+  // robust to metadataCompleteness == 1.0. The detailed pass/fail + error is
   // shown separately in the test-report dialog's "Inference check" box.
   useEffect(() => {
     const fetchBioengineStatus = async () => {
@@ -309,7 +315,7 @@ const ArtifactDetails = () => {
         const art = await resp.json();
         const score = art?.manifest?.score;
         if (typeof score !== 'number') { setBioengineStatus(null); return; }
-        const inferencePassed = (Math.floor(score) & 2) !== 0;
+        const inferencePassed = (score >= 3 && score <= 4) || (score >= 7 && score <= 8);
         setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message: '', tested_at: 0 });
       } catch (error) {
         console.error('Failed to derive bioengine status from score:', error);

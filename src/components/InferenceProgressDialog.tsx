@@ -116,6 +116,7 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
             <StepTimeline
               startedLabel="Run started"
               submittedAt={progress.submittedAt}
+              fallbackQueuePosition={progress.queuePosition ?? null}
               completedAt={progress.completedAt}
               steps={[
                 {
