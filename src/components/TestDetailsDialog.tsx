@@ -22,22 +22,26 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 import StepTimeline, { TimelineStep } from './StepTimeline';
+import { RunnerStages, resolveStage } from '../types/runStatus';
 
 /**
- * v1.15+ API — progress described by the 5-key dict returned by
- * get_test_status / get_infer_status. All timestamps are Unix seconds.
- * null = step was skipped (cache hit / non-custom-env); undefined = not yet known.
- * This is the only supported model-runner progress shape.
+ * v1.15+ API — progress described by the dict returned by get_test_status /
+ * get_infer_status. All timestamps are Unix seconds. The per-step `stages`
+ * object (v1.15.23+) drives the timeline; the legacy flat fields are kept as an
+ * optional fallback for a slightly older runner.
  */
 export interface ProgressInfoV2 {
   version: 'v2';
-  /** Unix seconds when the job was submitted/queued (v1.15.3+). */
+  /** Unix seconds when the job was submitted/queued. */
   submittedAt?: number | null;
-  queuePosition: number;
-  modelDownload: number | null;
-  envSetup: number | null;
-  running: number | null;
-  /** Unix seconds when the job finished (v1.15.3+); null until then. */
+  /** Per-step queue positions + start/end timestamps (preferred source). */
+  stages?: RunnerStages | null;
+  /** Legacy flat fields (fallback when `stages` is absent). */
+  queuePosition?: number;
+  modelDownload?: number | null;
+  envSetup?: number | null;
+  running?: number | null;
+  /** Unix seconds when the job finished; null until then. */
   completedAt?: number | null;
   /** Client-side Date.now()/1000 of the poll that first carried a non-null result. */
   resultTime?: number;
@@ -260,26 +264,25 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               /* v1.15+ step timeline: overall start on top, per-step durations. */
               <StepTimeline
                 submittedAt={progressInfo.submittedAt ?? null}
-                queuePosition={progressInfo.queuePosition}
                 completedAt={progressInfo.completedAt ?? progressInfo.resultTime ?? null}
                 steps={[
                   {
                     key: 'model_download',
                     header: 'Preparing model',
                     description: 'Check the cache and download any outdated model files',
-                    startTs: progressInfo.modelDownload,
+                    ...resolveStage(progressInfo.stages?.model_download, progressInfo.modelDownload),
                   },
                   {
                     key: 'env_setup',
                     header: 'Environment setup',
                     description: 'Prepare the isolated Python environment',
-                    startTs: progressInfo.envSetup,
+                    ...resolveStage(progressInfo.stages?.env_setup, progressInfo.envSetup),
                   },
                   {
-                    key: 'running',
+                    key: 'run',
                     header: 'Running',
                     description: 'Load the weights and run the bundled test inputs',
-                    startTs: progressInfo.running,
+                    ...resolveStage(progressInfo.stages?.run, progressInfo.running),
                   },
                 ] as TimelineStep[]}
               />

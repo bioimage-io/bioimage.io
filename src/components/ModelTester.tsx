@@ -1,4 +1,4 @@
-import React, { useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
 import { useModelRunners, UseModelRunnersResult } from '../hooks/useModelRunners';
 import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
@@ -6,6 +6,7 @@ import TestOptionsDialog from './TestOptionsDialog';
 import HintTooltip from './HintTooltip';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
 import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
+import { saveRunId, loadRunId, clearRunId } from '../utils/runPersistence';
 
 interface TestResult {
   name: string;
@@ -114,96 +115,68 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   const [showOptionsDialog, setShowOptionsDialog] = useState(false);
   const [customEnvironment, setCustomEnvironment] = useState(false);
   const [skipCache, setSkipCache] = useState(false);
+  // A persisted, still-valid test_run_id for THIS model found on mount — a run
+  // that was in flight before a page refresh. Surfaced as a click-to-resume
+  // badge (we do not auto-open the dialog).
+  const [resumableRunId, setResumableRunId] = useState<string | null>(null);
 
-  const runTest = async () => {
-    if (!artifactId || !server) return;
+  const modelId = artifactId ? artifactId.split('/').pop() : undefined;
 
-    // Signal that the user has run Test Model at least once this session — the
-    // Review & Publish gate needs this even if the run ultimately fails.
-    onTestStart?.();
+  // Surface a resumable in-flight run for this model (survives page refresh).
+  useEffect(() => {
+    setResumableRunId(modelId ? loadRunId('test', modelId) : null);
+  }, [modelId]);
 
-    setIsLoading(true);
-    setTestResult(null);
-    setShowReport(false);
-    setLoadingStep('Connecting to model runner...');
-    setProgressInfo(null);
-    setIsDialogOpen(true);
+  // Freeze the timeline if a run ended without a completion timestamp (e.g. an
+  // error before any result arrived), so the last step stops ticking.
+  const freezeTimeline = () =>
+    setProgressInfo(prev =>
+      prev?.version === 'v2' && prev.completedAt == null && prev.resultTime == null
+        ? { ...prev, completedAt: Date.now() / 1000 }
+        : prev
+    );
+
+  // Poll an existing test_run_id to completion, updating the timeline each tick,
+  // then finalize the result. Shared by a fresh run (runTest) and a resumed run
+  // (resumeTest). `runner` is the active model-runner service. Timestamps are
+  // taken straight from the runner status (trusted as-is, no clock correction).
+  const driveTestRun = async (runner: any, test_run_id: string) => {
+    // Load the authoritative report from the test-report collection rather than
+    // the inline `result`. The runner commits it before exposing `result`; we
+    // poll briefly (cache-busted) until the stored copy matches THIS run.
+    const loadStoredReport = async (expectedTestedAt?: number): Promise<TestResult | null> => {
+      const base = resolveTestReportUrl(artifactId!, !!isStaged);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const res = await fetch(`${base}&t=${Date.now()}`);
+          if (res.ok) {
+            const report = await res.json();
+            if (expectedTestedAt == null || Number(report?.tested_at) === Number(expectedTestedAt)) {
+              return report as TestResult;
+            }
+          }
+        } catch { /* transient — retry */ }
+        await sleep(1500);
+      }
+      return null;
+    };
+
+    let finalResult: TestResult | null = null;
+    const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
 
     try {
-      const runner = activeRunner;
-      if (!runner) {
-        throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
-      }
-      const modelId = artifactId.split('/').pop();
-
-      setLoadingStep('Starting test run...');
-      setProgressInfo(null);
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
-
-      const testResponse = await runner.test({
-        model_id: modelId,
-        stage: isStaged,
-        skip_cache: skipCache,
-        custom_environment: customEnvironment,
-        _rkwargs: true,
-      });
-
-      // Only the v1.15+ async API is supported: runner.test() returns a bare
-      // string test_run_id, and get_test_status returns the 5-key status dict.
-      // A runner that returns a result dict directly is an older API and is
-      // rejected, so the new async path is always the one being exercised.
-      if (typeof testResponse !== 'string') {
-        throw new Error(
-          'This model-runner uses an unsupported API. Select a runner on v1.15 ' +
-          'or newer (e.g. the deNBI site via Advanced Options).'
-        );
-      }
-
-      const test_run_id = testResponse;
-      console.log(`Async test run started, id: ${test_run_id}`);
-      // Overall start time for the "Test started" display. We use the browser's
-      // clock (when the run was kicked off) rather than the runner's
-      // submitted_at so the shown time matches the user's own wall clock — the
-      // runner's clock can be skewed by minutes, which would otherwise show a
-      // start time several minutes off.
-      const submittedAtClient = Date.now() / 1000;
-
-      // Load the authoritative test report from the test-report artifact
-      // collection rather than the inline `result` from get_test_status. The
-      // runner commits the report to the collection before it exposes `result`,
-      // so it's already there; we poll briefly (cache-busted) until the stored
-      // copy reflects THIS run (matching tested_at) to avoid a stale prior
-      // report. Returns null if the collection can't be reached.
-      const loadStoredReport = async (expectedTestedAt?: number): Promise<TestResult | null> => {
-        const base = resolveTestReportUrl(artifactId!, !!isStaged);
-        for (let attempt = 0; attempt < 5; attempt++) {
-          try {
-            const res = await fetch(`${base}&t=${Date.now()}`);
-            if (res.ok) {
-              const report = await res.json();
-              if (expectedTestedAt == null || Number(report?.tested_at) === Number(expectedTestedAt)) {
-                return report as TestResult;
-              }
-            }
-          } catch { /* transient — retry */ }
-          await sleep(1500);
-        }
-        return null;
-      };
-
-      let finalResult: TestResult | null = null;
-      const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
-
       for (let i = 0; i < MAX_POLLS; i++) {
         const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
 
-        // v1.15 status shape: { queue_position, model_download, env_setup,
-        // running, result }; v1.15.3 adds submitted_at + completed_at.
-        const { queue_position, model_download, env_setup, running, result, completed_at } = status;
+        // v1.15.23 status: per-step `stages` (model_download/env_setup/run with
+        // start/end/queue_position) + submitted_at/completed_at + result. Legacy
+        // flat fields kept as a fallback.
+        const { stages, submitted_at, queue_position, model_download, env_setup, running, result, completed_at } = status;
 
         setProgressInfo({
           version: 'v2',
-          submittedAt: submittedAtClient,
+          submittedAt: submitted_at ?? null,
+          stages: stages ?? null,
           queuePosition: queue_position ?? 0,
           modelDownload: model_download ?? null,
           envSetup: env_setup ?? null,
@@ -211,33 +184,35 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
           completedAt: completed_at ?? null,
         });
 
-        // Text label for aria / fallback.
-        if ((queue_position ?? 0) > 0) {
-          setLoadingStep(`In queue (position ${queue_position})...`);
-        } else if (running != null) {
+        // Text label for aria / fallback — prefer the per-step stages.
+        const runQ = stages?.run?.queue_position;
+        const envQ = stages?.env_setup?.queue_position;
+        if ((runQ ?? 0) > 0) {
+          setLoadingStep(`Waiting for a GPU slot (${runQ} ahead)...`);
+        } else if (stages?.run?.start != null || running != null) {
           setLoadingStep('Running tests...');
-        } else if (env_setup != null) {
+        } else if ((envQ ?? 0) > 0) {
+          setLoadingStep(`Waiting to build the environment (${envQ} ahead)...`);
+        } else if (stages?.env_setup?.start != null || env_setup != null) {
           setLoadingStep('Setting up environment...');
-        } else if (model_download != null) {
+        } else if (stages?.model_download?.start != null || model_download != null) {
           setLoadingStep('Downloading model...');
+        } else if ((queue_position ?? 0) > 0) {
+          setLoadingStep(`In queue (position ${queue_position})...`);
         } else {
           setLoadingStep('Starting...');
         }
 
         if (result != null) {
           console.log('Test completed. Result:', result);
+          // A completion (success or error result) — stop persisting the run id.
+          if (modelId) clearRunId('test', modelId);
           if ('error' in result) {
             finalResult = buildTestFailure(result.error as string);
           } else {
-            // Freeze the timeline on completion: prefer the server's
-            // completed_at, else stamp the moment the result arrived.
             setProgressInfo(prev => prev?.version === 'v2'
               ? { ...prev, resultTime: Date.now() / 1000, completedAt: prev.completedAt ?? completed_at ?? Date.now() / 1000 }
               : prev);
-            // Discard the inline `result` payload; load the report from the
-            // artifact collection instead. `tested_at` is used only to confirm
-            // the stored copy is from this run. Fall back to the inline result
-            // if the collection is unreachable.
             const expectedTestedAt = (result as any)?.tested_at;
             finalResult = (await loadStoredReport(expectedTestedAt)) ?? (result as TestResult);
           }
@@ -248,6 +223,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
 
       if (!finalResult) {
+        // Timed out: leave the persisted run id in place so a refresh can resume.
         finalResult = {
           name: 'Test Timed Out',
           status: 'failed',
@@ -261,7 +237,6 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
 
       setTestResult(finalResult);
-
       if (onTestComplete) {
         try {
           await onTestComplete(finalResult);
@@ -283,14 +258,99 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     } finally {
       setLoadingStep('');
       setIsLoading(false);
-      // Keep the step timeline visible after completion so the user can review
-      // it and open the report via the button. Freeze the active step if
-      // nothing marked it done (e.g. an error before a result arrived).
-      setProgressInfo(prev =>
-        prev?.version === 'v2' && prev.completedAt == null && prev.resultTime == null
-          ? { ...prev, completedAt: Date.now() / 1000 }
-          : prev
-      );
+      freezeTimeline();
+    }
+  };
+
+  const runTest = async () => {
+    if (!artifactId || !server) return;
+
+    // Signal that the user has run Test Model at least once this session — the
+    // Review & Publish gate needs this even if the run ultimately fails.
+    onTestStart?.();
+
+    setIsLoading(true);
+    setTestResult(null);
+    setShowReport(false);
+    setLoadingStep('Connecting to model runner...');
+    setProgressInfo(null);
+    setIsDialogOpen(true);
+    setResumableRunId(null); // a fresh run supersedes any resumable one
+
+    try {
+      const runner = activeRunner;
+      if (!runner) {
+        throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
+      }
+
+      setLoadingStep('Starting test run...');
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
+
+      const testResponse = await runner.test({
+        model_id: modelId,
+        stage: isStaged,
+        skip_cache: skipCache,
+        custom_environment: customEnvironment,
+        _rkwargs: true,
+      });
+
+      // Only the v1.15+ async API is supported: runner.test() returns a bare
+      // string test_run_id. A result dict is an older API and is rejected.
+      if (typeof testResponse !== 'string') {
+        throw new Error(
+          'This model-runner uses an unsupported API. Select a runner on v1.15 ' +
+          'or newer (e.g. the deNBI site via Advanced Options).'
+        );
+      }
+
+      const test_run_id = testResponse;
+      console.log(`Async test run started, id: ${test_run_id}`);
+      // Persist the id so a page refresh mid-run can resume (per-model, 3h TTL).
+      if (modelId) saveRunId('test', modelId, test_run_id);
+
+      await driveTestRun(runner, test_run_id);
+    } catch (err) {
+      // Failure before we obtained a run id (runner unavailable / unsupported API).
+      console.error('Test run failed:', err);
+      const failureResult = buildTestFailure(err, `Failed to run model test: ${err}`);
+      setTestResult(failureResult);
+      if (onTestComplete) {
+        try {
+          await onTestComplete(failureResult);
+        } catch (refreshErr) {
+          console.error('Post-test refresh failed:', refreshErr);
+        }
+      }
+      setLoadingStep('');
+      setIsLoading(false);
+      freezeTimeline();
+    }
+  };
+
+  // Resume a run that was in flight before a page refresh (click-to-resume badge).
+  const resumeTest = async () => {
+    if (!artifactId || !server || !resumableRunId) return;
+    const test_run_id = resumableRunId;
+    setResumableRunId(null);
+    setIsLoading(true);
+    setTestResult(null);
+    setShowReport(false);
+    setLoadingStep('Reconnecting to the running test...');
+    setProgressInfo(null);
+    setIsDialogOpen(true);
+
+    try {
+      const runner = activeRunner;
+      if (!runner) {
+        throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
+      }
+      await driveTestRun(runner, test_run_id);
+    } catch (err) {
+      console.error('Resume test failed:', err);
+      setTestResult(buildTestFailure(err, `Failed to resume model test: ${err}`));
+      setLoadingStep('');
+      setIsLoading(false);
+      freezeTimeline();
     }
   };
 
@@ -402,6 +462,22 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             </button>
           </HintTooltip>
         </div>
+
+        {/* Resume badge: a test for this model was still running before the page
+            reloaded. Click to reconnect to it (we don't auto-open the dialog). */}
+        {resumableRunId && !isLoading && (
+          <button
+            type="button"
+            onClick={() => { void resumeTest(); }}
+            title="A test for this model was still running before the page reloaded. Click to reconnect."
+            className="inline-flex items-center gap-1 px-2.5 h-[40px] rounded-md text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Resume test
+          </button>
+        )}
       </div>
 
       <TestOptionsDialog
