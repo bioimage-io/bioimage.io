@@ -28,7 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
 import HintTooltip from './HintTooltip';
-import { resolveHyphaUrl, resolveTestReportUrl, resolveInferenceReportUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -50,33 +50,9 @@ import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
-let cachedInferenceResults: Record<string, any> | null = null;
-let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
-
-// Inference results now live in a dedicated artifact under the
-// bioimage-io/test-reports collection (written by
-// scripts/bioengine_model_infer.py), not the collection manifest. The report
-// file is world-readable, so a plain fetch works without the artifact manager.
-const getInferenceResults = async () => {
-  if (cachedInferenceResults) return cachedInferenceResults;
-  if (inferenceResultsPromise) return inferenceResultsPromise;
-
-  inferenceResultsPromise = fetch(resolveInferenceReportUrl())
-    .then(async (response: Response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to fetch inference report: ${response.status}`);
-      }
-      cachedInferenceResults = (await response.json()) || {};
-      return cachedInferenceResults;
-    })
-    .catch((error: any) => {
-      console.error('Failed to fetch bioengine inference results:', error);
-      inferenceResultsPromise = null; // Allow retrying on error
-      return {};
-    });
-
-  return inferenceResultsPromise;
-};
+// The BioEngine inference-check status is derived from the model's test-report
+// score (see the effect in ArtifactDetails), replacing the former consolidated
+// inference-report artifact.
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -317,27 +293,32 @@ const ArtifactDetails = () => {
     fetchTestReport();
   }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
 
-  // Fetch BioEngine inference status
+  // Derive the BioEngine inference-check status from the model's test-report
+  // SCORE — no separate inference-report artifact needed. The score encodes:
+  // 1 (valid format) + 0..1 (metadata completeness) + 2 (inference passes in the
+  // standard env) + 4 (all tests pass). The inference check passes iff the "2"
+  // bit is set, i.e. score in [3,5) or [7,9). The detailed pass/fail + error is
+  // shown separately in the test-report dialog's "Inference check" box.
   useEffect(() => {
     const fetchBioengineStatus = async () => {
-      if (!artifactManager || !selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
-
+      if (!selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
       try {
-        const inferenceResults = await getInferenceResults();
         const modelId = selectedResource.id.split('/').pop();
-        
-        if (modelId && inferenceResults?.[modelId]) {
-          setBioengineStatus(inferenceResults[modelId]);
-        } else {
-          setBioengineStatus(null);
-        }
+        const resp = await fetch(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}?t=${Date.now()}`);
+        if (!resp.ok) { setBioengineStatus(null); return; }
+        const art = await resp.json();
+        const score = art?.manifest?.score;
+        if (typeof score !== 'number') { setBioengineStatus(null); return; }
+        const inferencePassed = (Math.floor(score) & 2) !== 0;
+        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message: '', tested_at: 0 });
       } catch (error) {
-        console.error('Failed to fetch bioengine status:', error);
+        console.error('Failed to derive bioengine status from score:', error);
+        setBioengineStatus(null);
       }
     };
 
     fetchBioengineStatus();
-  }, [artifactManager, selectedResource?.id, selectedResource?.manifest?.type]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {

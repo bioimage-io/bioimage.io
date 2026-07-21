@@ -711,6 +711,79 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               );
             })()}
 
+            {/* Inference check — can the model run in the standard (default) env?
+                A single expandable box like the per-test rows above. */}
+            {data.inference_check && (
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                  Inference check
+                </Typography>
+                <Accordion
+                  sx={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.5)',
+                    borderRadius: '12px !important',
+                    '&:before': { display: 'none' },
+                    '&.Mui-expanded': {
+                      borderColor: data.inference_check.status === 'passed'
+                        ? 'rgba(34, 197, 94, 0.3)'
+                        : 'rgba(239, 68, 68, 0.3)',
+                    },
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      borderRadius: '12px',
+                      '&.Mui-expanded': { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                      {getStatusIcon(data.inference_check.status)}
+                      <Typography sx={{ fontWeight: 500, flex: 1 }}>
+                        Runs in the default environment
+                      </Typography>
+                      <Chip
+                        label={data.inference_check.status}
+                        size="small"
+                        sx={{
+                          backgroundColor: data.inference_check.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.1)'
+                            : 'rgba(239, 68, 68, 0.1)',
+                          color: getStatusColor(data.inference_check.status),
+                          borderRadius: '8px',
+                          fontWeight: 500,
+                          border: `1px solid ${data.inference_check.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.2)'
+                            : 'rgba(239, 68, 68, 0.2)'}`,
+                        }}
+                      />
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: data.inference_check.error ? 2 : 0 }}>
+                      Verifies the model runs in the standard bioimageio.core environment
+                      (no custom conda environment).
+                    </Typography>
+                    {data.inference_check.error && (
+                      <Alert
+                        severity="error"
+                        sx={{
+                          backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {data.inference_check.error}
+                        </Typography>
+                      </Alert>
+                    )}
+                  </AccordionDetails>
+                </Accordion>
+              </Box>
+            )}
+
             {/* Environment Information */}
             {(() => {
               // For bioimageio.core compatibility reports, data is nested in details object
