@@ -310,13 +310,27 @@ const ArtifactDetails = () => {
       if (!selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
       try {
         const modelId = selectedResource.id.split('/').pop();
-        const resp = await fetch(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}?t=${Date.now()}`);
-        if (!resp.ok) { setBioengineStatus(null); return; }
-        const art = await resp.json();
+        // Status comes from the score (test-report artifact manifest); the human
+        // error text comes from the report file's inference_check.error — fetch
+        // both so the "BioEngine Test Run Failed" dialog can show the real
+        // message instead of "No error message available".
+        const [artResp, repResp] = await Promise.all([
+          fetch(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}?t=${Date.now()}`),
+          fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`).catch(() => null),
+        ]);
+        if (!artResp.ok) { setBioengineStatus(null); return; }
+        const art = await artResp.json();
         const score = art?.manifest?.score;
         if (typeof score !== 'number') { setBioengineStatus(null); return; }
         const inferencePassed = (score >= 3 && score <= 4) || (score >= 7 && score <= 8);
-        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message: '', tested_at: 0 });
+        let message = '';
+        try {
+          if (repResp && repResp.ok) {
+            const rep = await repResp.json();
+            message = rep?.inference_check?.error ?? '';
+          }
+        } catch { /* report unreachable — leave the message empty */ }
+        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message, tested_at: 0 });
       } catch (error) {
         console.error('Failed to derive bioengine status from score:', error);
         setBioengineStatus(null);
@@ -324,7 +338,7 @@ const ArtifactDetails = () => {
     };
 
     fetchBioengineStatus();
-  }, [selectedResource?.id, selectedResource?.manifest?.type]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
