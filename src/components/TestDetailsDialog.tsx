@@ -713,9 +713,10 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             })()}
 
             {/* Inference check — can the model run in the standard (default) env?
-                A single expandable box like the per-test rows above. */}
+                A single expandable box like the per-test rows above. mt matches the
+                other section headers (e.g. Environment). */}
             {data.inference_check && (
-              <Box sx={{ mb: 3 }}>
+              <Box sx={{ mt: 4, mb: 3 }}>
                 <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
                   Inference check
                 </Typography>
