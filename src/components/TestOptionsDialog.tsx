@@ -33,16 +33,19 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
       <div className="p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-1">Run Model Test</h3>
         <p className="text-sm text-gray-500 mb-5">
-          The model will be tested via BioEngine. Configure the options below before starting.
+          The model is tested on the BioEngine, which runs a fixed, standard environment.
+          Configure the options below before starting.
         </p>
 
-        {!customEnvironment && (
+        {customEnvironment && (
           <div className="mb-4 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
             <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
             <span>
-              The BioEngine runner uses a fixed environment. Tests may fail if the model requires packages not available in the default runner environment. Enable custom environment below to test in the model-declared conda environment instead.
+              Model inference on the BioEngine is only provided in the standard environment. Where
+              possible, keep the model compatible with it — a custom environment tests against the
+              model's declared conda environment but is not used for inference.
             </span>
           </div>
         )}

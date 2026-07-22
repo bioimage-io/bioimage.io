@@ -60,7 +60,7 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="xs"
+      maxWidth={false}
       PaperProps={{
         sx: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -68,6 +68,11 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
           border: '1px solid rgba(255, 255, 255, 0.5)',
           borderRadius: '16px',
           maxHeight: '90vh',
+          // Fixed width + min-height so the dialog doesn't resize as steps
+          // appear or the queue text changes.
+          width: 500,
+          maxWidth: 500,
+          minHeight: 360,
         },
       }}
     >

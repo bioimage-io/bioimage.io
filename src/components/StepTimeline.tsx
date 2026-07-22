@@ -106,7 +106,7 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
   };
 
   return (
-    <Box sx={{ width: '100%', maxWidth: 360 }}>
+    <Box sx={{ width: '100%', maxWidth: 420 }}>
       {/* Overall submit time on top. */}
       {submittedAt != null && (
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
@@ -133,7 +133,7 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
           if (queued) {
             right = (
               <Chip
-                label={`Queued (${q} ahead)`}
+                label={`${q} ahead in queue`}
                 size="small"
                 sx={{
                   borderRadius: '8px',

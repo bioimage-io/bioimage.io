@@ -206,7 +206,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth={showProgressView ? 'xs' : 'lg'}
+      maxWidth={showProgressView ? false : 'lg'}
       fullWidth={!showProgressView}
       PaperProps={{
         sx: {
@@ -215,6 +215,9 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
           border: '1px solid rgba(255, 255, 255, 0.5)',
           borderRadius: '16px',
           maxHeight: '90vh',
+          // Progress / complete view: fixed width + min-height so the dialog
+          // doesn't resize as steps appear or the queue text changes.
+          ...(showProgressView ? { width: 500, maxWidth: 500, minHeight: 380 } : {}),
         }
       }}
     >
