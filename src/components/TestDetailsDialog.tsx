@@ -408,13 +408,6 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               </Box>
               
               <Stack spacing={1}>
-                {/* Show score for compatibility reports */}
-                {type === 'compatibility' && data.score !== undefined && (
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>Score:</strong> {data.score.toFixed(2)}
-                  </Typography>
-                )}
-                
                 {/* Show model ID and format version only for bioimageio.core compatibility reports or test reports */}
                 {(type === 'test-report' || (type === 'compatibility' && partnerName === 'bioimageio.core')) && (() => {
                   // For bioimageio.core compatibility reports, data is nested in details object
@@ -447,6 +440,15 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     </>
                   );
                 })()}
+
+                {/* Score for compatibility reports — shown after the metadata
+                    fields (below Metadata Completeness for bioimageio.core)
+                    rather than first. */}
+                {type === 'compatibility' && data.score !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Score:</strong> {data.score.toFixed(2)}
+                  </Typography>
+                )}
               </Stack>
             </Paper>
 
