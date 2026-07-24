@@ -224,17 +224,34 @@ const ReviewArtifacts: React.FC = () => {
         const start = (reviewArtifactsPage - 1) * itemsPerPage;
         setArtifacts(marked.slice(start, start + itemsPerPage));
       } else if (viewMode === 'pending') {
-        // Pending-review models must remain staged (not committed) until a
+        // Pending-review models are normally kept STAGED (uncommitted) until a
         // curator accepts them. Hypha keyword search only indexes committed
-        // manifests, so we list all staged artifacts, read each staged manifest
-        // individually, and filter client-side for status='in-review'.
-        const stagedResp = await artifactManager.list({
-          parent_id: "bioimage-io/bioimage.io",
-          stage: true,
-          limit: 1000,
-          pagination: true,
-          _rkwargs: true
-        });
+        // manifests, so we list all staged artifacts and read each staged
+        // manifest individually to recover its status.
+        //
+        // A model can also end up COMMITTED while still carrying status
+        // in-review / in-revision (an anomalous state the model-runner used to
+        // produce by stamping a version onto a not-yet-accepted model). A
+        // staged-only scan misses those entirely, leaving them invisible to
+        // reviewers. Committed manifests ARE indexed, so we additionally pull
+        // the committed listing, filter it client-side for the pending
+        // statuses, and merge both sets (deduped by id).
+        const [stagedResp, committedResp] = await Promise.all([
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            stage: true,
+            limit: 1000,
+            pagination: true,
+            _rkwargs: true
+          }),
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            stage: false,
+            limit: 2000,
+            pagination: true,
+            _rkwargs: true
+          })
+        ]);
 
         const stagedItems: Artifact[] = stagedResp.items ?? [];
 
@@ -252,20 +269,36 @@ const ReviewArtifacts: React.FC = () => {
           })
         );
 
+        // Committed models already carry an indexed manifest, so no per-item
+        // read is needed. Keep only those anomalously left in a pending status.
+        const committedPending: Artifact[] = (committedResp.items ?? []).filter(
+          (a: any) =>
+            a?.manifest?.status === 'in-review' ||
+            a?.manifest?.status === 'in-revision'
+        );
+
+        // Merge staged reads with committed-but-pending models, deduped by id.
+        // The staged read wins when a model appears in both, since its manifest
+        // reflects the latest pending edits.
+        const byId = new Map<string, Artifact>();
+        for (const a of committedPending) if (a?.id) byId.set(a.id, a);
+        for (const a of stagedReads as (Artifact | null)[]) if (a?.id) byId.set(a.id, a);
+        const allPending: Artifact[] = Array.from(byId.values());
+
         // Keep the shared dropdown badge in sync: total in-review models
         // (unfiltered by type/search), refreshed whenever the pending view loads
         // — including after an accept / send-to-revision / withdraw-revision.
         setPendingReviewCount(
-          stagedReads.filter((a: any) => a?.manifest?.status === 'in-review').length
+          allPending.filter((a: any) => a?.manifest?.status === 'in-review').length
         );
 
         // Separate request-review from revision-needed so we can sort them.
         // Request-review items appear first (truly pending); revision items
         // follow so the reviewer can track them and help the developer.
-        let reviewPending: Artifact[] = stagedReads.filter(
+        let reviewPending: Artifact[] = allPending.filter(
           (a: any): a is Artifact => a?.manifest?.status === 'in-review' && matchesType(a)
         );
-        let revisionNeeded: Artifact[] = stagedReads.filter(
+        let revisionNeeded: Artifact[] = allPending.filter(
           (a: any): a is Artifact => a?.manifest?.status === 'in-revision' && matchesType(a)
         );
 
