@@ -28,6 +28,25 @@ const getSavedToken = (): string | null => {
   return null;
 };
 
+// Coarse websocket-connection health for the account-menu indicator.
+//   connected    - live socket, RPC calls work
+//   reconnecting - socket dropped, a proactive reconnect is in flight
+//   disconnected - no live socket and no reconnect running (or session ended)
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+
+// Detach our on_disconnected handler from a server we are about to tear down
+// on purpose (during a reconnect's stale-cleanup or on logout). hypha-rpc fires
+// _handle_disconnected even on a clean close(1000), so without this an
+// intentional disconnect would look like a dropped connection and kick off a
+// spurious reconnect. Best-effort: internals may shift across hypha-rpc versions.
+const detachDisconnectHandler = (server: any): void => {
+  try {
+    server?.rpc?._connection?.on_disconnected?.(null);
+  } catch (err) {
+    console.warn('Could not detach Hypha disconnect handler:', err);
+  }
+};
+
 
 // Add a type for connection config
 interface ConnectionConfig {
@@ -70,7 +89,11 @@ export interface HyphaState {
   artifactManager: any;
   isConnected: boolean;
   isConnecting: boolean;
-  connect: (config: ConnectionConfig) => Promise<any>;
+  // Finer-grained health for the account-menu dot. `isConnected` stays the
+  // canonical boolean other code reads; this is the 3-state UI signal.
+  connectionStatus: ConnectionStatus;
+  setConnectionStatus: (status: ConnectionStatus) => void;
+  connect: (config: ConnectionConfig, opts?: { suppressBanner?: boolean }) => Promise<any>;
   isLoggingIn: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -128,6 +151,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   artifactManager: null,
   isConnected: false,
   isConnecting: false,
+  connectionStatus: 'disconnected',
   isLoggingIn: false,
   isAuthenticated: false,
   isLoggedIn: false,
@@ -155,15 +179,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   ),
   reconnect: async () => {
     const savedToken = getSavedToken();
+    set({ connectionStatus: 'reconnecting' });
     // Reset dedup keys so connect() doesn't short-circuit when the WS
     // dropped but the config looks identical to the last successful run.
     activeConnectKey = null;
     pendingConnectPromise = null;
+    // suppressBanner: a live-session reconnect drives the account-menu dot,
+    // not the "services unreachable" banner.
     await get().connect({
       server_url: HYPHA_SERVER_URL,
       token: savedToken ?? undefined,
       method_timeout: 300,
-    });
+    }, { suppressBanner: true });
   },
   attemptReconnect: async (): Promise<boolean> => {
     // Dedup concurrent callers onto one in-flight reconnect.
@@ -176,6 +203,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     }
 
     reconnectPromise = (async () => {
+      // Show the reconnecting state as soon as an attempt actually starts.
+      set({ connectionStatus: 'reconnecting' });
       try {
         for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt++) {
           const savedToken = getSavedToken();
@@ -187,11 +216,13 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
             // though the config looks identical to the last successful run.
             activeConnectKey = null;
             pendingConnectPromise = null;
+            // suppressBanner: keep the websocket-drop recovery on the dot, not
+            // the "services unreachable" banner (which owns the REST path).
             await get().connect({
               server_url: HYPHA_SERVER_URL,
               token: savedToken,
               method_timeout: 300,
-            });
+            }, { suppressBanner: true });
             return true; // reconnected; connect() refreshed server + artifactManager
           } catch (err) {
             console.warn(`Hypha reconnect attempt ${attempt} failed:`, err);
@@ -203,6 +234,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         // Reconnection failed (or no valid token). Log the user out and drop
         // the stale token so the app presents a clean not-logged-in state
         // instead of a stuck error.
+        set({ connectionStatus: 'disconnected' });
         localStorage.removeItem('token');
         localStorage.removeItem('tokenExpiry');
         await get().logout();
@@ -220,6 +252,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   reviewArtifactsTotalItems: 0,
   pendingReviewCount: 0,
   setServer: (server) => set({ server }),
+  setConnectionStatus: (status) => set({ connectionStatus: status }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
   setResources: (resources) => set({ resources }),
@@ -237,7 +270,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setTotalItems: (total) => set({ totalItems: total }),
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
   setSelectedResource: (artifact) => set({ selectedResource: artifact }),
-  connect: async (config: ConnectionConfig) => {
+  connect: async (config: ConnectionConfig, opts?: { suppressBanner?: boolean }) => {
     const connectKey = `${config.server_url}|${config.token || ''}`;
     const currentState = get();
 
@@ -255,6 +288,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       try {
         const latestState = get();
         if (latestState.server && typeof latestState.server.disconnect === 'function') {
+          // Detach first so this deliberate teardown doesn't trip the
+          // on_disconnected handler into a spurious reconnect.
+          detachDisconnectHandler(latestState.server);
           try {
             await latestState.server.disconnect();
           } catch (disconnectError) {
@@ -279,6 +315,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           server,
           artifactManager,
           isConnected: true,
+          connectionStatus: 'connected',
           isAuthenticated,
           isLoggedIn: isAuthenticated,
           user: server.config.user,
@@ -289,6 +326,30 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         // Hypha is back; clear any stale unreachable flag the partner
         // fetch (or another caller) may have set.
         get().markHyphaReachable();
+
+        // Watch for this socket dropping. hypha-rpc auto-reconnects on an
+        // UNEXPECTED close, but silently gives up in backgrounded tabs once
+        // its throttled token-refresh has let the reconnection token expire;
+        // and it fires _handle_disconnected on a clean close. Either way we
+        // want to flip the dot to reconnecting and proactively re-establish.
+        try {
+          const conn = (server as any)?.rpc?._connection;
+          if (conn && typeof conn.on_disconnected === 'function') {
+            conn.on_disconnected(() => {
+              // Ignore drops from a server we've already replaced, or while a
+              // connect is mid-flight (that flow owns the state).
+              if (get().server !== server || get().isConnecting) return;
+              if (getSavedToken()) {
+                set({ isConnected: false, connectionStatus: 'reconnecting' });
+                void get().attemptReconnect();
+              } else {
+                set({ isConnected: false, connectionStatus: 'disconnected' });
+              }
+            });
+          }
+        } catch (hookErr) {
+          console.warn('Could not attach Hypha disconnect handler:', hookErr);
+        }
 
         return server;
       } catch (error) {
@@ -306,12 +367,16 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           isConnecting: false,
           error: (error instanceof Error) ? error.message : 'Connection failed'
         });
-        // Websocket connect failures look the same to the user as a REST
-        // outage; flip the global flag so the banner appears on pages that
-        // don't otherwise call a hard-coded Hypha endpoint.
-        get().markHyphaUnreachable(
-          error instanceof Error ? error.message : 'Failed to connect to Hypha'
-        );
+        // A live-session reconnect (suppressBanner) drives the account-menu
+        // dot only; its terminal state is owned by attemptReconnect. A cold
+        // connect failure still raises the "services unreachable" banner, the
+        // same as a REST outage, on pages that don't hit a hard-coded endpoint.
+        if (!opts?.suppressBanner) {
+          set({ connectionStatus: 'disconnected' });
+          get().markHyphaUnreachable(
+            error instanceof Error ? error.message : 'Failed to connect to Hypha'
+          );
+        }
         throw error;
       } finally {
         pendingConnectPromise = null;
@@ -583,6 +648,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   logout: async () => {
     const currentServer = get().server;
     if (currentServer && typeof currentServer.disconnect === 'function') {
+      // Detach first so this deliberate teardown doesn't trip the
+      // on_disconnected handler into a spurious reconnect.
+      detachDisconnectHandler(currentServer);
       try {
         await currentServer.disconnect();
       } catch (disconnectError) {
@@ -597,6 +665,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       server: null,
       artifactManager: null,
       isConnected: false,
+      connectionStatus: 'disconnected',
       isAuthenticated: false,
       isLoggedIn: false,
       user: null,
