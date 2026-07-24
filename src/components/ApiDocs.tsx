@@ -705,31 +705,22 @@ def upload_new_model():
             )
         print(f"✅ Uploaded: {file_name}")
     
-    # Step 4: Commit the staged version
+    # Step 4: Submit for review. Set the status on the STAGED manifest and stop.
+    # Do not commit your own model: publishing is done by the review team after
+    # review, and committing yourself would bypass it. Keep stage=True.
+    model_manifest["status"] = "in-review"
     response = requests.post(
-        f"{BASE_URL}/public/services/artifact-manager/commit",
+        f"{BASE_URL}/public/services/artifact-manager/edit",
         json={
             "artifact_id": model_id,
-            "comment": "Initial model release"
+            "manifest": model_manifest,
+            "stage": True
         },
         headers=headers
     )
-    
-    if response.status_code == 200:
-        print(f"✅ Model committed successfully!")
-        
-        # Step 5: Request review (optional)
-        model_manifest["status"] = "in-review"
-        response = requests.post(
-            f"{BASE_URL}/public/services/artifact-manager/edit",
-            json={
-                "artifact_id": model_id,
-                "manifest": model_manifest
-            },
-            headers=headers
-        )
-        print(f"✅ Model ready for review: {model_id}")
-        print(f"View at: https://bioimage.io/#/p/{model_id}")
+    print(f"✅ Model submitted for review: {model_id}")
+    print(f"The review team will publish it once accepted.")
+    print(f"Track status at: https://bioimage.io/#/upload?artifact_id={model_id}&stage=true")
 
 if __name__ == "__main__":
     upload_new_model()`}
@@ -739,9 +730,9 @@ if __name__ == "__main__":
 
             {/* Edit Existing Model */}
             <div className="mb-8">
-              <h3 className="text-lg font-medium text-gray-900 mb-3">Edit an Existing Model In-Place</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Edit an Existing Model's Metadata In-Place</h3>
               <p className="text-gray-600 mb-4">
-                Update metadata or files of an existing model without creating a new version:
+                Update the metadata of an existing model in place. Changing files or weights requires a new version instead (see below):
               </p>
               
               <div className="bg-gray-900 rounded-lg overflow-hidden">
@@ -758,7 +749,7 @@ if __name__ == "__main__":
                     borderRadius: '0.5rem'
                   }}
                 >
-{`def edit_existing_model(model_id):
+{`def edit_model_metadata(model_id):
     # Step 1: Get current model details
     response = requests.post(
         f"{BASE_URL}/public/services/artifact-manager/read",
@@ -766,13 +757,14 @@ if __name__ == "__main__":
         headers=headers
     )
     current_model = response.json()
-    
-    # Step 2: Update metadata
+
+    # Step 2: Update metadata only. Do not replace weights or other files here:
+    # changing a published model's files requires a new version (see below).
     updated_manifest = current_model["manifest"]
     updated_manifest["description"] = "Updated description"
     updated_manifest["tags"].append("new-tag")
-    
-    # Step 3: Apply edits to staged version
+
+    # Step 3: Apply the edit as a staged change
     response = requests.post(
         f"{BASE_URL}/public/services/artifact-manager/edit",
         json={
@@ -782,32 +774,18 @@ if __name__ == "__main__":
         },
         headers=headers
     )
-    
-    # Step 4: Replace or add files (optional)
-    response = requests.post(
-        f"{BASE_URL}/public/services/artifact-manager/put_file",
-        json={
-            "artifact_id": model_id,
-            "file_path": "weights_v2.pt"  # New or replacement file
-        },
-        headers=headers
-    )
-    upload_url = response.json()
-    
-    with open("path/to/new/weights.pt", "rb") as f:
-        requests.put(upload_url, data=f, headers={"Content-Type": ""})
-    
-    # Step 5: Commit the changes
+
+    # Step 4: Commit the metadata change
     response = requests.post(
         f"{BASE_URL}/public/services/artifact-manager/commit",
         json={
             "artifact_id": model_id,
-            "comment": "Updated model weights and metadata"
+            "comment": "Updated metadata"
         },
         headers=headers
     )
-    
-    print(f"✅ Model {model_id} updated successfully!")`}
+
+    print(f"✅ Metadata for {model_id} updated successfully!")`}
                 </SyntaxHighlighter>
               </div>
             </div>

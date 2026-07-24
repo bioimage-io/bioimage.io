@@ -324,6 +324,28 @@ See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-model
 This phase is **mandatory**. After uploading, run the BioEngine test on the staged model, fix any
 failures, then submit for curator review. Do not skip review — without it, the model stays invisible.
 
+> **Guardrails — you hold the uploader's own Hypha credentials, which give you full owner rights over
+> your artifacts (`am.commit`, in-place `am.edit`, `am.delete`). The website UI normally blocks the
+> misuses below, but this skill talks to the artifact-manager API directly and bypasses those guards.
+> None of these are technically prevented, which is exactly why you must not do them:**
+>
+> 1. **Never publish your own model.** Set `status: "in-review"` (Step 6b) and stop. Do **not** call
+>    `am.commit(...)` on your model, and do **not** set `status: "published"` yourself. Publishing is
+>    the curator's action after review, and it is what mints the citable DOI. Self-publishing bypasses
+>    the quality review that makes a zoo model trustworthy and wastes reviewer time. (The only
+>    `am.commit` in this whole workflow is on your *own skill-feedback report* in Phase 7 — a different
+>    artifact in a different collection. Never on a model.)
+> 2. **Never change a published model's weights or content in place.** Publish a **new version**
+>    instead. Editing the bytes behind an already-published model silently breaks reproducibility and
+>    every citation, DOI, and download link pointing at the existing version. (The website enforces
+>    this in the UI; the API does not, so it is on you.)
+> 3. **Never delete a published model.** Deletion destroys provenance and breaks every downstream user
+>    and DOI resolving to it. If a published model genuinely must be withdrawn, set the
+>    `request_deletion` field on the manifest and let a curator handle it. Do not call `am.delete(...)`.
+> 4. **Stay inside the status vocabulary and don't orphan staging.** The only valid `status` values are
+>    `draft`, `in-review`, `in-revision`, `published`. Don't invent others, and don't discard the
+>    staging session on a never-published artifact — that leaves a versionless orphan.
+
 ### Step 6a — Run BioEngine remote test on the staged artifact
 
 The BioEngine test runs the model on managed GPU infrastructure and compares outputs to the
@@ -440,7 +462,8 @@ After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `vali
 
 ### Step 6b — Request curator review
 
-Once the BioEngine test passes, set `status: "in-review"` in the staged manifest.
+Once the BioEngine test passes, set `status: "in-review"` in the staged manifest (never
+`status: "published"` yourself — see the guardrails at the top of Phase 6).
 This makes the model visible to curators in the review queue:
 
 ```python

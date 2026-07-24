@@ -90,6 +90,17 @@ The annotation URL encodes this ID so the annotator (`AnnotatePage`) can connect
 
 - `src/config/hypha.ts` exports `HYPHA_SERVER_URL`. Override at build time via `REACT_APP_HYPHA_SERVER_URL`. Import the constant everywhere instead of hard-coding `https://hypha.aicell.io`.
 
+### Test reports & BioEngine compatibility
+
+Model test status and BioEngine inference compatibility are **no longer** stored on the `bioimage-io/bioimage.io` collection manifest. They live in a separate **`bioimage-io/test-reports`** collection, and the frontend reads strictly from there. (The legacy manifest fields this replaced — `bioengine_inference`, `test_summary`, `test_reports`, and `score` on the *model* manifest — were stripped from live data in 2026-07; do not reintroduce reads of them.)
+
+- **Per-model report** — a `test-report-<modelId>` artifact, one per model. Its machine-readable `test_report.json` lives under `files/published/` or `files/staged/` depending on whether the staged or published model is being viewed. Build the URL with `resolveTestReportUrl(artifactId, staged)` in `src/utils/urlHelpers.ts` — never hand-craft it. The model-runner overwrites the file in place on every re-test, so every read cache-busts with `&t=${Date.now()}`. A 404 just means "no BioEngine report yet." Consumers: `ArtifactDetails`, `ModelTester`, `Edit`.
+- **Report artifact `type`** — `published-model` once accepted, `staged-model` while staged (flipped on accept in `ReviewArtifacts.handleAccept`). The public models **grid** (`hyphaStore.ts`) is sourced from `test-reports` children filtered on top-level `type: "published-model"` and ordered by `manifest.score` then `manifest.metadata_completeness`, so only tested, published models appear in browse with a correct server-side total and pagination (`manifest.*` is not backend-filterable, but `type` is). The model's collection alias is the report alias minus the `test-report-` prefix (do not use `manifest.id` — for Zenodo models that is the DOI).
+- **BioEngine inference badge** — derived from the report artifact's `manifest.score`, not from any manifest flag and not from a separate inference artifact. `score = 1·(valid format) + 2·(inference passes) + 4·(all tests pass) + metadataCompleteness (0..1)`; the inference tier is `score ∈ [3,4] ∪ [7,8]` (decode by range — a `& 2` bitmask is unsafe because completeness can be exactly 1.0). Human-readable failure text comes from the report file's `inference_check.error`. See `ArtifactDetails.fetchBioengineStatus`.
+- **Consolidated `inference-report`** — a single `generic` artifact in the same collection holds a flat `{modelId: {...}}` map for batch/back-office use. The frontend does **not** read it (the badge derives from per-model `score`) and it is excluded from the grid. There is deliberately no `resolveInferenceReportUrl` helper.
+
+**Not this system: community partner compatibility is separate and unchanged.** The partner-tool rows on the detail page (ilastik, deepImageJ, etc.) come from the **collection CI**, fetched by `ArtifactDetails.fetchCompatibilityData` from `https://bioimage-io.github.io/collection/reports/bioimage-io/<alias>/<version>/summary.json` and driven by `collection/.github/workflows/check_compatibility_<partner>.yaml`. That path predates the test-reports migration and is **not** legacy. When touching test reports, leave `fetchCompatibilityData` and the partner-icon map alone.
+
 ## Component Inventory
 
 ### `src/components/colab/` — Collaborative Session Management
