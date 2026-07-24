@@ -227,6 +227,25 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 
 After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 
+### Versioning & the dev-iteration workflow
+
+A committed artifact version is **immutable** and its content is exactly what a deploy runs, so a version string must map to one bundle forever. Two rules keep that true:
+
+- **Never delete-and-recreate a committed version to change its code, and never deploy a staged (uncommitted) version** — deploy pinned, committed versions only.
+- Upload only through the worker (`upload_app` / `scripts/upload_app.py`): it uploads the **whole folder** and rejects any `manifest.yaml` version that isn't strictly greater than every existing one (PEP 440).
+
+To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then publish the verified bundle **once** as `X.Y.Z` and delete the `-dev*` pre-releases. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers). The helper does exactly this:
+
+```bash
+# iterate — uploads <version>-devN (auto), deploys <app>-dev; test, fix, repeat
+python scripts/upload_app.py ./my-app --worker <worker_service_id> --dev [--disable-gpu]
+
+# publish — uploads the SAME folder as the clean release <version>, deletes the -dev* pre-releases
+python scripts/upload_app.py ./my-app --worker <worker_service_id> --release
+```
+
+`<version>` is read from `manifest.yaml`; the local file is never modified.
+
 > **After your first live deploy of a new app: leave a feedback report.** If `runtime_env`, RPC schema, composition wiring, or anything in `app_templates.md` / `model_serving.md` tripped you up, see [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file. The first agent to write a fresh app for a domain almost always has the most valuable feedback.
 
 ---
