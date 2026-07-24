@@ -57,35 +57,6 @@ async def run_test(
     raise asyncio.TimeoutError()
 
 
-async def fetch_runner_version(runner: ObjectProxy) -> Optional[str]:
-    """Ask the deployed model-runner which BioEngine artifact version it was built from.
-
-    Returns the version string when the runner exposes ``get_version()`` and the
-    response includes a non-empty ``version`` field. Returns ``None`` when the
-    method is missing, raises, or returns no version. The model-runner stamps
-    its own version onto every published ``test_report.json``; this script only
-    reads it for surfacing in the CI summary.
-    """
-    try:
-        info = await runner.get_version()
-    except Exception as exc:
-        print(
-            f"Note: runner.get_version() unavailable ({exc}); "
-            "runner version will not be reported in summary"
-        )
-        return None
-
-    if isinstance(info, dict):
-        version = info.get("version")
-    else:
-        version = info
-
-    if not version:
-        return None
-
-    return str(version)
-
-
 async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
     reports_dir: Optional[Path] = None,
@@ -120,12 +91,6 @@ async def test_bmz_models(
     model_runner = await server.get_service(
         service_id, {"mode": "select:min:get_load"}
     )
-
-    current_runner_version = await fetch_runner_version(model_runner)
-    if current_runner_version:
-        print(f"Deployed model-runner version: {current_runner_version}")
-    else:
-        print("Deployed model-runner version: unknown")
 
     # Fetch all model IDs if not provided
     if model_ids is None:
