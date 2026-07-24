@@ -46,7 +46,7 @@ const formatBytes = (bytes: number): string => {
 };
 
 const formatRelativeTime = (unixSeconds: number | null, nowMs: number): string => {
-  if (!unixSeconds) return '—';
+  if (!unixSeconds) return '-';
   const diffSec = Math.max(0, (nowMs - unixSeconds * 1000) / 1000);
   if (diffSec < 60) return `${Math.floor(diffSec)}s ago`;
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;

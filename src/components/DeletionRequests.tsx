@@ -238,7 +238,7 @@ const DeletionRequests: React.FC = () => {
               Orphaned artifacts ({orphans.length})
             </h2>
             <p className="text-xs text-gray-400 mb-3">
-              Dead rows with no committed version and no active staging session — abandoned/broken
+              Dead rows with no committed version and no active staging session: abandoned or broken
               artifacts. (Versionless uploads that are still staged are pending submissions, not orphans,
               and are not listed here.)
             </p>

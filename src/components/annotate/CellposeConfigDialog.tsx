@@ -111,9 +111,9 @@ const GroupChip: React.FC<{ kind: 'server' | 'instant'; livePreviewReady?: boole
   const tip = kind === 'server'
     ? 'Affects the network output. Changing this needs another GPU round-trip via Run.'
     : isInstantActive
-      ? 'Live preview is active — the polygon overlay updates as you drag.'
+      ? 'Live preview is active. The polygon overlay updates as you drag.'
       : isInstantIdle
-        ? 'Mask-gen knob. Click Run once; afterwards this slider updates the preview without a server hit.'
+        ? 'Mask-gen knob. Click Run once. Afterwards this slider updates the preview without a server hit.'
         : '';
   return (
     <Tooltip title={tip} placement="top" arrow>

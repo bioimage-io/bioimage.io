@@ -49,7 +49,7 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
             </svg>
             <span>
               Model inference on the BioEngine is only provided in the standard environment. Where
-              possible, keep the model compatible with it — a custom environment tests against the
+              possible, keep the model compatible with it. A custom environment tests against the
               model's declared conda environment but is not used for inference.
             </span>
           </div>

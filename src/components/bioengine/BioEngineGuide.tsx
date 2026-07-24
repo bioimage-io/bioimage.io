@@ -1051,7 +1051,7 @@ spec:
                         type="password"
                         value={token}
                         onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
-                        placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated; paste to override') : 'Paste your Hypha token'}
+                        placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated, paste to override') : 'Paste your Hypha token'}
                         autoComplete="new-password"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -1147,7 +1147,7 @@ spec:
                     <input type="text" value={dockerHubUsername} onChange={(e) => setDockerHubUsername(e.target.value)}
                       placeholder="<your-dockerhub-username>"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image; filled into the build script, push command, and deployment YAML below.</p>
+                    <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image, filled into the build script, push command, and deployment YAML below.</p>
                   </div>
 
                   {/* Step 1: docker login */}
@@ -1640,7 +1640,7 @@ spec:
                       type="password"
                       value={token}
                       onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
-                      placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated; paste to override') : 'Paste your Hypha token'}
+                      placeholder={isLoggedIn ? (isGeneratingToken ? 'Generating…' : 'Auto-generated, paste to override') : 'Paste your Hypha token'}
                       autoComplete="new-password"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />

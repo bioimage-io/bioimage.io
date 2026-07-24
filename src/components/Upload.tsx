@@ -1442,7 +1442,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               <p className="text-sm font-semibold text-blue-900">Submit your model with an AI agent</p>
               <p className="text-sm text-blue-800">
                 We provide a ready-to-use skill that guides any AI coding agent through packaging,
-                validation, and submission — no manual YAML required. Works with{' '}
+                validation, and submission, with no manual YAML required. Works with{' '}
                 <strong>Claude Code</strong>, <strong>Gemini CLI</strong>,{' '}
                 <strong>GitHub Copilot</strong>, <strong>OpenAI Codex</strong>, and other agents
                 with web access.

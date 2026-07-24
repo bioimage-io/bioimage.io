@@ -446,7 +446,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
               <h4 className="text-sm font-medium text-blue-900 mb-1">Publication happens through review</h4>
               <p className="text-sm text-blue-800">
                 Submit your model for review using the button above. A reviewer will check it and
-                publish it to the Model Zoo once accepted — models cannot be self-published.
+                publish it to the Model Zoo once accepted. Models cannot be self-published.
               </p>
             </div>
           </div>

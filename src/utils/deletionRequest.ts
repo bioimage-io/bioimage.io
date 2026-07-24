@@ -120,7 +120,7 @@ export async function requestDeletion(
   });
 
   try {
-    await appendComment(artifactManager, artifact.id, `🗑️ Deletion requested — ${trimmed}`, user);
+    await appendComment(artifactManager, artifact.id, `🗑️ Deletion requested: ${trimmed}`, user);
   } catch (e) {
     // Reason is still preserved on manifest.request_deletion; comment is a bonus.
     console.error('Failed to append deletion-request comment:', e);
@@ -164,7 +164,7 @@ export async function declineDeletion(
   });
 
   try {
-    await appendComment(artifactManager, artifact.id, `↩️ Deletion request declined — ${trimmed}`, user);
+    await appendComment(artifactManager, artifact.id, `↩️ Deletion request declined: ${trimmed}`, user);
   } catch (e) {
     console.error('Failed to append deletion-decline comment:', e);
   }

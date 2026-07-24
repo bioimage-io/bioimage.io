@@ -179,7 +179,7 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
           } else if (skipped) {
             right = (
               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500, color: 'text.secondary' }}>
-                —
+                Skipped
               </Typography>
             );
           }

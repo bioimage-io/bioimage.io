@@ -90,7 +90,7 @@ const DeclineDeletionDialog: React.FC<DeclineDeletionDialogProps> = ({
               placeholder="Explain why this deletion request is being declined (e.g. model is still in use, request lacks justification)…"
               disabled={submitting}
             />
-            <p className="mt-1 text-xs text-gray-500">A reason is required — it is shared with the requester.</p>
+            <p className="mt-1 text-xs text-gray-500">A reason is required. It is shared with the requester.</p>
           </div>
 
           {error && (

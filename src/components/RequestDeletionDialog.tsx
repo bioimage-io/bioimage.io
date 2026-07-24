@@ -92,7 +92,7 @@ const RequestDeletionDialog: React.FC<RequestDeletionDialogProps> = ({
               placeholder="Explain why this model should be deleted (e.g. duplicate upload, broken weights, superseded by a newer version)…"
               disabled={submitting}
             />
-            <p className="mt-1 text-xs text-gray-500">A reason is required — the request is invalid without one.</p>
+            <p className="mt-1 text-xs text-gray-500">A reason is required. The request is invalid without one.</p>
           </div>
 
           {error && (

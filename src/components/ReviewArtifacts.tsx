@@ -1058,7 +1058,7 @@ const ReviewArtifacts: React.FC = () => {
                               </div>
                             ) : (
                               <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                <p className="text-sm text-gray-600">Orphaned artifact — no committed version.</p>
+                                <p className="text-sm text-gray-600">Orphaned artifact: no committed version.</p>
                               </div>
                             )
                           )}
