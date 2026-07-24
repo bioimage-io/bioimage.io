@@ -23,6 +23,28 @@ export interface ResolvedStep {
 }
 
 /**
+ * Coarse lifecycle state the model-runner reports on get_test_status /
+ * get_infer_status (v1.15.36+). Older runners omit it (undefined). The three
+ * terminal states below are where a run has stopped for good.
+ */
+export type RunnerState =
+  | 'queued'
+  | 'model_download'
+  | 'env_setup'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+/**
+ * True when the run has reached a terminal state (completed/failed/cancelled).
+ * A missing/unknown state (older runner) is treated as non-terminal so the
+ * Cancel affordance stays available while the run is still in flight.
+ */
+export const isTerminalRunnerState = (state?: string | null): boolean =>
+  state === 'completed' || state === 'failed' || state === 'cancelled';
+
+/**
  * Resolve a StepTimeline step's fields from a runner stage. Falls back to a flat
  * legacy timestamp (older runners that expose only `model_download`/`env_setup`/
  * `running` scalars and no `stages` object) so the timeline still renders.

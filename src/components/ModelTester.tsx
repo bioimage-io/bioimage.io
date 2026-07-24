@@ -122,6 +122,11 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   // that was in flight before a page refresh. Surfaced as a click-to-resume
   // badge (we do not auto-open the dialog).
   const [resumableRunId, setResumableRunId] = useState<string | null>(null);
+  // The test_run_id of the run currently being driven (for the Cancel button).
+  // Null when no run is in flight.
+  const [activeTestRunId, setActiveTestRunId] = useState<string | null>(null);
+  // True while a cancel request is being sent to the runner.
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const modelId = artifactId ? artifactId.split('/').pop() : undefined;
 
@@ -174,19 +179,23 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     let finalResult: TestResult | null = null;
     const MAX_POLLS = 120; // 6 minutes at 3s inter-poll delay
 
+    // Expose the run id so the Cancel button can target it.
+    setActiveTestRunId(test_run_id);
+
     try {
       for (let i = 0; i < MAX_POLLS; i++) {
         const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
 
         // v1.15.23 status: per-step `stages` (model_download/env_setup/run with
         // start/end/queue_position) + submitted_at/completed_at + result. Legacy
-        // flat fields kept as a fallback.
-        const { stages, submitted_at, queue_position, model_download, env_setup, running, result, completed_at } = status;
+        // flat fields kept as a fallback. v1.15.36 adds the coarse `state`.
+        const { stages, state, submitted_at, queue_position, model_download, env_setup, running, result, completed_at } = status;
 
         setProgressInfo({
           version: 'v2',
           submittedAt: submitted_at ?? null,
           stages: stages ?? null,
+          state: state ?? null,
           queuePosition: queue_position ?? 0,
           modelDownload: model_download ?? null,
           envSetup: env_setup ?? null,
@@ -217,6 +226,21 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
           console.log('Test completed. Result:', result);
           // A completion (success or error result) — stop persisting the run id.
           if (modelId) clearRunId('test', modelId);
+
+          // A cancelled run is terminal but has no report: mark the timeline
+          // cancelled and stop, without a red failure or marking as tested.
+          const cancelled =
+            state === 'cancelled' ||
+            (typeof result === 'object' && (result as any).error === 'cancelled');
+          if (cancelled) {
+            setProgressInfo(prev => prev?.version === 'v2'
+              ? { ...prev, state: 'cancelled', resultTime: Date.now() / 1000, completedAt: prev.completedAt ?? completed_at ?? Date.now() / 1000 }
+              : prev);
+            setLoadingStep('');
+            setIsLoading(false);
+            return; // finally still runs (clears run id + cancelling flag)
+          }
+
           if ('error' in result) {
             finalResult = buildTestFailure(result.error as string);
           } else {
@@ -268,7 +292,25 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     } finally {
       setLoadingStep('');
       setIsLoading(false);
+      setActiveTestRunId(null);
+      setIsCancelling(false);
       freezeTimeline();
+    }
+  };
+
+  // Best-effort cancel of the in-flight test run. The runner marks the request
+  // terminal (state='cancelled'); the next poll renders that state and the
+  // driver loop stops. No-op if the runner lacks cancel_request.
+  const cancelTest = async () => {
+    const runner: any = activeRunner;
+    if (!runner || !activeTestRunId || typeof runner.cancel_request !== 'function') return;
+    setIsCancelling(true);
+    try {
+      await runner.cancel_request({ request_id: activeTestRunId, _rkwargs: true });
+    } catch (err) {
+      console.error('Failed to cancel test run:', err);
+      // Leave the poll loop running; the run may still finish on its own.
+      setIsCancelling(false);
     }
   };
 
@@ -372,6 +414,14 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 
   const noRunner = !runnersLoading && !hasAny;
   const buttonDisabled = isDisabled || isLoading || !isLoggedIn || noRunner;
+  // Feature-detect: only offer Cancel when the active runner exposes
+  // cancel_request (model-runner v1.15.36+). Older prod workers omit it.
+  // Also require a live run id: the progress dialog opens (isLoading) the moment
+  // "Run Test" is clicked, but test() has not yet returned the id we cancel with.
+  // Gating on activeTestRunId keeps the button hidden until there is something to
+  // cancel, so an early click on a slow runner can't be a silent no-op.
+  const canCancelTest =
+    !!activeTestRunId && typeof (activeRunner as any)?.cancel_request === 'function';
 
   const buttonLabel = !isLoggedIn
     ? 'Login to Test'
@@ -515,6 +565,9 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         type="test-report"
         showReport={showReport}
         onViewReport={() => setShowReport(true)}
+        onCancel={() => { void cancelTest(); }}
+        isCancelling={isCancelling}
+        canCancel={canCancelTest}
       />
     </div>
   );

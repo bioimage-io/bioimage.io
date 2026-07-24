@@ -22,7 +22,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 import StepTimeline, { TimelineStep } from './StepTimeline';
-import { RunnerStages, resolveStage } from '../types/runStatus';
+import { RunnerStages, RunnerState, resolveStage, isTerminalRunnerState } from '../types/runStatus';
 
 /**
  * v1.15+ API — progress described by the dict returned by get_test_status /
@@ -36,6 +36,9 @@ export interface ProgressInfoV2 {
   submittedAt?: number | null;
   /** Per-step queue positions + start/end timestamps (preferred source). */
   stages?: RunnerStages | null;
+  /** Coarse lifecycle state (v1.15.36+); drives the cancel affordance and the
+   *  terminal "cancelled" rendering. Undefined on older runners. */
+  state?: RunnerState | null;
   /** Legacy flat fields (fallback when `stages` is absent). */
   queuePosition?: number;
   modelDownload?: number | null;
@@ -71,6 +74,15 @@ interface TestDetailsDialogProps {
    */
   showReport?: boolean;
   onViewReport?: () => void;
+  /**
+   * Cancel the in-flight run. When provided together with canCancel, a Cancel
+   * button is shown in the progress view while the run is non-terminal.
+   */
+  onCancel?: () => void;
+  /** True while a cancel request is being sent (button shows "Cancelling..."). */
+  isCancelling?: boolean;
+  /** Whether the connected runner supports cancellation (feature-detected). */
+  canCancel?: boolean;
 }
 
 const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
@@ -87,11 +99,21 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   partnerVersion,
   showReport = true,
   onViewReport,
+  onCancel,
+  isCancelling = false,
+  canCancel = false,
 }) => {
   // Show the progress/timeline view while loading, and after completion until
   // the user opens the report (showReport). Compatibility reports always go
   // straight to the report.
   const showProgressView = isLoading || (type === 'test-report' && !showReport && progressInfo != null);
+  // Terminal cancelled run: keep the timeline visible but render a "Cancelled"
+  // message instead of the "View Test Report" button (there is no report).
+  const runCancelled = progressInfo?.state === 'cancelled';
+  // Offer Cancel only while the run is genuinely in flight, the runner supports
+  // it, and it hasn't already reached a terminal state.
+  const canShowCancel =
+    isLoading && !!onCancel && canCancel && !isTerminalRunnerState(progressInfo?.state);
   // The test is genuinely running (started → completed). We key the BioEngine
   // logo animation on this rather than isLoading, because isLoading stays true
   // through the post-test onTestComplete work (e.g. reloading artifact files),
@@ -99,8 +121,9 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   const testInProgress = isLoading
     && progressInfo?.completedAt == null
     && progressInfo?.resultTime == null;
-  // The run has finished (result available) but we're still on the timeline.
-  const runFinished = showProgressView && !testInProgress && !!data;
+  // The run has finished (result available) but we're still on the timeline. A
+  // cancelled run has no report, so it never shows the "View Test Report" step.
+  const runFinished = showProgressView && !testInProgress && !!data && !runCancelled;
   // Debug logging
   React.useEffect(() => {
     if (open) {
@@ -163,6 +186,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
 
   const getDialogTitle = () => {
     if (type === 'compatibility') return 'Compatibility Test Details';
+    if (runCancelled) return 'Model Test Cancelled';
     if (isLoading) return 'Model Testing in Progress';
     if (showProgressView) return 'Model Test Complete';
     return 'Test Report Details';
@@ -311,6 +335,40 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
+            )}
+
+            {/* Cancel the in-flight run (model-runner v1.15.36+). */}
+            {canShowCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={isCancelling}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-transform duration-150 ease-out active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+              >
+                {isCancelling ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                    Cancel Test
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Terminal cancelled state: no report to show, just confirm the stop. */}
+            {runCancelled && (
+              <Typography variant="body2" sx={{ mt: 1, color: '#b45309', fontWeight: 500 }}>
+                Test run cancelled.
+              </Typography>
             )}
           </Box>
         ) : isInvalidJson ? (

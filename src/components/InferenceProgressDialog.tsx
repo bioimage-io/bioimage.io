@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import StepTimeline, { TimelineStep } from './StepTimeline';
-import { RunnerStages, resolveStage } from '../types/runStatus';
+import { RunnerStages, RunnerState, resolveStage, isTerminalRunnerState } from '../types/runStatus';
 
 /**
  * Progress for the inference dialog. All timestamps are Unix seconds and come
@@ -21,6 +21,9 @@ import { RunnerStages, resolveStage } from '../types/runStatus';
 export interface InferenceProgress {
   submittedAt: number | null;
   stages?: RunnerStages | null;
+  /** Coarse lifecycle state (v1.15.36+); drives the cancel affordance and the
+   *  terminal "cancelled" rendering. Undefined on older runners. */
+  state?: RunnerState | null;
   queuePosition?: number;
   modelDownload?: number | null;
   running?: number | null;
@@ -40,6 +43,15 @@ interface InferenceProgressDialogProps {
   progress: InferenceProgress | null;
   /** Fallback text shown before structured progress is available. */
   loadingMessage?: string;
+  /**
+   * Cancel the in-flight run. When provided together with canCancel, a Cancel
+   * button is shown while the run is non-terminal.
+   */
+  onCancel?: () => void;
+  /** True while a cancel request is being sent (button shows "Cancelling..."). */
+  isCancelling?: boolean;
+  /** Whether the connected runner supports cancellation (feature-detected). */
+  canCancel?: boolean;
 }
 
 /**
@@ -55,7 +67,14 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
   isRunning,
   progress,
   loadingMessage,
+  onCancel,
+  isCancelling = false,
+  canCancel = false,
 }) => {
+  const runCancelled = progress?.state === 'cancelled';
+  // Offer Cancel only while the run is in flight, supported, and non-terminal.
+  const canShowCancel =
+    isRunning && !!onCancel && canCancel && !isTerminalRunnerState(progress?.state);
   return (
     <Dialog
       open={open}
@@ -87,7 +106,11 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
         }}
       >
         <Typography variant="h5" sx={{ fontWeight: 300, color: '#1f2937' }}>
-          {isRunning ? 'Model Inference in Progress' : 'Model Inference Complete'}
+          {runCancelled
+            ? 'Model Inference Cancelled'
+            : isRunning
+              ? 'Model Inference in Progress'
+              : 'Model Inference Complete'}
         </Typography>
         <IconButton
           onClick={onClose}
@@ -144,6 +167,40 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
                 {loadingMessage || 'Running inference...'}
               </Typography>
             </Box>
+          )}
+
+          {/* Cancel the in-flight run (model-runner v1.15.36+). */}
+          {canShowCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isCancelling}
+              className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-transform duration-150 ease-out active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+            >
+              {isCancelling ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Cancelling...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  Cancel Run
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Terminal cancelled state confirmation. */}
+          {runCancelled && (
+            <Typography variant="body2" sx={{ color: '#b45309', fontWeight: 500 }}>
+              Inference run cancelled.
+            </Typography>
           )}
         </Box>
       </DialogContent>

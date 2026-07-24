@@ -28,6 +28,9 @@ interface InferProgress {
   running: number | null;
   /** Per-step start/end/queue_position (v1.15.23+); drives the timeline. */
   stages?: RunnerStages | null;
+  /** Coarse lifecycle state (v1.15.36+): queued | model_download | env_setup |
+   *  running | completed | failed | cancelled. Undefined on older runners. */
+  state?: string | null;
   /** Unix seconds when the run finished; null until then. Freezes the timeline. */
   completed_at: number | null;
 }
@@ -176,6 +179,8 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // run that was in flight before a page refresh. Surfaced as a click-to-resume
   // badge (we do not auto-open the dialog).
   const [resumableInferId, setResumableInferId] = useState<string | null>(null);
+  // True while a cancel request is being sent to the runner.
+  const [isCancellingInfer, setIsCancellingInfer] = useState<boolean>(false);
 
   // Tiling is inference-specific and stays local; the Server URL / Service ID
   // override come from the shared connection (conn).
@@ -395,6 +400,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           setInferProgress({
             submittedAt: status.submitted_at ?? submittedAtClient,
             stages: status.stages ?? null,
+            state: (status.state ?? null) as InferenceProgress['state'],
             queuePosition: status.queue_position ?? 0,
             modelDownload: status.model_download ?? null,
             running: status.running ?? null,
@@ -434,6 +440,18 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     } catch (error) {
       console.error('Failed to run model:', error);
       if (modelId) clearRunId('infer', modelId);
+
+      // A cancelled run surfaces as an Error('cancelled') from the poll loop
+      // (result = { error: 'cancelled' }). The last poll already flipped
+      // progress.state to 'cancelled' and froze the timeline, so keep the dialog
+      // on that terminal state and show a neutral notice, not a red error.
+      if (error instanceof Error && error.message === 'cancelled') {
+        setInferProgress(prev => prev ? { ...prev, completedAt: prev.completedAt ?? Date.now() / 1000 } : prev);
+        setInferCompleted(false);
+        setInfoPanel('Model run cancelled.', false, false, true);
+        return; // finally still clears the running/cancelling flags
+      }
+
       setInferDialogOpen(false);
       setInferProgress(null);
       setInferCompleted(false);
@@ -447,8 +465,26 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       }
     } finally {
       setInferRunning(false);
+      setIsCancellingInfer(false);
       setIsLoading(false);
       setButtonEnabledRun(true);
+    }
+  };
+
+  // Best-effort cancel of the in-flight inference. The runner marks the request
+  // terminal (state='cancelled'); the poll loop then throws Error('cancelled'),
+  // which runModel's catch renders as the cancelled terminal state. No-op if the
+  // runner lacks cancel_request.
+  const cancelInference = async () => {
+    const rid = (runner as any)?.currentRequestId;
+    if (!runner || !rid || !(runner as any).canCancel) return;
+    setIsCancellingInfer(true);
+    try {
+      await (runner as any).cancelRequest(rid);
+    } catch (err) {
+      console.error('Failed to cancel inference:', err);
+      // Leave the run going; it may still finish on its own.
+      setIsCancellingInfer(false);
     }
   };
 
@@ -478,6 +514,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       await (runner as any).resumeInfer(request_id, (status: InferProgress) => setInferProgress({
         submittedAt: status.submitted_at ?? submittedAtClient,
         stages: status.stages ?? null,
+        state: (status.state ?? null) as InferenceProgress['state'],
         queuePosition: status.queue_position ?? 0,
         modelDownload: status.model_download ?? null,
         running: status.running ?? null,
@@ -1084,6 +1121,16 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         isRunning={inferRunning}
         progress={inferProgress}
         loadingMessage={infoMessage}
+        onCancel={() => { void cancelInference(); }}
+        isCancelling={isCancellingInfer}
+        // Require both the feature and a live request id: the dialog opens the
+        // moment the run starts, but infer() has not yet returned the id we
+        // cancel with. Gating on currentRequestId keeps the button hidden until
+        // there is something to cancel (avoids a silent no-op click on a slow
+        // runner). currentRequestId is set before the first status poll, and
+        // each poll's setInferProgress re-renders this, so the button appears
+        // as soon as the id exists.
+        canCancel={!!(runner as any)?.canCancel && !!(runner as any)?.currentRequestId}
       />
     </div>
   );

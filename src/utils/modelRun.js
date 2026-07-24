@@ -379,6 +379,19 @@ class BioEngineExecutor {
     throw new Error('Inference timed out after 6 minutes.');
   }
 
+  // Whether the connected runner exposes the cancel_request method (model-runner
+  // v1.15.36+). Older workers don't, so the UI feature-detects on this before
+  // offering a Cancel button.
+  get canCancel() {
+    return typeof this.runner?.cancel_request === 'function';
+  }
+
+  // Best-effort, idempotent cancel of an in-flight request (test or infer).
+  // Returns the runner's { request_id, state, cancelled } dict.
+  async cancelRequest(request_id) {
+    return await this.runner.cancel_request({ request_id, _rkwargs: true });
+  }
+
   // async runCellpose(array, additionalParameters = {}) {
   //   console.log("Running cellpose with parameters: ", additionalParameters);
   //   const ret = await this.runner.execute({
@@ -686,6 +699,20 @@ export class ModelRunnerEngine {
   /** The most recent in-flight infer request id (for persistence / resume). */
   get currentRequestId() {
     return this.bioengineExecutor?.currentRequestId ?? null;
+  }
+
+  /** Whether the connected runner supports cancel_request (v1.15.36+). */
+  get canCancel() {
+    return this.bioengineExecutor?.canCancel ?? false;
+  }
+
+  /**
+   * Cancel an in-flight infer request by id. Best-effort and idempotent — a
+   * finished run is a no-op. Returns the runner's { request_id, state,
+   * cancelled } dict.
+   */
+  async cancelRequest(request_id) {
+    return await this.bioengineExecutor.cancelRequest(request_id);
   }
 
   /**
