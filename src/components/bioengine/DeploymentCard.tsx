@@ -1,6 +1,96 @@
 import React from 'react';
 import { HYPHA_SERVER_URL } from '../../config/hypha';
 
+// --- Service-schema shapes (subset of the /services/<id> info payload) ---
+// Each entry in `service_schema` is `{ type: "function", function: MethodFn }`
+// when the method was registered via hypha-rpc's `schema_method`.
+interface MethodParam {
+  type?: string;
+  default?: unknown;
+  description?: string;
+}
+
+interface MethodFn {
+  name?: string;
+  description?: string;
+  parameters?: {
+    type?: string;
+    properties?: Record<string, MethodParam>;
+    required?: string[];
+  };
+}
+
+// A GET request through Hypha's HTTP proxy only coerces numbers (int/float);
+// every other query value stays a raw string, except values starting with "{"
+// which are JSON-parsed. So booleans ("False" arrives truthy) and bare arrays
+// ("[...]" stays a string) cannot round-trip through a URL. We never emit them.
+const paramIsArray = (p: MethodParam): boolean =>
+  p?.type === 'array' || Array.isArray(p?.default);
+const paramIsBool = (p: MethodParam): boolean =>
+  p?.type === 'boolean' || typeof p?.default === 'boolean';
+const paramUnsendable = (p: MethodParam): boolean => paramIsArray(p) || paramIsBool(p);
+
+// Value written into the query string for a sendable param. No `default` key
+// means the caller must fill it, so we leave it empty. Objects are JSON-encoded
+// (they survive the proxy's `{`-prefixed JSON path once URL-decoded).
+const encodeDefaultForUrl = (p: MethodParam): string => {
+  if (!('default' in p) || p.default == null) return '';
+  const d = p.default;
+  if (typeof d === 'number') return String(d);
+  if (typeof d === 'object') return encodeURIComponent(JSON.stringify(d));
+  return encodeURIComponent(String(d));
+};
+
+// Human-readable default shown in the parameter summary (not URL-encoded).
+const displayDefault = (p: MethodParam): string => {
+  if (!('default' in p)) return '';
+  const d = p.default;
+  if (d === null) return 'null';
+  if (typeof d === 'boolean') return d ? 'True' : 'False';
+  if (typeof d === 'object') return JSON.stringify(d);
+  return String(d);
+};
+
+// Proxy URL with the URL-passable arguments pre-filled. Param order follows
+// the schema (i.e. the function signature), so required-first methods read
+// naturally. What we emit:
+//   - required params            -> `name=` (empty, or its concrete default), to fill in
+//   - optional with a real default -> `name=<default>`
+//   - optional with null/no default -> omitted, so the server applies its own default
+//     (emitting `name=` would override None with an empty string and can break the call)
+//   - bool/array params          -> omitted (paramUnsendable: can't round-trip through a URL)
+const buildMethodUrl = (
+  workspace: string,
+  serviceIdentifier: string,
+  method: string,
+  fn?: MethodFn
+): string => {
+  const base = `${HYPHA_SERVER_URL}/${workspace}/services/${serviceIdentifier}/${method}`;
+  const props = fn?.parameters?.properties || {};
+  const required = new Set(fn?.parameters?.required || []);
+  const parts: string[] = [];
+  for (const [name, spec] of Object.entries(props)) {
+    if (paramUnsendable(spec)) continue;
+    const hasDefault = 'default' in spec && spec.default != null;
+    if (required.has(name)) {
+      parts.push(`${encodeURIComponent(name)}=${hasDefault ? encodeDefaultForUrl(spec) : ''}`);
+    } else if (hasDefault) {
+      parts.push(`${encodeURIComponent(name)}=${encodeDefaultForUrl(spec)}`);
+    }
+  }
+  return parts.length ? `${base}?${parts.join('&')}` : base;
+};
+
+// True when a REQUIRED argument can't go through a URL, so no editable URL can
+// produce a working call. Detection gap: a required param with neither a `type`
+// nor a `default` (e.g. model-runner's `inputs`, an ndarray) is indistinguishable
+// from a string here, so it isn't caught and Copy stays enabled.
+const hasRequiredUnsendable = (fn?: MethodFn): boolean => {
+  const props = fn?.parameters?.properties || {};
+  const required = new Set(fn?.parameters?.required || []);
+  return Object.entries(props).some(([name, spec]) => required.has(name) && paramUnsendable(spec));
+};
+
 interface DeploymentCardProps {
   deployment: {
     artifact_id: string;
@@ -57,6 +147,13 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   const [mcpCopied, setMcpCopied] = React.useState(false);
   const [appIdCopied, setAppIdCopied] = React.useState(false);
   const [serviceIdCopied, setServiceIdCopied] = React.useState(false);
+  // Available Methods disclosure: collapsed by default. Method parameter
+  // schemas are fetched lazily from the service-info endpoint on first expand.
+  const [methodsOpen, setMethodsOpen] = React.useState(false);
+  const [methodSchema, setMethodSchema] = React.useState<Record<string, MethodFn> | null>(null);
+  const [schemaLoading, setSchemaLoading] = React.useState(false);
+  const [schemaError, setSchemaError] = React.useState(false);
+  const [copiedMethod, setCopiedMethod] = React.useState<string | null>(null);
   const isAppRunning = deployment.status === "RUNNING";
   const hasAppUi = !!deployment.static_site_url;
 
@@ -127,6 +224,50 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     }
   };
 
+  // Fetch the service-info payload once and index its `service_schema` by
+  // method name. Guarded so re-expanding the disclosure never refetches a
+  // schema we already have (or one that's in flight).
+  const loadMethodSchema = async () => {
+    if (methodSchema || schemaLoading) return;
+    const infoUrl = getServiceInfoUrl();
+    if (!infoUrl) return;
+    setSchemaLoading(true);
+    setSchemaError(false);
+    try {
+      const res = await fetch(infoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const serviceSchema = (data && data.service_schema) || {};
+      const map: Record<string, MethodFn> = {};
+      for (const [name, entry] of Object.entries(serviceSchema)) {
+        const fn = (entry as { function?: MethodFn })?.function;
+        if (fn) map[name] = fn;
+      }
+      setMethodSchema(map);
+    } catch (err) {
+      console.error('Failed to fetch service schema:', err);
+      setSchemaError(true);
+    } finally {
+      setSchemaLoading(false);
+    }
+  };
+
+  const handleToggleMethods = () => {
+    const next = !methodsOpen;
+    setMethodsOpen(next);
+    if (next) void loadMethodSchema();
+  };
+
+  const handleCopyMethodUrl = async (method: string, url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedMethod(method);
+      setTimeout(() => setCopiedMethod((m) => (m === method ? null : m)), 2000);
+    } catch (err) {
+      console.error('Failed to copy method URL:', err);
+    }
+  };
+
   // Color tokens for the static (non-clickable) status banner. Mirrors the
   // resource-pill palette so the card reads as a row of status chips:
   // healthy reads green, deploying/updating amber, deleting muted, terminal
@@ -162,6 +303,14 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
       <style>{`
         .card-press { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
         .card-press:active:not(:disabled) { transform: scale(0.97); }
+        .methods-panel { animation: methodsIn 180ms cubic-bezier(0.23, 1, 0.32, 1); }
+        @keyframes methodsIn {
+          from { opacity: 0; transform: translateY(-2px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .methods-panel { animation: none; }
+        }
       `}</style>
 
       {/* Title row: app name + version live on the same line as the
@@ -375,41 +524,139 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </div>
           )}
 
-          {deployment.available_methods && deployment.available_methods.length > 0 && deployment.status !== "DEPLOYING" && (
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Available Methods:</p>
-              {/* Cap the methods list at a sensible height. Apps with
-                  dozens of methods (e.g. cellpose-finetuning) were
-                  blowing the card vertical to a screenful; this gives
-                  the list its own scroll area so the rest of the card
-                  stays compact. ~10 rows of pills before scrolling. */}
-              <div className="flex flex-wrap gap-1 max-h-44 overflow-y-auto pr-1">
-                {deployment.available_methods.map((method: string) => {
-                  // Use new service_ids structure, fallback to legacy serviceId
-                  const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
-                  return wsServiceId ? (
-                    <a
-                      key={method}
-                      href={`${HYPHA_SERVER_URL}/${wsServiceId.split('/')[0]}/services/${wsServiceId.split('/')[1]}/${method}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"
-                    >
-                      {method}
-                    </a>
-                  ) : (
-                    <span
-                      key={method}
-                      className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed opacity-60"
-                      title="Service ID not available yet"
-                    >
-                      {method}
-                    </span>
-                  );
-                })}
+          {deployment.available_methods && deployment.available_methods.length > 0 && deployment.status !== "DEPLOYING" && (() => {
+            // Use new service_ids structure, fallback to legacy serviceId.
+            // serviceIdentifier is everything after the workspace, matching
+            // getServiceInfoUrl() so the fetched schema and the copied URLs
+            // point at the same service.
+            const wsServiceId = deployment.service_ids?.websocket_service_id || serviceId;
+            const wsParts = wsServiceId ? wsServiceId.split('/') : [];
+            const workspace = wsParts[0];
+            const serviceIdentifier = wsParts.slice(1).join('/');
+            const methods = deployment.available_methods!;
+
+            return (
+              <div>
+                <button
+                  type="button"
+                  onClick={handleToggleMethods}
+                  aria-expanded={methodsOpen}
+                  className="card-press w-full flex items-center justify-between gap-2 text-left text-sm font-medium text-gray-700 mb-2 hover:text-gray-900"
+                >
+                  <span>Available Methods ({methods.length})</span>
+                  {/* Chevron points right when collapsed, rotates down on open. */}
+                  <svg
+                    className={`w-4 h-4 flex-shrink-0 text-gray-400 transition-transform duration-200 ease-out ${methodsOpen ? 'rotate-90' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </button>
+
+                {methodsOpen && (
+                  <div className="methods-panel max-h-64 overflow-y-auto pr-1">
+                    {schemaLoading && (
+                      <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
+                        <span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+                        Loading method details...
+                      </div>
+                    )}
+
+                    {schemaError && (
+                      <p className="text-xs text-gray-500 mb-2">
+                        Could not load argument details. URLs below have no arguments filled in.
+                      </p>
+                    )}
+
+                    {!schemaLoading && (
+                      <div className="flex flex-col gap-2">
+                        {methods.map((method: string) => {
+                          if (!wsServiceId) {
+                            return (
+                              <div
+                                key={method}
+                                className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                                title="Service ID not available yet"
+                              >
+                                <code className="text-xs font-mono text-gray-400">{method}</code>
+                              </div>
+                            );
+                          }
+
+                          const fn = methodSchema?.[method];
+                          const url = buildMethodUrl(workspace, serviceIdentifier, method, fn);
+                          const disabled = hasRequiredUnsendable(fn);
+                          const props = fn?.parameters?.properties || {};
+                          const required = new Set(fn?.parameters?.required || []);
+                          const paramNames = Object.keys(props);
+                          const isCopied = copiedMethod === method;
+
+                          return (
+                            <div key={method} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <code className="text-xs font-mono text-blue-700 truncate">{method}</code>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyMethodUrl(method, url)}
+                                  disabled={disabled}
+                                  title={disabled
+                                    ? 'This method needs an array or boolean argument that cannot be passed through a URL. Call it from the Python or JavaScript client instead.'
+                                    : 'Copy the request URL with default arguments filled in'}
+                                  className="card-press flex-shrink-0 inline-flex items-center px-2 py-1 rounded text-xs font-medium border transition-colors bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:text-blue-800 disabled:bg-gray-50 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed disabled:hover:bg-gray-50"
+                                >
+                                  {isCopied ? (
+                                    <svg className="w-3 h-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                  ) : (
+                                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                  )}
+                                  {isCopied ? 'Copied!' : 'Copy URL'}
+                                </button>
+                              </div>
+
+                              {fn && (
+                                paramNames.length > 0 ? (
+                                  <div className="mt-1.5 flex flex-wrap gap-1">
+                                    {paramNames.map((name) => {
+                                      const spec = props[name];
+                                      const unsendable = paramUnsendable(spec);
+                                      const isRequired = required.has(name);
+                                      const def = 'default' in spec ? displayDefault(spec) : '';
+                                      return (
+                                        <span
+                                          key={name}
+                                          title={unsendable ? 'Cannot be passed through a URL, omitted from the copied link' : undefined}
+                                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border ${
+                                            unsendable
+                                              ? 'bg-gray-50 text-gray-400 border-gray-200 line-through'
+                                              : 'bg-gray-50 text-gray-600 border-gray-200'
+                                          }`}
+                                        >
+                                          {name}{isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                                          {def !== '' && <span className="text-gray-400">={def}</span>}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="mt-1 text-[11px] text-gray-400">No arguments</p>
+                                )
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {!schemaLoading && methodSchema && Object.keys(methodSchema).length > 0 && (
+                      <p className="mt-2 text-[11px] text-gray-400">
+                        <span className="text-red-500">*</span> required. Struck-through arguments cannot be passed through a URL.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>
