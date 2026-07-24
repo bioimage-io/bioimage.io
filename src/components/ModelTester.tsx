@@ -100,7 +100,10 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
-  const { activeRunner, hasAny, loading: runnersLoading } = modelRunners ?? internalRunners;
+  const { activeRunner, hasAny, loading: runnersLoading, selected } = modelRunners ?? internalRunners;
+  // deNBI's conda env builds currently fail on an unfixable clock skew, so the
+  // custom-environment test option is disabled while that site is selected.
+  const customEnvDisabled = selected === 'denbi';
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -126,6 +129,13 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   useEffect(() => {
     setResumableRunId(modelId ? loadRunId('test', modelId) : null);
   }, [modelId]);
+
+  // deNBI cannot build custom conda environments right now (clock skew), so if
+  // the user had the option enabled and switches to deNBI, clear it so the test
+  // request never asks deNBI for a custom environment.
+  useEffect(() => {
+    if (customEnvDisabled) setCustomEnvironment(false);
+  }, [customEnvDisabled]);
 
   // Freeze the timeline if a run ended without a completion timestamp (e.g. an
   // error before any result arrived), so the last step stops ticking.
@@ -283,14 +293,18 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         throw new Error('No model-runner service is currently available. Both KTH and deNBI failed to respond.');
       }
 
+      // deNBI cannot build custom conda environments right now (clock skew);
+      // never ask it for one, regardless of the toggle's last value.
+      const effectiveCustomEnv = customEnvDisabled ? false : customEnvironment;
+
       setLoadingStep('Starting test run...');
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${customEnvironment}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${effectiveCustomEnv}`);
 
       const testResponse = await runner.test({
         model_id: modelId,
         stage: isStaged,
         skip_cache: skipCache,
-        custom_environment: customEnvironment,
+        custom_environment: effectiveCustomEnv,
         _rkwargs: true,
       });
 
@@ -486,6 +500,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         onRun={() => { void runTest(); }}
         customEnvironment={customEnvironment}
         onCustomEnvironmentChange={setCustomEnvironment}
+        customEnvDisabled={customEnvDisabled}
         skipCache={skipCache}
         onSkipCacheChange={setSkipCache}
       />

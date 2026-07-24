@@ -8,6 +8,10 @@ interface TestOptionsDialogProps {
   onRun: () => void;
   customEnvironment: boolean;
   onCustomEnvironmentChange: (value: boolean) => void;
+  /** When true, the custom-environment option is disabled with an explanation.
+   *  Used for the deNBI site, whose conda env builds currently fail on a clock
+   *  skew that cannot be fixed for now. */
+  customEnvDisabled?: boolean;
   skipCache: boolean;
   onSkipCacheChange: (value: boolean) => void;
 }
@@ -25,6 +29,7 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
   onRun,
   customEnvironment,
   onCustomEnvironmentChange,
+  customEnvDisabled = false,
   skipCache,
   onSkipCacheChange,
 }) => {
@@ -51,18 +56,28 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
         )}
 
         <div className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer select-none group">
+          <label
+            className={`flex items-start gap-3 select-none group ${
+              customEnvDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+            }`}
+          >
             <input
               type="checkbox"
-              checked={customEnvironment}
+              checked={customEnvironment && !customEnvDisabled}
+              disabled={customEnvDisabled}
               onChange={(e) => onCustomEnvironmentChange(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0 disabled:cursor-not-allowed"
             />
             <div>
               <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Custom environment</div>
               <div className="text-xs text-gray-500 mt-0.5">
                 Runs the test inside the conda environment declared by the model's own weights description. Slower than the default runner environment but matches exactly what the model author specified.
               </div>
+              {customEnvDisabled && (
+                <div className="text-xs text-gray-500 mt-1 italic">
+                  Not available on the deNBI site right now: a clock-skew issue there prevents custom conda environments from building. Switch the runner site to KTH in Advanced Options to use this option.
+                </div>
+              )}
             </div>
           </label>
           <label className="flex items-start gap-3 cursor-pointer select-none group">

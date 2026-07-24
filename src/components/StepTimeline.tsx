@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography, Chip, Stack } from '@mui/material';
+import { Box, Typography, Chip, Stack, Tooltip } from '@mui/material';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 
 export interface TimelineStep {
   key: string;
@@ -62,7 +63,8 @@ const formatDurationSec = (sec: number): string =>
  * The overall submit time sits on top. Left column: bold step header + short
  * description. Right column reflects the step's own state, driven by the
  * runner's per-step `stages` data:
- *   - queued  → an amber "Queued (N ahead)" chip (queue_position > 0);
+ *   - queued  → an amber "#N" pill with an hourglass icon and a stage-aware
+ *               tooltip (queue_position > 0), where N counts down N, N-1, ... 1;
  *   - running → live elapsed ticking in whole seconds ("17s"), computed straight
  *               from the backend `startTs` (queue_position === 0). We trust the
  *               runner's timestamp as-is — no browser-clock correction — so the
@@ -76,9 +78,16 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
   // First step that hasn't started executing yet — the flat top-level queue
   // position (if any) applies to it when it has no per-step queue of its own.
   const firstPendingIdx = steps.findIndex(s => s.startTs == null);
+  // The flat fallback only stands in for OLD runners that report no per-step
+  // queue at all. Once any step carries its own queue_position (new runners),
+  // that step owns the wait, so we must NOT also paint the flat backlog onto the
+  // first pending step — that mislabels an about-to-be-skipped step (e.g.
+  // env_setup showing the run/GPU backlog under a "building the environment"
+  // tooltip while its own queue_position is null).
+  const anyPerStepQueue = steps.some(s => s.queuePosition != null);
   const effectiveQueue = (step: TimelineStep, i: number): number | null => {
     if (step.queuePosition != null) return step.queuePosition;
-    if (i === firstPendingIdx && completedAt == null) return fallbackQueuePosition ?? null;
+    if (!anyPerStepQueue && i === firstPendingIdx && completedAt == null) return fallbackQueuePosition ?? null;
     return null;
   };
   // Tick once a second so a running step's elapsed stays live.
@@ -131,18 +140,29 @@ const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel =
 
           let right: React.ReactNode = '';
           if (queued) {
+            // Stage-aware wait reason: the run queue waits for a GPU, the
+            // env_setup queue waits for the single conda env-build lock.
+            const waitReason =
+              step.key === 'env_setup'
+                ? 'waiting to build the environment'
+                : 'waiting for a GPU slot';
             right = (
-              <Chip
-                label={`${q} ahead in queue`}
-                size="small"
-                sx={{
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                  color: '#b45309',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                }}
-              />
+              <Tooltip title={`Queue position ${q}: ${q} ahead, ${waitReason}`} arrow>
+                <Chip
+                  icon={<HourglassTopIcon sx={{ fontSize: 14 }} />}
+                  label={`#${q}`}
+                  size="small"
+                  sx={{
+                    borderRadius: '8px',
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    color: '#b45309',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    '& .MuiChip-icon': { color: '#b45309', marginLeft: '6px' },
+                  }}
+                />
+              </Tooltip>
             );
           } else if (running) {
             right = (
