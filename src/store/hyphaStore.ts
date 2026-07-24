@@ -402,8 +402,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       // BROWSE MODE — the public models grid is sourced from the test-reports
       // collection: only tested models appear, ordered by the report's `score`
       // (with `metadata_completeness` as a deterministic tiebreaker). Each card
-      // resolves its cover from the MODEL collection by id
-      // (resolveCoverThumbnailUrl), identical to search and detail.
+      // resolves its cover from the MODEL collection by id, loading the exact
+      // `covers` path the model-runner stored (an existing thumbnail when one is
+      // available), identical to search and detail.
       //
       // Only reports for PUBLISHED models carry artifact `type: "published-model"`
       // (set by the model-runner when it writes the report, and flipped

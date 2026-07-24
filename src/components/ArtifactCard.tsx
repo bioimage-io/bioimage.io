@@ -9,7 +9,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 
-import { resolveHyphaUrl, resolveCoverThumbnailUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl } from '../utils/urlHelpers';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { ArtifactInfo, TestReport } from '../types/artifact';
 import { PreviewDialog } from './PreviewDialog';
@@ -22,7 +22,6 @@ interface ResourceCardProps {
 
 export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const covers = artifact.manifest.covers || [];
   const navigate = useNavigate();
@@ -156,19 +155,21 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     }
   };
 
-  // Reset thumbnail fallback + load state when the user navigates to a different
-  // cover image, so the new cover fades in from its placeholder.
+  // Reset load state when the user navigates to a different cover image, so the
+  // new cover fades in from its placeholder.
   useEffect(() => {
-    setThumbnailFailed(false);
     setImgLoaded(false);
   }, [currentImageIndex]);
 
-  // In the overview grid, prefer the thumbnail (lower bandwidth); fall back to
-  // the original on 404. External URLs are returned unchanged by both helpers.
+  // Load the cover path exactly as stored in the manifest. The producer
+  // (model-runner) already sets `covers` to the best available image for the
+  // grid (an existing thumbnail when one exists, otherwise the original), so the
+  // frontend must not guess a ".thumbnail" variant: guessing produced a doomed
+  // 404 (then a fallback request) on ~3/4 of cards, doubling image load on the
+  // un-cacheable Hypha read path. External URLs are returned unchanged.
   const getCurrentCoverUrl = () => {
     if (covers.length === 0) return '';
-    if (thumbnailFailed) return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
-    return resolveCoverThumbnailUrl(covers[currentImageIndex], artifact.id);
+    return resolveHyphaUrl(covers[currentImageIndex], artifact.id);
   };
 
   return (
@@ -311,9 +312,8 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               component="img"
               image={getCurrentCoverUrl()}
               onLoad={() => setImgLoaded(true)}
-              // First error: retry with the full-res original. Second error: give
-              // up and reveal so the placeholder does not shimmer forever.
-              onError={() => (thumbnailFailed ? setImgLoaded(true) : setThumbnailFailed(true))}
+              // On error, reveal so the placeholder does not shimmer forever.
+              onError={() => setImgLoaded(true)}
               loading="lazy"
               decoding="async"
               alt={artifact.manifest.name}
