@@ -22,6 +22,7 @@ import BioEngineHome from './components/bioengine/BioEngineHome';
 import BioEngineWorker from './components/bioengine/BioEngineWorker';
 import ColabPage from './components/colab/ColabPage';
 import TrainingPage from './pages/TrainingPage';
+import { useConnectionLiveness } from './hooks/useConnectionLiveness';
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -59,6 +60,11 @@ const AppContent: React.FC = () => {
   const handleSearchConfirm = (value: string) => {
     // Implement search confirmation logic
   };
+
+  // Proactively recover the Hypha connection when the tab regains focus or the
+  // network returns (events only, no heartbeat). Mounted once here so it runs
+  // regardless of route.
+  useConnectionLiveness();
 
   useEffect(() => {
     window.scrollTo(0, 0);

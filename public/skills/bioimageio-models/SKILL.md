@@ -440,7 +440,7 @@ After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `vali
 
 ### Step 6b — Request curator review
 
-Once the BioEngine test passes, set `status: "request-review"` in the staged manifest.
+Once the BioEngine test passes, set `status: "in-review"` in the staged manifest.
 This makes the model visible to curators in the review queue:
 
 ```python
@@ -460,7 +460,7 @@ async def request_review(artifact_id: str, token: str, package_dir: str):
         await am.edit(
             artifact_id=artifact_id,
             stage=True,          # use stage=True, NOT version="stage" (causes PermissionError)
-            manifest={**manifest, "status": "request-review"},
+            manifest={**manifest, "status": "in-review"},
         )
         print(f"Review requested for {artifact_id}")
         print(f"Track status: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
@@ -469,10 +469,10 @@ asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", pack
 ```
 
 **What happens next (curator side):**
-- Curators see the model in their review queue
-- They may set status to `in-review`, `revision` (needs fixes), or `accepted`
-- If `revision`: fix issues, re-upload, re-run BioEngine test, then call `request_review` again
-- Once `accepted`, the curator commits and publishes (gets a DOI via Zenodo)
+- Curators see the model in their review queue (`status: in-review`)
+- They either keep it `in-review`, send it back as `in-revision` (needs fixes), or accept it
+- If `in-revision`: fix issues, re-upload, re-run BioEngine test, then call `request_review` again (sets `in-review`)
+- Once accepted, the curator commits and publishes (gets a DOI via Zenodo); the model then shows `status: published`
 
 **Typical review time:** 1–5 business days.
 

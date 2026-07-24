@@ -11,8 +11,9 @@ import { test, expect } from '@playwright/test';
 //   - The deNBI runner site is selected in the Advanced Options popover (v1.15.2 async API).
 //   - The shared "Run Model Test" options dialog opens when "Test Model" is clicked.
 //   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
-//   - The overall test start time sits on TOP, above the queue-position row
-//     (which holds at 0 once the request is dequeued).
+//   - The overall test start time sits on TOP. Per-step queue state is shown
+//     inline in each step's right-hand cell as an amber "#N" pill while queued
+//     (queue_position > 0), not as a separate always-on queue-position row.
 //   - The three step rows (Preparing model / Environment setup / Running) show
 //     each step's duration (mm:ss), a dash when skipped, and the live-ticking
 //     duration for the step currently running.
@@ -65,9 +66,11 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // Step 4: TestDetailsDialog opens automatically; title changes while loading.
     await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
 
-    // Step 5: The overall test start time sits on top, above the queue position.
+    // Step 5: The overall test start time sits on top. (Per-step queue state now
+    // renders as an inline "#N" pill only while a step is actually queued, so
+    // there is no always-visible queue-position row to assert here; the #N pill
+    // itself is covered by the dedicated queue-pill spec.)
     await expect(page.getByText('Test started')).toBeVisible({ timeout: 120000 });
-    await expect(page.getByText('Queue position')).toBeVisible();
 
     // Step 6: All three step rows are rendered (table is always shown).
     await expect(page.getByText('Preparing model')).toBeVisible({ timeout: 240000 });

@@ -15,8 +15,10 @@ import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
 import AdvancedOptions from './AdvancedOptions';
 import InferenceProgressDialog, { InferenceProgress } from './InferenceProgressDialog';
 import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
+import { RunnerStages } from '../types/runStatus';
+import { saveRunId, loadRunId, clearRunId } from '../utils/runPersistence';
 
-/** Progress dict emitted by get_infer_status on the v1.15.0 async API. */
+/** Progress dict emitted by get_infer_status on the v1.15+ async API. */
 interface InferProgress {
   queue_position: number;
   /** Unix seconds when the request was queued. */
@@ -24,6 +26,8 @@ interface InferProgress {
   model_download: number | null;
   env_setup: null;
   running: number | null;
+  /** Per-step start/end/queue_position (v1.15.23+); drives the timeline. */
+  stages?: RunnerStages | null;
   /** Unix seconds when the run finished; null until then. Freezes the timeline. */
   completed_at: number | null;
 }
@@ -168,6 +172,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // run start and auto-closes when the result returns; the inline buttons let
   // the user reopen it.
   const [inferDialogOpen, setInferDialogOpen] = useState<boolean>(false);
+  // A persisted, still-valid infer request id for THIS model found on mount — a
+  // run that was in flight before a page refresh. Surfaced as a click-to-resume
+  // badge (we do not auto-open the dialog).
+  const [resumableInferId, setResumableInferId] = useState<string | null>(null);
 
   // Tiling is inference-specific and stays local; the Server URL / Service ID
   // override come from the shared connection (conn).
@@ -204,6 +212,12 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       setupRunner();
     }
   }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId]);
+
+  // Surface a resumable in-flight inference for this model (survives page refresh).
+  useEffect(() => {
+    const mid = artifactId ? artifactId.split('/').pop() : undefined;
+    setResumableInferId(mid ? loadRunId('infer', mid) : null);
+  }, [artifactId]);
 
   // Add spinner animation CSS
   useEffect(() => {
@@ -325,10 +339,11 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     setInferDialogOpen(true);
     setInfoPanel("Running the model...", true);
 
-    // Browser-clock start time for the "Run started" display (see
-    // InferenceProgress). Using the runner's submitted_at could show a skewed
-    // wall-clock time.
+    // Fallback start time for the "Run started" display when the runner hasn't
+    // reported submitted_at yet. Timestamps are otherwise trusted as-is.
     const submittedAtClient = Date.now() / 1000;
+    const modelId = artifactId.split('/').pop();
+    setResumableInferId(null); // a fresh run supersedes any resumable one
 
     try {
       // Get the input image from the viewer
@@ -376,14 +391,23 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         parametersStore.additionalParameters,
         (msg: string) => setInfoPanel(msg, true),
         tilingEnabled,
-        (status: InferProgress) => setInferProgress({
-          submittedAt: submittedAtClient,
-          queuePosition: status.queue_position ?? 0,
-          modelDownload: status.model_download ?? null,
-          running: status.running ?? null,
-          completedAt: status.completed_at ?? null,
-        })
+        (status: InferProgress) => {
+          setInferProgress({
+            submittedAt: status.submitted_at ?? submittedAtClient,
+            stages: status.stages ?? null,
+            queuePosition: status.queue_position ?? 0,
+            modelDownload: status.model_download ?? null,
+            running: status.running ?? null,
+            completedAt: status.completed_at ?? null,
+          });
+          // Persist the in-flight request id so a page refresh can resume
+          // following the run (per-model, 3h TTL). The engine surfaces it once
+          // infer() has returned it.
+          const rid = (runner as any)?.currentRequestId;
+          if (rid && modelId) saveRunId('infer', modelId, rid);
+        }
       );
+      if (modelId) clearRunId('infer', modelId); // completed
 
       // Result is back: freeze the timeline (prefer the runner's completed_at,
       // else stamp now) and auto-close the in-progress dialog so the output is
@@ -409,6 +433,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       setInfoPanel("", false, false);
     } catch (error) {
       console.error('Failed to run model:', error);
+      if (modelId) clearRunId('infer', modelId);
       setInferDialogOpen(false);
       setInferProgress(null);
       setInferCompleted(false);
@@ -433,6 +458,45 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     setInferProgress(null);
     setInferCompleted(false);
     setInferDialogOpen(false);
+  };
+
+  // Reconnect to an inference that was still running before a page refresh
+  // (click-to-resume badge). This follows the run's per-step progress to
+  // completion; it does not re-render the output tensor (a tiled run reconnects
+  // to a single tile only), so the user re-runs to view the result.
+  const resumeModel = async () => {
+    if (!artifactId || !runner || !resumableInferId) return;
+    const request_id = resumableInferId;
+    const modelId = artifactId.split('/').pop();
+    setResumableInferId(null);
+    setInferProgress(null);
+    setInferCompleted(false);
+    setInferRunning(true);
+    setInferDialogOpen(true);
+    const submittedAtClient = Date.now() / 1000;
+    try {
+      await (runner as any).resumeInfer(request_id, (status: InferProgress) => setInferProgress({
+        submittedAt: status.submitted_at ?? submittedAtClient,
+        stages: status.stages ?? null,
+        queuePosition: status.queue_position ?? 0,
+        modelDownload: status.model_download ?? null,
+        running: status.running ?? null,
+        completedAt: status.completed_at ?? null,
+      }));
+      if (modelId) clearRunId('infer', modelId);
+      setInferProgress(prev => prev ? { ...prev, completedAt: prev.completedAt ?? Date.now() / 1000 } : prev);
+      setInferCompleted(true);
+      setInfoPanel('Reconnected run finished. Re-run to view the output.', false, false);
+    } catch (error) {
+      console.error('Resume inference failed:', error);
+      if (modelId) clearRunId('infer', modelId);
+      setInferDialogOpen(false);
+      setInferProgress(null);
+      setInferCompleted(false);
+      setInfoPanel('Could not reconnect to the previous run. Please re-run.', false, true);
+    } finally {
+      setInferRunning(false);
+    }
   };
 
   const setupRunner = async () => {
@@ -766,7 +830,23 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           )}
           {!isLoggedIn ? 'Login to Run Model' : 'Run Model'}
         </button>
-        
+
+        {/* Resume badge: an inference for this model was still running before the
+            page reloaded. Click to reconnect and follow it to completion. */}
+        {resumableInferId && !inferRunning && !isWaiting && (
+          <button
+            type="button"
+            onClick={() => { void resumeModel(); }}
+            title="An inference for this model was still running before the page reloaded. Click to reconnect."
+            className="inline-flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Resume run
+          </button>
+        )}
+
         <button
           onClick={loadTestOutput}
           disabled={!buttonEnabledOutput || isWaiting || !isLoggedIn}

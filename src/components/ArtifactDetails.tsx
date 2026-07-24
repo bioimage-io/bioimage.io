@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
+import { getArtifactRights, getIsReviewer } from '../utils/roles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ArtifactDetailsSkeleton from './ArtifactDetailsSkeleton';
@@ -27,7 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
 import HintTooltip from './HintTooltip';
-import { resolveHyphaUrl, resolveTestReportUrl, resolveInferenceReportUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -49,33 +50,9 @@ import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
-let cachedInferenceResults: Record<string, any> | null = null;
-let inferenceResultsPromise: Promise<Record<string, any>> | null = null;
-
-// Inference results now live in a dedicated artifact under the
-// bioimage-io/test-reports collection (written by
-// scripts/bioengine_model_infer.py), not the collection manifest. The report
-// file is world-readable, so a plain fetch works without the artifact manager.
-const getInferenceResults = async () => {
-  if (cachedInferenceResults) return cachedInferenceResults;
-  if (inferenceResultsPromise) return inferenceResultsPromise;
-
-  inferenceResultsPromise = fetch(resolveInferenceReportUrl())
-    .then(async (response: Response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to fetch inference report: ${response.status}`);
-      }
-      cachedInferenceResults = (await response.json()) || {};
-      return cachedInferenceResults;
-    })
-    .catch((error: any) => {
-      console.error('Failed to fetch bioengine inference results:', error);
-      inferenceResultsPromise = null; // Allow retrying on error
-      return {};
-    });
-
-  return inferenceResultsPromise;
-};
+// The BioEngine inference-check status is derived from the model's test-report
+// score (see the effect in ArtifactDetails), replacing the former consolidated
+// inference-report artifact.
 
 const ArtifactDetails = () => {
   const { id, version } = useParams<{ id: string; version?: string }>();
@@ -153,35 +130,20 @@ const ArtifactDetails = () => {
       try {
         const artifact: any = selectedResource;
         if (artifact) {
-          const artPerms = artifact._permissions?.[user.id];
-          const hasArtifactEdit = Array.isArray(artPerms)
-            ? artPerms.includes('edit') || artPerms.includes('*')
-            : artPerms === '*';
-          const uploaderEmail = artifact.manifest?.uploader?.email?.toLowerCase?.();
-          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
-          if (
-            (artifact.created_by && artifact.created_by === user.id) ||
-            matchesUploaderEmail ||
-            hasArtifactEdit
-          ) {
+          // Uploader or per-artifact edit right is enough to enter the editor.
+          const { isUploader, hasArtifactEdit } = getArtifactRights(user, artifact);
+          if (isUploader || hasArtifactEdit) {
             setCanEdit(true);
             return;
           }
         }
 
+        // Otherwise fall back to the collection-wide reviewer/admin role.
         const collection = await artifactManager.read({
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true
         });
-
-        if (user && collection.config?.permissions) {
-          const userPermission = collection.config.permissions[user.id];
-          const hasWritePermission = userPermission === 'rw' || userPermission === 'rw+' || userPermission === '*';
-          const isAdmin = user.roles?.includes('admin');
-          setCanEdit(hasWritePermission || isAdmin);
-        } else {
-          setCanEdit(user.roles?.includes('admin') || false);
-        }
+        setCanEdit(getIsReviewer(user, collection.config));
       } catch (error) {
         console.error('Error checking edit permissions:', error);
         setCanEdit(false);
@@ -302,16 +264,12 @@ const ArtifactDetails = () => {
         return;
       }
 
-      const testSummary = selectedResource?.manifest?.test_summary;
-      if (!testSummary) {
-        setTestReportData(null);
-        return;
-      }
-
       try {
-        // Read the test report from the dedicated bioimage-io/test-reports
-        // collection (per-model test-report-<id> artifact). No legacy fallback:
-        // models without a report here simply show no BioEngine entry.
+        // Read the test report straight from the dedicated bioimage-io/test-reports
+        // collection (per-model test-report-<id> artifact). This is the sole,
+        // authoritative source — independent of the deprecated manifest
+        // `test_summary` field and of the collection-CI compatibility summary.
+        // A 404 simply means no BioEngine report yet.
         // Cache-bust: the report is overwritten in place on re-test.
         const response = await fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`);
         if (!response.ok) {
@@ -333,29 +291,54 @@ const ArtifactDetails = () => {
 
     fetchCompatibilityData();
     fetchTestReport();
-  }, [selectedResource?.id, selectedResource?.manifest?.type, selectedResource?.manifest?.test_summary, version, latestVersion]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type, version, latestVersion]);
 
-  // Fetch BioEngine inference status
+  // Derive the BioEngine inference-check status from the model's test-report
+  // SCORE — no separate inference-report artifact needed. The score encodes:
+  //   score = 1·(valid format) + 2·(inference passes in the standard env)
+  //           + 4·(all tests pass) + metadataCompleteness (a 0..1 fraction).
+  // A bit-mask (floor(score) & 2) is NOT safe: metadata completeness can be
+  // exactly 1.0, which carries into the integer part and flips the mask (e.g.
+  // valid+inference+meta=1 → 4.0 → floor&2 == 0). Valid format is a prerequisite
+  // for the inference/tests tiers, so the only reachable integer sums are
+  // {0,1,3,5,7}; adding the 0..1 metadata offset, the inference tier occupies
+  // score ∈ [3,4] (1+2+meta) or [7,8] (1+2+4+meta). Decode by range, which is
+  // robust to metadataCompleteness == 1.0. The detailed pass/fail + error is
+  // shown separately in the test-report dialog's "Inference check" box.
   useEffect(() => {
     const fetchBioengineStatus = async () => {
-      if (!artifactManager || !selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
-
+      if (!selectedResource?.id || selectedResource.manifest?.type !== 'model') return;
       try {
-        const inferenceResults = await getInferenceResults();
         const modelId = selectedResource.id.split('/').pop();
-        
-        if (modelId && inferenceResults?.[modelId]) {
-          setBioengineStatus(inferenceResults[modelId]);
-        } else {
-          setBioengineStatus(null);
-        }
+        // Status comes from the score (test-report artifact manifest); the human
+        // error text comes from the report file's inference_check.error — fetch
+        // both so the "BioEngine Test Run Failed" dialog can show the real
+        // message instead of "No error message available".
+        const [artResp, repResp] = await Promise.all([
+          fetch(`${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}?t=${Date.now()}`),
+          fetch(`${resolveTestReportUrl(selectedResource.id, isStaged)}&t=${Date.now()}`).catch(() => null),
+        ]);
+        if (!artResp.ok) { setBioengineStatus(null); return; }
+        const art = await artResp.json();
+        const score = art?.manifest?.score;
+        if (typeof score !== 'number') { setBioengineStatus(null); return; }
+        const inferencePassed = (score >= 3 && score <= 4) || (score >= 7 && score <= 8);
+        let message = '';
+        try {
+          if (repResp && repResp.ok) {
+            const rep = await repResp.json();
+            message = rep?.inference_check?.error ?? '';
+          }
+        } catch { /* report unreachable — leave the message empty */ }
+        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message, tested_at: 0 });
       } catch (error) {
-        console.error('Failed to fetch bioengine status:', error);
+        console.error('Failed to derive bioengine status from score:', error);
+        setBioengineStatus(null);
       }
     };
 
     fetchBioengineStatus();
-  }, [artifactManager, selectedResource?.id, selectedResource?.manifest?.type]);
+  }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
 
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
@@ -419,23 +402,20 @@ const ArtifactDetails = () => {
     }
   };
 
-  // Helper to get test report status for the embedded button icon
-  const getTestReportStatus = () => {
-    const testSummary = selectedResource?.manifest?.test_summary;
-    if (!testSummary) return null;
-    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
-    if (!reports || reports.length === 0) return null;
-    const passedCount = reports.filter((r: TestReport) => r.status === 'passed').length;
-    if (passedCount === reports.length) return 'all-passed';
-    if (passedCount > 0) return 'some-passed';
-    return 'none-passed';
-  };
-
+  // Summarize the BioEngine test for the popover list. Sourced from the
+  // test-reports collection (testReportData), NOT the deprecated manifest
+  // `test_summary`. The collection stores one DetailedTestReport per model, so
+  // this yields a single summary row.
   const getTestReports = (): TestReport[] | null => {
-    const testSummary = selectedResource?.manifest?.test_summary;
-    if (!testSummary) return null;
-    const reports = Array.isArray(testSummary) ? testSummary : (testSummary as any)?.reports;
-    return reports || null;
+    if (!testReportData) return null;
+    const coreVer = testReportData.env?.find(
+      (pkg: any[]) => pkg[0] === 'bioimageio.core'
+    )?.[1];
+    return [{
+      name: testReportData.name || 'BioEngine test',
+      status: testReportData.status === 'passed' ? 'passed' : testReportData.status,
+      runtime: coreVer ? `bioimageio.core ${coreVer}` : (testReportData.status || ''),
+    }];
   };
 
   const handleDownload = () => {
@@ -1391,18 +1371,15 @@ const ArtifactDetails = () => {
                   </Box>
                 )}
 
-                {compatibilityError && !isLoadingCompatibility && (
-                  <Alert severity="info" sx={{ borderRadius: '12px' }}>
-                    Compatibility data not available for this version
-                  </Alert>
-                )}
-
-                {compatibilityData && !isLoadingCompatibility && !compatibilityError && (
+                {!isLoadingCompatibility && (
                   <Stack spacing={0.75}>
-                    {/* Test Results - Software with Version Chips */}
-                    {compatibilityData.tests && Object.keys(compatibilityData.tests).length > 0 && (() => {
+                    {/* BioEngine is sourced independently from the test-reports
+                        collection, so it renders here regardless of whether the
+                        collection-CI compatibility summary exists yet. Partner-tool
+                        rows come from that summary and may lag for new models. */}
+                    {(() => {
                       // Sort software entries: bioimageio.core first, then bioengine (if exists), then rest alphabetically
-                      const softwareEntries = Object.entries(compatibilityData.tests);
+                      const softwareEntries = Object.entries(compatibilityData?.tests || {});
                       const sortedEntries = softwareEntries.sort(([nameA], [nameB]) => {
                         const isBioImageCoreA = nameA.toLowerCase().includes('bioimageio.core') || nameA.toLowerCase().includes('bioimage.io');
                         const isBioImageCoreB = nameB.toLowerCase().includes('bioimageio.core') || nameB.toLowerCase().includes('bioimage.io');
@@ -1444,10 +1421,6 @@ const ArtifactDetails = () => {
                         <>
                           {allEntries.map((entry, index) => {
                             if (entry.type === 'bioengine') {
-                              // Render bioengine entry
-                              const reports = selectedResource?.manifest?.test_summary;
-                              const reportArray = Array.isArray(reports) ? reports : (reports as any)?.reports;
-                              
                               // The bioengine row is always listed; the result
                               // chip + pass/fail icon only appear when a test
                               // report exists in the test-reports collection.
@@ -1502,23 +1475,25 @@ const ArtifactDetails = () => {
                                         }}
                                       />
                                     )}
-                                    {partnerIcons.get('bioengine') && (
-                                      <Box
-                                        component="img"
-                                        src={partnerIcons.get('bioengine')}
-                                        alt="bioengine"
-                                        sx={{
-                                          width: 20,
-                                          height: 20,
-                                          objectFit: 'contain',
-                                          flexShrink: 0,
-                                        }}
-                                        onError={(e) => {
-                                          const img = e.target as HTMLImageElement;
-                                          img.style.display = 'none';
-                                        }}
-                                      />
-                                    )}
+                                    {/* Always show the BioEngine logo. partnerIcons is only
+                                        populated when the collection-CI compatibility summary
+                                        loads, so fall back to the static asset when it's absent
+                                        (e.g. a newly published model with no summary yet). */}
+                                    <Box
+                                      component="img"
+                                      src={partnerIcons.get('bioengine') || '/static/img/bioengine-icon.svg'}
+                                      alt="bioengine"
+                                      sx={{
+                                        width: 20,
+                                        height: 20,
+                                        objectFit: 'contain',
+                                        flexShrink: 0,
+                                      }}
+                                      onError={(e) => {
+                                        const img = e.target as HTMLImageElement;
+                                        img.style.display = 'none';
+                                      }}
+                                    />
                                     <Link
                                       href={getSoftwareDocsUrl('bioengine')}
                                       target="_blank"
@@ -1592,28 +1567,8 @@ const ArtifactDetails = () => {
                           
                           // Check status across all versions
                           const versionEntries = Object.entries(versions);
-                          
-                          // Sort versions to find the latest one (semantic version sorting)
-                          const sortedVersions = [...versionEntries].sort((a, b) => {
-                            const parseVersion = (v: string) => {
-                              const parts = v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
-                              return parts;
-                            };
-                            const aParts = parseVersion(a[0]);
-                            const bParts = parseVersion(b[0]);
-                            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                              const aVal = aParts[i] || 0;
-                              const bVal = bParts[i] || 0;
-                              if (aVal !== bVal) return bVal - aVal; // Descending order (latest first)
-                            }
-                            return 0;
-                          });
-                          
-                          // Get the latest version's status
-                          const latestVersionData = sortedVersions.length > 0 ? sortedVersions[0][1] as any : null;
-                          const latestPassed = latestVersionData?.status === 'passed';
-                          
-                          const allPassed = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'passed');
+
+                          // Green if the model passed on ANY tested version of this software.
                           const anyPassed = versionEntries.some(([_, versionData]: [string, any]) => versionData.status === 'passed');
                           const allNotApplicable = versionEntries.every(([_, versionData]: [string, any]) => versionData.status === 'not-applicable');
 
@@ -1635,18 +1590,14 @@ const ArtifactDetails = () => {
                                 }
                               }}
                             >
-                              {allPassed || latestPassed ? (
+                              {/* Green whenever the model passes on ANY tested version
+                                  of this software (previously this was orange unless the
+                                  latest version also passed). Grey = not-applicable, red =
+                                  no version passed. */}
+                              {anyPassed ? (
                                 <CheckCircleIcon
                                   sx={{
                                     color: '#22c55e',
-                                    fontSize: 20,
-                                    flexShrink: 0
-                                  }}
-                                />
-                              ) : anyPassed ? (
-                                <CheckCircleIcon
-                                  sx={{
-                                    color: '#f59e0b',
                                     fontSize: 20,
                                     flexShrink: 0
                                   }}
@@ -1725,7 +1676,17 @@ const ArtifactDetails = () => {
                                 );
                               })()}
                               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                {Object.entries(versions).map(([version, versionData]: [string, any]) => {
+                                {[...Object.entries(versions)].sort((a, b) => {
+                                  // Show newest version first (descending semantic version):
+                                  // 0.10.4, 0.10.3, …, 0.9.6, 0.9.5.
+                                  const parse = (v: string) => v.replace(/^v/, '').split('.').map(p => parseInt(p, 10) || 0);
+                                  const av = parse(a[0]), bv = parse(b[0]);
+                                  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+                                    const d = (bv[i] || 0) - (av[i] || 0);
+                                    if (d !== 0) return d;
+                                  }
+                                  return 0;
+                                }).map(([version, versionData]: [string, any]) => {
                                   const isPassed = versionData.status === 'passed';
                                   const isNotApplicable = versionData.status === 'not-applicable';
                                   
@@ -1797,6 +1758,11 @@ const ArtifactDetails = () => {
                         })}
                       </>
                     )})()}
+                    {(!compatibilityData?.tests || Object.keys(compatibilityData.tests).length === 0) && (
+                      <Alert severity="info" sx={{ borderRadius: '12px', mt: 0.5 }}>
+                        Partner-tool compatibility is still being generated for this version.
+                      </Alert>
+                    )}
                   </Stack>
                 )}
               </CardContent>

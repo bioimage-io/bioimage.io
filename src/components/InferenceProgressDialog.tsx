@@ -9,19 +9,21 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import StepTimeline, { TimelineStep } from './StepTimeline';
+import { RunnerStages, resolveStage } from '../types/runStatus';
 
 /**
- * Progress for the inference dialog. All timestamps are Unix seconds.
- * `submittedAt` is stamped from the browser clock at run start (display only, so
- * the shown "Run started" time matches the user's own wall clock rather than a
- * possibly-skewed runner clock); the step timestamps come from the runner;
- * `completedAt` freezes the timeline once the result returns.
+ * Progress for the inference dialog. All timestamps are Unix seconds and come
+ * from the runner (trusted as-is). The per-step `stages` object drives the
+ * timeline; the infer path has no conda env build, so only model_download and
+ * run appear. `completedAt` freezes the timeline once the result returns. Legacy
+ * flat fields are kept as an optional fallback.
  */
 export interface InferenceProgress {
   submittedAt: number | null;
-  queuePosition: number;
-  modelDownload: number | null;
-  running: number | null;
+  stages?: RunnerStages | null;
+  queuePosition?: number;
+  modelDownload?: number | null;
+  running?: number | null;
   completedAt: number | null;
 }
 
@@ -58,7 +60,7 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="xs"
+      maxWidth={false}
       PaperProps={{
         sx: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -66,6 +68,11 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
           border: '1px solid rgba(255, 255, 255, 0.5)',
           borderRadius: '16px',
           maxHeight: '90vh',
+          // Fixed width + min-height so the dialog doesn't resize as steps
+          // appear or the queue text changes.
+          width: 500,
+          maxWidth: 500,
+          minHeight: 360,
         },
       }}
     >
@@ -114,20 +121,20 @@ const InferenceProgressDialog: React.FC<InferenceProgressDialogProps> = ({
             <StepTimeline
               startedLabel="Run started"
               submittedAt={progress.submittedAt}
-              queuePosition={progress.queuePosition}
+              fallbackQueuePosition={progress.queuePosition ?? null}
               completedAt={progress.completedAt}
               steps={[
                 {
                   key: 'model_download',
                   header: 'Preparing model',
                   description: 'Check the cache and download any outdated model files',
-                  startTs: progress.modelDownload,
+                  ...resolveStage(progress.stages?.model_download, progress.modelDownload),
                 },
                 {
-                  key: 'inference',
+                  key: 'run',
                   header: 'Running',
                   description: 'Run the model on your input',
-                  startTs: progress.running,
+                  ...resolveStage(progress.stages?.run, progress.running),
                 },
               ] as TimelineStep[]}
             />

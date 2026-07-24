@@ -24,6 +24,16 @@ This layer runs **entirely in the browser** (Python via Pyodide/WebAssembly, ima
 
 ---
 
+## User-Visible Text Rules
+
+Any string that renders to a user in the website UI (JSX text, `title`/`placeholder`/`aria-label` attributes, button labels, dialog copy, toast and error messages, comment-thread bodies posted through the app) must follow these punctuation rules:
+
+- **No em dashes (`—`, U+2014).** Rewrite the sentence with a period, comma, colon, or parentheses instead. This includes standalone `—` used as a placeholder.
+- **No en dashes (`–`, U+2013) in prose.** Use "to" for ranges in sentences (a bare `–` between numeric bounds in a compact label is acceptable, e.g. `5–95%`).
+- **No unnecessary semicolons.** Prefer splitting into two sentences or using a comma. Only keep a semicolon when it genuinely joins two closely related independent clauses and no cleaner rewrite exists.
+
+These rules apply ONLY to user-visible strings. Code comments, JSDoc, `console.*` logs, commit messages, SKILL.md files, and this CLAUDE.md are exempt (em dashes are fine there).
+
 ## Tech Stack
 
 | Layer | Technology |

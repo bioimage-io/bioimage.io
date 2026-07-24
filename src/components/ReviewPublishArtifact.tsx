@@ -8,7 +8,6 @@ import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
 import { ArtifactInfo } from '../types/artifact';
 import ArtifactAdmin from './ArtifactAdmin';
 import { useHyphaStore } from '../store/hyphaStore';
-import { Disclosure, Transition } from '@headlessui/react';
 import StatusBadge from './StatusBadge';
 import { useNavigate } from 'react-router-dom';
 
@@ -21,7 +20,7 @@ interface ReviewPublishArtifactProps {
   artifactInfo: ArtifactInfo | null;
   artifactId: string;
   isStaged: boolean;
-  isCollectionAdmin: boolean;
+  isReviewer: boolean;
   onPublish: () => void;
   isContentValid: boolean;
   hasContentChanged: boolean;
@@ -48,7 +47,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
   artifactInfo,
   artifactId,
   isStaged,
-  isCollectionAdmin,
+  isReviewer,
   onPublish,
   isContentValid,
   lastTestResult,
@@ -123,11 +122,11 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         stage: true,
         manifest: {
           ...artifactInfo.manifest,
-          status: 'request-review'
+          status: 'in-review'
         },
         _rkwargs: true
       });
-      setStatus('request-review');
+      setStatus('in-review');
       setShowReviewDialog(false);
     } catch (error: any) {
       console.error('Error submitting for review:', error);
@@ -273,7 +272,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
           
             {artifactId && isStaged && (
               <>
-                {status !== 'request-review' ? (
+                {status !== 'in-review' ? (
                   <button
                     onClick={() => setShowReviewDialog(true)}
                     disabled={shouldDisableActions}
@@ -317,7 +316,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
             </div>
             
             {/* Info box for models under review */}
-            {status === 'request-review' && (
+            {status === 'in-review' && (
               <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <svg className="w-6 h-6 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -380,7 +379,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
 
 
       {/* Admin Review Area */}
-      {isCollectionAdmin && (
+      {isReviewer && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow p-6 border border-blue-100">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,89 +434,23 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
         </div>
       )}
 
-      {/* Advanced Zone for non-admins */}
-      {!isCollectionAdmin && (
-        <Disclosure>
-          {({ open }) => (
-            <div className="bg-gray-50 rounded-lg shadow">
-              <Disclosure.Button className="w-full px-6 py-4 text-left focus:outline-none">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                    </svg>
-                    <span className="text-lg font-medium text-gray-900">Advanced Zone</span>
-                  </div>
-                  <svg
-                    className={`w-5 h-5 text-gray-500 transform ${open ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </Disclosure.Button>
-
-              <Transition
-                show={open}
-                enter="transition duration-100 ease-out"
-                enterFrom="transform scale-95 opacity-0"
-                enterTo="transform scale-100 opacity-100"
-                leave="transition duration-75 ease-out"
-                leaveFrom="transform scale-100 opacity-100"
-                leaveTo="transform scale-95 opacity-0"
-              >
-                <Disclosure.Panel className="px-6 py-4">
-                  <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-red-800">
-                          Warning: Direct Publication Not Recommended
-                        </h3>
-                        <div className="mt-2 text-sm text-red-700">
-                          <p>
-                            We strongly recommend going through the standard review process to ensure:
-                          </p>
-                          <ul className="list-disc ml-5 mt-1 space-y-1">
-                            <li>Quality assurance of your model</li>
-                            <li>Compliance with BioImage.IO standards</li>
-                            <li>Proper documentation and metadata</li>
-                            <li>Community feedback and improvements</li>
-                          </ul>
-                          <p className="mt-2 font-medium">
-                            Only proceed with direct publication if absolutely necessary and you're confident in your model's quality.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => setShowPublishDialog(true)}
-                      disabled={shouldDisableActions}
-                      className={`flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm
-                        ${shouldDisableActions 
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                          : 'bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500'}`}
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      Publish Without Review
-                    </button>
-                  </div>
-                </Disclosure.Panel>
-              </Transition>
+      {/* Non-reviewers cannot self-publish. Models go live only when a reviewer
+          accepts them, so guide the uploader to submit for review instead. */}
+      {!isReviewer && (
+        <div className="bg-blue-50 border-l-4 border-blue-400 rounded-lg shadow p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <h4 className="text-sm font-medium text-blue-900 mb-1">Publication happens through review</h4>
+              <p className="text-sm text-blue-800">
+                Submit your model for review using the button above. A reviewer will check it and
+                publish it to the Model Zoo once accepted. Models cannot be self-published.
+              </p>
             </div>
-          )}
-        </Disclosure>
+          </div>
+        </div>
       )}
 
       {/* Review Request Dialog */}

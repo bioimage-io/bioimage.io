@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox } from '@mui/material';
+import { LinearProgress, Dialog as MuiDialog, TextField, FormControlLabel, Checkbox, Tooltip } from '@mui/material';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArtifactInfo } from '../types/artifact';
 import { useDropzone } from 'react-dropzone';
@@ -14,6 +14,8 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
+import { getArtifactRights, getIsReviewer } from '../utils/roles';
+import { isInternalArtifactFile } from '../utils/internalFiles';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
@@ -38,80 +40,6 @@ const extractWeightFiles = (manifest: any): string[] => {
   return weightFiles;
 };
 
-// Helper function to normalize file paths (remove leading ./)
-const normalizePath = (path: string): string => {
-  if (path.startsWith('./')) {
-    return path.substring(2);
-  }
-  return path;
-};
-
-// Helper function to recursively extract all "source" field values from any nested structure
-const extractSourceFields = (obj: any, sources: Set<string>): void => {
-  if (!obj || typeof obj !== 'object') return;
-  
-  if (Array.isArray(obj)) {
-    obj.forEach(item => extractSourceFields(item, sources));
-  } else {
-    Object.entries(obj).forEach(([key, value]) => {
-      if (key === 'source' && typeof value === 'string') {
-        sources.add(normalizePath(value));
-      } else if (typeof value === 'object') {
-        extractSourceFields(value, sources);
-      }
-    });
-  }
-};
-
-// Helper function to get all referenced files from the manifest (covers, documentation, source fields)
-const getReferencedFiles = (manifest: any): Set<string> => {
-  const referencedFiles = new Set<string>();
-  
-  if (!manifest) return referencedFiles;
-  
-  // Add covers
-  if (manifest.covers && Array.isArray(manifest.covers)) {
-    manifest.covers.forEach((cover: string) => {
-      const normalizedCover = normalizePath(cover);
-      referencedFiles.add(normalizedCover);
-      // Also add thumbnail variants (e.g., cover.thumbnail.png, cover.thumbnail.jpg)
-      const lastDotIndex = normalizedCover.lastIndexOf('.');
-      if (lastDotIndex > 0) {
-        const baseName = normalizedCover.substring(0, lastDotIndex);
-        const extension = normalizedCover.substring(lastDotIndex);
-        referencedFiles.add(`${baseName}.thumbnail${extension}`);
-        referencedFiles.add(`${baseName}.thumbnail.png`);
-        referencedFiles.add(`${baseName}.thumbnail.jpg`);
-        referencedFiles.add(`${baseName}.thumbnail.jpeg`);
-      }
-    });
-  }
-  
-  // Add documentation
-  if (manifest.documentation && typeof manifest.documentation === 'string') {
-    referencedFiles.add(normalizePath(manifest.documentation));
-  }
-  
-  // Recursively extract all "source" fields from the entire manifest
-  extractSourceFields(manifest, referencedFiles);
-  
-  return referencedFiles;
-};
-
-// Helper function to check if a file should be greyed out
-const isFileUnreferenced = (fileName: string, manifest: any): boolean => {
-  // Never grey out the RDF spec file
-  if (isRdfFileName(fileName)) return false;
-  
-  // Never grey out comments.json (created during the review process)
-  if (fileName === 'comments.json') return false;
-
-  const referencedFiles = getReferencedFiles(manifest);
-  
-  // Check if the file is referenced
-  return !referencedFiles.has(fileName);
-};
-
 // Helper function to recursively update sha256 values for source fields in manifest - Removed (replaced by updateManifestSha256)
 // Helper function to find and update sha256 for a specific source file in manifest - Removed (replaced by updateRdfFileReference)
 
@@ -129,7 +57,6 @@ interface FileNode {
   isDirectory: boolean;
   children?: FileNode[];
   edited?: boolean;
-  isCommentsFile?: boolean;
   fileSize?: number;
 }
 
@@ -164,7 +91,9 @@ interface ValidationResult {
  */
 const maxModelFileMtime = (fileList: any[]): number | null => {
   const mtimes = (fileList || [])
-    .filter(f => f?.type === 'file' && typeof f?.last_modified === 'number')
+    // Exclude internal files (e.g. comments.json): a new review comment must
+    // not bump the model's mtime and falsely mark its test report as stale.
+    .filter(f => f?.type === 'file' && typeof f?.last_modified === 'number' && !isInternalArtifactFile(f?.name))
     .map(f => f.last_modified as number);
   return mtimes.length ? Math.max(...mtimes) : null;
 };
@@ -226,11 +155,6 @@ const Edit: React.FC = () => {
   const [artifactInfo, setArtifactInfo] = useState<ArtifactInfo | null>(null);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  // Name of the file whose "not referenced in the manifest" warning dialog is open.
-  const [unreferencedDialogFile, setUnreferencedDialogFile] = useState<string | null>(null);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteVersionDialog, setShowDeleteVersionDialog] = useState(false);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [newVersionCopyFiles, setNewVersionCopyFiles] = useState(true);
@@ -246,14 +170,15 @@ const Edit: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     return window.innerWidth >= 1024; // 1024px is the lg breakpoint in Tailwind
   });
-  const [isCollectionAdmin, setIsCollectionAdmin] = useState(false);
-  // `canEditArtifact` is broader than `isCollectionAdmin`: it also covers the
+  // Reviewer = may edit/commit/discard ANY model (collection rw+ or site-admin).
+  // See utils/roles.ts. Whole-model deletion is not available from the editor —
+  // it goes through the Deletion Request flow (mark) + admin finalize.
+  const [isReviewer, setIsReviewer] = useState(false);
+  // `canEditArtifact` is broader than `isReviewer`: it also covers the
   // per-artifact uploader/editor case (Hypha grants `edit`/`commit`/`put_file`
   // tokens on the artifact's `_permissions[user.id]` to uploaders, even when
   // they aren't in the collection-level permissions map). Use this in any
   // gate that semantically asks "may this user write to THIS artifact".
-  // Keep `isCollectionAdmin` only for collection-wide checks (e.g. skipping
-  // the uploader-email validation in `validateRdfContent`).
   const [canEditArtifact, setCanEditArtifact] = useState(false);
   // `canStageArtifact` is the STRICT subset of canEditArtifact that maps to
   // actual Hypha server-side 'edit' permission on the artifact itself.
@@ -262,10 +187,6 @@ const Edit: React.FC = () => {
   // not the collection-level role. Gate Stage/Commit/Discard on this flag so
   // collection admins don't see buttons that will always fail with PermissionError.
   const [canStageArtifact, setCanStageArtifact] = useState(false);
-  // Hypha's `delete` permission is workspace-owner-only — regular uploaders
-  // and reviewers never hold it. Show the destructive delete UI only when
-  // `_permissions[user.id]` actually contains `delete` (or `*`).
-  const [canDeleteArtifact, setCanDeleteArtifact] = useState(false);
   const [lastVersion, setLastVersion] = useState<string | null>(null);
   const [artifactType, setArtifactType] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -482,16 +403,23 @@ const Edit: React.FC = () => {
   // a no-op, since the changes have already landed in the committed version.
   const commitIfStaged = async (comment: string): Promise<void> => {
     if (!artifactManager || !artifactId) return;
-    const fresh = await artifactManager.read({
-      artifact_id: artifactId,
-      _rkwargs: true
-    });
-    if (fresh?.staging == null) return;
-    await artifactManager.commit({
-      artifact_id: artifactId,
-      comment,
-      _rkwargs: true
-    });
+    // Don't gate on a client-side `staging` field: the default (committed) read
+    // reports staging=null by backend design — it's only surfaced on a
+    // stage=true read. Instead attempt the commit and treat the backend's
+    // "Artifact must be in staging mode to commit" assertion (already committed /
+    // nothing staged) as a no-op. This preserves the auto-stage race-tolerance
+    // (handleSave / onDrop / the setTimeout recursion may have already committed).
+    try {
+      await artifactManager.commit({
+        artifact_id: artifactId,
+        comment,
+        _rkwargs: true
+      });
+    } catch (err) {
+      const msg = String((err as any)?.message ?? err);
+      if (/staging mode to commit|must be in staging/i.test(msg)) return;
+      throw err;
+    }
   };
 
   const handleStageForEditing = async () => {
@@ -499,7 +427,7 @@ const Edit: React.FC = () => {
     try {
       setUploadStatus({ message: 'Preparing staged version for editing...', severity: 'info' });
       await artifactManager.edit({ artifact_id: artifactId, stage: true, _rkwargs: true });
-      navigate(`/edit/${artifactId}/stage`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}/stage`);
     } catch (error) {
       console.error('Error staging artifact:', error);
       setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
@@ -511,7 +439,7 @@ const Edit: React.FC = () => {
     try {
       setUploadStatus({ message: 'Committing changes...', severity: 'info' });
       await commitIfStaged('Updated model');
-      navigate(`/edit/${artifactId}`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
       console.error('Error committing staged changes:', error);
       setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
@@ -519,11 +447,18 @@ const Edit: React.FC = () => {
   };
 
   const handleDiscardChanges = async () => {
+    // Temporarily disabled — see the disabled Discard button below. The Hypha
+    // `discard` deletes in-place staged files from the committed version without
+    // restoring them, permanently losing committed content. Guard here too so
+    // the destructive call can never fire while the button is disabled.
+    console.warn('Discard is temporarily disabled pending a Hypha backend fix.');
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!artifactManager || !artifactId) return;
     try {
       setUploadStatus({ message: 'Discarding staged changes...', severity: 'info' });
       await artifactManager.discard({ artifact_id: artifactId, _rkwargs: true });
-      navigate(`/edit/${artifactId}`);
+      navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
       console.error('Error discarding staged changes:', error);
       setUploadStatus({ message: 'Failed to discard changes', severity: 'error' });
@@ -572,36 +507,22 @@ const Edit: React.FC = () => {
         });
 
         if (user) {
-          // Collection-wide: user is in bioimage-io.config.permissions
-          // (any role) or has site-admin role.
-          const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
-                         user.roles?.includes('admin');
-          setIsCollectionAdmin(isAdmin);
+          // Collection-wide reviewer role (edit/commit/discard any model) and
+          // the stricter delete-capable admin role. See utils/roles.ts.
+          const isReviewer = getIsReviewer(user, collection.config);
+          setIsReviewer(isReviewer);
 
-          // Per-artifact: user is an uploader/editor on THIS artifact.
-          // Three signals, any one of which is sufficient:
-          //   - collection admin (already covers anything)
-          //   - artifact._permissions[user.id] contains 'edit' (or '*')
-          //   - manifest.uploader.email matches user.email (uploader by email)
-          const artPerms = (artifact as any)?._permissions?.[user.id];
-          const hasArtifactEdit = Array.isArray(artPerms)
-            ? artPerms.includes('edit') || artPerms.includes('*')
-            : artPerms === '*';
-          const hasArtifactDelete = Array.isArray(artPerms)
-            ? artPerms.includes('delete') || artPerms.includes('*')
-            : artPerms === '*';
-          const uploaderEmail = (artifact?.manifest as any)?.uploader?.email?.toLowerCase?.();
-          const matchesUploaderEmail = !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
-          setCanEditArtifact(isAdmin || hasArtifactEdit || matchesUploaderEmail);
-          setCanStageArtifact(hasArtifactEdit || matchesUploaderEmail);
-          setCanDeleteArtifact(hasArtifactDelete);
+          // Per-artifact rights reflect the actual Hypha permission on THIS
+          // artifact, so staging gates on them (not the broad role).
+          const { isUploader, hasArtifactEdit } = getArtifactRights(user, artifact);
+          setCanEditArtifact(isReviewer || hasArtifactEdit || isUploader);
+          setCanStageArtifact(hasArtifactEdit || isUploader);
         }
       } catch (error) {
-        console.error('Error checking collection admin status:', error);
-        setIsCollectionAdmin(false);
+        console.error('Error checking reviewer status:', error);
+        setIsReviewer(false);
         setCanEditArtifact(false);
         setCanStageArtifact(false);
-        setCanDeleteArtifact(false);
       }
 
       setArtifactInfo(artifact);
@@ -613,11 +534,15 @@ const Edit: React.FC = () => {
         _rkwargs: true
       });
 
+      // Hide internal platform files (e.g. comments.json) from the file list so
+      // they can't be accidentally edited or deleted — by anyone, incl. admins.
+      const visibleFiles = (fileList || []).filter((file: any) => !isInternalArtifactFile(file.name));
+
       // Track the max content-file mtime so the test-report staleness check
       // compares like-for-like file mtimes.
-      setLatestModelFileModified(maxModelFileMtime(fileList));
+      setLatestModelFileModified(maxModelFileMtime(visibleFiles));
 
-      if (!fileList || fileList.length === 0) {
+      if (visibleFiles.length === 0) {
         setFiles([]);
         setUploadStatus({
           message: currentIsStaged ? 'New version created. Upload files to get started.' : 'No files found',
@@ -628,12 +553,11 @@ const Edit: React.FC = () => {
       }
 
       // Convert the file list to FileNode format without fetching content
-      const nodes: FileNode[] = fileList.map((file: any) => ({
+      const nodes: FileNode[] = visibleFiles.map((file: any) => ({
         name: file.name,
         path: file.name,
         isDirectory: file.type === 'directory',
         children: file.type === 'directory' ? [] : undefined,
-        isCommentsFile: file.name === 'comments.json'
       }));
 
       setFiles(nodes);
@@ -820,8 +744,9 @@ const Edit: React.FC = () => {
         errors.push(`The 'id_emoji' field must be "${artifactEmoji}"`);
       }
 
-      // Only check uploader email if not a collection admin
-      if (!isCollectionAdmin) {
+      // Only check uploader email if not a reviewer (moderators may edit
+      // other users' models, so their own email need not match the uploader).
+      if (!isReviewer) {
         // Check uploader email only if it exists
         if (manifest.uploader?.email && manifest.uploader.email !== userEmail) {
           errors.push(`The uploader email must be "${userEmail}"`);
@@ -946,8 +871,9 @@ const Edit: React.FC = () => {
           let content = contentToSave;
           let manifest = yaml.load(content) as any;
 
-          // Only add/update uploader info if not a collection admin and uploader is missing
-          if (!isCollectionAdmin) {
+          // Only add/update uploader info if not a reviewer and uploader is missing
+          // (a moderator saving another user's model must not overwrite the uploader).
+          if (!isReviewer) {
             if (!manifest.uploader?.email) {
               manifest.uploader = {
                 ...manifest.uploader,
@@ -1038,9 +964,17 @@ const Edit: React.FC = () => {
             finalSavedContent = content;
             
             // Merge the existing manifest with the new one from the editor
+            // `status` is a platform-controlled field owned by the review flow
+            // (request-review / revision / accepted / published / deletion-requested).
+            // It isn't part of the bioimageio spec, so strip it from the user's
+            // rdf.yaml-derived manifest — otherwise a user could set their own
+            // status by adding a `status:` line. Keep the existing value instead.
+            // (id / id_emoji are already enforced by validateRdfContent.)
+            const manifestWithoutStatus: Record<string, any> = { ...(manifest || {}) };
+            delete manifestWithoutStatus.status;
             const mergedManifest: Record<string, any> = {
               ...existingManifest,
-              ...manifest
+              ...manifestWithoutStatus
             };
 
             // Upload the rdf.yaml file
@@ -1582,7 +1516,7 @@ const Edit: React.FC = () => {
           artifactInfo={artifactInfo}
           artifactId={artifactId!}
           isStaged={isStaged}
-          isCollectionAdmin={isCollectionAdmin}
+          isReviewer={isReviewer}
           onPublish={handlePublish}
           isContentValid={isContentValid}
           hasContentChanged={hasContentChanged}
@@ -1611,17 +1545,6 @@ const Edit: React.FC = () => {
             </svg>
             New Version
           </button>
-          {canDeleteArtifact && (
-            <button
-              onClick={() => setShowDeleteVersionDialog(true)}
-              className="w-full flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-white text-red-600 border border-red-200 hover:bg-red-50"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Delete This Version
-            </button>
-          )}
         </div>
       )}
     </>
@@ -2084,7 +2007,7 @@ const Edit: React.FC = () => {
       }
     }
 
-  }, [artifactId, artifactInfo, artifactManager, files, isCollectionAdmin, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
+  }, [artifactId, artifactInfo, artifactManager, files, isReviewer, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -2227,7 +2150,6 @@ const Edit: React.FC = () => {
           </div>
         ) : (
           files.map((file) => {
-            const isUnreferenced = isFileUnreferenced(file.name, artifactInfo?.manifest);
             return (
             <div
               key={file.path}
@@ -2237,21 +2159,21 @@ const Edit: React.FC = () => {
               }`}
             >
               {/* File icon and name */}
-              <div 
-                className={`flex items-center flex-1 min-w-0 ${isUnreferenced ? 'opacity-50' : ''}`}
+              <div
+                className="flex items-center flex-1 min-w-0"
               >
                 {/* File Icon */}
                 <span className="flex-shrink-0">
                   {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   ) : (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                   )}
@@ -2259,7 +2181,7 @@ const Edit: React.FC = () => {
 
                 {/* File Name with Star for rdf.yaml */}
                 <div className="flex items-center gap-2 flex-1">
-                  <span className={`truncate text-sm font-medium tracking-wide ${isUnreferenced ? 'text-gray-400' : ''}`}>
+                  <span className="truncate text-sm font-medium tracking-wide">
                     {file.name}
                   </span>
                   {isRdfFileName(file.name) && (
@@ -2294,23 +2216,6 @@ const Edit: React.FC = () => {
 
                 {/* Action buttons - hidden by default, shown on group hover */}
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                  {/* Info button for unreferenced files */}
-                  {isUnreferenced && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setUnreferencedDialogFile(file.name);
-                      }}
-                      title="File not referenced"
-                      aria-label={`File not referenced in ${rdfFileName}`}
-                      className="p-1 hover:bg-amber-100 rounded transition-colors"
-                    >
-                      <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </button>
-                  )}
-                  
                   {/* Download button */}
                   <button
                     onClick={(e) => {
@@ -2531,16 +2436,30 @@ const Edit: React.FC = () => {
                   </svg>
                   Commit
                 </button>
-                <button
-                  onClick={handleDiscardChanges}
-                  disabled={uploadStatus?.severity === 'info'}
-                  className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-white text-red-600 border border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                {/* Discard is temporarily disabled: the Hypha `discard` for an
+                    in-place (edit_version) staging session deletes the edited
+                    files from the committed version without restoring them,
+                    permanently losing committed content. Re-enable once the
+                    Hypha backend stages/discards in a separate prefix. */}
+                <Tooltip
+                  title="Temporarily disabled: discarding staged edits can delete committed files due to a Hypha bug. Commit your changes, or contact an admin to revert. Re-enabled once the backend is fixed."
+                  placement="top"
+                  arrow
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Discard
-                </button>
+                  <span className="w-full sm:w-auto inline-flex">
+                    <button
+                      onClick={handleDiscardChanges}
+                      disabled
+                      aria-disabled="true"
+                      className="px-4 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-white text-red-400 border border-red-200 opacity-50 cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Discard
+                    </button>
+                  </span>
+                </Tooltip>
               </>
             );
         })()}
@@ -2558,7 +2477,7 @@ const Edit: React.FC = () => {
           // remote test report must already exist for the artifact, OR the model
           // must already be under review.
           const isModel = artifactType === 'model' && !!artifactId;
-          const isInReview = artifactInfo?.manifest?.status === 'request-review';
+          const isInReview = artifactInfo?.manifest?.status === 'in-review';
           const hasRemoteTestReport = storedTestReport != null;
           const testGateSatisfied =
             !isModel || hasTestedThisSession || hasRemoteTestReport || isInReview;
@@ -3049,47 +2968,6 @@ const Edit: React.FC = () => {
   };
 
   // Add handler for deleting a version
-  const handleDeleteVersion = async () => {
-    if (!artifactManager || !artifactId || !editVersion) return;
-
-    try {
-      setUploadStatus({
-        message: 'Deleting version...',
-        severity: 'info'
-      });
-
-      await artifactManager.delete({
-        artifact_id: artifactId,
-        version: editVersion,
-        delete_files: true,
-        recursive: true,
-        _rkwargs: true
-      });
-
-      setUploadStatus({
-        message: 'Version deleted successfully',
-        severity: 'success'
-      });
-
-      // Close the dialog
-      setShowDeleteVersionDialog(false);
-
-      // Navigate back to the appropriate page
-      navigate(getBackPath());
-    } catch (error) {
-      setShowDeleteVersionDialog(false);
-      console.error('Error deleting version:', error);
-      const message = String(error || '');
-      const isPermissionError = /permission/i.test(message);
-      setUploadStatus({
-        message: isPermissionError
-          ? "You don't have permission to delete this artifact. Contact the workspace admin to remove it."
-          : `Error deleting version: ${message}`,
-        severity: 'error',
-      });
-    }
-  };
-
   const handleShaDialogClose = (result: boolean) => {
     if (shaDialogState && shaDialogState.resolve) {
       shaDialogState.resolve(result);
@@ -3128,49 +3006,6 @@ const Edit: React.FC = () => {
             className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
           >
             Update & Continue
-          </button>
-        </div>
-      </div>
-    </MuiDialog>
-  );
-
-  // Add this function before renderFileContent
-  const renderDeleteVersionDialog = () => (
-    <MuiDialog 
-      open={showDeleteVersionDialog} 
-      onClose={() => setShowDeleteVersionDialog(false)}
-      maxWidth="sm"
-      fullWidth
-    >
-      <div className="p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">
-          Delete Version
-        </h3>
-        <div className="space-y-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 text-red-800 mb-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <h4 className="font-medium">Warning: This action cannot be undone</h4>
-            </div>
-            <p className="text-sm text-red-700">
-              You are about to permanently delete version {editVersion} of this artifact. This will remove all files and metadata associated with this version.
-            </p>
-          </div>
-        </div>
-        <div className="mt-6 flex gap-3 justify-end">
-          <button
-            onClick={() => setShowDeleteVersionDialog(false)}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleDeleteVersion}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
-          >
-            Delete Version
           </button>
         </div>
       </div>
@@ -3356,43 +3191,6 @@ const Edit: React.FC = () => {
       {renderShaDialog()}
 
       {renderOverwriteDialog()}
-
-      {/* Unreferenced-file warning — replaces the old native alert(). */}
-      <MuiDialog
-        open={!!unreferencedDialogFile}
-        onClose={() => setUnreferencedDialogFile(null)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <div className="p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <svg className="w-6 h-6 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
-            </svg>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">File not referenced</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                <span className="font-medium text-gray-800">{unreferencedDialogFile}</span> is not referenced in{' '}
-                <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{rdfFileName}</code>. Only files referenced in{' '}
-                <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{rdfFileName}</code> are visible to model test runs and other services.
-              </p>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={() => setUnreferencedDialogFile(null)}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </MuiDialog>
-
-      {/* Test options dialog — shared across Edit and Review for identical behavior. */}
-      {/* Add Delete Version Dialog */}
-      {renderDeleteVersionDialog()}
 
       {/* Add ValidationErrorDialog */}
       <ValidationErrorDialog

@@ -17,6 +17,7 @@ import TermsOfService from './TermsOfService';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { updateManifestSha256 } from '../utils/sha-handling';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
+import { isInternalArtifactFile } from '../utils/internalFiles';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -943,11 +944,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       const emoji = findEmoji(collection.config, manifest.type, noun);
       setGeneratedEmoji(emoji);
 
-      // Update the manifest with the id and emoji, preserving other fields
+      // Update the manifest with the id and emoji, preserving other fields.
+      // A freshly uploaded model starts as `draft` (not yet submitted for
+      // review); "Submit for Review" moves it to `in-review`.
       const updatedManifest = {
         ...manifest,
         id: shortId,
         id_emoji: emoji,
+        status: 'draft',
         // If there's an existing config, preserve other config fields
         config: manifest.config ? {
           ...manifest.config,
@@ -1043,8 +1047,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         _rkwargs: true
       });
 
-      // Upload remaining files (manifest already uploaded above)
-      const remainingFiles = updatedFiles.filter(file => !endsWithRdfFileName(file.path));
+      // Upload remaining files (manifest already uploaded above). Skip internal
+      // platform files (e.g. comments.json) in case the user's package already
+      // contains one — the review comment thread must not be overwritten.
+      const remainingFiles = updatedFiles.filter(
+        file => !endsWithRdfFileName(file.path) && !isInternalArtifactFile(file.name)
+      );
       for (let index = 0; index < remainingFiles.length; index++) {
         const file = remainingFiles[index];
 
@@ -1434,7 +1442,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
               <p className="text-sm font-semibold text-blue-900">Submit your model with an AI agent</p>
               <p className="text-sm text-blue-800">
                 We provide a ready-to-use skill that guides any AI coding agent through packaging,
-                validation, and submission — no manual YAML required. Works with{' '}
+                validation, and submission, with no manual YAML required. Works with{' '}
                 <strong>Claude Code</strong>, <strong>Gemini CLI</strong>,{' '}
                 <strong>GitHub Copilot</strong>, <strong>OpenAI Codex</strong>, and other agents
                 with web access.

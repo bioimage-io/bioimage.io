@@ -8,6 +8,10 @@ interface TestOptionsDialogProps {
   onRun: () => void;
   customEnvironment: boolean;
   onCustomEnvironmentChange: (value: boolean) => void;
+  /** When true, the custom-environment option is disabled with an explanation.
+   *  Used for the deNBI site, whose conda env builds currently fail on a clock
+   *  skew that cannot be fixed for now. */
+  customEnvDisabled?: boolean;
   skipCache: boolean;
   onSkipCacheChange: (value: boolean) => void;
 }
@@ -25,6 +29,7 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
   onRun,
   customEnvironment,
   onCustomEnvironmentChange,
+  customEnvDisabled = false,
   skipCache,
   onSkipCacheChange,
 }) => {
@@ -33,33 +38,46 @@ const TestOptionsDialog: React.FC<TestOptionsDialogProps> = ({
       <div className="p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-1">Run Model Test</h3>
         <p className="text-sm text-gray-500 mb-5">
-          The model will be tested via BioEngine. Configure the options below before starting.
+          The model is tested on the BioEngine, which runs a fixed, standard environment.
+          Configure the options below before starting.
         </p>
 
-        {!customEnvironment && (
+        {customEnvironment && (
           <div className="mb-4 flex items-start gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2.5 text-xs text-yellow-800">
             <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
             <span>
-              The BioEngine runner uses a fixed environment. Tests may fail if the model requires packages not available in the default runner environment. Enable custom environment below to test in the model-declared conda environment instead.
+              Model inference on the BioEngine is only provided in the standard environment. Where
+              possible, keep the model compatible with it. A custom environment tests against the
+              model's declared conda environment but is not used for inference.
             </span>
           </div>
         )}
 
         <div className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer select-none group">
+          <label
+            className={`flex items-start gap-3 select-none group ${
+              customEnvDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+            }`}
+          >
             <input
               type="checkbox"
-              checked={customEnvironment}
+              checked={customEnvironment && !customEnvDisabled}
+              disabled={customEnvDisabled}
               onChange={(e) => onCustomEnvironmentChange(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0 disabled:cursor-not-allowed"
             />
             <div>
               <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">Custom environment</div>
               <div className="text-xs text-gray-500 mt-0.5">
                 Runs the test inside the conda environment declared by the model's own weights description. Slower than the default runner environment but matches exactly what the model author specified.
               </div>
+              {customEnvDisabled && (
+                <div className="text-xs text-gray-500 mt-1 italic">
+                  Not available on the deNBI site right now: a clock-skew issue there prevents custom conda environments from building. Switch the runner site to KTH in Advanced Options to use this option.
+                </div>
+              )}
             </div>
           </label>
           <label className="flex items-start gap-3 cursor-pointer select-none group">

@@ -56,6 +56,8 @@ export interface DetailedTestReport {
   format_version: string;
   status: 'passed' | 'failed' | 'valid-format';
   metadata_completeness?: number;
+  /** Whether the model runs in the standard (default) environment. */
+  inference_check?: { status: 'passed' | 'failed'; error: string | null };
   details: TestDetail[];
   env: string[][];
   conda_list: any;
@@ -90,7 +92,6 @@ export interface ArtifactInfo {
     documentation?: string;
     authors?: Author[];
     cite?: Citation[];
-    test_summary?: TestReports | TestReport[];
     links?: {
       url: string;
       icon?: string;

@@ -288,6 +288,8 @@ export const loadCellposeRdf = () => {
 class BioEngineExecutor {
   constructor(serverUrl) {
     this.serverUrl = serverUrl;
+    // Most recent in-flight infer request id (for UI persistence / resume).
+    this.currentRequestId = null;
   }
 
   async init(token = null, serviceId = BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID) {
@@ -344,6 +346,16 @@ class BioEngineExecutor {
     }
 
     const request_id = ret;
+    // Expose the in-flight request id so the UI can persist it (survive a page
+    // refresh) and later reconnect to it via pollInfer.
+    this.currentRequestId = request_id;
+    return await this.pollInfer(request_id, progressCallback);
+  }
+
+  // Poll an existing infer request_id to completion, forwarding each status dict
+  // to progressCallback. Used both by execute() (fresh run) and to reconnect to
+  // a request that was already in flight (resume after refresh).
+  async pollInfer(request_id, progressCallback = null) {
     const MAX_POLLS = 180; // 6 minutes at 2 s inter-poll delay
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -669,6 +681,22 @@ export class ModelRunnerEngine {
     const res = merger.mergeTiles(outTiles).data;
     console.log("Output image shape after merging: " + res.shape);
     return res;
+  }
+
+  /** The most recent in-flight infer request id (for persistence / resume). */
+  get currentRequestId() {
+    return this.bioengineExecutor?.currentRequestId ?? null;
+  }
+
+  /**
+   * Reconnect to an infer request that was already submitted (e.g. before a page
+   * refresh) and poll it to completion, forwarding progress. Returns the raw
+   * infer result. NOTE: for a tiled run this reconnects to the last tile only;
+   * the merged output is not reconstructed here — callers use it mainly to
+   * follow the run's per-step progress to completion.
+   */
+  async resumeInfer(request_id, progressCallback = undefined) {
+    return await this.bioengineExecutor.pollInfer(request_id, progressCallback ?? null);
   }
 }
 

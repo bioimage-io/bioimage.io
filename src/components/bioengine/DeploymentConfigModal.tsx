@@ -377,7 +377,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     placeholder="None"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Sets <code className="bg-gray-100 px-0.5 rounded">HYPHA_TOKEN</code> for all deployments in this app. To use different tokens per deployment, set <code className="bg-gray-100 px-0.5 rounded">_HYPHA_TOKEN</code> in the Environment Variables field above instead — the leading underscore keeps the value secret.
+                    Sets <code className="bg-gray-100 px-0.5 rounded">HYPHA_TOKEN</code> for all deployments in this app. To use different tokens per deployment, set <code className="bg-gray-100 px-0.5 rounded">_HYPHA_TOKEN</code> in the Environment Variables field above instead. The leading underscore keeps the value secret.
                   </p>
                 </div>
 
@@ -390,7 +390,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     onChange={(e) => setMaxOngoingRequests(e.target.value === '' ? '' : parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Maximum number of requests the Hypha service wrapper handles concurrently. This does not change the concurrency settings of individual deployments inside the app — a deployment such as a training job may still only process one request at a time regardless of this value.</p>
+                  <p className="text-xs text-gray-500 mt-1">Maximum number of requests the Hypha service wrapper handles concurrently. This does not change the concurrency settings of individual deployments inside the app. A deployment such as a training job may still only process one request at a time regardless of this value.</p>
                 </div>
 
                 <div className="md:col-span-2 space-y-3 pt-1">
@@ -429,7 +429,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     />
                     <span>
                       <span className="text-sm font-medium text-gray-700 block">Debug Mode</span>
-                      <span className="text-xs text-gray-500">Enable verbose logging for all deployments in this app. Increases log output — use only for troubleshooting.</span>
+                      <span className="text-xs text-gray-500">Enable verbose logging for all deployments in this app. Increases log output. Use only for troubleshooting.</span>
                     </span>
                   </label>
                 </div>
@@ -466,7 +466,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                     wrap="off"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Dict keyed by the <code className="bg-gray-100 px-0.5 rounded">@bioengine.app</code> class name (as shown under "deployments" in app status). Each entry is either <code className="bg-gray-100 px-0.5 rounded">{'{ "num_replicas": N }'}</code> or <code className="bg-gray-100 px-0.5 rounded">{'{ "autoscaling_config": { ... } }'}</code>{' '}— the two are mutually exclusive. Classes left out run at Ray Serve's default of one fixed replica. ProxyDeployment is always one replica and not addressable.
+                    Dict keyed by the <code className="bg-gray-100 px-0.5 rounded">@bioengine.app</code> class name (as shown under "deployments" in app status). Each entry is either <code className="bg-gray-100 px-0.5 rounded">{'{ "num_replicas": N }'}</code> or <code className="bg-gray-100 px-0.5 rounded">{'{ "autoscaling_config": { ... } }'}</code>. The two are mutually exclusive. Classes left out run at Ray Serve's default of one fixed replica. ProxyDeployment is always one replica and not addressable.
                   </p>
                 </div>
               </>

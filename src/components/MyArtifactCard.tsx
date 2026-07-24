@@ -23,7 +23,8 @@ interface AdminResourceCardProps {
   createdAt?: number;
   lastModified?: number;
   artifactType?: string;
-  isCollectionAdmin?: boolean;
+  isPublished?: boolean;
+  onRequestDeletion?: () => void;
   id: string;
   emoji?: string;
   isLoading?: boolean;
@@ -43,7 +44,8 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   createdAt,
   lastModified,
   artifactType,
-  isCollectionAdmin = false,
+  isPublished = false,
+  onRequestDeletion,
   id,
   emoji,
   isLoading = false,
@@ -158,22 +160,36 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
               <span className="ml-1">Edit</span>
             </button>
             {/*
-              Direct Delete is only meaningful on staged artifacts: for those
-              with published versions it discards the staged changes, and for
-              fully-unpublished ones it removes the artifact. Published
-              artifacts have no in-UI deletion path — Hypha's `delete`
-              capability is workspace-owner-only, so takedowns go through
-              the bioimageiobot admin channel.
+              These are the current user's OWN uploads, so they hold delete
+              rights. Direct Delete is only meaningful on staged artifacts: for
+              those with a published version it discards the staged changes; for
+              fully-unpublished ones (never submitted, or in review) it removes
+              the model. Published models use "Request deletion" instead.
             */}
-            {isStaged && isCollectionAdmin && onDelete && (
+            {isStaged && onDelete && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
                 className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
-                title="Delete"
+                title={isPublished ? 'Discard staged changes' : 'Delete'}
                 disabled={isLoading}
               >
                 <TrashIcon className="w-5 h-5" />
-                <span className="ml-1">Delete</span>
+                <span className="ml-1">{isPublished ? 'Discard changes' : 'Delete'}</span>
+              </button>
+            )}
+            {/*
+              Published models can't be deleted from the UI — request deletion
+              (with a reason) and a collection admin finalizes the takedown.
+            */}
+            {isPublished && onRequestDeletion && (
+              <button
+                onClick={(e) => handleClick(e, onRequestDeletion)}
+                className="flex items-center p-2 text-gray-600 hover:text-amber-600 rounded-lg hover:bg-amber-50"
+                title="Request deletion"
+                disabled={isLoading}
+              >
+                <TrashIcon className="w-5 h-5" />
+                <span className="ml-1">Request deletion</span>
               </button>
             )}
           </div>

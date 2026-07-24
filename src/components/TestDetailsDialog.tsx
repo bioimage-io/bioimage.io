@@ -22,22 +22,26 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 import StepTimeline, { TimelineStep } from './StepTimeline';
+import { RunnerStages, resolveStage } from '../types/runStatus';
 
 /**
- * v1.15+ API — progress described by the 5-key dict returned by
- * get_test_status / get_infer_status. All timestamps are Unix seconds.
- * null = step was skipped (cache hit / non-custom-env); undefined = not yet known.
- * This is the only supported model-runner progress shape.
+ * v1.15+ API — progress described by the dict returned by get_test_status /
+ * get_infer_status. All timestamps are Unix seconds. The per-step `stages`
+ * object (v1.15.23+) drives the timeline; the legacy flat fields are kept as an
+ * optional fallback for a slightly older runner.
  */
 export interface ProgressInfoV2 {
   version: 'v2';
-  /** Unix seconds when the job was submitted/queued (v1.15.3+). */
+  /** Unix seconds when the job was submitted/queued. */
   submittedAt?: number | null;
-  queuePosition: number;
-  modelDownload: number | null;
-  envSetup: number | null;
-  running: number | null;
-  /** Unix seconds when the job finished (v1.15.3+); null until then. */
+  /** Per-step queue positions + start/end timestamps (preferred source). */
+  stages?: RunnerStages | null;
+  /** Legacy flat fields (fallback when `stages` is absent). */
+  queuePosition?: number;
+  modelDownload?: number | null;
+  envSetup?: number | null;
+  running?: number | null;
+  /** Unix seconds when the job finished; null until then. */
   completedAt?: number | null;
   /** Client-side Date.now()/1000 of the poll that first carried a non-null result. */
   resultTime?: number;
@@ -202,7 +206,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth={showProgressView ? 'xs' : 'lg'}
+      maxWidth={showProgressView ? false : 'lg'}
       fullWidth={!showProgressView}
       PaperProps={{
         sx: {
@@ -211,6 +215,9 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
           border: '1px solid rgba(255, 255, 255, 0.5)',
           borderRadius: '16px',
           maxHeight: '90vh',
+          // Progress / complete view: fixed width + min-height so the dialog
+          // doesn't resize as steps appear or the queue text changes.
+          ...(showProgressView ? { width: 500, maxWidth: 500, minHeight: 380 } : {}),
         }
       }}
     >
@@ -260,26 +267,26 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               /* v1.15+ step timeline: overall start on top, per-step durations. */
               <StepTimeline
                 submittedAt={progressInfo.submittedAt ?? null}
-                queuePosition={progressInfo.queuePosition}
+                fallbackQueuePosition={progressInfo.queuePosition ?? null}
                 completedAt={progressInfo.completedAt ?? progressInfo.resultTime ?? null}
                 steps={[
                   {
                     key: 'model_download',
                     header: 'Preparing model',
                     description: 'Check the cache and download any outdated model files',
-                    startTs: progressInfo.modelDownload,
+                    ...resolveStage(progressInfo.stages?.model_download, progressInfo.modelDownload),
                   },
                   {
                     key: 'env_setup',
                     header: 'Environment setup',
                     description: 'Prepare the isolated Python environment',
-                    startTs: progressInfo.envSetup,
+                    ...resolveStage(progressInfo.stages?.env_setup, progressInfo.envSetup),
                   },
                   {
-                    key: 'running',
+                    key: 'run',
                     header: 'Running',
                     description: 'Load the weights and run the bundled test inputs',
-                    startTs: progressInfo.running,
+                    ...resolveStage(progressInfo.stages?.run, progressInfo.running),
                   },
                 ] as TimelineStep[]}
               />
@@ -404,13 +411,6 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
               </Box>
               
               <Stack spacing={1}>
-                {/* Show score for compatibility reports */}
-                {type === 'compatibility' && data.score !== undefined && (
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>Score:</strong> {data.score.toFixed(2)}
-                  </Typography>
-                )}
-                
                 {/* Show model ID and format version only for bioimageio.core compatibility reports or test reports */}
                 {(type === 'test-report' || (type === 'compatibility' && partnerName === 'bioimageio.core')) && (() => {
                   // For bioimageio.core compatibility reports, data is nested in details object
@@ -443,6 +443,15 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     </>
                   );
                 })()}
+
+                {/* Score for compatibility reports — shown after the metadata
+                    fields (below Metadata Completeness for bioimageio.core)
+                    rather than first. */}
+                {type === 'compatibility' && data.score !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Score:</strong> {data.score.toFixed(2)}
+                  </Typography>
+                )}
               </Stack>
             </Paper>
 
@@ -707,6 +716,80 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                 </>
               );
             })()}
+
+            {/* Inference check — can the model run in the standard (default) env?
+                A single expandable box like the per-test rows above. mt matches the
+                other section headers (e.g. Environment). */}
+            {data.inference_check && (
+              <Box sx={{ mt: 4, mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                  Inference check
+                </Typography>
+                <Accordion
+                  sx={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.5)',
+                    borderRadius: '12px !important',
+                    '&:before': { display: 'none' },
+                    '&.Mui-expanded': {
+                      borderColor: data.inference_check.status === 'passed'
+                        ? 'rgba(34, 197, 94, 0.3)'
+                        : 'rgba(239, 68, 68, 0.3)',
+                    },
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      borderRadius: '12px',
+                      '&.Mui-expanded': { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                      {getStatusIcon(data.inference_check.status)}
+                      <Typography sx={{ fontWeight: 500, flex: 1 }}>
+                        Runs in the default environment
+                      </Typography>
+                      <Chip
+                        label={data.inference_check.status}
+                        size="small"
+                        sx={{
+                          backgroundColor: data.inference_check.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.1)'
+                            : 'rgba(239, 68, 68, 0.1)',
+                          color: getStatusColor(data.inference_check.status),
+                          borderRadius: '8px',
+                          fontWeight: 500,
+                          border: `1px solid ${data.inference_check.status === 'passed'
+                            ? 'rgba(34, 197, 94, 0.2)'
+                            : 'rgba(239, 68, 68, 0.2)'}`,
+                        }}
+                      />
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: data.inference_check.error ? 2 : 0 }}>
+                      Verifies the model runs in the standard bioimageio.core environment
+                      (no custom conda environment).
+                    </Typography>
+                    {data.inference_check.error && (
+                      <Alert
+                        severity="error"
+                        sx={{
+                          backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {data.inference_check.error}
+                        </Typography>
+                      </Alert>
+                    )}
+                  </AccordionDetails>
+                </Accordion>
+              </Box>
+            )}
 
             {/* Environment Information */}
             {(() => {

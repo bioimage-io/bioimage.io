@@ -40,3 +40,6 @@ bioimageio-resources/
 
 # test output artifacts
 test-results/
+
+# local agent output/scratch artifacts (reports, backups, playwright runs)
+outputs/

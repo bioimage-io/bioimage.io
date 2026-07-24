@@ -6,6 +6,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
+import { getIsReviewer } from '../utils/roles';
 
 interface User {
   email: string;
@@ -42,13 +43,12 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
-  const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, logout } = useHyphaStore();
+  const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, connectionStatus, logout, pendingReviewCount, refreshPendingReviewCount } = useHyphaStore();
   const navigate = useNavigate();
   // Whether this user may open the /review page (collection admin) and, if so,
-  // how many models are pending review (manifest.status === 'request-review',
-  // excluding models in 'revision'). Drives the dropdown Review entry + badge.
+  // how many models are pending review (manifest.status === 'in-review',
+  // excluding models in 'in-revision'). Drives the dropdown Review entry + badge.
   const [canAccessReview, setCanAccessReview] = useState(false);
-  const [reviewCount, setReviewCount] = useState(0);
   const location = useLocation(); // Get location
   const autoLoginAttemptedRef = useRef(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -69,12 +69,12 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // Determine review-page access (collection admin) and, for admins, count the
   // models pending review. Staged manifests aren't keyword-indexed, so the
   // status lives only on each staged read — mirror ReviewArtifacts and read the
-  // staged children individually, counting only 'request-review' (not 'revision').
+  // staged children individually, counting only 'in-review' (not 'in-revision').
   useEffect(() => {
     let cancelled = false;
     const loadReviewAccess = async () => {
       if (!artifactManager || !user) {
-        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+        if (!cancelled) setCanAccessReview(false);
         return;
       }
       try {
@@ -82,39 +82,20 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           artifact_id: 'bioimage-io/bioimage.io',
           _rkwargs: true,
         });
-        const isAdmin = (collection.config?.permissions && user.id in collection.config.permissions) ||
-                        user.roles?.includes('admin');
+        const canReview = getIsReviewer(user, collection.config);
         if (cancelled) return;
-        setCanAccessReview(!!isAdmin);
-        if (!isAdmin) { setReviewCount(0); return; }
-
-        const stagedResp = await artifactManager.list({
-          parent_id: 'bioimage-io/bioimage.io',
-          stage: true,
-          limit: 1000,
-          pagination: true,
-          _rkwargs: true,
-        });
-        const stagedItems: any[] = stagedResp?.items ?? [];
-        const reads = await Promise.all(
-          stagedItems.map(async (a: any) => {
-            try {
-              return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true });
-            } catch {
-              return null;
-            }
-          })
-        );
-        if (cancelled) return;
-        setReviewCount(reads.filter((a: any) => a?.manifest?.status === 'request-review').length);
+        setCanAccessReview(canReview);
+        // Count lives in the store (refreshPendingReviewCount) so the review page
+        // can update this badge after an accept / send-to-revision.
+        if (canReview) await refreshPendingReviewCount();
       } catch (err) {
-        console.error('Error loading review access/count:', err);
-        if (!cancelled) { setCanAccessReview(false); setReviewCount(0); }
+        console.error('Error loading review access:', err);
+        if (!cancelled) setCanAccessReview(false);
       }
     };
     loadReviewAccess();
     return () => { cancelled = true; };
-  }, [artifactManager, user]);
+  }, [artifactManager, user, server]);
 
   // Monitor for test button highlight state
   useEffect(() => {
@@ -284,23 +265,63 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   }, [server, setUser, navigate]); // Dependencies: server determines user state and triggers redirection check
 
 
+  // Coarse connection health, shown as a colored dot in the account menu.
+  // Green = live, amber = a reconnect is in flight, red = the socket died.
+  const connMeta = {
+    connected: { dot: 'bg-green-500', label: 'Connected', pulse: false },
+    reconnecting: { dot: 'bg-amber-500', label: 'Reconnecting...', pulse: true },
+    disconnected: { dot: 'bg-red-500', label: 'Connection lost', pulse: false },
+  }[connectionStatus] ?? { dot: 'bg-gray-400', label: 'Connected', pulse: false };
+  const showConnectionIssue = connectionStatus !== 'connected';
+
+  // Manual retry from the account menu. Uses reconnect() (the cached-token
+  // connect) rather than attemptReconnect() so a user click always forces an
+  // attempt without the auto-path's cooldown or logout-on-failure. reconnect()
+  // leaves the status at 'reconnecting' if the connect throws, so reflect the
+  // failure here.
+  const handleReconnect = async () => {
+    if (connectionStatus === 'reconnecting') return;
+    try {
+      await useHyphaStore.getState().reconnect();
+    } catch (err) {
+      console.error('Manual reconnect failed:', err);
+      useHyphaStore.getState().setConnectionStatus('disconnected');
+    }
+  };
+
   return (
     <div className={className}>
       {user?.email ? (
         <div className="relative">
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="text-gray-700 hover:text-gray-900 focus:outline-none"
-            aria-label="User profile menu" // Add aria-label (fixes linter error)
+            className="relative text-gray-700 hover:text-gray-900 focus:outline-none"
+            aria-label={showConnectionIssue ? `User profile menu, ${connMeta.label}` : 'User profile menu'}
+            title={showConnectionIssue ? connMeta.label : undefined}
           >
             <UserCircleIcon className="h-6 w-6" />
+            {/* Only mark the avatar when something is wrong (amber/red); a
+                healthy connection stays unmarked to avoid clutter. */}
+            {showConnectionIssue && (
+              <span
+                className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${connMeta.dot} ${connMeta.pulse ? 'motion-safe:animate-pulse' : ''}`}
+                aria-hidden="true"
+              />
+            )}
           </button>
-          
+
           {/* Dropdown Menu */}
           {isDropdownOpen && (
             <div id="user-dropdown" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-999 border border-gray-200">
-              <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
-                {user.email}
+              <div className="px-4 py-2 border-b border-gray-200">
+                <div className="text-sm text-gray-700 truncate">{user.email}</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${connMeta.dot} ${connMeta.pulse ? 'motion-safe:animate-pulse' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span className="text-xs text-gray-500">{connMeta.label}</span>
+                </div>
               </div>
               {user.roles?.includes('admin') && (
                 <Link
@@ -326,9 +347,9 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
                   onClick={() => setIsDropdownOpen(false)}
                 >
                   <span>Review</span>
-                  {reviewCount > 0 && (
+                  {pendingReviewCount > 0 && (
                     <span className="ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-600 text-white text-xs font-semibold leading-none">
-                      {reviewCount}
+                      {pendingReviewCount}
                     </span>
                   )}
                 </Link>
@@ -365,6 +386,24 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
               >
                 Logout
               </button>
+
+              {/* Manual recovery, only while the connection is not healthy. */}
+              {showConnectionIssue && (
+                <button
+                  onClick={handleReconnect}
+                  disabled={connectionStatus === 'reconnecting'}
+                  className="flex w-full items-center gap-2 border-t border-gray-200 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {connectionStatus === 'reconnecting' ? (
+                    <>
+                      <Spinner className="h-4 w-4" />
+                      Reconnecting...
+                    </>
+                  ) : (
+                    'Reconnect'
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>

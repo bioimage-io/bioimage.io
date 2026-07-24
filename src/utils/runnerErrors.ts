@@ -16,7 +16,7 @@ export const RUNTIME_STARTING_MARKER = 'GPU runtime deployment is not available'
 /** Friendly, non-alarming copy for the runtime-still-starting condition. */
 export const RUNTIME_STARTING_MESSAGE =
   'The BioEngine is still starting up and will be available shortly. This is ' +
-  'expected right after the model runner was updated — please try again in a moment.';
+  'expected right after the model runner was updated. Please try again in a moment.';
 
 /** True when an error (or error string) is the transient runtime-not-ready one. */
 export const isRuntimeStartingError = (error: unknown): boolean => {

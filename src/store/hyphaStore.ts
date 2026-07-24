@@ -28,6 +28,25 @@ const getSavedToken = (): string | null => {
   return null;
 };
 
+// Coarse websocket-connection health for the account-menu indicator.
+//   connected    - live socket, RPC calls work
+//   reconnecting - socket dropped, a proactive reconnect is in flight
+//   disconnected - no live socket and no reconnect running (or session ended)
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+
+// Detach our on_disconnected handler from a server we are about to tear down
+// on purpose (during a reconnect's stale-cleanup or on logout). hypha-rpc fires
+// _handle_disconnected even on a clean close(1000), so without this an
+// intentional disconnect would look like a dropped connection and kick off a
+// spurious reconnect. Best-effort: internals may shift across hypha-rpc versions.
+const detachDisconnectHandler = (server: any): void => {
+  try {
+    server?.rpc?._connection?.on_disconnected?.(null);
+  } catch (err) {
+    console.warn('Could not detach Hypha disconnect handler:', err);
+  }
+};
+
 
 // Add a type for connection config
 interface ConnectionConfig {
@@ -70,7 +89,11 @@ export interface HyphaState {
   artifactManager: any;
   isConnected: boolean;
   isConnecting: boolean;
-  connect: (config: ConnectionConfig) => Promise<any>;
+  // Finer-grained health for the account-menu dot. `isConnected` stays the
+  // canonical boolean other code reads; this is the 3-state UI signal.
+  connectionStatus: ConnectionStatus;
+  setConnectionStatus: (status: ConnectionStatus) => void;
+  connect: (config: ConnectionConfig, opts?: { suppressBanner?: boolean }) => Promise<any>;
   isLoggingIn: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -85,6 +108,11 @@ export interface HyphaState {
   myArtifactsTotalItems: number;
   reviewArtifactsPage: number;
   reviewArtifactsTotalItems: number;
+  // Count of models awaiting review (status 'in-review', excluding 'in-revision').
+  // Shared so the dropdown badge and the review page stay in sync.
+  pendingReviewCount: number;
+  refreshPendingReviewCount: () => Promise<void>;
+  setPendingReviewCount: (n: number) => void;
   setMyArtifactsPage: (page: number) => void;
   setMyArtifactsTotalItems: (total: number) => void;
   setReviewArtifactsPage: (page: number) => void;
@@ -123,6 +151,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   artifactManager: null,
   isConnected: false,
   isConnecting: false,
+  connectionStatus: 'disconnected',
   isLoggingIn: false,
   isAuthenticated: false,
   isLoggedIn: false,
@@ -150,15 +179,18 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   ),
   reconnect: async () => {
     const savedToken = getSavedToken();
+    set({ connectionStatus: 'reconnecting' });
     // Reset dedup keys so connect() doesn't short-circuit when the WS
     // dropped but the config looks identical to the last successful run.
     activeConnectKey = null;
     pendingConnectPromise = null;
+    // suppressBanner: a live-session reconnect drives the account-menu dot,
+    // not the "services unreachable" banner.
     await get().connect({
       server_url: HYPHA_SERVER_URL,
       token: savedToken ?? undefined,
       method_timeout: 300,
-    });
+    }, { suppressBanner: true });
   },
   attemptReconnect: async (): Promise<boolean> => {
     // Dedup concurrent callers onto one in-flight reconnect.
@@ -171,6 +203,8 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     }
 
     reconnectPromise = (async () => {
+      // Show the reconnecting state as soon as an attempt actually starts.
+      set({ connectionStatus: 'reconnecting' });
       try {
         for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt++) {
           const savedToken = getSavedToken();
@@ -182,11 +216,13 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
             // though the config looks identical to the last successful run.
             activeConnectKey = null;
             pendingConnectPromise = null;
+            // suppressBanner: keep the websocket-drop recovery on the dot, not
+            // the "services unreachable" banner (which owns the REST path).
             await get().connect({
               server_url: HYPHA_SERVER_URL,
               token: savedToken,
               method_timeout: 300,
-            });
+            }, { suppressBanner: true });
             return true; // reconnected; connect() refreshed server + artifactManager
           } catch (err) {
             console.warn(`Hypha reconnect attempt ${attempt} failed:`, err);
@@ -198,6 +234,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         // Reconnection failed (or no valid token). Log the user out and drop
         // the stale token so the app presents a clean not-logged-in state
         // instead of a stuck error.
+        set({ connectionStatus: 'disconnected' });
         localStorage.removeItem('token');
         localStorage.removeItem('tokenExpiry');
         await get().logout();
@@ -213,7 +250,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   myArtifactsTotalItems: 0,
   reviewArtifactsPage: 1,
   reviewArtifactsTotalItems: 0,
+  pendingReviewCount: 0,
   setServer: (server) => set({ server }),
+  setConnectionStatus: (status) => set({ connectionStatus: status }),
   setUser: (user) => set({ user }),
   setIsInitialized: (isInitialized) => set({ isInitialized }),
   setResources: (resources) => set({ resources }),
@@ -231,7 +270,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setTotalItems: (total) => set({ totalItems: total }),
   setLoggedIn: (status: boolean) => set({ isLoggedIn: status }),
   setSelectedResource: (artifact) => set({ selectedResource: artifact }),
-  connect: async (config: ConnectionConfig) => {
+  connect: async (config: ConnectionConfig, opts?: { suppressBanner?: boolean }) => {
     const connectKey = `${config.server_url}|${config.token || ''}`;
     const currentState = get();
 
@@ -249,6 +288,9 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       try {
         const latestState = get();
         if (latestState.server && typeof latestState.server.disconnect === 'function') {
+          // Detach first so this deliberate teardown doesn't trip the
+          // on_disconnected handler into a spurious reconnect.
+          detachDisconnectHandler(latestState.server);
           try {
             await latestState.server.disconnect();
           } catch (disconnectError) {
@@ -273,6 +315,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           server,
           artifactManager,
           isConnected: true,
+          connectionStatus: 'connected',
           isAuthenticated,
           isLoggedIn: isAuthenticated,
           user: server.config.user,
@@ -283,6 +326,30 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
         // Hypha is back; clear any stale unreachable flag the partner
         // fetch (or another caller) may have set.
         get().markHyphaReachable();
+
+        // Watch for this socket dropping. hypha-rpc auto-reconnects on an
+        // UNEXPECTED close, but silently gives up in backgrounded tabs once
+        // its throttled token-refresh has let the reconnection token expire;
+        // and it fires _handle_disconnected on a clean close. Either way we
+        // want to flip the dot to reconnecting and proactively re-establish.
+        try {
+          const conn = (server as any)?.rpc?._connection;
+          if (conn && typeof conn.on_disconnected === 'function') {
+            conn.on_disconnected(() => {
+              // Ignore drops from a server we've already replaced, or while a
+              // connect is mid-flight (that flow owns the state).
+              if (get().server !== server || get().isConnecting) return;
+              if (getSavedToken()) {
+                set({ isConnected: false, connectionStatus: 'reconnecting' });
+                void get().attemptReconnect();
+              } else {
+                set({ isConnected: false, connectionStatus: 'disconnected' });
+              }
+            });
+          }
+        } catch (hookErr) {
+          console.warn('Could not attach Hypha disconnect handler:', hookErr);
+        }
 
         return server;
       } catch (error) {
@@ -300,12 +367,16 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           isConnecting: false,
           error: (error instanceof Error) ? error.message : 'Connection failed'
         });
-        // Websocket connect failures look the same to the user as a REST
-        // outage; flip the global flag so the banner appears on pages that
-        // don't otherwise call a hard-coded Hypha endpoint.
-        get().markHyphaUnreachable(
-          error instanceof Error ? error.message : 'Failed to connect to Hypha'
-        );
+        // A live-session reconnect (suppressBanner) drives the account-menu
+        // dot only; its terminal state is owned by attemptReconnect. A cold
+        // connect failure still raises the "services unreachable" banner, the
+        // same as a REST outage, on pages that don't hit a hard-coded endpoint.
+        if (!opts?.suppressBanner) {
+          set({ connectionStatus: 'disconnected' });
+          get().markHyphaUnreachable(
+            error instanceof Error ? error.message : 'Failed to connect to Hypha'
+          );
+        }
         throw error;
       } finally {
         pendingConnectPromise = null;
@@ -320,8 +391,84 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       console.log('Fetching resources for page:', page, searchQuery);
       const offset = (page - 1) * get().itemsPerPage;
 
-      // Construct the base URL
-      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=manifest.score>`;
+      const resourceType = get().resourceType;
+      const hasQuery = !!(searchQuery && searchQuery.trim());
+      const hasFilters = !!(
+        (filterOptions?.tags && filterOptions.tags.length) ||
+        filterOptions?.partnerLink ||
+        filterOptions?.manifest
+      );
+
+      // BROWSE MODE — the public models grid is sourced from the test-reports
+      // collection: only tested models appear, ordered by the report's `score`
+      // (with `metadata_completeness` as a deterministic tiebreaker). Each card
+      // resolves its cover from the MODEL collection by id
+      // (resolveCoverThumbnailUrl), identical to search and detail.
+      //
+      // Only reports for PUBLISHED models carry artifact `type: "published-model"`
+      // (set by the model-runner when it writes the report, and flipped
+      // immediately on accept — see ReviewArtifacts.handleAccept). Filtering on
+      // that top-level `type` lets the server return the exact set with a correct
+      // total and pagination — no client-side heuristics. (manifest.* fields are
+      // NOT filterable on the backend, but `type` is.) Staged-model reports
+      // (`type: "staged-model"`) and the consolidated `inference-report`
+      // (`generic`) are naturally excluded.
+      if (resourceType === 'model' && !hasQuery && !hasFilters) {
+        const reportUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-reports/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&filters=${encodeURIComponent(JSON.stringify({ type: 'published-model' }))}&order_by=${encodeURIComponent('manifest.score>,manifest.metadata_completeness>')}`;
+        const reportResp = await fetch(reportUrl);
+        const reportData = await reportResp.json();
+        const resources = (reportData.items || []).map((report: any) => {
+          const m = report.manifest || {};
+          // The model's COLLECTION alias is the report alias minus the
+          // `test-report-` prefix (e.g. test-report-ambitious-ant -> ambitious-ant).
+          // Do NOT use manifest.id: for Zenodo-deposited models that is the DOI
+          // (e.g. 10.5281/zenodo.../...), which is not the collection alias and
+          // would break cover/detail resolution. The alias is what covers, links
+          // and the detail page resolve against in bioimage-io/bioimage.io.
+          const modelId = (report.id?.split('/').pop() || '').replace(/^test-report-/, '');
+          return { id: `bioimage-io/${modelId}`, type: 'model', manifest: m };
+        });
+        set({ resources, totalItems: reportData.total || 0, isLoading: false });
+        return;
+      }
+
+      // SEARCH MODE for models — fetch committed models and filter client-side by
+      // name / description / tags AND the alias (nickname), so a model is findable
+      // by its memorable id, which the server keyword index does not cover. This
+      // sources from the model collection (rich data) and surfaces any published
+      // model. partnerLink searches fall through to the keyword path below.
+      if (resourceType === 'model' && hasQuery && !filterOptions?.partnerLink) {
+        const q = (searchQuery || '').trim().toLowerCase();
+        const tagFilters = (filterOptions?.tags || []).map(t => String(t).toLowerCase());
+        const searchUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&limit=2000&stage=false&filters=${encodeURIComponent(JSON.stringify({ type: 'model' }))}&order_by=created_at>`;
+        const searchResp = await fetch(searchUrl);
+        const searchData = await searchResp.json();
+        const HIDDEN = ['draft', 'in-review', 'in-revision'];
+        const matches = (searchData.items || []).filter((it: any) => {
+          const m = it.manifest || {};
+          if (HIDDEN.includes(m.status)) return false;
+          const tags = (m.tags || []).map((t: any) => String(t).toLowerCase());
+          if (tagFilters.length && !tagFilters.every(t => tags.includes(t))) return false;
+          const alias = (it.id || '').split('/').pop().toLowerCase();
+          return (
+            alias.includes(q) ||
+            m.name?.toLowerCase().includes(q) ||
+            m.description?.toLowerCase().includes(q) ||
+            tags.some((t: string) => t.includes(q))
+          );
+        });
+        set({
+          resources: matches.slice(offset, offset + get().itemsPerPage),
+          totalItems: matches.length,
+          isLoading: false
+        });
+        return;
+      }
+
+      // Construct the base URL. Order by newest first; `manifest.score` was a
+      // remnant of when test results lived in the artifact and is unset on
+      // ~every model, so it produced an effectively-random order — dropped.
+      let url = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&offset=${offset}&limit=${get().itemsPerPage}&stage=false&order_by=created_at>`;
 
       // Prepare filters object
       const filters: any = {};
@@ -366,8 +513,19 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       const response = await fetch(url);
       const data = await response.json();
 
+      // Hide models that aren't approved for the public zoo: drafts, those under
+      // review, or sent back for revision. Everything else stays visible —
+      // `published` and legacy no-status models. Deletion is a separate
+      // request_deletion field (a deletion-requested model keeps its published
+      // status and stays visible until an admin removes it). Hypha filters have
+      // no negation operator, so this is done client-side (a handful of items).
+      const HIDDEN_GRID_STATUSES = ['draft', 'in-review', 'in-revision'];
+      const visibleItems = (data.items || []).filter(
+        (it: any) => !HIDDEN_GRID_STATUSES.includes(it?.manifest?.status)
+      );
+
       set({
-        resources: data.items || [],
+        resources: visibleItems,
         totalItems: data.total || 0,
         isLoading: false
       });
@@ -456,9 +614,43 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   setMyArtifactsTotalItems: (total) => set({ myArtifactsTotalItems: total }),
   setReviewArtifactsPage: (page) => set({ reviewArtifactsPage: page }),
   setReviewArtifactsTotalItems: (total) => set({ reviewArtifactsTotalItems: total }),
+
+  // Recount models awaiting review (status 'in-review', NOT 'in-revision').
+  // Staged manifests aren't keyword-indexed, so list the staged children and read
+  // each staged manifest individually (same approach the review page uses).
+  refreshPendingReviewCount: async () => {
+    const am = get().artifactManager;
+    if (!am) return;
+    try {
+      const resp = await am.list({
+        parent_id: 'bioimage-io/bioimage.io',
+        stage: true,
+        limit: 1000,
+        pagination: true,
+        _rkwargs: true,
+      });
+      const items: any[] = resp?.items ?? [];
+      const reads = await Promise.all(
+        items.map(async (a: any) => {
+          try {
+            return await am.read({ artifact_id: a.id, stage: true, _rkwargs: true });
+          } catch {
+            return null;
+          }
+        })
+      );
+      set({ pendingReviewCount: reads.filter((a: any) => a?.manifest?.status === 'in-review').length });
+    } catch (err) {
+      console.error('Error refreshing pending-review count:', err);
+    }
+  },
+  setPendingReviewCount: (n) => set({ pendingReviewCount: n }),
   logout: async () => {
     const currentServer = get().server;
     if (currentServer && typeof currentServer.disconnect === 'function') {
+      // Detach first so this deliberate teardown doesn't trip the
+      // on_disconnected handler into a spurious reconnect.
+      detachDisconnectHandler(currentServer);
       try {
         await currentServer.disconnect();
       } catch (disconnectError) {
@@ -473,6 +665,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       server: null,
       artifactManager: null,
       isConnected: false,
+      connectionStatus: 'disconnected',
       isAuthenticated: false,
       isLoggedIn: false,
       user: null,
