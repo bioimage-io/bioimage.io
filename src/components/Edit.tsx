@@ -157,6 +157,11 @@ const Edit: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
+  // Weight-change safeguard: set when a user tries to add/overwrite/delete a
+  // model weight file while editing an already-published version in place.
+  // Changing weights of a published (committed) version would silently mutate a
+  // citable release, so we block it and steer the user to create a new version.
+  const [weightGuard, setWeightGuard] = useState<{ fileName: string } | null>(null);
   const [newVersionCopyFiles, setNewVersionCopyFiles] = useState(true);
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
   const [copyProgress, setCopyProgress] = useState<{
@@ -316,6 +321,42 @@ const Edit: React.FC = () => {
       setLastVersion(null);
     }
   }, [artifactInfo]);
+
+  // Hypha reports the staging intent via a marker entry in `artifactInfo.staging`
+  // (see hypha artifact.py `convert_legacy_staging` / `edit`): 'edit_version'
+  // overwrites the latest committed version in place, 'new_version' appends a
+  // fresh version, 'new_artifact' is a never-committed draft.
+  const stagingIntent = useMemo<string | null>(() => {
+    const marker = (artifactInfo?.staging || []).find((s: any) => s && s._intent);
+    return (marker?._intent as string) ?? null;
+  }, [artifactInfo?.staging]);
+
+  // True only when the current session edits an already-published version in
+  // place. Weight-file changes are blocked in this state (see weightGuard).
+  const isEditingPublishedInPlace =
+    (artifactInfo?.versions?.length ?? 0) > 0 && stagingIntent === 'edit_version';
+
+  // Whether a file path is a declared model weight file. Mirrors the green
+  // "weight" badge in the file list: checks the committed config.download_weights
+  // map, the staged download_weight flags, and the manifest `weights[*].source`.
+  const isWeightFilePath = (path: string): boolean => {
+    const normalized = path.startsWith('./') ? path.substring(2) : path;
+    const downloadWeights = artifactInfo?.config?.download_weights;
+    if (downloadWeights && (downloadWeights[path] > 0 || downloadWeights[normalized] > 0)) {
+      return true;
+    }
+    const staged = artifactInfo?.staging;
+    if (Array.isArray(staged) && staged.some(
+      (item: any) => item?.path === path && item?.download_weight > 0
+    )) {
+      return true;
+    }
+    return extractWeightFiles(artifactInfo?.manifest).some(
+      (weightPath) => weightPath === normalized ||
+        normalized.endsWith(`/${weightPath}`) ||
+        weightPath.endsWith(`/${normalized}`)
+    );
+  };
 
   const isTextFile = (filename: string): boolean => {
     const textExtensions = [
@@ -1763,6 +1804,27 @@ const Edit: React.FC = () => {
 
     for (const file of acceptedFiles) {
       try {
+        // Check if this is a weight file
+        const isWeightFile = weightFilePaths.some((weightPath: string) => {
+          const normalizedFilePath = file.name.startsWith('./') ? file.name.substring(2) : file.name;
+          return normalizedFilePath === weightPath ||
+                 normalizedFilePath.endsWith(`/${weightPath}`) ||
+                 weightPath.endsWith(`/${normalizedFilePath}`);
+        });
+
+        // Safeguard: block changing model weights of an already-published
+        // version in place. The user must create a new version instead. Checked
+        // before any overwrite/checksum prompt so the user isn't asked to
+        // confirm an upload that will be rejected.
+        if (isWeightFile && isEditingPublishedInPlace) {
+          setUploadStatus({
+            message: `"${file.name}" is a model weight file. Create a new version to change model weights.`,
+            severity: 'error'
+          });
+          setWeightGuard({ fileName: file.name });
+          continue; // Skip this file, keep processing the rest
+        }
+
         // Check if a file with this name already exists
         const existingFile = files.find(f => f.name === file.name || f.path === file.name);
         if (existingFile) {
@@ -1839,14 +1901,6 @@ const Edit: React.FC = () => {
         setUploadStatus({
           message: `Uploading ${file.name}...`,
           severity: 'info'
-        });
-
-        // Check if this is a weight file
-        const isWeightFile = weightFilePaths.some((weightPath: string) => {
-          const normalizedFilePath = file.name.startsWith('./') ? file.name.substring(2) : file.name;
-          return normalizedFilePath === weightPath ||
-                 normalizedFilePath.endsWith(`/${weightPath}`) ||
-                 weightPath.endsWith(`/${normalizedFilePath}`);
         });
 
         // Get presigned URL for upload
@@ -2007,7 +2061,7 @@ const Edit: React.FC = () => {
       }
     }
 
-  }, [artifactId, artifactInfo, artifactManager, files, isReviewer, canEditArtifact, isStaged, unsavedChanges, fetchFileContent, handleSave]);
+  }, [artifactId, artifactInfo, artifactManager, files, isReviewer, canEditArtifact, isStaged, isEditingPublishedInPlace, unsavedChanges, fetchFileContent, handleSave]);
 
   const { getRootProps, getInputProps } = useDropzone({ 
     onDrop,
@@ -2024,6 +2078,18 @@ const Edit: React.FC = () => {
         message: 'Stage this artifact for editing before deleting files.',
         severity: 'error'
       });
+      return;
+    }
+
+    // Safeguard: deleting a model weight file from an already-published version
+    // in place would silently alter a citable release. Require a new version.
+    if (isEditingPublishedInPlace && isWeightFilePath(file.path)) {
+      setShowDeleteConfirm(null);
+      setUploadStatus({
+        message: `"${file.name}" is a model weight file. Create a new version to change model weights.`,
+        severity: 'error'
+      });
+      setWeightGuard({ fileName: file.name });
       return;
     }
 
@@ -2544,6 +2610,57 @@ const Edit: React.FC = () => {
         </div>
       </div>
     )
+  );
+
+  // Weight-change safeguard dialog. Shown when a user tries to change a model
+  // weight file while editing an already-published version in place. Offers to
+  // create a new version (the existing New Version flow) where weight changes
+  // are allowed.
+  const renderWeightGuardDialog = () => (
+    <MuiDialog
+      open={!!weightGuard}
+      onClose={() => setWeightGuard(null)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Model weights are locked in a published version
+        </h3>
+        <div className="space-y-4 text-sm text-gray-600">
+          <p>
+            <span className="font-semibold text-gray-800">
+              {weightGuard?.fileName}
+            </span>{' '}
+            is a model weight file, and this model already has a published
+            version. Changing the weights of a published version would alter a
+            citable release: the same version and DOI would then point to a
+            different model.
+          </p>
+          <p>
+            To update the model weights, create a new version. Your current
+            files can be copied into it, and you can replace the weights there.
+          </p>
+        </div>
+        <div className="mt-6 flex gap-3 justify-end">
+          <button
+            onClick={() => setWeightGuard(null)}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              setWeightGuard(null);
+              setShowNewVersionDialog(true);
+            }}
+            className="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 bg-blue-600 hover:bg-blue-700"
+          >
+            Create New Version
+          </button>
+        </div>
+      </div>
+    </MuiDialog>
   );
 
   // Add function to handle new version creation
@@ -3187,6 +3304,8 @@ const Edit: React.FC = () => {
       {renderDeleteConfirmDialog()}
 
       {renderNewVersionDialog()}
+
+      {renderWeightGuardDialog()}
 
       {renderShaDialog()}
 
