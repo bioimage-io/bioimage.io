@@ -40,77 +40,6 @@ const extractWeightFiles = (manifest: any): string[] => {
   return weightFiles;
 };
 
-// Helper function to normalize file paths (remove leading ./)
-const normalizePath = (path: string): string => {
-  if (path.startsWith('./')) {
-    return path.substring(2);
-  }
-  return path;
-};
-
-// Helper function to recursively extract all "source" field values from any nested structure
-const extractSourceFields = (obj: any, sources: Set<string>): void => {
-  if (!obj || typeof obj !== 'object') return;
-  
-  if (Array.isArray(obj)) {
-    obj.forEach(item => extractSourceFields(item, sources));
-  } else {
-    Object.entries(obj).forEach(([key, value]) => {
-      if (key === 'source' && typeof value === 'string') {
-        sources.add(normalizePath(value));
-      } else if (typeof value === 'object') {
-        extractSourceFields(value, sources);
-      }
-    });
-  }
-};
-
-// Helper function to get all referenced files from the manifest (covers, documentation, source fields)
-const getReferencedFiles = (manifest: any): Set<string> => {
-  const referencedFiles = new Set<string>();
-  
-  if (!manifest) return referencedFiles;
-  
-  // Add covers
-  if (manifest.covers && Array.isArray(manifest.covers)) {
-    manifest.covers.forEach((cover: string) => {
-      const normalizedCover = normalizePath(cover);
-      referencedFiles.add(normalizedCover);
-      // Also add thumbnail variants (e.g., cover.thumbnail.png, cover.thumbnail.jpg)
-      const lastDotIndex = normalizedCover.lastIndexOf('.');
-      if (lastDotIndex > 0) {
-        const baseName = normalizedCover.substring(0, lastDotIndex);
-        const extension = normalizedCover.substring(lastDotIndex);
-        referencedFiles.add(`${baseName}.thumbnail${extension}`);
-        referencedFiles.add(`${baseName}.thumbnail.png`);
-        referencedFiles.add(`${baseName}.thumbnail.jpg`);
-        referencedFiles.add(`${baseName}.thumbnail.jpeg`);
-      }
-    });
-  }
-  
-  // Add documentation
-  if (manifest.documentation && typeof manifest.documentation === 'string') {
-    referencedFiles.add(normalizePath(manifest.documentation));
-  }
-  
-  // Recursively extract all "source" fields from the entire manifest
-  extractSourceFields(manifest, referencedFiles);
-  
-  return referencedFiles;
-};
-
-// Helper function to check if a file should be greyed out
-const isFileUnreferenced = (fileName: string, manifest: any): boolean => {
-  // Never grey out the RDF spec file
-  if (isRdfFileName(fileName)) return false;
-
-  const referencedFiles = getReferencedFiles(manifest);
-  
-  // Check if the file is referenced
-  return !referencedFiles.has(fileName);
-};
-
 // Helper function to recursively update sha256 values for source fields in manifest - Removed (replaced by updateManifestSha256)
 // Helper function to find and update sha256 for a specific source file in manifest - Removed (replaced by updateRdfFileReference)
 
@@ -226,8 +155,6 @@ const Edit: React.FC = () => {
   const [artifactInfo, setArtifactInfo] = useState<ArtifactInfo | null>(null);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  // Name of the file whose "not referenced in the manifest" warning dialog is open.
-  const [unreferencedDialogFile, setUnreferencedDialogFile] = useState<string | null>(null);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [newVersionCopyFiles, setNewVersionCopyFiles] = useState(true);
@@ -2223,7 +2150,6 @@ const Edit: React.FC = () => {
           </div>
         ) : (
           files.map((file) => {
-            const isUnreferenced = isFileUnreferenced(file.name, artifactInfo?.manifest);
             return (
             <div
               key={file.path}
@@ -2233,21 +2159,21 @@ const Edit: React.FC = () => {
               }`}
             >
               {/* File icon and name */}
-              <div 
-                className={`flex items-center flex-1 min-w-0 ${isUnreferenced ? 'opacity-50' : ''}`}
+              <div
+                className="flex items-center flex-1 min-w-0"
               >
                 {/* File Icon */}
                 <span className="flex-shrink-0">
                   {file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   ) : file.name.match(/\.(png|jpg|jpeg|gif)$/i) ? (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   ) : (
-                    <svg className={`w-4 h-4 ${isUnreferenced ? 'text-gray-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                   )}
@@ -2255,7 +2181,7 @@ const Edit: React.FC = () => {
 
                 {/* File Name with Star for rdf.yaml */}
                 <div className="flex items-center gap-2 flex-1">
-                  <span className={`truncate text-sm font-medium tracking-wide ${isUnreferenced ? 'text-gray-400' : ''}`}>
+                  <span className="truncate text-sm font-medium tracking-wide">
                     {file.name}
                   </span>
                   {isRdfFileName(file.name) && (
@@ -2290,23 +2216,6 @@ const Edit: React.FC = () => {
 
                 {/* Action buttons - hidden by default, shown on group hover */}
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                  {/* Info button for unreferenced files */}
-                  {isUnreferenced && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setUnreferencedDialogFile(file.name);
-                      }}
-                      title="File not referenced"
-                      aria-label={`File not referenced in ${rdfFileName}`}
-                      className="p-1 hover:bg-amber-100 rounded transition-colors"
-                    >
-                      <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </button>
-                  )}
-                  
                   {/* Download button */}
                   <button
                     onClick={(e) => {
@@ -3282,39 +3191,6 @@ const Edit: React.FC = () => {
       {renderShaDialog()}
 
       {renderOverwriteDialog()}
-
-      {/* Unreferenced-file warning — replaces the old native alert(). */}
-      <MuiDialog
-        open={!!unreferencedDialogFile}
-        onClose={() => setUnreferencedDialogFile(null)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <div className="p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <svg className="w-6 h-6 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
-            </svg>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">File not referenced</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                <span className="font-medium text-gray-800">{unreferencedDialogFile}</span> is not referenced in{' '}
-                <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{rdfFileName}</code>. Only files referenced in{' '}
-                <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{rdfFileName}</code> are visible to model test runs and other services.
-              </p>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={() => setUnreferencedDialogFile(null)}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </MuiDialog>
 
       {/* Add ValidationErrorDialog */}
       <ValidationErrorDialog
