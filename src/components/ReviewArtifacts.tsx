@@ -190,22 +190,55 @@ const ReviewArtifacts: React.FC = () => {
 
       if (viewMode === 'deletion') {
         // Models marked for deletion (manifest.request_deletion) plus versionless
-        // orphan artifacts — read each staged child, same as the pending view.
-        const resp = await artifactManager.list({
-          parent_id: "bioimage-io/bioimage.io",
-          stage: true,
-          limit: 1000,
-          pagination: true,
-          _rkwargs: true
-        });
-        const items: Artifact[] = resp.items ?? [];
-        const reads = await Promise.all(
-          items.map(async (a: Artifact) => {
+        // orphan artifacts. The mark can live in EITHER place:
+        //   - the STAGED manifest — the normal reviewer flow (requestDeletion)
+        //     stages the flag without committing, so the model has a staged
+        //     version, or
+        //   - a COMMITTED manifest — e.g. the legacy-status-migration wrote the
+        //     flag straight into the published manifest, leaving no staged
+        //     version at all.
+        // A staged-only scan misses the committed ones (they're absent from
+        // list(stage:true)), so we pull both listings and merge, exactly like
+        // the pending view. Committed manifests are already indexed, so they
+        // need no per-item read.
+        const [stagedResp, committedResp] = await Promise.all([
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            stage: true,
+            limit: 1000,
+            pagination: true,
+            _rkwargs: true
+          }),
+          artifactManager.list({
+            parent_id: "bioimage-io/bioimage.io",
+            stage: false,
+            limit: 2000,
+            pagination: true,
+            _rkwargs: true
+          })
+        ]);
+
+        const stagedItems: Artifact[] = stagedResp.items ?? [];
+        const stagedReads = await Promise.all(
+          stagedItems.map(async (a: Artifact) => {
             try { return await artifactManager.read({ artifact_id: a.id, stage: true, _rkwargs: true }); }
             catch { return null; }
           })
         );
-        let marked: Artifact[] = (reads.filter(Boolean) as Artifact[]).filter((a: any) => {
+
+        // Keep only committed models that carry a valid deletion request.
+        const committedMarked: Artifact[] = (committedResp.items ?? []).filter(
+          (a: any) => getDeletionRequest(a)
+        );
+
+        // Merge staged reads with committed-but-marked models, deduped by id.
+        // The staged read wins when a model appears in both, since its manifest
+        // reflects the latest pending edits (e.g. a re-requested flag).
+        const byId = new Map<string, Artifact>();
+        for (const a of committedMarked) if (a?.id) byId.set(a.id, a);
+        for (const a of stagedReads as (Artifact | null)[]) if (a?.id) byId.set(a.id, a);
+
+        let marked: Artifact[] = Array.from(byId.values()).filter((a: any) => {
           const orphan = !isPublished(a) && !a.staging;
           return (getDeletionRequest(a) || orphan) && matchesType(a);
         });
