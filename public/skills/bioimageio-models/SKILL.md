@@ -22,7 +22,7 @@ Your job: gather information, build a valid `rdf.yaml` package, validate it, sub
 
   *Why the reproducibility test matters:* it is the community's guarantee that the model produces the **same, correct result** when someone else runs it on their own machine. That reproducibility is exactly what lets a researcher rely on the model's output in their analysis. A faked test buys nothing real — it may go green, but the underlying model is broken, so the first user who runs it on their own data gets nonsense, notices immediately, and never trusts that model (or, by extension, the Zoo) again. Honest testing is how you earn a model that people actually adopt; faking it produces a model that is used once and abandoned.
 
-- **Never smuggle dependencies into the package.** Do not vendor an entire library, a wheel, a git checkout, or a base64/zip-encoded blob into the package and decode-and-import it at runtime. If the model needs packages outside the shared BioEngine runtime, use a *sanctioned* path — export to TorchScript/ONNX (fully servable), or declare a conda environment file via the weights entry's `dependencies` field (test-only). Both are covered in [architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md).
+- **Never smuggle dependencies into the package.** Do not vendor an entire library, a wheel, a git checkout, or a base64/zip-encoded blob into the package and decode-and-import it at runtime. If the model needs packages outside the shared BioEngine runtime, use a *sanctioned* path — export to TorchScript/ONNX (fully servable), or declare a conda environment file via the weights entry's `dependencies` field (test-only). Both are covered in [architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md). **Do not bundle a library into the package to make the model look standard-runtime compatible and lift its browse score** (see "How models are scored and ranked" above). A smuggled dependency games the ranking without making the model genuinely servable, and it breaks the moment it lands on a different machine. If the missing dependency is broadly useful and you believe it should just be part of the shared runtime, request that instead: search the open issues first, then open one if needed at https://github.com/bioimage-io/bioimage.io/issues describing the package and why it belongs in the runtime. Expanding the sanctioned runtime lifts every model that needs that package; vendoring a private copy helps none of them.
 
   *Why bundling a library breaks the model:* it may run in the exact environment you built it in, but a published model's whole point is to run **elsewhere** — on a user's laptop, a different OS/CPU/GPU, a cluster. A hard-coded, encoded copy of a library is frozen to your machine: it can fail to import on a different platform, and it silently drifts out of sync when the *real* dependencies (torch, numpy, the framework) are upgraded around it, so the model that "passed" quietly stops working. Declaring dependencies the sanctioned way lets them resolve and update correctly wherever the model lands — that portability is what makes a model *reusable* instead of a one-machine curiosity.
 
@@ -30,6 +30,16 @@ Your job: gather information, build a valid `rdf.yaml` package, validate it, sub
 - **A clean package is ~5–9 files** — exactly what `rdf.yaml` references, nothing more. If `generated/` is much larger, something is being bundled that shouldn't be.
 
 In short: the checks are proxies for real qualities users depend on — **reproducibility, portability, and honest provenance**. Optimise for those and the checks pass naturally; optimise for the checks alone and you ship a model that fails the people it was meant to help.
+
+### How models are scored and ranked on bioimage.io
+
+The public model grid on bioimage.io is ordered by a **score** the BioEngine test computes for every model, so the qualities below directly control how far up the browse list a model appears. They are listed in descending weight — put your effort in this order:
+
+1. **Reproducibility (weighted highest).** The model actually runs on the BioEngine GPU runtime and its declared `(test_input, test_output)` pair reproduces. Inference passing, and then the full test suite passing, are the two biggest score jumps — far above a merely `valid-format` result.
+2. **Standard-runtime compatibility.** The model can be *served* on the shared BioEngine runtime via `infer()` — i.e. a TorchScript/ONNX export, or a `pytorch_state_dict` whose architecture imports only the fixed runtime packages. Test-only models that require a custom conda environment (`dependencies: environment.yaml`) still validate and can be published, but they cannot be served on the shared runtime, so they rank below servable models.
+3. **Metadata completeness (0..1).** Authors, license, documentation, tags, covers, citations, and the other RDF fields filled in with real information.
+
+Raise all three **honestly** (see the integrity rules above). The score is a proxy for "will this model be useful and trustworthy to the next person" — gaming it produces a model that ranks high but disappoints its first real user.
 
 > **How to load the linked reference files.** Every `references/...` and `scripts/...` link below resolves to a raw file served from this same site (e.g. `https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if you have a local clone of the repo. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest that strips the exact YAML fields, SHA256 lines, and code you need to copy verbatim. Treat each reference file as canonical source, not as a webpage.
 
@@ -209,7 +219,7 @@ printf 'generated/\n' >> model_package/.gitignore
       github_user: githubhandle
       affiliation: "Institute"
   ```
-- Set `maintainers` to the packagers by default, since they are usually the people who can fix packaging issues and update the submitted package.
+- Set `maintainers` to the packagers gathered in Phase 1 (the uploader/packager's own name and GitHub handle; ask the user if you don't have it), since they are usually the people who can fix packaging issues and update the submitted package. **Never** populate `maintainers` (or `authors` / `packaged_by`) from the logged-in Hypha account (`server.config.user`) or any shared-login default such as `"BioImage.IO Contributor"`. That identity belongs to whoever's token is currently in use, not to the model's packager, and copying it silently mis-attributes the model to the wrong person.
 - Keep all `source` paths relative to the package directory that contains `rdf.yaml`. If artifacts live in `generated/`, validate `generated/rdf.yaml`, not a stale root-level RDF.
 
 ### Test-output contract
