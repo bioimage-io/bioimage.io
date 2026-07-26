@@ -18,6 +18,7 @@ import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { updateManifestSha256 } from '../utils/sha-handling';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
 import { isInternalArtifactFile } from '../utils/internalFiles';
+import { buildReviewerPermissions } from '../utils/roles';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -164,7 +165,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [promptCopied, setPromptCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user, showError } = useHyphaStore();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null);
 
   // Shared runner connection + Advanced Options. `conn.modelRunners` is the
@@ -915,6 +916,24 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           aliasPattern = '{object_adjective}-{object}';
       }
 
+      // Read the collection up front: we need it both to grant reviewers on the
+      // new model and to resolve the model's emoji below.
+      const collection = await artifactManager.read({
+        artifact_id: 'bioimage-io/bioimage.io',
+        _rkwargs: true
+      });
+
+      // Grant the collection's reviewers write access on the model from creation.
+      // Hypha enforces permissions from the committed base config, and `create`
+      // writes config straight to base config while the model stays staged and
+      // versionless (no commit, not published). So reviewers can act on the model
+      // at every review stage, not just after it is published. `create` grants the
+      // uploader `*` automatically, so we only add the reviewers here.
+      const reviewerPermissions = buildReviewerPermissions(
+        collection?.config as { permissions?: Record<string, string> } | undefined,
+        undefined,
+      );
+
       // Create new artifact with type-specific alias pattern
       const artifact = await artifactManager.create({
         parent_id: "bioimage-io/bioimage.io",
@@ -922,7 +941,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         type: manifest.type,
         manifest: manifest,
         config: {
-          publish_to: "sandbox_zenodo"
+          publish_to: "sandbox_zenodo",
+          permissions: reviewerPermissions
         },
         stage: true,
         _rkwargs: true,
@@ -937,10 +957,6 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
 
       // Find the emoji for the generated id
       const noun = extractNounFromId(shortId);
-      const collection = await artifactManager.read({
-        artifact_id: 'bioimage-io/bioimage.io',
-        _rkwargs: true
-      });
       const emoji = findEmoji(collection.config, manifest.type, noun);
       setGeneratedEmoji(emoji);
 
@@ -971,7 +987,12 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       // Update the manifest content in the files array and mark it as edited
       const updatedFiles = files.map(file => {
         if (endsWithRdfFileName(file.path)) {
-          const updatedContent = yaml.dump(updatedManifest, {
+          // `status` is an app-level review field that lives only in the Hypha
+          // manifest. The packaged RDF follows the closed bioimageio.spec schema,
+          // which rejects unknown top-level fields ("Extra inputs are not
+          // permitted"), so strip it from the serialized file (not the manifest).
+          const { status: _status, ...rdfManifest } = updatedManifest;
+          const updatedContent = yaml.dump(rdfManifest, {
             // Ensure consistent formatting
             indent: 2,
             lineWidth: -1, // Don't wrap long lines
@@ -1256,6 +1277,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           severity: 'error'
         });
         setTimeout(() => navigate(`/edit/${encodeURIComponent(createdArtifactId)}/stage`), 2500);
+        showError('Some files may not have uploaded', error, createdArtifactId);
       } else {
         setUploadStatus({
           message: error instanceof Error
@@ -1264,6 +1286,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
           severity: 'error'
         });
         setIsUploading(false);
+        showError('Upload failed', error);
       }
     }
   };
@@ -1629,9 +1652,11 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
                         hint={
                           !isLoggedIn
                             ? 'Log in to upload your model.'
-                            : !isValidated
-                              ? 'Run Validate first. The manifest must pass validation before it can be uploaded.'
-                              : undefined
+                            : isUploading
+                              ? undefined
+                              : !isValidated
+                                ? 'Run Validate first. The manifest must pass validation before it can be uploaded.'
+                                : undefined
                         }
                       >
                         <button

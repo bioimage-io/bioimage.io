@@ -34,6 +34,28 @@ from hypha_rpc import connect_to_server
 SERVER_URL = "https://hypha.aicell.io"
 PARENT_ID = "bioimage-io/bioimage.io"   # The main Zoo collection
 
+# Permission codes that mark a collection member as a model-zoo reviewer.
+# (`r` = public read, `@` = a list of specific readers — neither is a reviewer.)
+REVIEWER_CODES = {"rw", "rw+", "*"}
+REVIEWER_GRANT = "rw+"                   # what we grant each reviewer on the new model
+
+
+def build_reviewer_permissions(collection_config: dict) -> dict:
+    """Reviewer ids from the collection, each granted rw+ on the new model.
+
+    A reviewer holds a reviewer-coded permission on the parent collection. We
+    grant them the same rw+ (read/write, NOT delete) on the child model so they
+    can edit it during review. We never downgrade anyone already at `*`.
+    """
+    perms = {}
+    for uid, code in (collection_config.get("permissions") or {}).items():
+        # Guard the type: the `@` key maps to a LIST of reader ids, not a code
+        # string, and `list in set` would raise. Non-string codes are never
+        # reviewers (mirrors roles.ts `typeof code === 'string'`).
+        if isinstance(code, str) and code in REVIEWER_CODES and code != "*":
+            perms[uid] = REVIEWER_GRANT
+    return perms
+
 
 def compute_sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -70,16 +92,27 @@ async def submit_model(package_dir: str, token: str):
         #   model       → "{animal_adjective}-{animal}"   e.g. "affable-shark"
         #   dataset     → "{fruit_adjective}-{fruit}"     e.g. "sweet-apple"
         #   application → "{object_adjective}-{object}"   e.g. "shiny-hammer"
+        #
+        # Grant the collection's reviewers write access on the model *from
+        # creation*. Permissions in a create() call land directly in the
+        # enforced base config while the artifact stays staged/versionless (no
+        # commit, not published), so reviewers can edit the model the moment it
+        # goes to review without anyone having to commit it first. create()
+        # gives you (the uploader) `*` automatically, so we only add reviewers.
+        collection = await am.read(artifact_id=PARENT_ID)
+        reviewer_permissions = build_reviewer_permissions(collection.get("config") or {})
+
         artifact = await am.create(
             parent_id=PARENT_ID,
             alias="{animal_adjective}-{animal}",   # generates a memorable 2-word animal name
             type="model",
             manifest={**manifest, "status": "draft"},   # new submissions start as a draft
+            config={"permissions": reviewer_permissions},
             stage=True,         # Staged = not publicly visible yet; goes to curator review
             overwrite=False,
         )
         artifact_id = artifact["id"]
-        print(f"Created artifact: {artifact_id}")
+        print(f"Created artifact: {artifact_id} (reviewers granted rw+)")
 
         # --- Step 2: Upload all files ---
         # Exclude __pycache__ and other build artifacts
@@ -156,10 +189,14 @@ artifact = await am.create(
     alias="{animal_adjective}-{animal}",  # model alias pattern — yields e.g. "affable-shark"
     type="model",
     manifest={...},     # Your rdf.yaml content as a dict
+    config={"permissions": reviewer_permissions},  # reviewers → rw+, see build_reviewer_permissions
     stage=True,         # ALWAYS True for new submissions
     overwrite=False,
 )
 # Returns: { "id": "bioimage-io/affable-shark", "alias": "affable-shark", ... }
+# `config.permissions` given at create() lands in the ENFORCED base config while
+# the artifact stays versionless — this is how reviewers get edit access without
+# any commit. Do NOT pass permissions via a later stage=False edit: that publishes.
 ```
 
 ### `am.put_file(...)` — Get presigned upload URL

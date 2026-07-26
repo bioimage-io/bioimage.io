@@ -129,7 +129,7 @@ const Edit: React.FC = () => {
   // Prefers bioimageio.yaml; default for new artifacts is bioimageio.yaml.
   const rdfFileName = useMemo(() => detectRdfFileName(files), [files]);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const { artifactManager, isLoggedIn, server, user } = useHyphaStore();
+  const { artifactManager, isLoggedIn, server, user, showError } = useHyphaStore();
   // Shared runner connection + Advanced Options state. `conn.modelRunners` is
   // the effective runner (override-aware) shared by ModelValidator and
   // ModelTester; the Server URL / Service ID override lives in a shared store
@@ -472,6 +472,7 @@ const Edit: React.FC = () => {
     } catch (error) {
       console.error('Error staging artifact:', error);
       setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
+      showError('Failed to stage artifact for editing', error, artifactId);
     }
   };
 
@@ -484,6 +485,7 @@ const Edit: React.FC = () => {
     } catch (error) {
       console.error('Error committing staged changes:', error);
       setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
+      showError('Failed to commit changes', error, artifactId);
     }
   };
 
@@ -1270,6 +1272,7 @@ const Edit: React.FC = () => {
           message: 'Error saving changes',
           severity: 'error'
         });
+        showError('Error saving changes', error, file?.path);
       }
     } catch (error) {
       console.error('Error in save process:', error);
@@ -1277,6 +1280,7 @@ const Edit: React.FC = () => {
         message: 'Error saving changes',
         severity: 'error'
       });
+      showError('Error saving changes', error, file?.path);
     }
   };
 
@@ -1349,6 +1353,7 @@ const Edit: React.FC = () => {
         message: 'Error publishing artifact',
         severity: 'error'
       });
+      showError('Error publishing artifact', error, artifactId);
     }
   };
 
@@ -2058,6 +2063,7 @@ const Edit: React.FC = () => {
           message: `Error uploading ${file.name}`,
           severity: 'error'
         });
+        showError(`Error uploading ${file.name}`, error, artifactId);
       }
     }
 
@@ -2169,6 +2175,7 @@ const Edit: React.FC = () => {
         message: `Error deleting ${file.name}`,
         severity: 'error'
       });
+      showError(`Error deleting ${file.name}`, error, artifactId);
     }
     setShowDeleteConfirm(null);
   };
@@ -2795,6 +2802,7 @@ const Edit: React.FC = () => {
         message: 'Error creating new version',
         severity: 'error'
       });
+      showError('Error creating new version', error, artifactId);
     } finally {
       setIsCreatingVersion(false);
     }

@@ -45,6 +45,41 @@ export function getIsReviewer(
   return typeof code === 'string' && REVIEWER_CODES.has(code);
 }
 
+/**
+ * The reviewer permission level granted on a model when it enters review.
+ * `rw+` lets reviewers read, edit and commit (accept) the model but not delete
+ * it, matching the reviewer capability matrix above.
+ */
+export const REVIEWER_PERMISSION_LEVEL = 'rw+';
+
+/**
+ * Build the `config.permissions` map a model should carry while under review.
+ *
+ * Starts from the model's existing permissions (so the uploader keeps their
+ * `*`) and grants every reviewer from the collection `rw+`. A reviewer is any
+ * user whose collection permission code is a write-level code (`rw`/`rw+`/`*`),
+ * exactly the same rule `getIsReviewer` uses, so the two never drift. Existing
+ * `*` or `rw+` entries are left untouched (never downgrade the uploader).
+ *
+ * This is what "Submit for Review" applies in-place (staged edit, no commit) so
+ * reviewers can act on the model. Programmatic submission must do the same.
+ */
+export function buildReviewerPermissions(
+  collectionConfig: CollectionConfig | null | undefined,
+  existingPermissions: Record<string, string> | null | undefined,
+): Record<string, string> {
+  const permissions: Record<string, string> = { ...(existingPermissions || {}) };
+  const collectionPerms = collectionConfig?.permissions || {};
+  for (const [userId, code] of Object.entries(collectionPerms)) {
+    if (typeof code !== 'string' || !REVIEWER_CODES.has(code)) continue;
+    // Never downgrade an owner (`*`) or an already-reviewer (`rw+`) entry.
+    const current = permissions[userId];
+    if (current === '*' || current === REVIEWER_PERMISSION_LEVEL) continue;
+    permissions[userId] = REVIEWER_PERMISSION_LEVEL;
+  }
+  return permissions;
+}
+
 /** The Hypha workspace that owns the model collection. */
 export const COLLECTION_WORKSPACE = 'bioimage-io';
 

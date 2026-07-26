@@ -128,6 +128,17 @@ export interface HyphaState {
   hyphaUnreachableMessage: string | null;
   markHyphaUnreachable: (errorMessage?: string | null) => void;
   markHyphaReachable: () => void;
+
+  // Global error dialog. User-initiated mutations (review actions, edits,
+  // uploads, deletes) whose failure has no adequate inline surface call
+  // `showError` to open a single shared <ErrorDialog /> mounted at the layout
+  // root. The full error text (Hypha tracebacks are multi-line) is preserved
+  // so the scrollable dialog body shows the whole thing. This is distinct from
+  // the reachability banner: that is for "services are down", this is for a
+  // specific action the user just took failing.
+  errorDialog: { title: string; subtitle?: string; message: string } | null;
+  showError: (title: string, error: unknown, subtitle?: string) => void;
+  clearError: () => void;
   // Reconnect using the last-used token (reads from localStorage like LoginButton).
   reconnect: () => Promise<void>;
   // Resilient reconnection for when a live RPC call fails on a stale socket.
@@ -177,6 +188,29 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       ? { isHyphaUnreachable: false, hyphaUnreachableSince: null, hyphaUnreachableMessage: null }
       : state
   ),
+  errorDialog: null,
+  showError: (title: string, error: unknown, subtitle?: string) => set({
+    errorDialog: {
+      title,
+      subtitle,
+      // Preserve the full error text. Hypha errors surface as Error instances
+      // whose `message` carries the whole server traceback; anything else is
+      // stringified so the dialog never shows an empty body.
+      message:
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : (() => {
+                try {
+                  return JSON.stringify(error, null, 2);
+                } catch {
+                  return String(error);
+                }
+              })(),
+    },
+  }),
+  clearError: () => set(state => (state.errorDialog ? { errorDialog: null } : state)),
   reconnect: async () => {
     const savedToken = getSavedToken();
     set({ connectionStatus: 'reconnecting' });

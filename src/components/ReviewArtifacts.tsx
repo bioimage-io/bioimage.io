@@ -15,7 +15,7 @@ import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
-import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished } from '../utils/roles';
+import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished, buildReviewerPermissions, COLLECTION_WORKSPACE } from '../utils/roles';
 import { getDeletionRequest } from '../utils/deletionRequest';
 import RequestDeletionDialog from './RequestDeletionDialog';
 import DeclineDeletionDialog from './DeclineDeletionDialog';
@@ -48,7 +48,8 @@ const ReviewArtifacts: React.FC = () => {
     setReviewArtifactsPage,
     setReviewArtifactsTotalItems,
     setPendingReviewCount,
-    itemsPerPage
+    itemsPerPage,
+    showError
   } = useHyphaStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -422,7 +423,7 @@ const ReviewArtifacts: React.FC = () => {
       setSelectedArtifact(null);
     } catch (err) {
       console.error('Error approving artifact:', err);
-      setError('Failed to approve artifact');
+      showError('Failed to approve model', err, selectedArtifact.id);
     } finally {
       setApproveLoading(false);
     }
@@ -445,7 +446,7 @@ const ReviewArtifacts: React.FC = () => {
       setRejectReason('');
     } catch (err) {
       console.error('Error rejecting artifact:', err);
-      setError('Failed to reject artifact');
+      showError('Failed to reject model', err, selectedArtifact.id);
     } finally {
       setRejectLoading(false);
     }
@@ -491,25 +492,20 @@ const ReviewArtifacts: React.FC = () => {
       const updatedManifest = { ...artifact.manifest };
       updatedManifest.status = newStatus;
 
-      if (newStatus == "published"){
-        // commit the artifact to the model zoo
-        await artifactManager.commit({
-          artifact_id: artifact.id,
-          comment: "Committing artifact to model zoo",
-          _rkwargs: true
-        });
-      } else {
-        await artifactManager.edit({
-          artifact_id: artifact.id,
-          manifest: updatedManifest,
-          stage: viewMode === 'published' ? false : true,
-          _rkwargs: true
-        });
-      }
+      // Only ever called for review-status changes (e.g. 'in-revision'), never
+      // to publish. Publishing goes through handleAccept, which commits and
+      // grants reviewer permissions in one flow.
+      await artifactManager.edit({
+        artifact_id: artifact.id,
+        manifest: updatedManifest,
+        stage: viewMode === 'published' ? false : true,
+        _rkwargs: true
+      });
       // Refresh the list
       loadArtifacts();
     } catch (error) {
       console.error('Error updating status:', error);
+      showError('Failed to update model status', error, artifact.id);
     }
   };
 
@@ -562,6 +558,33 @@ const ReviewArtifacts: React.FC = () => {
 
       // Commit staged changes so the model gets/updates its published version.
       if (currentArtifact.staging) {
+        // Grant the collection's reviewers write access as part of this commit.
+        // Permission checks read the committed base config, never the staged
+        // overlay, so a staged permission grant never takes effect on its own.
+        // We merge reviewers into the staged config here and let the commit
+        // below promote it to base config, where it is finally enforced.
+        try {
+          const collection = await artifactManager.read({
+            artifact_id: `${COLLECTION_WORKSPACE}/bioimage.io`,
+            _rkwargs: true
+          });
+          const currentConfig = (currentArtifact.config as Record<string, any>) || {};
+          const permissions = buildReviewerPermissions(
+            collection?.config as { permissions?: Record<string, string> } | undefined,
+            currentConfig.permissions as Record<string, string> | undefined
+          );
+          await artifactManager.edit({
+            artifact_id: artifact.id,
+            config: { ...currentConfig, permissions },
+            stage: true,
+            _rkwargs: true
+          });
+        } catch (permErr) {
+          // If reviewer resolution fails, still publish rather than block
+          // acceptance. Reviewers can be topped up via the ops path if needed.
+          console.error('Could not grant reviewer permissions before commit:', permErr);
+        }
+
         currentArtifact = await artifactManager.commit({
           artifact_id: artifact.id,
           comment: acceptanceComment,
@@ -598,7 +621,7 @@ const ReviewArtifacts: React.FC = () => {
       await loadArtifacts();
     } catch (error) {
       console.error('Error accepting artifact:', error);
-      setError(`Failed to accept artifact: ${(error as any)?.message || error}`);
+      showError('Failed to accept model', error, artifact.id);
     } finally {
       setAcceptLoading(prev => ({ ...prev, [artifact.id]: false }));
     }
@@ -617,7 +640,7 @@ const ReviewArtifacts: React.FC = () => {
       await loadArtifacts();
     } catch (err) {
       console.error('Error withdrawing revision:', err);
-      setError('Failed to withdraw revision');
+      showError('Failed to withdraw revision', err, artifact.id);
     }
   };
 
@@ -655,7 +678,7 @@ const ReviewArtifacts: React.FC = () => {
       await loadArtifacts();
     } catch (err: any) {
       console.error('Error deleting artifact:', err);
-      setError(`Failed to delete ${shortId}: ${err?.message || err}`);
+      showError(`Failed to delete ${shortId}`, err, artifactToFinalize.id);
     } finally {
       setFinalizeLoading(false);
     }

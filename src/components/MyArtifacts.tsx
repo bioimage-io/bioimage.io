@@ -45,7 +45,8 @@ const MyArtifacts: React.FC = () => {
     myArtifactsTotalItems,
     setMyArtifactsPage,
     setMyArtifactsTotalItems,
-    itemsPerPage 
+    itemsPerPage,
+    showError
   } = useHyphaStore();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
@@ -271,7 +272,7 @@ const MyArtifacts: React.FC = () => {
       setArtifactToDelete(null);
     } catch (err) {
       console.error('Error deleting artifact:', err);
-      setError('Failed to delete artifact');
+      showError('Failed to delete artifact', err, artifactToDelete.id);
     } finally {
       setDeleteLoading(false);
     }

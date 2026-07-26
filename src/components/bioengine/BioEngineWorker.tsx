@@ -5,7 +5,7 @@ import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
 import DeploymentConfigModal from './DeploymentConfigModal';
 import AppDiskCache from './AppDiskCache';
-import ErrorDialog from './ErrorDialog';
+import ErrorDialog from '../ErrorDialog';
 
 // Returns true when `actual` is >= `required` under loose semver-by-parts
 // comparison. Handles pre-release suffixes by stripping anything past the

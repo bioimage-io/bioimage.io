@@ -310,11 +310,14 @@ Common dynamic test failures:
 
 ## Phase 5 — Submit to the Zoo
 
-See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md) for the full script.
+Use the two prewritten scripts in `scripts/` rather than hand-writing the API calls. They encode the
+details that are easy to get wrong (reviewer-permission grant at creation, `status` kept out of the
+RDF file, staged-not-committed). [references/submission-guide.md](https://bioimage.io/skills/bioimageio-models/references/submission-guide.md)
+documents what they do and the underlying `am.*` calls if you need to adapt them.
 
 1. **Get a Hypha token** — run the login helper (it opens a browser and saves the token to `.env`):
    ```bash
-   pip install -q hypha-rpc
+   pip install -q hypha-rpc httpx pyyaml
    python https://bioimage.io/skills/bioimageio-models/scripts/hypha_login.py
    # or if running from the local repo:
    python "$SKILL_DIR"/scripts/hypha_login.py
@@ -324,8 +327,14 @@ See [references/submission-guide.md](https://bioimage.io/skills/bioimageio-model
    export HYPHA_TOKEN=$(grep HYPHA_TOKEN .env | cut -d= -f2)
    ```
    If `HYPHA_TOKEN` is already set in the environment, skip this step.
-2. Run the submission script from the reference guide — it uploads the package and creates a staged artifact
-3. Note the returned `artifact_id` (e.g. `bioimage-io/affable-shark`) — you need it for Phase 6
+2. **Upload the package** with `upload_model.py`. It creates a *staged draft* (not committed, not
+   published) and grants the collection's reviewers `rw+` on the model from creation:
+   ```bash
+   python "$SKILL_DIR"/scripts/upload_model.py <model_package_dir>
+   ```
+3. Note the printed `artifact_id` (e.g. `bioimage-io/affable-shark`) — you need it for Phase 6.
+
+Do **not** submit for review yet: first run the BioEngine test in Phase 6 and fix any failures.
 
 ---
 
@@ -474,31 +483,16 @@ After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `vali
 
 Once the BioEngine test passes, set `status: "in-review"` in the staged manifest (never
 `status: "published"` yourself — see the guardrails at the top of Phase 6).
-This makes the model visible to curators in the review queue:
+This makes the model visible to curators in the review queue.
 
-```python
-import asyncio, yaml
-from hypha_rpc import connect_to_server
+**Submitting for review is a single staged status change (no commit):** run `submit_for_review.py`,
+which flips `status: draft -> in-review` in one staged edit. **It does not `commit`** — the model
+stays staged and versionless until a curator accepts it, and it does **not** touch permissions
+(reviewer access was already granted at upload, Phase 5 Step 2), so a reviewer can edit the in-review
+model without anyone committing it.
 
-async def request_review(artifact_id: str, token: str, package_dir: str):
-    with open(f"{package_dir}/rdf.yaml") as f:
-        manifest = yaml.safe_load(f)
-
-    async with connect_to_server({
-        "server_url": "https://hypha.aicell.io",
-        "token": token,
-        "method_timeout": 120,
-    }) as server:
-        am = await server.get_service("public/artifact-manager")
-        await am.edit(
-            artifact_id=artifact_id,
-            stage=True,          # use stage=True, NOT version="stage" (causes PermissionError)
-            manifest={**manifest, "status": "in-review"},
-        )
-        print(f"Review requested for {artifact_id}")
-        print(f"Track status: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
-
-asyncio.run(request_review("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/generated/"))
+```bash
+python "$SKILL_DIR"/scripts/submit_for_review.py <artifact_id>   # e.g. bioimage-io/affable-shark
 ```
 
 **What happens next (curator side):**

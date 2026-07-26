@@ -101,6 +101,63 @@ Model test status and BioEngine inference compatibility are **no longer** stored
 
 **Not this system: community partner compatibility is separate and unchanged.** The partner-tool rows on the detail page (ilastik, deepImageJ, etc.) come from the **collection CI**, fetched by `ArtifactDetails.fetchCompatibilityData` from `https://bioimage-io.github.io/collection/reports/bioimage-io/<alias>/<version>/summary.json` and driven by `collection/.github/workflows/check_compatibility_<partner>.yaml`. That path predates the test-reports migration and is **not** legacy. When touching test reports, leave `fetchCompatibilityData` and the partner-icon map alone.
 
+### Model review, publishing & the reviewer-permission grant
+
+The review workflow moves a model through `draft -> in-review -> published` (with `in-revision` as a
+send-back). The status lives on the Hypha manifest, not in the packaged RDF — `Upload.tsx` strips
+`status` from the serialized `bioimageio.yaml` before upload, because `bioimageio.spec`'s `ModelDescr`
+is a closed schema and rejects unknown top-level fields ("Extra inputs are not permitted"). Keep
+`status` in the manifest, never in the RDF file.
+
+**The one subtlety worth internalizing:** Hypha's permission checks read the **committed base config**
+(`artifact.config`), never the staged overlay (`artifact.staging["config"]`). A permission written by
+a staged `edit` is *never* enforced. But `create()` writes its `config` **directly into the base
+config while the artifact stays staged/versionless** (no commit, not published). So there is exactly
+one frontend-reachable moment to put reviewers into the enforced config without publishing: creation.
+(Empirically verified: a post-creation `edit(stage=false, config=...)` also lands in base config but
+mints a version, i.e. it publishes. A staged `edit` is silently ineffective. Don't use either to grant
+perms.)
+
+**Where each transition happens:**
+- **Create / upload** (`Upload.tsx`, the `am.create` call): the **primary reviewer grant**. Before
+  creating, it reads the collection (`bioimage-io/bioimage.io`) and passes
+  `config.permissions = buildReviewerPermissions(collection.config, undefined)` into `create`. Because
+  create writes straight to base config, every reviewer holds enforced `rw+` from the moment the model
+  exists, covering the whole `draft -> in-review -> in-revision` staged lifetime. `create` grants the
+  uploader `*` automatically, so we only add reviewers. (Drafts are invisible on the review page until
+  the uploader submits, so granting reviewers this early has no UI side effect.)
+- **Submit for review** (`ReviewPublishArtifact.handleSubmit`): a single staged `edit` flipping
+  `status -> in-review`. No commit, no permission changes (they were set at creation).
+- **Request revision** (`ReviewArtifacts.handleStatusChange`, only ever called with `'in-revision'`):
+  a staged manifest `edit`. (There is no status dropdown; the per-model kebab menu holds the action
+  buttons. `handleStatusChange` never publishes.)
+- **Publish / accept** (`ReviewArtifacts.handleAccept`): the only publish path. It commits the staged
+  model into a published version, flips the manifest `status -> published`, and flips the model's
+  `test-report-<id>` artifact to `type: "published-model"`. As a **safety net** it also re-computes
+  `buildReviewerPermissions(collection.config, currentArtifact.config?.permissions)` and writes it via
+  `edit({ config, stage: true })` **before** the commit, so models created *before* the creation-time
+  grant existed (or whose reviewer set has grown) still get the full roster promoted into base config.
+  This adds no new permission requirement (the pre-commit staged `edit` is the same `read_write` level
+  as the `commit`).
+
+`buildReviewerPermissions(collectionConfig, existingPermissions)` lives in `src/utils/roles.ts`: every
+collection user whose code is a write-level code (`rw`/`rw+`/`*`) gets `rw+`; the uploader's `*` is
+never downgraded; existing keys are preserved.
+
+**Legacy models (created before the creation-time grant):** their base config lists only the uploader,
+so reviewers cannot edit them while they are still staged/in-review. `handleAccept` fixes them on
+publish, but to grant reviewers on such a model *while it is still in review*, use the ops top-up
+below. There is also a proposed server-side fix (a parent-collection permission fallback in Hypha, so a
+collection-`rw+` reviewer is authorized on child artifacts directly) on the local branch
+`restore-collection-permission-fallback` in `/data/nmechtel/hypha` — not yet merged; it needs a
+design decision on whether that cascade should be global or gated behind a collection opt-in flag.
+
+**Ops top-up.** To grant reviewers on an already-published model out of band, use `BIOIMAGE_IO_TOKEN`
+(workspace-owner, bypasses artifact-level checks), read the collection reviewer set, merge with the
+same never-downgrade rule, and `edit(config=...)` on the published (non-staged) artifact — that write
+lands directly in base config. From Python, do **not** pass `_rkwargs` (JS-only; raises "unexpected
+keyword argument"); deep-convert ObjectProxy maps to plain dicts first.
+
 ## Component Inventory
 
 ### `src/components/colab/` — Collaborative Session Management

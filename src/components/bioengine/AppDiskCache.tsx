@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ErrorDialog from './ErrorDialog';
+import ErrorDialog from '../ErrorDialog';
 
 interface AppDirectoryEntry {
   name: string;

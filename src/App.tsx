@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation, Navigate, useParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import HyphaStatusBanner from './components/HyphaStatusBanner';
+import ErrorDialog from './components/ErrorDialog';
+import { useHyphaStore } from './store/hyphaStore';
 
 import ArtifactGrid from './components/ArtifactGrid';
 import ArtifactDetails from './components/ArtifactDetails';
@@ -32,6 +34,23 @@ const shouldHideFooter = (pathname: string): boolean => {
 // Hide the full navbar on the annotate page (it has its own compact header)
 const shouldHideNavbar = (pathname: string): boolean => {
   return pathname.startsWith('/colab/annotate');
+};
+
+// Single globally-mounted error dialog, driven by the store. Any component can
+// open it via useHyphaStore().showError(...). Mounted once at the layout root
+// so a mutation failure surfaces the same way from every page.
+const GlobalErrorDialog: React.FC = () => {
+  const errorDialog = useHyphaStore(state => state.errorDialog);
+  const clearError = useHyphaStore(state => state.clearError);
+  return (
+    <ErrorDialog
+      open={errorDialog != null}
+      title={errorDialog?.title ?? ''}
+      subtitle={errorDialog?.subtitle}
+      message={errorDialog?.message ?? ''}
+      onClose={clearError}
+    />
+  );
 };
 
 const TrainingRedirect: React.FC = () => {
@@ -73,6 +92,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col">
       <HyphaStatusBanner />
+      <GlobalErrorDialog />
       {!hideNavbar && <Navbar />}
       <Snackbar
         isOpen={snackbarOpen}

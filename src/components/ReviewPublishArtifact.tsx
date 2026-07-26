@@ -89,7 +89,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     setShowPublishDialog(false);
   };
 
-  const { artifactManager, isLoggedIn } = useHyphaStore();
+  const { artifactManager, isLoggedIn, showError } = useHyphaStore();
   // Surface Hypha errors (e.g. the PermissionError non-workspace-admin users
   // hit when the request-review edit path lands on `bioimage-io/bioimage.io`
   // without stage=True) so they aren't swallowed by console.error only.
@@ -117,6 +117,12 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
     if (!artifactInfo?.manifest) return;
     setSubmitError(null);
     try {
+      // Submitting for review only flips the model's status to `in-review`. It
+      // stays staged/versionless until a reviewer accepts it. Reviewer write
+      // access is NOT granted here: staged permission grants are never enforced
+      // (permission checks read the committed base config, not the staged
+      // overlay), so reviewers are added to the config at publish time, in the
+      // commit performed by ReviewArtifacts.handleAccept.
       await artifactManager.edit({
         artifact_id: artifactId,
         stage: true,
@@ -154,6 +160,7 @@ const ReviewPublishArtifact: React.FC<ReviewPublishArtifactProps> = ({
       setStatus('draft');
     } catch (error) {
       console.error('Error withdrawing from review:', error);
+      showError('Failed to withdraw from review', error, artifactId);
     }
   };
 
