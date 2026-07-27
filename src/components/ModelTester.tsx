@@ -13,6 +13,13 @@ interface TestResult {
   status: 'passed' | 'failed';
   type?: string;
   env?: [string, string][];
+  /**
+   * Environment the report was produced in. `custom` means the model's own
+   * conda env (bioimageio.core runtime_env="as-described"); `standard` means
+   * the runner's serving venv. Used to seed the custom-environment toggle so a
+   * re-test inherits the previous report's environment (see the seed effect).
+   */
+  test_environment?: 'custom' | 'standard';
   details: Array<{
     name: string;
     status: 'passed' | 'failed';
@@ -117,6 +124,10 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   // Test Model button opens the same dialog with the same defaults.
   const [showOptionsDialog, setShowOptionsDialog] = useState(false);
   const [customEnvironment, setCustomEnvironment] = useState(false);
+  // Whether the user has flipped the custom-environment toggle themselves. Once
+  // true, the report-derived default (below) stops seeding it so an explicit
+  // choice is never clobbered when a stored report loads or the site changes.
+  const [customEnvUserSet, setCustomEnvUserSet] = useState(false);
   const [skipCache, setSkipCache] = useState(false);
   // A persisted, still-valid test_run_id for THIS model found on mount — a run
   // that was in flight before a page refresh. Surfaced as a click-to-resume
@@ -141,6 +152,20 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   useEffect(() => {
     if (customEnvDisabled) setCustomEnvironment(false);
   }, [customEnvDisabled]);
+
+  // The model-runner defaults custom_environment to the previous report's
+  // environment (staged report for staged tests, published for published) when
+  // the caller does not specify one. Mirror that in the UI: seed the toggle from
+  // the stored report's `test_environment` so its default reflects (and re-sends)
+  // the inherited setting. The parent already loads `storedTestReport` from the
+  // slot matching `isStaged`, so no slot logic is needed here. Skipped once the
+  // user sets the toggle, or while deNBI (which cannot build custom envs) is the
+  // active site (handled by the effect above).
+  const reportPrefersCustomEnv = storedTestReport?.test_environment === 'custom';
+  useEffect(() => {
+    if (customEnvUserSet || customEnvDisabled) return;
+    setCustomEnvironment(reportPrefersCustomEnv);
+  }, [reportPrefersCustomEnv, customEnvUserSet, customEnvDisabled]);
 
   // Freeze the timeline if a run ended without a completion timestamp (e.g. an
   // error before any result arrived), so the last step stops ticking.
@@ -549,7 +574,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         onClose={() => setShowOptionsDialog(false)}
         onRun={() => { void runTest(); }}
         customEnvironment={customEnvironment}
-        onCustomEnvironmentChange={setCustomEnvironment}
+        onCustomEnvironmentChange={(v) => { setCustomEnvUserSet(true); setCustomEnvironment(v); }}
         customEnvDisabled={customEnvDisabled}
         skipCache={skipCache}
         onSkipCacheChange={setSkipCache}
