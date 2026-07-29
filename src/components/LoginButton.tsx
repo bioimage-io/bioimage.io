@@ -168,7 +168,12 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   };
 
   const handleLogin = useCallback(async () => {
-    if (isConnected && server) {
+    // Only short-circuit when genuinely logged in. A live socket alone is not
+    // enough: after a reconnect the session can be connected ANONYMOUSLY (no
+    // authenticated user), and in that state the user still needs Login to run
+    // the real auth flow. Gating on user?.email avoids a dead button that only
+    // a page refresh could revive.
+    if (isConnected && server && user?.email) {
       return;
     }
 
@@ -211,7 +216,7 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       setIsLoggingIn(false);
     }
     // Update dependencies: include location and connect
-  }, [connect, location.pathname, location.search, location.hash, navigate, login, isConnected, server]);
+  }, [connect, location.pathname, location.search, location.hash, navigate, login, isConnected, server, user?.email]);
 
 
   // Auto-login on component mount if token exists and not connected/connecting

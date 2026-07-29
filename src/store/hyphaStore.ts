@@ -213,6 +213,16 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   clearError: () => set(state => (state.errorDialog ? { errorDialog: null } : state)),
   reconnect: async () => {
     const savedToken = getSavedToken();
+    // Without a valid cached credential we cannot restore the AUTHENTICATED
+    // session. Connecting anonymously (token undefined) would succeed and leave
+    // the user "connected but logged out" with a dead Login button (handleLogin
+    // short-circuits on isConnected), recoverable only by a page refresh.
+    // Instead present a clean logged-out state so the Login button works again.
+    if (!savedToken) {
+      set({ connectionStatus: 'disconnected' });
+      await get().logout();
+      return;
+    }
     set({ connectionStatus: 'reconnecting' });
     // Reset dedup keys so connect() doesn't short-circuit when the WS
     // dropped but the config looks identical to the last successful run.
@@ -222,7 +232,7 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     // not the "services unreachable" banner.
     await get().connect({
       server_url: HYPHA_SERVER_URL,
-      token: savedToken ?? undefined,
+      token: savedToken,
       method_timeout: 300,
     }, { suppressBanner: true });
   },
