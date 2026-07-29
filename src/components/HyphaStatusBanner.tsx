@@ -255,7 +255,7 @@ const HyphaStatusBanner: React.FC = () => {
     lead = 'Your connection looks slow, or the service may be briefly unavailable.';
   } else {
     title = 'BioImage.IO services are currently unreachable.';
-    lead = 'This can be caused by your network or region, or the service may be temporarily unavailable.';
+    lead = 'This can be caused by your network, or the service may be temporarily unavailable.';
   }
 
   return (
