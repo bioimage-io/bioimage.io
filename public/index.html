@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+
+    <!-- Warm the TLS/DNS handshake to the ImageJ.JS app and the CheerpJ runtime
+         CDN it pulls its Java VM from, so the "Initializing ImageJ.JS..." boot
+         inside the model runner starts sooner once the user clicks Run. -->
+    <link rel="preconnect" href="https://ij.imjoy.io" crossorigin />
+    <link rel="preconnect" href="https://cjrtnc.leaningtech.com" crossorigin />
+    <link rel="dns-prefetch" href="https://ij.imjoy.io" />
+    <link rel="dns-prefetch" href="https://cjrtnc.leaningtech.com" />
+
     <link rel="icon" href="%PUBLIC_URL%/static/icons/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />

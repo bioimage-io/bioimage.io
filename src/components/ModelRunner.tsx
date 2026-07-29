@@ -298,36 +298,6 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     }
   }, [modelRunners.loading, modelRunners.activeServiceId, isLoggedIn]);
 
-  const initModel = async (modelId: string, modelRunner = runner) => {
-    if (!modelRunner) return;
-    
-    setInfoPanel(`Initializing model ${modelId}...`, true);
-    updateButtonStates(false, modelRunner);
-    
-    try {
-      // Add timeout to prevent infinite waiting
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Model initialization timed out after 30 seconds')), 30000)
-      );
-      
-      await Promise.race([
-        modelRunner.loadModel(modelId),
-        timeoutPromise
-      ]);
-      
-      // Update any model parameters if needed
-      // This would be similar to the parametersStore.$patch in the Vue example
-      
-      setModelInitialized(true);
-      updateButtonStates(true, modelRunner);
-      setInfoPanel("");
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : `Failed to load model ${modelId}.`;
-      setInfoPanel(errorMessage, false, true);
-      console.error(e);
-    }
-  };
-
   const runModel = async () => {
     if (!artifactId || !hyphaCoreAPI || !isHyphaCoreReady || !runner || !viewerControl) {
       console.error('Cannot run model: Missing dependencies');
@@ -576,24 +546,34 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         src: "https://ij.imjoy.io/",
         window_id: containerId
       });
-      
+
+      // Connect the model runner AND load its RDF concurrently with the ImageJ
+      // (CheerpJ) boot. loadModel only needs the model-runner service, not the
+      // viewer, so overlapping it with the JVM boot means model readiness no
+      // longer waits in series behind "Initializing ImageJ.JS...".
       const modelRunnerPromise = (async () => {
         const modelRunner = new ModelRunnerEngine(conn.serverUrl || HYPHA_SERVER_URL) as ExtendedModelRunnerEngine;
         await modelRunner.init(null, serviceId);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Model initialization timed out after 30 seconds')), 30000)
+        );
+        await Promise.race([modelRunner.loadModel(modelId), timeoutPromise]);
         return modelRunner;
       })();
-      
-      // Wait for both ImageJ and model runner to be ready
+
+      // Wait for both ImageJ and the loaded model runner to be ready
       const [imagej, modelRunner] = await Promise.all([imageJPromise, modelRunnerPromise]);
-      
-      // Set up viewer and runner
+
+      // The viewer depends on the ImageJ window, so wire it up only once that
+      // window exists. Model + viewer are both ready here, so it's safe to
+      // enable the action buttons (none should activate before the viewer).
       const viewer = new ImagejJsController(imagej);
       setViewerControl(viewer);
       setRunner(modelRunner);
-      
-      // Initialize the model (load the RDF and prepare for execution)
-      await initModel(modelId, modelRunner);
-      
+      setModelInitialized(true);
+      updateButtonStates(true, modelRunner);
+      setInfoPanel("");
+
       console.log(`Created window ${containerId} for model ${modelId}`);
       
       setIsRunning(true);
@@ -617,7 +597,9 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           ? "Failed to create container element. Please make sure the container callback is properly implemented."
           : errMsg.includes('Service not found')
             ? `The selected model-runner cluster does not currently expose a service for this account. Try switching the slider to the other cluster.`
-            : "Failed to setup the model runner. See console for details.";
+            : errMsg.includes('timed out')
+              ? errMsg
+              : "Failed to setup the model runner. See console for details.";
         setInfoPanel(errorMessage, false, true);
       }
       setIsLoading(false);

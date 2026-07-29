@@ -68,6 +68,10 @@ const ArtifactDetails = () => {
   const [isRdfDialogOpen, setIsRdfDialogOpen] = useState(false);
   const [showCopied, setShowCopied] = useState(false);
   const [showModelRunner, setShowModelRunner] = useState(false);
+  // Once the runner is first opened it stays mounted for the rest of this
+  // model's page, even while hidden. This is what keeps the ImageJ.JS/CheerpJ
+  // window warm across close/reopen. `showModelRunner` only toggles visibility.
+  const [runnerMounted, setRunnerMounted] = useState(false);
   const [currentContainerId, setCurrentContainerId] = useState<string | null>(null);
   const [containerHeight, setContainerHeight] = useState('400px');
   const [showDownloadInfo, setShowDownloadInfo] = useState(false);
@@ -158,6 +162,17 @@ const ArtifactDetails = () => {
       fetchResource(`bioimage-io/${id}`, version);
     }
   }, [id, fetchResource, version]);
+
+  // Tear down the warm model-runner when navigating to a different model. The
+  // route is not keyed by id, so this component re-renders (not remounts) on
+  // navigation. Without this reset the persisted ImageJ window would stay bound
+  // to the previous model's container and runner state.
+  useEffect(() => {
+    setShowModelRunner(false);
+    setRunnerMounted(false);
+    setCurrentContainerId(null);
+    setContainerHeight('400px');
+  }, [id]);
 
   useEffect(() => {
     const fetchDocumentation = async () => {
@@ -528,29 +543,34 @@ const ArtifactDetails = () => {
   const createModelRunnerContainer = (containerId: string): string => {
     // Set the current container ID
     setCurrentContainerId(containerId);
-    
-    // Set model runner to visible
+
+    // Mount + show the model runner
+    setRunnerMounted(true);
     setShowModelRunner(true);
-    
+
     // Increase the container height for better model visualization
     setContainerHeight('600px');
-    
+
     // Return the container ID (this will be used by ModelRunner)
     return containerId;
   };
 
   // New function to handle model runner initialization
   const handleRunModel = () => {
+    // Mount once (keeps the ImageJ window warm) and show it.
+    setRunnerMounted(true);
     setShowModelRunner(true);
     setContainerHeight('600px');
     // The ModelRunner will automatically call setupRunner when it mounts
   };
 
-  // New function to handle closing the model runner
+  // New function to handle closing the model runner. Only hides it: the
+  // ModelRunner and its container div stay mounted so the ImageJ.JS window
+  // stays booted for the next open. currentContainerId is preserved so the
+  // persisted window keeps its DOM binding.
   const handleCloseModelRunner = () => {
     setShowModelRunner(false);
     setContainerHeight('400px');
-    setCurrentContainerId(null);
   };
 
   // Fullscreen functionality
@@ -1098,8 +1118,11 @@ const ArtifactDetails = () => {
           )}
 
           {/* Model Runner Controls Row (only show when active) */}
-          {selectedResource?.manifest?.type === 'model' && showModelRunner && (
-            <Box sx={{ mt: isFullscreen ? 0 : { xs: 1, sm: 2, md: 3 } }}>
+          {/* Mounted once opened (runnerMounted) and hidden via display when
+              closed, so the ImageJ window stays warm. Only its visibility
+              tracks showModelRunner. */}
+          {selectedResource?.manifest?.type === 'model' && runnerMounted && (
+            <Box sx={{ mt: isFullscreen ? 0 : { xs: 1, sm: 2, md: 3 }, display: showModelRunner ? undefined : 'none' }}>
               <ModelRunner
                 artifactId={selectedResource.id}
                 isStaged={isStaged}
@@ -1137,16 +1160,23 @@ const ArtifactDetails = () => {
                 height: isFullscreen ? 'calc(100vh - 300px)' : containerHeight,
               }}
             >
-              {showModelRunner ? (
-                <div 
+              {/* Keep the runner container mounted once opened (runnerMounted)
+                  and only toggle its visibility, so the warm ImageJ window is
+                  never reparented or removed (which would reboot CheerpJ). It is
+                  created while visible on first open, so the iframe never inits
+                  into a zero-size hidden host. */}
+              {runnerMounted && (
+                <div
                   ref={modelContainerRef}
                   id={currentContainerId || "model-container"}
                   style={{
                     width: '100%',
-                    height: '100%'
+                    height: '100%',
+                    display: showModelRunner ? 'block' : 'none'
                   }}
                 />
-              ) : (
+              )}
+              {!showModelRunner && (
                 <>
                   <img
                     src={resolveHyphaUrl(selectedResource.manifest.covers[currentImageIndex], selectedResource.id)}
