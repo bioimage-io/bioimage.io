@@ -13,11 +13,19 @@ import {
   Grid,
   Box,
   InputAdornment,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
+/** Which segmentation backend the AI Pre-Segmentation dialog runs.
+ *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path).
+ *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs). */
+export type SegBackend = 'cellpose' | 'microsam';
+
 export interface CellposeConfig {
+  backend: SegBackend;
   model: string;
   diameter: number | null;
   flow_threshold: number;
@@ -27,6 +35,7 @@ export interface CellposeConfig {
 }
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
+  backend: 'cellpose',
   model: 'cpsam',
   diameter: null,
   flow_threshold: 0.4,
@@ -92,6 +101,9 @@ interface CellposeConfigDialogProps {
   /** Fires on every instant-group slider change while ``livePreviewReady``;
    *  callers are expected to debounce + run compute_masks_np locally. */
   onInstantConfigChange?: (config: CellposeConfig) => void;
+  /** Whether the μSAM backend is reachable. Gates the μSAM option in the
+   *  backend selector. */
+  microSamAvailable?: boolean;
 }
 
 /** Tiny "server" / "instant" group badge that sits next to each field label. */
@@ -155,6 +167,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onMeasureDiameter,
   livePreviewReady,
   onInstantConfigChange,
+  microSamAvailable,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
 
@@ -195,6 +208,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const isBaseModel = !config.model || config.model === 'cpsam';
+  const isMicroSam = config.backend === 'microsam';
   const showReset = configDiffersFromDefault(config);
 
   return (
@@ -203,8 +217,38 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
 
+          {/* Backend selector */}
+          <Grid item xs={12}>
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1,
+              px: 1.25, py: 0.6, bgcolor: 'action.hover', borderRadius: 1.5,
+            }}>
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                Backend:
+              </Typography>
+              <Select
+                size="small"
+                variant="standard"
+                disableUnderline
+                value={config.backend}
+                onChange={(e) => update('backend', e.target.value as SegBackend)}
+                sx={{ fontSize: '0.8rem', fontWeight: 700, ml: 'auto', minWidth: 150 }}
+              >
+                <MenuItem value="cellpose" sx={{ fontSize: '0.8rem' }}>Cellpose-SAM</MenuItem>
+                <MenuItem value="microsam" disabled={!microSamAvailable} sx={{ fontSize: '0.8rem' }}>
+                  {microSamAvailable ? 'micro-sam (μSAM)' : 'micro-sam (unavailable)'}
+                </MenuItem>
+              </Select>
+            </Box>
+            {isMicroSam && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
+                μSAM segments every object automatically. It takes no Cellpose tuning parameters.
+              </Typography>
+            )}
+          </Grid>
+
           {/* Live preview status row */}
-          {onInstantConfigChange && (
+          {onInstantConfigChange && !isMicroSam && (
             <Grid item xs={12}>
               <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 1,
@@ -233,6 +277,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           )}
 
           {/* Model info */}
+          {!isMicroSam && (
           <Grid item xs={12}>
             <Box sx={{
               display: 'flex', alignItems: 'center', gap: 1,
@@ -249,9 +294,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               </Typography>
             </Box>
           </Grid>
+          )}
 
           {/* ── Diameter (base model only) ── */}
-          {isBaseModel && (
+          {isBaseModel && !isMicroSam && (
             <Grid item xs={12}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -296,6 +342,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           )}
 
           {/* ── Flow Threshold ── */}
+          {!isMicroSam && (
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
               <Typography variant="body2" fontWeight={500}>
@@ -317,8 +364,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               />
             </Box>
           </Grid>
+          )}
 
           {/* ── Cell Probability Threshold ── */}
+          {!isMicroSam && (
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
               <Typography variant="body2" fontWeight={500}>
@@ -340,8 +389,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               />
             </Box>
           </Grid>
+          )}
 
           {/* ── Niter + Min Mask Area (side by side) ── */}
+          {!isMicroSam && (
           <Grid item xs={6}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body2" fontWeight={500}>Iterations (niter)</Typography>
@@ -363,11 +414,12 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               slotProps={{ input: { inputProps: { min: 0 } } }}
             />
           </Grid>
+          )}
 
-          <Grid item xs={6}>
+          <Grid item xs={isMicroSam ? 12 : 6}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
-              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
+              {onInstantConfigChange && !isMicroSam && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
               <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
             </Box>
             <TextField
@@ -422,6 +474,7 @@ export function useCellposeConfig(opts?: {
   keepOpenAfterApply?: boolean;
   livePreviewReady?: boolean;
   onInstantConfigChange?: (config: CellposeConfig) => void;
+  microSamAvailable?: boolean;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -471,6 +524,7 @@ export function useCellposeConfig(opts?: {
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
       livePreviewReady={opts?.livePreviewReady}
       onInstantConfigChange={opts?.onInstantConfigChange}
+      microSamAvailable={opts?.microSamAvailable}
     />
   );
 

@@ -70,7 +70,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
 
-  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable } = useHyphaService(serviceConfig);
+  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
@@ -86,6 +86,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     // can keep tweaking the preview without forcing the user to re-open it.
     keepOpenAfterApply: true,
     livePreviewReady,
+    microSamAvailable,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
@@ -574,8 +575,46 @@ print('CLAHE packages ready')
     const sourceUrl = originalImageUrl || imageUrl;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
     setIsRunningCellpose(true);
-    const bannerId = addBanner('Running Cellpose segmentation...', 'loading', 0);
+    const bannerId = addBanner(
+      cfg.backend === 'microsam' ? 'Running micro-sam segmentation...' : 'Running Cellpose segmentation...',
+      'loading',
+      0,
+    );
     try {
+      // μSAM automatic segmentation is a server-side infer drop-in: no flows,
+      // no Pyodide mask-gen, no tuning knobs. Handle it in its own branch and
+      // route the masks through the same preview + undo machinery Cellpose uses.
+      if (cfg.backend === 'microsam') {
+        try {
+          const masks = await service.runMicroSam(sourceUrl, imageWidth, imageHeight, {
+            min_mask_area: cfg.min_mask_area,
+          });
+          let n = 0;
+          if (masks && masks.length > 0) {
+            const vs = getVectorSource?.();
+            if (vs) {
+              const GeoJSON = (await import('ol/format/GeoJSON')).default;
+              const fmt = new GeoJSON();
+              pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+              n = applyPolygonsAsPreview(vs, masks);
+            }
+          }
+          removeBanner(bannerId);
+          if (n === 0) {
+            addBanner('No masks detected by micro-sam', 'warning', 5000);
+          } else {
+            console.log('[AnnotatePage] micro-sam added', n, 'masks');
+            addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from micro-sam`, 'success', 5000);
+          }
+        } catch (msErr: any) {
+          removeBanner(bannerId);
+          const msg = msErr?.message || 'Unknown error';
+          console.error('[AnnotatePage] micro-sam failed:', msg);
+          addBanner('micro-sam segmentation failed', 'error', 8000, msg);
+        }
+        return;
+      }
+
       // Prefer the flows + Pyodide path when the kernel is healthy. If
       // anything throws, fall back to the all-server path so the user
       // always gets a result.

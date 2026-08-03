@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
+import { resolveMicroSamService } from '../../../utils/microSamService';
 
 export interface AnnotationServiceConfig {
   serverUrl: string;
@@ -105,6 +106,12 @@ export interface AnnotationDataService {
   listImages: (round: number) => Promise<ImageInfo[]>;
   getSaveUrls: (imageName: string, round: number) => Promise<SaveUrls>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+  /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
+   *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
+   *  response), so it returns the same ``CellposeMask[]`` polygons. Only
+   *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
+   *  Cellpose-specific knobs (diameter, flow/cellprob, niter). */
+  runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
    *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
    *  network output; the mask-gen knobs are ignored and consumed by the
@@ -137,6 +144,38 @@ export function maskDataToPolygons(
     }));
   }
   return polygons;
+}
+
+/** Decode a hypha-rpc label-mask ndarray (``{_rtype:'ndarray', _rvalue, _rshape:[H,W], _rdtype}``)
+ *  into a typed array plus its width/height. Shared by the Cellpose and μSAM
+ *  infer paths, whose ``result[0].output`` have the identical wire shape. */
+function decodeLabelMask(maskResult: any): {
+  maskData: Int32Array | Uint16Array | Uint32Array | Float32Array;
+  w: number;
+  h: number;
+} {
+  let buffer = maskResult._rvalue;
+  const shape = maskResult._rshape as number[];
+  const dtype = maskResult._rdtype as string;
+  const w = shape[1];
+  const h = shape[0];
+  // _rvalue may be a Uint8Array view; slice out its underlying ArrayBuffer.
+  if (buffer instanceof Uint8Array) {
+    buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  }
+  let maskData: Int32Array | Uint16Array | Uint32Array | Float32Array;
+  if (dtype === 'int32' || dtype === 'int') {
+    maskData = new Int32Array(buffer);
+  } else if (dtype === 'uint16') {
+    maskData = new Uint16Array(buffer);
+  } else if (dtype === 'float32') {
+    maskData = new Float32Array(buffer);
+  } else if (dtype === 'uint32') {
+    maskData = new Uint32Array(buffer);
+  } else {
+    maskData = new Int32Array(buffer);
+  }
+  return { maskData, w, h };
 }
 
 /** Extract image pixel data as a Uint8Array in CHW RGB format (3, H, W) for cellpose */
@@ -307,11 +346,13 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   loading: boolean;
   error: string | null;
   cellposeAvailable: boolean;
+  microSamAvailable: boolean;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cellposeAvailable, setCellposeAvailable] = useState(false);
+  const [microSamAvailable, setMicroSamAvailable] = useState(false);
   const serverRef = useRef<any>(null);
 
   useEffect(() => {
@@ -428,6 +469,19 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             );
           }
         };
+
+        // micro-sam (μSAM) service: probe once at connect time. Unlike
+        // cellpose-finetuning there is nothing to pin (μSAM is stateless
+        // across replicas), so both the probe and the per-call resolver just
+        // re-resolve a fresh handle from the fully-qualified service id.
+        try {
+          await resolveMicroSamService(server);
+          console.log('[useHyphaService] micro-sam reachable');
+          if (!cancelled) setMicroSamAvailable(true);
+        } catch (err) {
+          console.warn('[useHyphaService] micro-sam not reachable:', err);
+          if (!cancelled) setMicroSamAvailable(false);
+        }
 
         const wrappedService: AnnotationDataService = {
           userId: resolvedUserId,
@@ -621,6 +675,46 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.warn('[useHyphaService] Unknown mask format:', typeof maskResult, maskResult);
             return [];
           },
+          runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
+            const microSamService = await resolveMicroSamService(server);
+            const p = params || {};
+            console.log('[useHyphaService] Running micro-sam AIS inference');
+
+            // Same CHW RGB uint8 input as Cellpose; μSAM is a drop-in.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+
+            // μSAM AIS takes no Cellpose-style knobs; just the image.
+            const result = await microSamService.infer({
+              input_arrays: [inputArray],
+              _rkwargs: true,
+            });
+            console.log('[useHyphaService] micro-sam raw result:', result);
+
+            // Response mirrors Cellpose: a bare list, result[0].output is an
+            // int32 label mask ndarray of shape [H, W].
+            if (!result || !Array.isArray(result) || result.length === 0) {
+              console.log('[useHyphaService] No results from micro-sam');
+              return [];
+            }
+            const maskResult = result[0]?.output;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] micro-sam output is not an ndarray:', maskResult);
+              return [];
+            }
+
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            console.log('[useHyphaService] micro-sam mask ndarray: dtype=%s, [%d, %d]', maskResult._rdtype, h, w);
+            // maskDataToPolygons handles area filtering + rescale back to display space.
+            const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+            console.log('[useHyphaService] micro-sam converted to', polygons.length, 'polygons');
+            return polygons;
+          },
           runCellposeFlows: async (
             imageUrl: string,
             width: number,
@@ -748,5 +842,5 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
     };
   }, [config?.serverUrl, config?.imageProviderId]);
 
-  return { service, loading, error, cellposeAvailable };
+  return { service, loading, error, cellposeAvailable, microSamAvailable };
 }
