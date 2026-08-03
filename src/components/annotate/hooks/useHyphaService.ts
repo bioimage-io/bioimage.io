@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
-import { resolveMicroSamService } from '../../../utils/microSamService';
+import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
 
 export interface AnnotationServiceConfig {
   serverUrl: string;
@@ -18,6 +18,23 @@ export interface SaveUrls {
 export interface CellposeMask {
   label: number;
   coordinates: number[][][]; // polygon rings
+}
+
+/** Raw pieces the in-browser ONNX box-decoder needs for one image. The
+ *  encoder features stay as the hypha-rpc ndarray wire-dict so the decoder
+ *  hook can build the ort tensor without a second copy here. */
+export interface MicroSamEmbedding {
+  /** hypha ndarray wire-dict: float32 (1, 256, 64, 64). */
+  features: any;
+  /** [scaledH, scaledW] the encoder ran at (== SAM orig_im_size). */
+  originalImageShape: number[];
+  /** 1024 / max(scaledH, scaledW); multiplies prompt point coords. */
+  samScale: number;
+  /** Logit threshold for the decoder output (service reports 0.0). */
+  maskThreshold: number;
+  /** Working resolution the CHW input was downsampled to. */
+  scaledW: number;
+  scaledH: number;
 }
 
 export interface CellposeParams {
@@ -112,6 +129,13 @@ export interface AnnotationDataService {
    *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
    *  Cellpose-specific knobs (diameter, flow/cellprob, niter). */
   runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+  /** Fetch the quantized μSAM ONNX prompt-decoder bytes for the in-browser box
+   *  tool. One round-trip per page; the decoder hook caches the ort session. */
+  getMicroSamOnnxModel: () => Promise<Uint8Array>;
+  /** Run the μSAM image encoder once for the interactive box tool. Returns the
+   *  encoder features plus the geometry the ONNX decoder needs. Cached per
+   *  image URL by the decoder hook. */
+  computeMicroSamEmbedding: (imageUrl: string, width: number, height: number) => Promise<MicroSamEmbedding>;
   /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
    *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
    *  network output; the mask-gen knobs are ignored and consumed by the
@@ -714,6 +738,62 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
             console.log('[useHyphaService] micro-sam converted to', polygons.length, 'polygons');
             return polygons;
+          },
+          getMicroSamOnnxModel: async (): Promise<Uint8Array> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Fetching micro-sam ONNX decoder');
+            const bytes = await microSamService.get_onnx_model({
+              model_type: MICRO_SAM_MODEL_TYPE,
+              quantize: true,
+              _rkwargs: true,
+            });
+            // hypha-rpc delivers bytes as a Uint8Array (msgpack bin); normalize
+            // ArrayBuffer just in case a transport hands one back.
+            if (bytes instanceof Uint8Array) return bytes;
+            if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+            return new Uint8Array(bytes);
+          },
+          computeMicroSamEmbedding: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+          ): Promise<MicroSamEmbedding> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Computing micro-sam image embedding');
+
+            // Same CHW RGB uint8 input as infer; the encoder downsamples the
+            // same way, so scaledW/scaledH define the working resolution the
+            // box tool maps its prompt coordinates into.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+
+            const emb = await microSamService.compute_image_embedding({
+              inputs: inputArray,
+              model_type: MICRO_SAM_MODEL_TYPE,
+              _rkwargs: true,
+            });
+            if (!emb || !emb.features || emb.features._rtype !== 'ndarray') {
+              throw new Error('micro-sam embedding response missing features ndarray');
+            }
+            console.log(
+              '[useHyphaService] micro-sam embedding: shape=%s scale=%s',
+              JSON.stringify(emb.original_image_shape),
+              emb.sam_scale,
+            );
+
+            return {
+              features: emb.features,
+              originalImageShape: emb.original_image_shape,
+              samScale: emb.sam_scale,
+              maskThreshold: emb.mask_threshold ?? 0,
+              scaledW,
+              scaledH,
+            };
           },
           runCellposeFlows: async (
             imageUrl: string,

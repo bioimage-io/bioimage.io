@@ -14,6 +14,7 @@ import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
+import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
@@ -128,6 +129,12 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // first compute. While the kernel boots silently, the AI tool stays on the
   // existing server path (runCellpose) automatically — see handleRunCellpose.
   const maskGen = useCellposeMaskGen(executeCode, kernelReady);
+
+  // In-browser μSAM box decoder: fetches the ONNX decoder once, embeds each
+  // image once, decodes each drawn box locally. See handleSamBox below.
+  const { decodeBox: decodeSamBox, reset: resetSamDecoder } = useMicroSamDecoder(service);
+  // Guards against overlapping box decodes (dev-rule #10).
+  const samDecodeInFlightRef = useRef(false);
 
   // Cache for the network's raw (dP, cellprob). One entry per unique
   // (image, model, diameter, clahe) combination — any change there needs a
@@ -476,6 +483,66 @@ print('CLAHE packages ready')
       return added.length;
     },
     [],
+  );
+
+  // Drop the cached μSAM embedding whenever the source image changes so a new
+  // image never decodes against a stale embedding.
+  useEffect(() => {
+    resetSamDecoder();
+  }, [imageUrl, originalImageUrl, resetSamDecoder]);
+
+  // AI-box tool: decode the drawn box into one mask locally and commit it as a
+  // feature styled with the active label. Undo-snapshotted before mutation.
+  const handleSamBox = useCallback(
+    async (extent: number[]) => {
+      if (!service || !imageUrl || imageWidth <= 0 || imageHeight <= 0) return;
+      // One decode at a time (dev-rule #10); ignore boxes drawn mid-decode.
+      if (samDecodeInFlightRef.current) return;
+      samDecodeInFlightRef.current = true;
+      const sourceUrl = originalImageUrl || imageUrl;
+      const bannerId = addBanner('Decoding box with micro-sam...', 'loading', 0);
+      try {
+        const polygons = await decodeSamBox(extent, imageWidth, imageHeight, sourceUrl);
+        removeBanner(bannerId);
+        if (!polygons || polygons.length === 0) {
+          addBanner('No mask found in that box', 'warning', 4000);
+          return;
+        }
+        const vs = getVectorSource?.();
+        if (!vs) return;
+        // dev-rule #7: snapshot before mutating the vector source.
+        const GeoJSON = (await import('ol/format/GeoJSON')).default;
+        const fmt = new GeoJSON();
+        pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+        const label = activeLabel;
+        let added = 0;
+        for (const m of polygons) {
+          const polygon = new OlPolygon(m.coordinates);
+          const feature = new Feature({ geometry: polygon });
+          feature.setProperties({
+            label: label.id,
+            edge_color: label.color,
+            face_color: label.color,
+            edge_width: 2,
+          });
+          vs.addFeature(feature);
+          added++;
+        }
+        console.log('[AnnotatePage] micro-sam box added', added, 'masks');
+        addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from micro-sam`, 'success', 4000);
+      } catch (err: any) {
+        removeBanner(bannerId);
+        const msg = err?.message || 'Unknown error';
+        console.error('[AnnotatePage] micro-sam box decode failed:', msg);
+        addBanner('micro-sam box decode failed', 'error', 8000, msg);
+      } finally {
+        samDecodeInFlightRef.current = false;
+      }
+    },
+    [
+      service, imageUrl, originalImageUrl, imageWidth, imageHeight,
+      decodeSamBox, getVectorSource, pushUndo, activeLabel, addBanner, removeBanner,
+    ],
   );
 
   // Drop any cached flows: every server-affecting param change must trigger a
@@ -1167,6 +1234,7 @@ print("CLAHE_RESULT:" + result_b64)
         imageName={currentImageName || undefined}
         cellposeModel={activeCellposeModel}
         cellposeAvailable={cellposeAvailable}
+        microSamAvailable={microSamAvailable}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
@@ -1183,6 +1251,8 @@ print("CLAHE_RESULT:" + result_b64)
             onVectorSourceReady={handleVectorSourceReady}
             onImageLayerReady={handleImageLayerReady}
             onMapReady={handleMapReady}
+            onSamBox={handleSamBox}
+            microSamAvailable={microSamAvailable}
           />
         )}
 

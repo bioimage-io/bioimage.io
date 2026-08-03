@@ -19,6 +19,7 @@ import AutoFixOffIcon from '@mui/icons-material/AutoFixOff';
 import BrushIcon from '@mui/icons-material/Brush';
 import PolylineIcon from '@mui/icons-material/Polyline';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import SaveIcon from '@mui/icons-material/Save';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -40,12 +41,15 @@ interface ToolDef {
   shortcut: string;
   description: string;
   icon: React.ReactNode;
+  /** Tool depends on the μSAM service; disabled + explained when it is offline. */
+  requiresMicroSam?: boolean;
 }
 
 const TOOLS: ToolDef[] = [
   { id: 'move',     name: 'Move',        shortcut: 'M', description: 'Pan and navigate the image',                              icon: <OpenWithIcon fontSize="small" /> },
   { id: 'select',   name: 'Select',      shortcut: 'S', description: 'Click a mask to select it; Shift for multi, Del to delete', icon: <NearMeIcon fontSize="small" /> },
   { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <PolylineIcon fontSize="small" /> },
+  { id: 'sambox',   name: 'AI Box',      shortcut: 'B', description: 'Draw a box around a cell for a one-click AI mask',         icon: <HighlightAltIcon fontSize="small" />, requiresMicroSam: true },
   { id: 'cutter',   name: 'Cut Mask',    shortcut: 'C', description: 'Draw a line across an existing mask to split it',          icon: <ContentCutIcon fontSize="small" /> },
   { id: 'eraser',   name: 'Eraser',      shortcut: 'E', description: 'Paint to remove areas from an existing mask',              icon: <AutoFixOffIcon fontSize="small" /> },
   { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <BrushIcon fontSize="small" /> },
@@ -76,6 +80,7 @@ export interface ToolBarProps {
   imageName?: string;
   cellposeModel?: string;
   cellposeAvailable?: boolean;
+  microSamAvailable?: boolean;
   isSaving: boolean;
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
@@ -86,7 +91,7 @@ export interface ToolBarProps {
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
   onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
-  sessionUrl, imageName, cellposeModel, cellposeAvailable = false,
+  sessionUrl, imageName, cellposeModel, cellposeAvailable = false, microSamAvailable = false,
   isSaving, isRunningCellpose, isCLAHEActive, isLowContrast = false,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
@@ -172,17 +177,27 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Tooltip>
 
         {/* Drawing tools */}
-        {TOOLS.map((tool) => (
+        {TOOLS.map((tool) => {
+          const toolDisabled = tool.requiresMicroSam && !microSamAvailable;
+          return (
           <React.Fragment key={tool.id}>
-            <Tooltip title={`${tool.name} (${tool.shortcut})`} placement="right">
-              <IconButton
-                size={btnSize}
-                data-tool={tool.id}
-                onClick={() => setActiveTool(tool.id)}
-                sx={{ ...collapsedBtnSx(activeTool === tool.id), ...touchSx }}
-              >
-                {tool.icon}
-              </IconButton>
+            <Tooltip
+              title={toolDisabled
+                ? `${tool.name} unavailable (micro-sam service is offline)`
+                : `${tool.name} (${tool.shortcut})`}
+              placement="right"
+            >
+              <span>
+                <IconButton
+                  size={btnSize}
+                  data-tool={tool.id}
+                  onClick={() => setActiveTool(tool.id)}
+                  disabled={toolDisabled}
+                  sx={{ ...collapsedBtnSx(activeTool === tool.id), ...touchSx }}
+                >
+                  {tool.icon}
+                </IconButton>
+              </span>
             </Tooltip>
 
             {/* AI Segmentation sits right after Draw Mask */}
@@ -222,7 +237,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
               </Tooltip>
             )}
           </React.Fragment>
-        ))}
+          );
+        })}
 
         <Divider flexItem sx={{ my: 0.25, opacity: 0.35 }} />
 
@@ -391,25 +407,39 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* Drawing tools */}
         {TOOLS.map((tool) => {
           const active = activeTool === tool.id;
+          const toolDisabled = tool.requiresMicroSam && !microSamAvailable;
           return (
             <React.Fragment key={tool.id}>
-              <ButtonBase onClick={() => setActiveTool(tool.id)} data-tool={tool.id} sx={rowSx(active)}>
-                <Box sx={{ color: active ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0, display: 'flex' }}>
-                  {tool.icon}
-                </Box>
-                <Box>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
-                    <Typography variant="caption" fontWeight={600} color={active ? 'primary.main' : 'text.primary'}>
-                      {tool.name}
-                    </Typography>
-                    {!isMobile && <ShortcutBadge k={tool.shortcut} />}
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" display="block"
-                    sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                    {tool.description}
-                  </Typography>
-                </Box>
-              </ButtonBase>
+              <Tooltip
+                title={toolDisabled ? 'micro-sam service is currently offline' : ''}
+                placement="right"
+                disableHoverListener={!toolDisabled}
+              >
+                <span style={{ width: '100%' }}>
+                  <ButtonBase
+                    onClick={() => setActiveTool(tool.id)}
+                    data-tool={tool.id}
+                    disabled={toolDisabled}
+                    sx={{ ...rowSx(active), width: '100%', opacity: toolDisabled ? 0.5 : 1 }}
+                  >
+                    <Box sx={{ color: active ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0, display: 'flex' }}>
+                      {tool.icon}
+                    </Box>
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
+                        <Typography variant="caption" fontWeight={600} color={active ? 'primary.main' : 'text.primary'}>
+                          {tool.name}
+                        </Typography>
+                        {!isMobile && <ShortcutBadge k={tool.shortcut} />}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" display="block"
+                        sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                        {tool.description}
+                      </Typography>
+                    </Box>
+                  </ButtonBase>
+                </span>
+              </Tooltip>
 
               {/* AI Segmentation — prominently after Draw Mask */}
               {tool.id === 'polygon' && (
