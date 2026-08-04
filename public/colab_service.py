@@ -943,6 +943,78 @@ class AnnotationSession:
             "round": effective_round,
         }
 
+    def _embedding_path(self, image_name: str, model_type: str) -> str:
+        """Shared per-image embedding path ``embeddings/{stem}_{model_type}.npz``.
+
+        Embeddings are pixel-derived (identical for every annotator), so unlike
+        masks they are stored once per image + encoder model, not per user or
+        per round. The ``model_type`` suffix keeps embeddings from different SAM
+        encoders (e.g. vit_l_lm vs vit_b_lm) from colliding, since an embedding
+        is only valid for the decoder that matches its encoder.
+        """
+        return f"embeddings/{Path(image_name).stem}_{model_type}.npz"
+
+    async def get_embedding_save_url(
+        self,
+        image_name: str,
+        model_type: str,
+        context=None,
+    ) -> dict:
+        """Return a presigned PUT URL for storing a precomputed μSAM embedding.
+
+        The micro-sam app writes a self-contained ``.npz`` (features +
+        input_size + original_size + model_type) directly to this URL via its
+        ``compute_embedding(embedding_upload_url=...)`` path.
+
+        Returns ``{"upload_url": ..., "file_path": ..., "image_stem": ...}``.
+        """
+        stem = Path(image_name).stem
+        path = self._embedding_path(image_name, model_type)
+        console.log(f"get_embedding_save_url for {stem}, model={model_type!r} -> {path}")
+        try:
+            await self._ensure_artifact_exists()
+            upload_url = await self.artifact_manager.put_file(
+                self.artifact_id,
+                file_path=path,
+            )
+        except Exception as exc:
+            console.error(f"get_embedding_save_url failed for {path}: {exc}")
+            raise
+        return {"upload_url": upload_url, "file_path": path, "image_stem": stem}
+
+    async def get_embedding(
+        self,
+        image_name: str,
+        model_type: str,
+        context=None,
+    ) -> dict:
+        """Return a presigned GET URL for a stored μSAM embedding, if present.
+
+        Used both to skip recomputation on image reload and to feed the stored
+        ``.npz`` link to ``infer(embeddings=[url])`` for server-side AIS.
+
+        Returns ``{"exists": bool, "get_url": Optional[str], "file_path": ...}``.
+        """
+        stem = Path(image_name).stem
+        path = self._embedding_path(image_name, model_type)
+        target = f"{stem}_{model_type}.npz"
+        entries = await self._list_files_safe("embeddings")
+        exists = any(e.get("name") == target for e in entries)
+        if not exists:
+            console.log(f"get_embedding: no stored embedding for {stem}, model={model_type!r}")
+            return {"exists": False, "get_url": None, "file_path": path}
+        try:
+            get_url = await self.artifact_manager.get_file(
+                self.artifact_id,
+                file_path=path,
+                stage=True,
+            )
+        except Exception as exc:
+            console.warn(f"get_embedding: list hit but get_file failed for {path}: {exc}")
+            return {"exists": False, "get_url": None, "file_path": path}
+        console.log(f"get_embedding: reusing stored embedding for {stem}, model={model_type!r}")
+        return {"exists": True, "get_url": get_url, "file_path": path}
+
     async def list_images(
         self,
         user_id: Optional[str] = None,
@@ -1168,6 +1240,8 @@ async def register_service(
                 "upload_all_images": session.upload_all_images,
                 "upload_images_from_temp": session.upload_images_from_temp,
                 "get_save_urls": session.get_save_urls,
+                "get_embedding_save_url": session.get_embedding_save_url,
+                "get_embedding": session.get_embedding,
                 "list_images": session.list_images,
                 "get_current_round": session.get_current_round,
                 "set_cellpose_model": session.set_cellpose_model,

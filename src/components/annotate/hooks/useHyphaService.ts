@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
+import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
 
 export interface AnnotationServiceConfig {
   serverUrl: string;
@@ -136,6 +137,21 @@ export interface AnnotationDataService {
    *  encoder features plus the geometry the ONNX decoder needs. Cached per
    *  image URL by the decoder hook. */
   computeMicroSamEmbedding: (imageUrl: string, width: number, height: number) => Promise<MicroSamEmbedding>;
+  /** Check whether a μSAM embedding for this image + pinned model is already
+   *  stored in the session artifact. Returns its presigned GET url when so. */
+  getMicroSamEmbeddingInfo: (imageName: string) => Promise<{ exists: boolean; getUrl: string | null }>;
+  /** Presigned PUT url the μSAM service uploads a freshly computed ``.npz``
+   *  embedding to (session artifact, keyed by image stem + model). */
+  getMicroSamEmbeddingSaveUrl: (imageName: string) => Promise<{ uploadUrl: string; filePath: string }>;
+  /** Run the μSAM encoder and have the service write the ``.npz`` straight into
+   *  the session artifact via ``embedding_upload_url``. No features returned. */
+  computeMicroSamEmbeddingToArtifact: (imageUrl: string, width: number, height: number, uploadUrl: string) => Promise<void>;
+  /** Download + unzip a stored ``.npz`` embedding into the decoder-ready shape
+   *  (reconstructs the same ``MicroSamEmbedding`` the inline encode returned). */
+  loadMicroSamEmbedding: (npzUrl: string) => Promise<MicroSamEmbedding>;
+  /** μSAM AIS pre-seg from a stored embedding link. Server reads the ``.npz``
+   *  and returns the same ``[{output}]`` list; the browser never pulls it. */
+  runMicroSamFromEmbedding: (npzUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
    *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
    *  network output; the mask-gen knobs are ignored and consumed by the
@@ -208,17 +224,24 @@ function decodeLabelMask(maskResult: any): {
  *  512 gives 5-15 min for the same images (too slow for interactive use). */
 const CELLPOSE_MAX_DIM = 256;
 
+/** Long-side pixel cap for the μSAM image encoder. SAM resizes its input to
+ *  1024 internally, so 1024 is the quality sweet spot (256 loses detail); the
+ *  box-decoder coordinate math is resolution-invariant, so this only affects
+ *  embedding quality, not correctness. */
+const MICRO_SAM_MAX_DIM = 1024;
+
 function getImagePixelsCHW(
   imageUrl: string,
   width: number,
   height: number,
+  maxDim: number = CELLPOSE_MAX_DIM,
 ): Promise<{ chw: Uint8Array; scaledW: number; scaledH: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Downsample if either dimension exceeds CELLPOSE_MAX_DIM
-      const scale = Math.min(1, CELLPOSE_MAX_DIM / Math.max(width, height));
+      // Downsample if either dimension exceeds maxDim
+      const scale = Math.min(1, maxDim / Math.max(width, height));
       const scaledW = Math.round(width * scale);
       const scaledH = Math.round(height * scale);
 
@@ -571,6 +594,28 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             });
             return urls as SaveUrls;
           },
+          getMicroSamEmbeddingInfo: async (imageName: string) => {
+            const info = await dataService.get_embedding({
+              image_name: imageName,
+              model_type: MICRO_SAM_MODEL_TYPE,
+              _rkwargs: true,
+            });
+            return {
+              exists: !!info?.exists,
+              getUrl: info?.get_url ?? null,
+            };
+          },
+          getMicroSamEmbeddingSaveUrl: async (imageName: string) => {
+            const res = await dataService.get_embedding_save_url({
+              image_name: imageName,
+              model_type: MICRO_SAM_MODEL_TYPE,
+              _rkwargs: true,
+            });
+            return {
+              uploadUrl: res.upload_url as string,
+              filePath: res.file_path as string,
+            };
+          },
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
@@ -797,6 +842,103 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               scaledW,
               scaledH,
             };
+          },
+          computeMicroSamEmbeddingToArtifact: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+            uploadUrl: string,
+          ): Promise<void> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Computing micro-sam embedding -> session artifact');
+
+            // Encode at the μSAM working resolution; the service writes the
+            // self-contained .npz straight to our presigned PUT url, so no
+            // features come back inline (nothing to decode here).
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(
+              imageUrl,
+              width,
+              height,
+              MICRO_SAM_MAX_DIM,
+            );
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+            await microSamService.compute_embedding({
+              inputs: inputArray,
+              model_type: MICRO_SAM_MODEL_TYPE,
+              embedding_upload_url: uploadUrl,
+              _rkwargs: true,
+            });
+          },
+          loadMicroSamEmbedding: async (npzUrl: string): Promise<MicroSamEmbedding> => {
+            console.log('[useHyphaService] Downloading stored micro-sam embedding .npz');
+            const res = await fetch(npzUrl);
+            if (!res.ok) {
+              throw new Error(`Failed to download embedding (${res.status})`);
+            }
+            const buf = await res.arrayBuffer();
+            const parsed = await parseEmbeddingNpz(buf);
+
+            const maxIn = Math.max(...parsed.inputSize);
+            const maxOrig = Math.max(...parsed.originalSize);
+            // sam_scale maps original-image coords into the SAM-resized frame.
+            // mask_threshold is 0.0 for the pinned *_lm model (not in the .npz).
+            const samScale = maxOrig > 0 ? maxIn / maxOrig : 1;
+            const [origH, origW] = parsed.originalSize;
+
+            return {
+              // Rebuild the same hypha-style ndarray wire-dict the decoder reads:
+              // decodeBox slices _rvalue (Uint8Array) -> Float32Array by _rshape.
+              features: {
+                _rtype: 'ndarray',
+                _rvalue: parsed.features,
+                _rshape: parsed.featuresShape,
+                _rdtype: 'float32',
+              },
+              originalImageShape: parsed.originalSize,
+              samScale,
+              maskThreshold: 0,
+              scaledW: origW,
+              scaledH: origH,
+            };
+          },
+          runMicroSamFromEmbedding: async (
+            npzUrl: string,
+            width: number,
+            height: number,
+            params?: CellposeParams,
+          ): Promise<CellposeMask[]> => {
+            const microSamService = await resolveMicroSamService(server);
+            const p = params || {};
+            console.log('[useHyphaService] Running micro-sam AIS from stored embedding link');
+
+            // Server-side AIS reads the stored .npz directly; the browser never
+            // downloads the ~4 MB embedding for this path.
+            // min_mask_area is a display-space area, so it is applied
+            // client-side by maskDataToPolygons (as the pixel path does), not
+            // passed as the server's embedding-resolution min_size.
+            const result = await microSamService.infer({
+              embeddings: [npzUrl],
+              model_type: MICRO_SAM_MODEL_TYPE,
+              _rkwargs: true,
+            });
+
+            // Same bare-list response as the pixel path: result[0].output.
+            if (!result || !Array.isArray(result) || result.length === 0) {
+              console.log('[useHyphaService] No results from micro-sam (embedding link)');
+              return [];
+            }
+            const maskResult = result[0]?.output;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] micro-sam output is not an ndarray:', maskResult);
+              return [];
+            }
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            return maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
           },
           runCellposeFlows: async (
             imageUrl: string,
