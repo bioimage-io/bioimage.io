@@ -2,6 +2,8 @@
 
 Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io) models. Runs on remote BioEngine workers — no local GPU required.
 
+> **Cellpose-4 is served elsewhere.** This runner ships Cellpose-3 and cannot run Cellpose-4 models (Cellpose-SAM / Cellpose-DINO). For those, use the [Cellpose-4 Runner](../cellpose4-runner.md) app (`bioimage-io/cellpose4-runner`) and resolve its accepted ids at call time via `list_supported_models()`.
+
 ## Use this skill when
 
 - The user wants to run a known BioImage.IO model on an image.
@@ -219,7 +221,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 
 ```text
 - [ ] Step 1: Clarify task type (segmentation / denoising / restoration / detection)
-- [ ] Step 2: Search models — use keywords from assets/search_keywords.yaml
+- [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose4-runner.list_supported_models(); see § Candidate pool — two sources
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
 - [ ] Step 5: Run all suitable models on the same input — loop `await run_infer(mr, model_id, <url>)` (submit+poll wrapper; see § Async job API)
@@ -229,6 +231,13 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 - [ ] Step 9: Write comparison_summary.json
 - [ ] Step 10: Generate HTML report
 ```
+
+### Candidate pool — two sources
+
+The screening pool is the **union** of two model sources; gather both before scoring:
+
+1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
+2. **Cellpose-4 models** from the Cellpose-4 Runner — call `cellpose4-runner.list_supported_models()` (see [apps/cellpose4-runner.md](../cellpose4-runner.md)). model-runner cannot run these; route each Cellpose-4 id to `cellpose4-runner.infer` instead of `mr.infer`. Both apps share the same async submit/poll result shape, so one scoring loop covers both.
 
 ```python
 # Run multiple models and save all outputs.
@@ -454,7 +463,7 @@ Use this when the user has unlabelled images and wants to rank candidate models 
 
 ```text
 - [ ] Step 1: Clarify task type (currently only semantic-segmentation models supported; instance models need v2)
-- [ ] Step 2: Search models — use keywords from assets/search_keywords.yaml
+- [ ] Step 2: Gather candidates from both sources — search_models(ignore_checks=False) (or test-reports score ≥ 3) ∪ cellpose4-runner.list_supported_models(); see § Candidate pool — two sources
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README, exclude domain mismatches
 - [ ] Step 4: Run all suitable models on each image, both clean and perturbed — 2·K·N infer() calls
 - [ ] Step 5: Compute per-(model, image) CMR-NHD; aggregate as median across images per model
