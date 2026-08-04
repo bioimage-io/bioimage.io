@@ -772,7 +772,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            const emb = await microSamService.compute_image_embedding({
+            const emb = await microSamService.compute_embedding({
               inputs: inputArray,
               model_type: MICRO_SAM_MODEL_TYPE,
               _rkwargs: true,
