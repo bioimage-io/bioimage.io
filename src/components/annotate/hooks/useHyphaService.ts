@@ -713,9 +713,12 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            // μSAM AIS takes no Cellpose-style knobs; just the image.
+            // μSAM AIS takes no Cellpose-style knobs; just the image. Pin
+            // model_type to the same constant the box path uses so auto pre-seg
+            // and the interactive decoder never diverge from the server default.
             const result = await microSamService.infer({
               input_arrays: [inputArray],
+              model_type: MICRO_SAM_MODEL_TYPE,
               _rkwargs: true,
             });
             console.log('[useHyphaService] micro-sam raw result:', result);

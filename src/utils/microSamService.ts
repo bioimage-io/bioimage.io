@@ -12,8 +12,13 @@
 // user's own workspace connection).
 export const MICRO_SAM_SERVICE_ID = 'ws-user-github|49943582/micro-sam';
 
-// The only model type deployed on the live service today.
-export const MICRO_SAM_MODEL_TYPE = 'vit_b_lm';
+// Model type used for every μSAM call. As of micro-sam 0.7.0 the service
+// default flipped to 'vit_l_lm' (DeepBacs zero-shot mean F1 0.229 -> 0.799 vs
+// 'vit_b_lm'), so we pin the larger model here. The value must be identical
+// across compute_embedding, get_onnx_model, and infer: the in-browser ONNX
+// prompt decoder only produces correct masks when it matches the encoder that
+// generated the embedding. ('vit_b_lm' is the lighter fallback if ever needed.)
+export const MICRO_SAM_MODEL_TYPE = 'vit_l_lm';
 
 /**
  * Resolve a fresh handle to the μSAM service. Cheap (one websocket round-trip)
