@@ -7,6 +7,12 @@ import DeploymentConfigModal from './DeploymentConfigModal';
 import AppDiskCache from './AppDiskCache';
 import ErrorDialog from '../ErrorDialog';
 
+// Auto-refresh cadence for the worker detail page. Each tick calls
+// get_app_status, which the worker expands server-side into one
+// get_running_version Ray round-trip per RUNNING app, so this is heavier
+// than the home page's get_status-only poll. Matched to the home page (10s).
+const AUTO_REFRESH_INTERVAL_MS = 10000;
+
 // Returns true when `actual` is >= `required` under loose semver-by-parts
 // comparison. Handles pre-release suffixes by stripping anything past the
 // first non-numeric character in each component. Falls back to false for
@@ -273,7 +279,7 @@ const BioEngineWorker: React.FC = () => {
       if (autoRefreshEnabled) {
         const interval = setInterval(() => {
           fetchStatus(false);
-        }, 5000);
+        }, AUTO_REFRESH_INTERVAL_MS);
 
         setRefreshInterval(interval);
 
