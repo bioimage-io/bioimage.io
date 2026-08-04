@@ -132,9 +132,57 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
 
   // In-browser μSAM box decoder: fetches the ONNX decoder once, embeds each
   // image once, decodes each drawn box locally. See handleSamBox below.
-  const { decodeBox: decodeSamBox, reset: resetSamDecoder } = useMicroSamDecoder(service);
+  const {
+    decodeBox: decodeSamBox,
+    reset: resetSamDecoder,
+    setEmbeddingLoader,
+  } = useMicroSamDecoder(service);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
+  // Mirror of currentImageName for use inside stable callbacks/effects.
+  const currentImageNameRef = useRef<string | null>(null);
+  // Per-image memoization of the compute+upload step (the expensive part) so
+  // eager-load, AIS, and the box loader all dedupe to a single encode. Presigned
+  // GET urls expire, so only the "is it stored" promise is cached here; a fresh
+  // download url is fetched on each use.
+  const ensuredEmbeddingRef = useRef<Map<string, Promise<void>>>(new Map());
+
+  // Ensure the μSAM embedding for `imageName` is computed and stored in the
+  // session artifact (once per image, keyed by stem + model server-side), then
+  // return a fresh presigned GET url for the stored `.npz`. The expensive
+  // encode+upload is memoized; the GET url is re-fetched each call because
+  // presigned urls expire. Both the box decoder and AIS pre-seg read the same
+  // `.npz` this produces.
+  const ensureStoredEmbedding = useCallback(
+    async (
+      imageName: string,
+      sourceUrl: string,
+      width: number,
+      height: number,
+    ): Promise<string> => {
+      if (!service) throw new Error('micro-sam service unavailable');
+      const cache = ensuredEmbeddingRef.current;
+      let stored = cache.get(imageName);
+      if (!stored) {
+        stored = (async () => {
+          const info = await service.getMicroSamEmbeddingInfo(imageName);
+          if (info.exists) return;
+          const { uploadUrl } = await service.getMicroSamEmbeddingSaveUrl(imageName);
+          await service.computeMicroSamEmbeddingToArtifact(sourceUrl, width, height, uploadUrl);
+        })().catch((e) => {
+          // Drop the entry so a later box/AIS request retries the encode+upload.
+          cache.delete(imageName);
+          throw e;
+        });
+        cache.set(imageName, stored);
+      }
+      await stored;
+      const info = await service.getMicroSamEmbeddingInfo(imageName);
+      if (!info.getUrl) throw new Error('micro-sam embedding is unavailable after upload');
+      return info.getUrl;
+    },
+    [service],
+  );
 
   // Cache for the network's raw (dP, cellprob). One entry per unique
   // (image, model, diameter, clahe) combination — any change there needs a
@@ -491,6 +539,50 @@ print('CLAHE packages ready')
     resetSamDecoder();
   }, [imageUrl, originalImageUrl, resetSamDecoder]);
 
+  // Keep the ref in sync so the stable box embedding loader can read the current
+  // image name without being torn down and re-registered on every image switch.
+  useEffect(() => {
+    currentImageNameRef.current = currentImageName;
+  }, [currentImageName]);
+
+  // Eagerly compute + store the μSAM embedding as soon as an image is ready so
+  // the first box draw and the first AIS run reuse it instead of each encoding
+  // from scratch. Memoization (ensuredEmbeddingRef) makes CLAHE toggles and
+  // reloads of the same image a no-op, so this only fires once per image.
+  useEffect(() => {
+    if (!microSamAvailable || !service) return;
+    if (!currentImageName || imageWidth <= 0 || imageHeight <= 0) return;
+    const sourceUrl = originalImageUrl || imageUrl;
+    if (!sourceUrl) return;
+    // Already computing/computed for this image: skip the extra round-trip and
+    // the banner flicker (box/AIS fetch their own fresh url when needed).
+    if (ensuredEmbeddingRef.current.has(currentImageName)) return;
+    const bannerId = addBanner('Preparing micro-sam...', 'loading', 0);
+    ensureStoredEmbedding(currentImageName, sourceUrl, imageWidth, imageHeight)
+      .catch((e) => {
+        // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
+        console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
+      })
+      .finally(() => removeBanner(bannerId));
+    return () => removeBanner(bannerId);
+  }, [
+    microSamAvailable, service, currentImageName, imageWidth, imageHeight,
+    imageUrl, originalImageUrl, ensureStoredEmbedding, addBanner, removeBanner,
+  ]);
+
+  // Feed the in-browser box decoder from the shared stored embedding instead of
+  // letting it encode inline, so the box tool and AIS pre-seg reuse one encode.
+  useEffect(() => {
+    if (!service) return;
+    setEmbeddingLoader(async (url, width, height) => {
+      const name = currentImageNameRef.current;
+      if (!name) throw new Error('no active image for micro-sam');
+      const npzUrl = await ensureStoredEmbedding(name, url, width, height);
+      return service.loadMicroSamEmbedding(npzUrl);
+    });
+    return () => setEmbeddingLoader(null);
+  }, [service, setEmbeddingLoader, ensureStoredEmbedding]);
+
   // AI-box tool: decode the drawn box into one mask locally and commit it as a
   // feature styled with the active label. Undo-snapshotted before mutation.
   const handleSamBox = useCallback(
@@ -653,7 +745,15 @@ print('CLAHE packages ready')
       // route the masks through the same preview + undo machinery Cellpose uses.
       if (cfg.backend === 'microsam') {
         try {
-          const masks = await service.runMicroSam(sourceUrl, imageWidth, imageHeight, {
+          // Reuse the precomputed embedding: AIS runs fully server-side from the
+          // stored `.npz` link (the browser never pulls the ~4 MB features).
+          const npzUrl = await ensureStoredEmbedding(
+            currentImageName ?? sourceUrl,
+            sourceUrl,
+            imageWidth,
+            imageHeight,
+          );
+          const masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
             min_mask_area: cfg.min_mask_area,
           });
           let n = 0;
@@ -741,8 +841,8 @@ print('CLAHE packages ready')
     }
   }, [
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
-    cellposeConfig, isCLAHEActive, kernelReady,
-    runCellposeFlowsPipeline, applyPolygonsAsPreview,
+    cellposeConfig, isCLAHEActive, kernelReady, currentImageName,
+    ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
     getVectorSource, pushUndo, addBanner, removeBanner,
   ]);
 

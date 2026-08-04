@@ -44,6 +44,19 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
   // Cached encoder embedding, keyed by image URL so switching images
   // invalidates it and forces a fresh encode.
   const embeddingRef = useRef<{ url: string; promise: Promise<MicroSamEmbedding> } | null>(null);
+  // Optional embedding source injected by the page. When set, the box tool
+  // pulls its embedding from here (a stored .npz) instead of encoding inline,
+  // so it shares the single precomputed embedding with AIS pre-seg.
+  const embeddingLoaderRef = useRef<
+    ((url: string, width: number, height: number) => Promise<MicroSamEmbedding>) | null
+  >(null);
+
+  const setEmbeddingLoader = useCallback(
+    (loader: ((url: string, width: number, height: number) => Promise<MicroSamEmbedding>) | null) => {
+      embeddingLoaderRef.current = loader;
+    },
+    [],
+  );
 
   const ensureSession = useCallback((): Promise<any> => {
     if (!service) throw new Error('micro-sam service unavailable');
@@ -64,9 +77,12 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     (url: string, width: number, height: number): Promise<MicroSamEmbedding> => {
       if (!service) throw new Error('micro-sam service unavailable');
       if (!embeddingRef.current || embeddingRef.current.url !== url) {
-        const promise = service
-          .computeMicroSamEmbedding(url, width, height)
-          .catch((e) => {
+        // Prefer the injected loader (stored .npz) so the box tool reuses the
+        // precomputed embedding; fall back to an inline encode if none is set.
+        const load = embeddingLoaderRef.current
+          ? embeddingLoaderRef.current(url, width, height)
+          : service.computeMicroSamEmbedding(url, width, height);
+        const promise = load.catch((e) => {
             // Drop the cache entry so the next box retries the encode.
             if (embeddingRef.current && embeddingRef.current.url === url) {
               embeddingRef.current = null;
@@ -188,5 +204,5 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     embeddingRef.current = null;
   }, []);
 
-  return { decodeBox, reset };
+  return { decodeBox, reset, setEmbeddingLoader };
 }
