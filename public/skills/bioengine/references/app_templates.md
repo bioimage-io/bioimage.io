@@ -4,6 +4,10 @@
 - [Simple app template](#simple-app-template)
 - [Composition app template](#composition-app-template)
 - [Frontend UI template](#frontend-ui-template)
+  - [Getting the frontend URL](#getting-the-frontend-url)
+  - [Sending an uploaded image to the backend](#sending-an-uploaded-image-to-the-backend)
+  - [Shipping a multi-file frontend](#shipping-a-multi-file-frontend)
+  - [Testing your frontend](#testing-your-frontend)
 
 ---
 
@@ -17,50 +21,41 @@ id: my-simple-app
 id_emoji: "⚙️"
 description: "A simple BioEngine application"
 type: ray-serve
-format_version: 0.5.0
+format_version: 0.6.0
 version: 1.0.0
 authors:
   - {name: "Your Name", affiliation: "Your Org"}
 license: MIT
 tags: [bioengine]
-deployments:
-  - my_deployment:MyDeployment
+entry: my_deployment:MyDeployment
 authorized_users:
   - "*"
-frontend_entry: "frontend/index.html"
 ```
 
 ### `my_deployment.py`
 
 ```python
 """Single-deployment BioEngine app."""
-import asyncio
-import logging
-import os
 import time
 from datetime import datetime
 from typing import Dict, Union
 
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
-from ray import serve
 
-logger = logging.getLogger("ray.serve")
+import bioengine
+
+logger = bioengine.logger  # never use print()
 
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 1,
-        "num_gpus": 0,
-        "memory": 1 * 1024**3,
-        "runtime_env": {
-            "pip": [
-                # Freeze all versions here BEFORE writing business logic.
-                # Changing these later requires a full environment rebuild (5-15 min).
-                "numpy==1.26.4",
-            ],
-        },
-    },
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=0,
+    memory_mb=1024,
+    pip=[
+        # Freeze all versions here BEFORE writing business logic.
+        # Changing these later requires a full environment rebuild (5-15 min).
+        "numpy==1.26.4",
+    ],
     max_ongoing_requests=10,
 )
 class MyDeployment:
@@ -68,20 +63,19 @@ class MyDeployment:
         self.greeting = greeting
         self.start_time = time.time()
 
-    async def async_init(self) -> None:
+    @bioengine.async_init
+    async def load(self) -> None:
         logger.info("MyDeployment async_init complete")
 
-    async def test_deployment(self) -> None:
+    @bioengine.smoke_test
+    async def smoke(self) -> None:
         import numpy as np
         arr = np.zeros((3, 3))
         assert arr.shape == (3, 3)
         result = await self.ping()
         assert result["status"] == "ok"
 
-    async def check_health(self) -> None:
-        pass
-
-    @schema_method
+    @bioengine.method
     async def ping(self) -> Dict[str, Union[str, float]]:
         """Ping the service."""
         return {
@@ -91,7 +85,7 @@ class MyDeployment:
             "uptime": time.time() - self.start_time,
         }
 
-    @schema_method
+    @bioengine.method
     async def process(
         self,
         values: list = Field(..., description="List of numbers to sum"),
@@ -101,6 +95,10 @@ class MyDeployment:
         arr = np.array(values, dtype=float)
         return {"result": float(np.sum(arr)), "count": len(values)}
 ```
+
+*(Validated: this exact template deploys green on a live worker — `ping` and `process` both call successfully.)*
+
+> **Heavy DL dependencies take a while.** For TensorFlow/PyTorch-class `pip` pins plus a first-use pretrained-weight download inside `async_init`, expect a multi-minute (roughly 5–15 min) `DEPLOYING` window. That's normal, not a hang — don't start unnecessary retries or assume failure; wait for `HEALTHY` or `DEPLOY_FAILED`.
 
 ---
 
@@ -115,27 +113,26 @@ Client → EntryDeployment (CPU=0) → RuntimeA (CPU=1, text)
                                  → RuntimeC (CPU=1, images)
 ```
 
-**Critical naming rule**: The filename part of each `deployments` entry must exactly match the parameter name in `EntryDeployment.__init__` that holds the `DeploymentHandle`:
-
-```yaml
-# manifest.yaml
-deployments:
-  - entry_deployment:EntryDeployment   # entry — always first
-  - runtime_a:RuntimeA                 # "runtime_a" must match __init__ param name
-  - runtime_b:RuntimeB
-  - runtime_c:RuntimeC
-```
+**Wiring rule (0.6.0)**: composition is wired via **Python type hints on `__init__`**, not a manifest `deployments:` list. Only the entry deployment is named in `manifest.yaml`'s `entry:` field — `import` each runtime class directly and annotate the matching `__init__` parameter with that class (not `DeploymentHandle`):
 
 ```python
 # entry_deployment.py
+from runtime_a import RuntimeA
+from runtime_b import RuntimeB
+from runtime_c import RuntimeC
+
 class EntryDeployment:
     def __init__(
         self,
-        runtime_a: DeploymentHandle,   # matches "runtime_a" in manifest
-        runtime_b: DeploymentHandle,
-        runtime_c: DeploymentHandle,
+        runtime_a: RuntimeA,   # the import + type hint IS the wiring — param name is free
+        runtime_b: RuntimeB,
+        runtime_c: RuntimeC,
     ) -> None:
 ```
+
+Calls to a composed runtime are plain `await`s on the instance BioEngine injects — `await self.runtime_a.process_text(text)` — **not** the raw Ray `DeploymentHandle.method.remote(...)` pattern. Methods on a runtime that are only called through composition (never called directly by an external Hypha client) don't need `@bioengine.method` — that decorator is only for exposing a method as a public RPC endpoint on the entry.
+
+> **numpy/ndarray payloads between composed deployments.** Composition calls route through Ray Serve's own `DeploymentHandle.remote()` transport (the `await self.runtime_a....` proxy wraps it), not Hypha/JSON-RPC, so raw `numpy.ndarray` and other native Python objects can be passed and returned directly between composed deployments without a `.tolist()`/JSON-serialisable conversion — this holds whether the two deployments' replicas land on the same worker node or different ones, since Ray's own object transport handles the transfer either way. The `.tolist()` rule (see [Key rules](../SKILL.md#key-rules)) only applies at the external Hypha boundary, i.e. an `@bioengine.method` return value going back to a Hypha client through `ProxyDeployment`.
 
 ### `manifest.yaml`
 
@@ -145,19 +142,14 @@ id: my-composition-app
 id_emoji: "🔬"
 description: "Multi-deployment composition app"
 type: ray-serve
-format_version: 0.5.0
+format_version: 0.6.0
 version: 1.0.0
 authors:
   - {name: "Your Name", affiliation: "Your Org"}
 license: MIT
-deployments:
-  - entry_deployment:EntryDeployment
-  - runtime_a:RuntimeA
-  - runtime_b:RuntimeB
-  - runtime_c:RuntimeC
+entry: entry_deployment:EntryDeployment
 authorized_users:
   - "*"
-frontend_entry: "frontend/index.html"
 ```
 
 ### `entry_deployment.py`
@@ -165,69 +157,67 @@ frontend_entry: "frontend/index.html"
 ```python
 """Entry deployment — orchestrates RuntimeA, RuntimeB, RuntimeC."""
 import asyncio
-import logging
 import time
-from datetime import datetime
-from typing import Dict, List, Union
 
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
-from ray import serve
-from ray.serve.handle import DeploymentHandle
 
-logger = logging.getLogger("ray.serve")
+import bioengine
+from runtime_a import RuntimeA
+from runtime_b import RuntimeB
+from runtime_c import RuntimeC
+
+logger = bioengine.logger
 
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 0,
-        "num_gpus": 0,
-        "memory": 256 * 1024**2,
-        "runtime_env": {"pip": []},
-    },
+@bioengine.app(
+    num_cpus=0,
+    num_gpus=0,
+    memory_mb=256,
+    pip=[],
     max_ongoing_requests=20,
 )
 class EntryDeployment:
     def __init__(
         self,
-        runtime_a: DeploymentHandle,
-        runtime_b: DeploymentHandle,
-        runtime_c: DeploymentHandle,
+        runtime_a: RuntimeA,
+        runtime_b: RuntimeB,
+        runtime_c: RuntimeC,
     ) -> None:
         self.runtime_a = runtime_a
         self.runtime_b = runtime_b
         self.runtime_c = runtime_c
         self.start_time = time.time()
 
-    async def test_deployment(self) -> None:
-        ping_a = await self.runtime_a.ping.remote()
-        ping_b = await self.runtime_b.ping.remote()
-        ping_c = await self.runtime_c.ping.remote()
+    @bioengine.smoke_test
+    async def smoke(self) -> None:
+        ping_a = await self.runtime_a.ping()
+        ping_b = await self.runtime_b.ping()
+        ping_c = await self.runtime_c.ping()
         assert ping_a == "pong"
         assert ping_b == "pong"
         assert ping_c == "pong"
 
-    @schema_method
+    @bioengine.method
     async def status(self) -> dict:
         """Get status from all runtimes."""
         a, b, c = await asyncio.gather(
-            self.runtime_a.get_status.remote(),
-            self.runtime_b.get_status.remote(),
-            self.runtime_c.get_status.remote(),
+            self.runtime_a.get_status(),
+            self.runtime_b.get_status(),
+            self.runtime_c.get_status(),
         )
         return {"entry_uptime": time.time() - self.start_time, "runtime_a": a, "runtime_b": b, "runtime_c": c}
 
-    @schema_method
+    @bioengine.method
     async def process_text(self, text: str = Field(..., description="Text to process")) -> dict:
         """Process text through RuntimeA."""
-        return await self.runtime_a.process_text.remote(text)
+        return await self.runtime_a.process_text(text)
 
-    @schema_method
+    @bioengine.method
     async def analyze_data(self, values: list = Field(..., description="List of numbers")) -> dict:
         """Run statistical analysis through RuntimeB."""
-        return await self.runtime_b.analyze.remote(values)
+        return await self.runtime_b.analyze(values)
 
-    @schema_method
+    @bioengine.method
     async def pipeline(
         self,
         text: str = Field(..., description="Text input"),
@@ -235,8 +225,8 @@ class EntryDeployment:
     ) -> dict:
         """Run runtimes A and B in parallel."""
         text_result, data_result = await asyncio.gather(
-            self.runtime_a.process_text.remote(text),
-            self.runtime_b.analyze.remote(values),
+            self.runtime_a.process_text(text),
+            self.runtime_b.analyze(values),
         )
         return {"text": text_result, "data": data_result}
 ```
@@ -245,24 +235,25 @@ class EntryDeployment:
 
 ```python
 """RuntimeA — text processing."""
-import logging
-from ray import serve
+import bioengine
 
-logger = logging.getLogger("ray.serve")
+logger = bioengine.logger
 
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 1, "num_gpus": 0, "memory": 512 * 1024**2,
-        "runtime_env": {"pip": []},
-    },
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=0,
+    memory_mb=512,
+    pip=[],
     max_ongoing_requests=5,
 )
 class RuntimeA:
-    async def async_init(self) -> None:
+    @bioengine.async_init
+    async def load(self) -> None:
         logger.info("RuntimeA ready")
 
-    async def test_deployment(self) -> None:
+    @bioengine.smoke_test
+    async def smoke(self) -> None:
         result = await self.process_text("hello world")
         assert "word_count" in result
 
@@ -281,21 +272,21 @@ class RuntimeA:
 
 ```python
 """RuntimeB — data analysis."""
-import logging
-from ray import serve
+import bioengine
 
-logger = logging.getLogger("ray.serve")
+logger = bioengine.logger
 
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 1, "num_gpus": 0, "memory": 512 * 1024**2,
-        "runtime_env": {"pip": ["numpy==1.26.4", "scipy==1.13.0"]},
-    },
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=0,
+    memory_mb=512,
+    pip=["numpy==1.26.4"],
     max_ongoing_requests=5,
 )
 class RuntimeB:
-    async def async_init(self) -> None:
+    @bioengine.async_init
+    async def load(self) -> None:
         import numpy as np
         logger.info(f"RuntimeB ready (numpy {np.__version__})")
 
@@ -316,22 +307,22 @@ class RuntimeB:
 
 ```python
 """RuntimeC — image processing."""
-import logging
-from ray import serve
+import bioengine
 
-logger = logging.getLogger("ray.serve")
+logger = bioengine.logger
 
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 1, "num_gpus": 0, "memory": 1 * 1024**3,
-        "runtime_env": {"pip": ["numpy==1.26.4", "pillow==10.4.0"]},
-    },
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=0,
+    memory_mb=1024,
+    pip=["numpy==1.26.4", "pillow==10.4.0"],
     max_ongoing_requests=5,
 )
 class RuntimeC:
-    async def async_init(self) -> None:
-        from PIL import Image
+    @bioengine.async_init
+    async def load(self) -> None:
+        from PIL import Image  # noqa: F401
         logger.info("RuntimeC ready")
 
     async def ping(self) -> str:
@@ -350,6 +341,8 @@ class RuntimeC:
         return {"width": width, "height": height, "mean_pixel": float(pixel_arr.mean())}
 ```
 
+*(Validated: this exact 3-runtime composition deploys green on a live worker — all deployments HEALTHY, and `status`, `process_text`, `analyze_data`, `pipeline` all call successfully end-to-end through the composed runtimes.)*
+
 ---
 
 ## Frontend UI template
@@ -362,6 +355,8 @@ user is signed in. Drop the `<style>` block, `<div id="topbar">`, and
 the `<script>` body into any BioEngine app frontend and fill in the
 service-specific cards (image picker, instruction input, result panel,
 etc.) between them.
+
+*(Validated: `frontend_entry` + `static_site_url` confirmed against a live 0.6.0 app on a running worker — the populated URL carries exactly the `server=` and `ws_service_id=` query params this template's boot script reads. The HTML/JS itself is 0.6.0-format-agnostic — it talks to Hypha RPC, not to the manifest — so it needed no porting.)*
 
 ```html
 <!DOCTYPE html>
@@ -466,7 +461,12 @@ import { login, connectToServer }
 //                                          instance hosting this artifact);
 //                                          falls back to hypha.aicell.io
 //                                          for non-http(s) dev origins.
-//   ?ws_service_id=<full-service-id>    — pinned target service id
+//   ?ws_service_id=<full-service-id>    — pinned target service id, already
+//                                          fully resolved by BioEngine. Use
+//                                          it as-is; no discovery needed.
+//   ?webrtc_service_id=<full-id>        — also injected by BioEngine. This
+//                                          template ignores it (WebSocket
+//                                          transport only); harmless.
 //   ?token=<hypha-token>                — TESTING-ONLY auto-connect bypass.
 //                                          Tokens land in browser history;
 //                                          do not paste production tokens.
@@ -595,8 +595,90 @@ $("logoutBtn").addEventListener("click", async () => {
 **Key points:**
 - Import `login` and `connectToServer` from the same CDN module — no npm needed.
 - `server_url` and `ws_service_id` come from URL query params injected by BioEngine when the page is served via the artifact's `static_site_url`.
-- `frontend_entry: "frontend/index.html"` in `manifest.yaml` is what causes BioEngine to populate `static_site_url` and the dashboard's "Open UI" button. The artifact's `view_config` (`root_directory: "frontend"`, `index: "index.html"`) is configured automatically by `upload_app`.
+- `frontend_entry: "frontend/index.html"` in `manifest.yaml` is still the field that causes BioEngine to populate `static_site_url` and the dashboard's "Open UI" button (confirmed unchanged in format_version 0.6.0). It's additive to the normal `entry:` field — add it alongside `entry:`, don't replace it:
+  ```yaml
+  format_version: 0.6.0
+  entry: my_deployment:MyDeployment   # the deployment class (0.6.0 single-entry field)
+  frontend_entry: "frontend/index.html"   # optional — only if you ship a frontend/ dir
+  ```
+  The artifact's `view_config` (`root_directory: "frontend"`, `index: "index.html"`) is configured automatically by `upload_app`.
 - Change `TOKEN_KEY` / `TOKEN_EXPIRY` constants per app so apps share a Hypha session origin but keep separate localStorage entries.
+- **The frontend does not resolve service IDs, and there is no CORS to fight.** BioEngine injects the fully-resolved `ws_service_id` (plus a `webrtc_service_id`) into the URL when it serves the page from `static_site_url`, so the page never runs the `get_app_status` discovery recipe in [service_ids.md](service_ids.md) — that recipe is for *external* callers. And because the page and the `wss://` RPC endpoint are the same origin, there is no preflight, no CORS header, and no `view_config.headers` tuning to do. Read `ws_service_id` off the query string and connect.
+
+### Getting the frontend URL
+
+`bioengine apps status <app-id>` prints Application / Status / Artifact / Deployments and **never the frontend URL**. It only exists in the JSON form:
+
+```bash
+bioengine apps status my-app --json     # → result["my-app"]["static_site_url"]
+```
+
+The populated URL looks like this (note the three injected query params):
+
+```
+https://hypha.aicell.io/<workspace>/view/my-app/?server=https://hypha.aicell.io&ws_service_id=<workspace>/bioengine-worker-<site>-<hash>:my-app&webrtc_service_id=<...>:my-app-rtc
+```
+
+### Sending an uploaded image to the backend
+
+The wire format for image bytes is the first wall every image-app frontend hits. **A browser `Uint8Array` and a raw `ArrayBuffer` both round-trip byte-exact into a Python `bytes` parameter over hypha-rpc** (validated in a live browser: 102145 bytes sent, 102145 received, on both same-node and default routing). **Base64 is not required** — it also works, but inflates every upload by ~33%. Prefer binary.
+
+Browser side:
+
+```js
+// <input type="file" id="fileInput" accept="image/*">
+const file  = $("fileInput").files[0];
+const buf   = await file.arrayBuffer();       // or FileReader.readAsArrayBuffer
+const bytes = new Uint8Array(buf);            // buf itself also works
+
+const result = await svc.segment({
+  image_bytes: bytes,                         // straight through — no base64
+  threshold_method: "otsu",
+  _rkwargs: true,                             // required on every JS RPC call
+});
+```
+
+Matching deployment method — declare the parameter as `bytes`:
+
+```python
+@bioengine.method
+async def segment(
+    self,
+    image_bytes: bytes = Field(..., description="Raw 2D image file bytes (binary, not base64)."),
+    threshold_method: str = Field("otsu", description="'otsu' or 'li'."),
+) -> dict:
+    """Segment an image supplied as raw file bytes."""
+    import asyncio
+
+    raw = bytes(image_bytes)                  # normalise whatever hypha-rpc handed you
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, self._segment_sync, raw, str(threshold_method).lower())
+```
+
+Note the return direction is still governed by the `.tolist()` rule — send masks and coordinate arrays back as plain lists (or, for a preview image, a base64 PNG string).
+
+### Shipping a multi-file frontend
+
+The template is a single self-contained `index.html`, but you are not limited to one file. **Sibling files and nested subdirectories under `frontend/` are all served, with correct MIME types**, at paths relative to the `static_site_url` base (the `root_directory: frontend` prefix is stripped). So this layout works as written:
+
+```
+frontend/
+├── index.html          # → <static_site_url>/
+├── styles.css          # → <static_site_url>/styles.css        (text/css)
+└── assets/
+    └── logo.svg        # → <static_site_url>/assets/logo.svg
+```
+
+Reference them with ordinary relative URLs (`<link rel="stylesheet" href="styles.css">`, `fetch("assets/data.json")`).
+
+### Testing your frontend
+
+`?token=<hypha-token>` is the auto-connect bypass at the top of the boot sequence, and it is **the one thing that makes agent-driven browser testing possible** — the interactive `login()` flow needs a human to complete it in a popup, so without `?token=` an automated browser run stalls at the login screen. Load `<static_site_url>?…&token=$HYPHA_TOKEN` in a headless browser and the page connects and enables its controls unattended. It stays testing-only: tokens in URLs land in browser history, so never paste a production token into a shared link.
+
+Two headless-Chromium traps that cost more time than anything BioEngine-related, and are worth pre-empting:
+
+- **Waits and screenshots time out on a perfectly healthy page.** Playwright's `wait_for_function` polls on `requestAnimationFrame` by default and `page.screenshot()` waits for frame stability. An occluded headless page intermittently stops producing compositor frames, so both hang until timeout while the app underneath is fine. Fixes: `page.wait_for_function(..., polling=500)` (wall-clock polling instead of rAF), capture via CDP `Page.captureScreenshot` instead of `page.screenshot()`, and launch with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion`.
+- **Don't reuse one browser across a logged-out and a logged-in scenario.** A fresh `launch()` per scenario removed a reproducible connect hang.
 
 ### Error popups for button-driven failures
 

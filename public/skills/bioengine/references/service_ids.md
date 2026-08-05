@@ -23,6 +23,8 @@ BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are
 | `bioengine-worker` | the worker itself | one entry per worker |
 | `bioengine-app` | the proxy deployment of each running app | one entry per running app (singular — `bioengine-apps` returns 0 results) |
 
+> **Who needs discovery, and who doesn't.** Everything below is for **external callers** — the CLI, a Python client, another service. An app's own frontend page (`frontend_entry`, served from the artifact's `static_site_url`) does **not** discover anything: BioEngine injects the fully-resolved `ws_service_id` and `webrtc_service_id` into the page URL as query params, so the frontend reads them off `window.location.search` and connects. See [app_templates.md § Frontend UI template](app_templates.md#frontend-ui-template).
+
 **Discovery recipe** (one ready-to-paste block):
 ```python
 from hypha_rpc import connect_to_server
@@ -53,6 +55,8 @@ request_id = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 
 > **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).
 
-> **Replica suffix in the service ID** — the worker mints a fresh Hypha sub-client for every Ray Serve replica (so each replica can register its own services). That's why the app's service ID is `<workspace>/<worker_client_id>-<replica_id>:<app_id>` (e.g. `…-v6qq1k45:model-runner`) instead of just `<workspace>/<worker_client_id>:<app_id>`. The suffix is stable for the lifetime of the replica and changes on every redeploy — always re-resolve via `get_app_status` rather than caching the full service ID across deploys.
+> **Replica suffix in the service ID** — the worker mints a fresh Hypha sub-client for every Ray Serve replica (so each replica can register its own services). That's why the app's service ID is `<workspace>/<worker_client_id>-<replica_id>:<app_id>` (e.g. `…-v6qq1k45:model-runner`) instead of just `<workspace>/<worker_client_id>:<app_id>`. **Always re-resolve via `get_app_status` rather than caching the full service ID across deploys** — the suffix is only guaranteed for the lifetime of the replica, and a replacement replica, a worker restart, or a different worker gives you a different one.
+>
+> ⚠️ **Do not use the suffix as a "did my redeploy take effect?" signal.** It is *not* guaranteed to change on redeploy — across three consecutive redeploys of the same `--app-id`, the suffix stayed byte-identical (`…-875b97ef:<app_id>`) and so did the whole `websocket_service_id`. An unchanged service ID tells you nothing about whether new code is live. To check that, read `running_version` (and the app's `available_methods`) from `bioengine apps status <id> --json`.
 
 A user who deployed their own worker in workspace `<ws>` has the same pattern: a `<ws>/bioengine-worker-*:bioengine-worker` for the worker and `<ws>/<worker_client_id>-<replica_id>:<app_id>` per app instance.

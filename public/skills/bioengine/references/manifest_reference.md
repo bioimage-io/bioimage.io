@@ -1,76 +1,123 @@
-# manifest.yaml Reference
+# manifest.yaml Reference (format_version 0.6.0)
+
+> The pre-0.6.0 `deployments:` list schema is no longer supported. 0.6.0
+> manifests use a single top-level `entry:` field. Multi-deployment
+> composition is wired via Python type hints on `__init__`, not a manifest
+> list — see [app_templates.md](app_templates.md#composition-app-template).
 
 ## Required fields
 
 ```yaml
+name: "Application Name"
 id: "unique-identifier"          # lowercase, hyphens allowed
 id_emoji: "🔬"                   # required — single emoji character
-name: "Application Name"
 description: "Functional description"
 type: ray-serve
+format_version: 0.6.0
+entry: my_deployment:MyDeployment   # python_filename_without_py:ClassName — single entry point
 authorized_users:
   - "*"                          # or list of email addresses
-deployments:
-  - "filename:ClassName"         # first entry = main entry point
 ```
 
 ## Optional fields
 
 ```yaml
 version: "1.0.0"
+authors:
+  - {name: "Your Name", affiliation: "Your Org"}
+license: MIT
+tags: [bioengine]
 documentation: "https://..."
 tutorial: "tutorial.ipynb"
-authorized_users:
-  - "user@example.com"
-  - "*"                          # allow all users
-tags: ["segmentation", "gpu"]
-license: "MIT"
+frontend_entry: "frontend/index.html"   # only if you ship a frontend/ dir
 ```
 
-## Deployment list ordering
+`validate_manifest` checks the required fields, the `format_version`, and the
+`entry:` pattern — it does not reject extra keys, so `documentation:`,
+`tutorial:` and any other descriptive metadata ride along on the artifact
+manifest harmlessly.
 
-The first deployment in the list becomes the main service entry point exposed through Hypha APIs. In multi-deployment apps, subsequent entries are helper/backend deployments referenced via `DeploymentHandle` parameters in the main class `__init__`.
+- **`version`** — not required by schema, but every validated template sets
+  it, and it is enforced at upload time: as of bioengine 0.11.7, `upload_app`
+  rejects any artifact whose manifest `version` is not strictly greater than
+  every existing version of that artifact (PEP 440 ordering). Bump it on
+  every change.
+- **`frontend_entry`** — additive to `entry:`, not a replacement. Causes
+  BioEngine to populate `static_site_url` and the dashboard's "Open UI"
+  button. The artifact's `view_config` (`root_directory: "frontend"`,
+  `index: "index.html"`) is configured automatically by `upload_app`. See
+  [app_templates.md § Frontend UI template](app_templates.md#frontend-ui-template).
 
-## Full example (multi-deployment)
+## The `entry:` field
 
-```yaml
-id: "bioengine-model-runner"
-id_emoji: "🔬"
-name: "BioImage.IO Model Runner"
-description: "Runs BioImage.IO models via Ray Serve"
-type: ray-serve
-authorized_users:
-  - "*"
-deployments:
-  - "entry_deployment:EntryDeployment"
-  - "runtime_deployment:RuntimeDeployment"
-```
-
-In `entry_deployment.py`, `EntryDeployment.__init__` receives `runtime_deployment: DeploymentHandle` as a parameter.
-
-## Ray actor options reference
+`entry:` names exactly one deployment class — `<module_without_.py>:<ClassName>`.
+There is no `deployments:` list in 0.6.0. For an app with multiple
+deployments (one entry orchestrating several runtimes), only the entry
+deployment goes in `entry:`; the entry's `__init__` imports each runtime
+class directly and type-hints the matching parameter with that class —
+that import + type hint *is* the wiring:
 
 ```python
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 2,           # CPU cores
-        "num_gpus": 1,           # GPU count (omit for CPU-only)
-        "memory": 8 * 1024**3,  # RAM in bytes
-        "runtime_env": {
-            # No need to list pydantic — BioEngine auto-injects it.
-            # See "Pydantic compatibility" below.
-            "pip": ["numpy", "torch"],
-            "env_vars": {"MY_VAR": "value"},
-        },
-    },
-    max_ongoing_requests=10,     # concurrent requests per replica
-    autoscaling_config={
-        "min_replicas": 1,
-        "max_replicas": 3,
-        "target_ongoing_requests": 0.8,
-    },
-)
+from runtime_a import RuntimeA
+
+class EntryDeployment:
+    def __init__(self, runtime_a: RuntimeA) -> None:
+        ...
 ```
+
+Full working single- and multi-deployment templates:
+[app_templates.md](app_templates.md).
+
+## Full example (validated)
+
+```yaml
+name: My Simple App
+id: my-simple-app
+id_emoji: "⚙️"
+description: "A simple BioEngine application"
+type: ray-serve
+format_version: 0.6.0
+version: 1.0.0
+authors:
+  - {name: "Your Name", affiliation: "Your Org"}
+license: MIT
+tags: [bioengine]
+entry: my_deployment:MyDeployment
+authorized_users:
+  - "*"
+```
+
+## `@bioengine.app` decorator reference
+
+Deployment resource and scaling knobs are no longer set as a raw
+`@serve.deployment(ray_actor_options={...})` dict — authoring with the raw
+Ray Serve decorator is deprecated and will fail introspection. Use
+`@bioengine.app(...)`, which BioEngine wraps into the underlying
+`@serve.deployment` for you:
+
+```python
+import bioengine
+
+@bioengine.app(
+    num_cpus=1,
+    num_gpus=1,                  # 1 for GPU, 0 for CPU-only; never fractional
+    memory_mb=4096,               # RAM in MB
+    pip=["numpy==1.26.4"],       # pin exact versions — any change = full rebuild
+    max_ongoing_requests=10,     # concurrent requests per replica
+)
+class MyDeployment:
+    ...
+```
+
+Entry/orchestrator deployments in composition apps use `num_cpus=0,
+num_gpus=0` — they route calls to the runtimes and hold no compute of their
+own (see the composition template's `EntryDeployment`).
+
+**Per-replica scaling (`num_replicas` / `autoscaling_config`) is not a
+manifest or decorator field.** It's set at deploy time via
+`worker.deploy_app(scaling={class_name: {...}})`, keyed by class name — see
+SKILL.md § 3 "Per-deployment scaling". Classes not named in `scaling` run at
+one fixed replica.
 
 ## Pydantic compatibility (important)
 
@@ -87,10 +134,11 @@ AttributeError: 'FieldInfo' object has no attribute 'exclude_if'
 **You do not need to pin pydantic in your app.** BioEngine's
 `AppBuilder` calls `update_requirements(...)` against the driver's
 worker extras and **auto-injects the driver's pydantic pin** into
-your deployment's `runtime_env.pip` whenever the app does not already
-list pydantic. The currently-shipped driver pins
-`pydantic==2.11.0` (which pulls `pydantic-core==2.33.0`); BioEngine
-silently adds that to every deployment's pip list.
+your deployment's `runtime_env.pip` (fed from your `@bioengine.app(pip=[...])`
+list) whenever the app does not already list pydantic. The
+currently-shipped driver pins `pydantic==2.11.0` (which pulls
+`pydantic-core==2.33.0`); BioEngine silently adds that to every
+deployment's pip list.
 
 **Only override the auto-injection if you really need a different
 pydantic version.** In that case the override must still resolve to
@@ -112,12 +160,11 @@ the `ray_version`/`bioengine_version` fields returned by
 
 ## Package manager: `pip` vs `uv`
 
-BioEngine currently passes `runtime_env.pip` straight through to
-Ray, which uses pip under the hood. Ray 2.43+ supports an alternative
-top-level key, `runtime_env.uv`, that calls `uv pip install` instead
-(faster cold-start, identical resolver). **Apps do not need to opt
-in directly today** — keep using `"pip": [...]`. If/when BioEngine
-migrates the builder to `runtime_env.uv`, app code stays unchanged
-because BioEngine constructs the runtime_env dict for the deployment.
-A future BioEngine release may also accept `"uv": [...]` in the
-manifest as a passthrough.
+The `pip=[...]` list you pass to `@bioengine.app(...)` is passed straight
+through to Ray as `runtime_env.pip`, which uses pip under the hood. Ray
+2.43+ supports an alternative top-level key, `runtime_env.uv`, that calls
+`uv pip install` instead (faster cold-start, identical resolver). **Apps do
+not need to opt in directly today** — keep using `pip=[...]`. If/when
+BioEngine migrates the builder to `runtime_env.uv`, app code stays
+unchanged because BioEngine constructs the runtime_env dict for the
+deployment from your decorator's `pip` argument.

@@ -35,23 +35,40 @@ Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whet
 
 **Hypha server**: `https://hypha.aicell.io` is the default — use it unless the user specifies another.
 
-**Install the CLI** (requires Python ≥3.11):
+> **Prerequisite — Python ≥3.11, checked before anything else.** The install and every CLI invocation hard-fail immediately on an older interpreter:
+> ```
+> ERROR: Package 'bioengine' requires a different Python: 3.10.14 not in '>=3.11'
+> ```
+> Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — create a fresh 3.11+ env before installing: `conda create -n bioengine python=3.11` or `python3.11 -m venv .venv`.
+
+**Install the CLI**:
 ```bash
 pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"
 ```
 If your shell has a global `git config --global url."git@github.com:".insteadOf "https://github.com/"` rewrite (common dotfiles setup) and your SSH key isn't loaded, pip will fail with a `Permission denied (publickey)` error — temporarily unset the rewrite or load the SSH agent first.
 
+> **The `[cli]` extra ships no pydantic — add it if you'll author an app.** `bioengine[cli]` deliberately installs a thin set (`click`, `rich`, `tifffile`, `Pillow` on top of the base deps); `pydantic` only comes with the `[worker]` extra. But every app template starts with `from pydantic import Field` at module top level, so importing, linting, or locally smoke-testing your own app module fails out of the box in exactly the venv this section tells you to create. If you're developing an app (Task 2), install it too:
+> ```bash
+> pip install pydantic
+> ```
+
+> **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.11.x; installs have shipped 0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
+
 **Environment**:
 ```bash
 export HYPHA_TOKEN=<your-token>                             # see references/hypha_setup.md if you don't have one
+export BIOENGINE_SERVER_URL=<hypha-server>                  # CLI/skill env var — NOT the same name as below
 export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use
 ```
+> **Env-var naming split.** The CLI and every command in this skill read `BIOENGINE_SERVER_URL` (`bioengine --help` documents it; default `https://hypha.aicell.io` if unset). If your shell environment instead provides `HYPHA_SERVER_URL` (a different variable — common when a harness or notebook sets up Hypha credentials generically), the CLI does **not** read it and will silently fall back to its own default. If your `HYPHA_SERVER_URL` differs from the CLI default, explicitly `export BIOENGINE_SERVER_URL="$HYPHA_SERVER_URL"` — don't assume the two are interchangeable.
 
 **Getting a token, workspace, and scoped credentials.** If you don't already have a `HYPHA_TOKEN`, or you need to create a dedicated workspace or mint worker/app tokens, **load [references/hypha_setup.md](references/hypha_setup.md)** — the browser login flow, `create_workspace`, the `generate_token` scheme, and the permission ladder. Most task runs only need this once.
 
 ### Service IDs — how to discover them (read carefully)
 
 Calling an app requires the concrete per-worker per-replica service ID, and `<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) does **not** reach the app methods — it returns only `{offer}`. Before any Task 3 (deploy) or Task 4 (call) work, **load [references/service_ids.md](references/service_ids.md)** for the worker-vs-app ID layers, the `list_services` type table, and the ready-to-paste discovery recipe that resolves a callable `websocket_service_id` via `worker.get_app_status(None)`.
+
+> **Exception — an app's own frontend does not resolve service IDs.** The discovery recipe is for external callers (CLI, Python client, another service). A `frontend_entry` page served from the app's `static_site_url` is handed the fully-resolved `ws_service_id` as a URL query parameter by BioEngine itself, so it must **not** run `get_app_status` discovery. See [references/app_templates.md § Frontend UI template](references/app_templates.md#frontend-ui-template).
 
 ---
 
@@ -184,7 +201,25 @@ class MyDeployment:
 - `num_gpus: 1` for GPU, `num_gpus: 0` for CPU-only; never use fractional values.
 - Entry/orchestrator deployments in composition apps: `num_cpus: 0, num_gpus: 0`.
 - `Field(None)` not `Field([...])` for mutable defaults — mutable defaults crash at startup.
-- Never return raw numpy arrays over RPC — call `.tolist()` first.
+- **Never call your own `@bioengine.method` in-process.** From a `@bioengine.smoke_test`, a `@bioengine.health_check`, or one method calling another, any `Field(...)`-defaulted parameter you *don't* pass arrives as a raw `FieldInfo` object rather than its default value, and the body blows up on first use:
+  ```
+  TypeError: float() argument must be a string or a real number, not 'FieldInfo'
+  ```
+  Factor the body into an **undecorated helper** and call that from both places. (The simple-app template's smoke test gets away with `await self.ping()` only because `ping` takes no arguments.)
+  ```python
+  def _process_sync(self, values: list, scale: float) -> dict:   # plain helper — real defaults
+      ...
+
+  @bioengine.method
+  async def process(self, values: list = Field(...), scale: float = Field(1.0, description="...")) -> dict:
+      return self._process_sync(values, float(scale))
+
+  @bioengine.smoke_test
+  async def smoke(self) -> None:
+      assert self._process_sync([1, 2, 3], 1.0)["count"] == 3   # NOT await self.process(...)
+  ```
+  Worth getting right locally: unhandled, this surfaces as a `DEPLOY_FAILED` on a live worker with the real cause buried in `deployments[<name>].message`.
+- Never return raw numpy arrays over RPC — call `.tolist()` first. This applies at the **external Hypha boundary only** (an `@bioengine.method` return value going back to a client). Calls *between* composed deployments route through Ray Serve's own transport, so raw numpy passes between them directly — see [references/app_templates.md](references/app_templates.md#composition-app-template).
 - **Don't pin `pydantic` yourself unless you have to.** BioEngine auto-injects the driver's pydantic into your `runtime_env.pip` so the deployment unpickles cleanly on the Ray Serve replica. If you *do* pin pydantic explicitly, it must resolve to the same `pydantic-core` as the driver — otherwise the pre-flight check refuses to deploy. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important).
 - **If your app imports `torch` (>=2.5), set `USER`/`LOGNAME` defaults at the very top of the module.** `torch._dynamo` calls `getpass.getuser()` at import time, which raises `KeyError: getpwuid(): uid not found` when the actor runs as a host uid that has no `/etc/passwd` entry (the default for slim Docker images launched with `--user $(id -u):$(id -g)`). `setdefault` preserves the real identity wherever it's already set (HPC apptainer, K8s pods with a populated passwd) and only injects a placeholder when nothing else exists:
   ```python
@@ -223,6 +258,8 @@ bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 ```
+
+> **Moving a running app to a specific version.** `bioengine apps deploy` has no `--version` flag — it always uploads and deploys the directory you point it at. When you need a running instance pinned to a particular already-uploaded artifact version, `bioengine apps run <artifact> --app-id <running-id> --version <x.y.z>` is the reliable path. After any update, confirm `running_version` in `bioengine apps status <id> --json`: a top-level `status: RUNNING` on its own does not tell you *which* version is live.
 
 > **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...` — it is silently ignored by the app builder.
 
@@ -351,17 +388,25 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > ```
 > So `result[app_id]["deployments"][deployment_name]["message"]` is where the actionable detail lives. The bare `bioengine apps status` output only prints per-deployment *status*, not the message — always pass `--json` when debugging.
 
+> **Transient invalid JSON during `DEPLOYING`.** While an app is still `DEPLOYING`, the `--json` payload can contain raw unescaped control characters in the `message`/`logs` string fields (pip/progress-bar output leaking through), which makes strict `json.loads` fail with "Invalid control character" errors at varying offsets. This self-resolves once the app reaches `RUNNING`. Parse defensively (`json.loads(text, strict=False)`), or only strictly parse once `status` is `RUNNING` or `DEPLOY_FAILED`.
+
 > **Debugging `DEPLOY_FAILED` / `UNHEALTHY`.** The top-level `message` is generic ("The deployments ['X'] are UNHEALTHY."). The **actionable** error — failed pip install, `RuntimeEnvSetupError`, import errors, etc. — is in `deployments[<name>].message` and `deployments[<name>].logs`. Check these before guessing.
 
 ### Cleaning up a test deployment
 
-`bioengine apps stop` halts the running app but leaves its Hypha artifact in place. To fully remove a test deployment (so it doesn't clutter the artifact list), stop AND delete the artifact:
+`bioengine apps stop` halts the running app (frees compute) but leaves its Hypha artifact in place. To fully remove a test deployment (so it doesn't clutter the artifact list):
 
 ```bash
 # 1. Stop the running instance:
 bioengine apps stop my-test-app -y
+```
 
-# 2. Delete the artifact (no CLI command yet — call the Hypha artifact-manager directly):
+To also delete the artifact, **do not** call `public/artifact-manager`'s `am.delete` directly — unless you are the artifact's owner it fails:
+```
+PermissionError: User does not have permission 'delete' on the artifact.
+```
+Instead call `delete_app` on the **worker service** itself (`$BIOENGINE_WORKER_SERVICE_ID`) — it runs with the worker's own elevated permission, not yours, so it succeeds even when `am.delete` doesn't. Validated:
+```bash
 python - <<'PY'
 import asyncio, os
 from hypha_rpc import connect_to_server
@@ -369,11 +414,14 @@ async def main():
     s = await connect_to_server({"server_url": os.environ["BIOENGINE_SERVER_URL"],
                                  "token": os.environ["HYPHA_TOKEN"],
                                  "workspace": os.environ["HYPHA_WORKSPACE"]})
-    am = await s.get_service("public/artifact-manager")
-    await am.delete(artifact_id=f"{os.environ['HYPHA_WORKSPACE']}/my-test-app")
+    worker = await s.get_service(os.environ["BIOENGINE_WORKER_SERVICE_ID"])
+    await worker.delete_app(artifact_id=f"{os.environ['HYPHA_WORKSPACE']}/my-test-app")
 asyncio.run(main())
 PY
 ```
+This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead.
+
+> **Verifying deletion.** `delete_app` returns `None` on success — don't treat the return value as confirmation either way. Verify with `bioengine apps list` (artifact should be gone) or `bioengine apps status <id>`. After deletion, `apps status <id>` can report the app as `NOT_RUNNING` rather than an outright "not found" error — treat `NOT_RUNNING` or absence from `apps list` as "gone".
 
 Always clean up test deployments on shared production workers — they consume shared cluster resources and clutter the artifact list.
 
@@ -452,8 +500,11 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | Blocking inference stalls event loop | `await asyncio.get_event_loop().run_in_executor(None, fn)` |
 | `Multiple services found` error | Use `connect_service()` from `bioengine.cli.utils` |
 | App UNHEALTHY — `HYPHA_TOKEN` missing | Use `--hypha-token $HYPHA_TOKEN`, not `--env HYPHA_TOKEN=...` |
-| Composition param name mismatch | `runtime_a:RuntimeA` must match `__init__` param name `runtime_a` |
+| Composition runtime not injected | In 0.6.0 the wiring is the **import + type hint**: `from runtime_a import RuntimeA` and annotate the `__init__` parameter `runtime_a: RuntimeA` (not `DeploymentHandle`). The parameter *name* is free; there is no `deployments:` list to match |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |
+| `TypeError: float() argument must be … not 'FieldInfo'` | You called your own `@bioengine.method` in-process (usually from a smoke test) and omitted a `Field(...)`-defaulted argument. Factor the body into an undecorated helper and call that from both sides |
+| `apps status --json` fails to parse while `DEPLOYING` | Pip/progress output leaks unescaped control characters into `message`/`logs`. Use `json.loads(text, strict=False)`, or only parse strictly once `status` is `RUNNING` / `DEPLOY_FAILED` |
+| Frontend URL missing from `bioengine apps status` | The plain status output never prints it. Read `static_site_url` from `bioengine apps status <id> --json` |
 | Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
 | `DEPLOY_FAILED` with generic top-level message | Read `deployments[<name>].message` via `apps status --json` or SDK — it carries the real pip/runtime_env/import error |
 | Deploy fails with `RuntimeError: pydantic-core version mismatch` | Pin `pydantic==2.11.0` (or whatever the driver runs) in `runtime_env.pip`. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important) |
