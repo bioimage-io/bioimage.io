@@ -51,6 +51,7 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 > ```bash
 > pip install pydantic
 > ```
+> **This gets you linting, not importing.** `pydantic` clears the *first* import error, not the last: `@bioengine.app` runs `from ray import serve` at decoration time, so applying the decorator — which happens on `import your_app` — fails with `ImportError: cannot import name 'serve' from 'ray'` in any `[cli]`-only venv. **A `[cli]` venv cannot import an app module at all**, and installing `[worker]` just to import one pulls in the whole Ray stack. Don't try to smoke-test the decorated class locally. Factor the real logic into plain undecorated helpers and test those, letting the decorated method be a thin wrapper. That is the same shape the [`FieldInfo` trap](#key-rules) forces on you for a different reason, so it costs nothing and it catches real bugs before a deploy round-trip.
 
 > **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.11.x; installs have shipped 0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
 
@@ -260,6 +261,8 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 ```
 
 > **Moving a running app to a specific version.** `bioengine apps deploy` has no `--version` flag — it always uploads and deploys the directory you point it at. When you need a running instance pinned to a particular already-uploaded artifact version, `bioengine apps run <artifact> --app-id <running-id> --version <x.y.z>` is the reliable path. After any update, confirm `running_version` in `bioengine apps status <id> --json`: a top-level `status: RUNNING` on its own does not tell you *which* version is live.
+>
+> **But `running_version` only tracks the Python replica.** The static frontend and the Ray Serve deployment version-skew independently, by design. Redeploy with a change to `frontend/` only and Ray Serve correctly keeps the existing replica, so **`running_version` never advances — polling it waits forever** while the new HTML is already being served. Verify the two separately: `running_version` for Python changes, and `curl` on `static_site_url` diffed against your local file for frontend changes. A version bump in `manifest.yaml` does not force the replica to restart either; only a Python change does.
 
 > **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...` — it is silently ignored by the app builder.
 
@@ -505,6 +508,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `TypeError: float() argument must be … not 'FieldInfo'` | You called your own `@bioengine.method` in-process (usually from a smoke test) and omitted a `Field(...)`-defaulted argument. Factor the body into an undecorated helper and call that from both sides |
 | `apps status --json` fails to parse while `DEPLOYING` | Pip/progress output leaks unescaped control characters into `message`/`logs`. Use `json.loads(text, strict=False)`, or only parse strictly once `status` is `RUNNING` / `DEPLOY_FAILED` |
 | Frontend URL missing from `bioengine apps status` | The plain status output never prints it. Read `static_site_url` from `bioengine apps status <id> --json` |
+| `running_version` never advances after a redeploy | Expected if you only changed `frontend/`. Ray Serve keeps the existing replica, so the number is correct and polling it never terminates. The new HTML is already live — verify by fetching `static_site_url` instead |
+| Local `import your_app` fails with `cannot import name 'serve' from 'ray'` | `@bioengine.app` imports `ray.serve` at decoration time, and `bioengine[cli]` ships no ray. A `[cli]` venv cannot import an app module. Test undecorated helpers instead |
 | Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
 | `DEPLOY_FAILED` with generic top-level message | Read `deployments[<name>].message` via `apps status --json` or SDK — it carries the real pip/runtime_env/import error |
 | Deploy fails with `RuntimeError: pydantic-core version mismatch` | Pin `pydantic==2.11.0` (or whatever the driver runs) in `runtime_env.pip`. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important) |

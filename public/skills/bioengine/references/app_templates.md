@@ -371,7 +371,7 @@ What you get beyond auth and RPC wiring:
 | **Before/after** | A `clip-path: inset()` comparison slider, shown once both an input and a result exist. |
 | **Info popover** | Origin-aware popover whose prose comes from an `APP_INFO` object — an app author writes sentences, not markup. |
 | **Busy feedback** | One controller for every wait (connect, read, encode, inference): motion plus a changing phase label, determinate only where a real fraction exists, and a single `endBusy()` that every caller puts in a `finally`. |
-| **Errors** | Modal with a scrollable stack trace for user-initiated RPCs; silent logging for boot-time work. |
+| **Errors** | Nothing external ever fails silently. User-initiated RPCs get a modal with a scrollable, copyable trace. Boot-time and background failures get a clickable status line that opens the same modal on demand, so they never ambush a page load and never disappear into the console. |
 
 *(Validated: `frontend_entry` + `static_site_url` confirmed against a live 0.6.0 app on a running worker — the populated URL carries exactly the `server=` and `ws_service_id=` query params this template's boot script reads. The HTML/JS itself is 0.6.0-format-agnostic — it talks to Hypha RPC, not to the manifest — so it needed no porting.)*
 
@@ -703,6 +703,24 @@ What you get beyond auth and RPC wiring:
   }
   header.page p { color: var(--fg-dim); font-size: 0.92rem; margin-top: 0.45rem; max-width: 62ch; }
   header.page p strong { color: var(--fg); font-weight: 600; }
+
+  /* ---- No-JS notice ------------------------------------------------------
+     Without JS this page is not a degraded app, it is an inert screenshot of
+     one: the status line reads "Connecting…" forever and NEITHER auth button
+     appears, because the topbar pattern starts both `hidden` and relies on the
+     boot script to reveal one. Say so, at the top, before the user spends a
+     minute clicking a UI that cannot respond. Background is the OPAQUE --bg-2,
+     not the translucent --warn-soft: this sits above a full, healthy-looking
+     interface, and a notice you can see the broken UI through reads as part of
+     the broken UI. The warn colour carries on the border instead. */
+  noscript .nojs {
+    display: block; margin: 0 0 1rem;
+    background: var(--bg-2); color: var(--fg);
+    border: 1px solid var(--warn); border-left-width: 3px;
+    border-radius: var(--r-md); padding: 0.8rem 0.95rem;
+    font-size: 0.88rem; line-height: 1.5;
+  }
+  noscript .nojs strong { font-weight: 650; }
 
   /* ---- Layout ------------------------------------------------------------ */
   .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
@@ -1136,29 +1154,41 @@ What you get beyond auth and RPC wiring:
     font: 0.76rem/1.45 var(--mono); color: var(--fg-dim);
     max-height: 40vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
   }
-  /* Worker tracebacks run to ~100 lines, and the useful line is usually the
-     LAST one — so the user has to know there is more below. Scrollbar styling
-     alone cannot carry that: Chromium now draws fade-in overlay scrollbars and
-     ignores ::-webkit-scrollbar, so on a static screenshot (or a trackpad, or
-     a touch device) there is no visible bar at all. Hence an explicit
-     "more below" fade + label, driven by scroll position. */
-  .dialog-detail-wrap { position: relative; margin: 0 0 1.1rem; }
+  /* Worker tracebacks run to ~100 lines, so the user has to know there is more
+     below. Scrollbar styling alone cannot carry that: Chromium draws fade-in
+     overlay scrollbars and ignores ::-webkit-scrollbar, so on a static
+     screenshot (or a trackpad, or a touch device) there is no visible bar at
+     all. Hence an explicit "more below" cue driven by scroll position.
+
+     The cue must not sit ON the text. An earlier version absolutely positioned
+     the label over the last visible line, so the one affordance added because a
+     scrollbar is invisible went on to obscure the very content it advertised.
+     The label now occupies its own reserved row underneath the box.
+
+     Do NOT tell the user the answer is on the last line. In the browser,
+     err.stack appends the hypha-rpc CDN frames after the Python traceback, so
+     the actionable exception usually sits in the MIDDLE of the scroll. */
+  .dialog-detail-wrap { position: relative; margin: 0 0 1.1rem; --hint-row: 1.45rem; }
+  /* Anchored above the hint row, so the fade tracks the bottom of the scroll
+     box rather than the bottom of the wrapper. */
   .dialog-detail-wrap::after {
-    content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px;
-    height: 2.6rem; border-radius: 0 0 var(--r-md) var(--r-md);
+    content: ""; position: absolute; left: 1px; right: 1px;
+    bottom: calc(var(--hint-row) + 1px);
+    height: 1.6rem; border-radius: 0 0 var(--r-md) var(--r-md);
     background: linear-gradient(transparent, var(--bg-0));
     opacity: 0; transition: opacity 160ms var(--ease-out); pointer-events: none;
   }
   .dialog-detail-wrap.more::after { opacity: 1; }
+  /* Height is reserved whether or not the hint shows, so revealing it never
+     shifts the dialog layout. */
   .more-hint {
-    position: absolute; right: 0.7rem; bottom: 0.5rem;
-    display: inline-flex; align-items: center; gap: 0.2rem;
+    display: flex; justify-content: flex-end; align-items: center; gap: 0.2rem;
+    height: var(--hint-row); padding-top: 0.3rem;
     font-size: 0.68rem; font-weight: 650; letter-spacing: 0.02em;
     color: var(--fg-dim); pointer-events: none;
-    opacity: 0; transform: translateY(3px);
-    transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+    opacity: 0; transition: opacity 160ms var(--ease-out);
   }
-  .dialog-detail-wrap.more .more-hint { opacity: 1; transform: translateY(0); }
+  .dialog-detail-wrap.more .more-hint { opacity: 1; }
 
   /* Still style the scrollbar where the engine honours it. */
   /* Setting the standard properties makes Chromium IGNORE the ::-webkit-
@@ -1345,6 +1375,20 @@ What you get beyond auth and RPC wiring:
 </div>
 
 <div class="container">
+
+  <!-- Placed ABOVE the header so it is the first thing read, not a footnote
+       under a UI the visitor has already started trying to use. -->
+  <noscript>
+    <div class="nojs">
+      <strong>This app needs JavaScript.</strong>
+      Everything below is rendered but inert: the image never uploads, the
+      status line stays on “Connecting…”, and no sign-in control appears. The
+      analysis runs on a remote worker reached over a WebSocket from this page,
+      so there is no no-JS fallback to offer. Enable JavaScript for this site,
+      or run the same model from the command line with
+      <code>bioengine</code>.
+    </div>
+  </noscript>
 
   <!-- ▸ EDIT 1 — headline prose -->
   <header class="page">
@@ -1895,21 +1939,36 @@ function endBusy({ kind = null, status = null } = {}) {
 
 /* ==========================================================================
    ERROR DIALOG
-   THE RULE: never silently drop a failure that came from outside this page —
-   hypha RPC, the network, or file/image IO. Every one of them must be
-   reachable by the user, with the full text, copyable.
+   THE RULE: never silently drop a failure that came from outside this page,
+   whether it came from hypha RPC, the network, or file/image IO. Every one of
+   them must be reachable by the user, with the full text, copyable.
    The ONE exception is timing, not visibility: do not ambush a page load with
    a modal. Boot-time and background failures set a CLICKABLE status line
    instead (see deferError below), which opens this same dialog on demand.
    ========================================================================== */
+
+/* Ray colourises worker tracebacks with ANSI escapes. Rendered into a <pre>
+   they appear as literal "?[36m" garbage wrapped around the exception name,
+   which is the first thing the user reads. Strip them here, at the single
+   choke point every caller already goes through, so no call site can forget.
+
+   The pattern anchors on the ESC byte, which never occurs in ordinary
+   traceback text, so it cannot eat real content. The stripped form is also
+   what Copy puts on the clipboard: escapes pasted into an issue or a message
+   to a maintainer are noise, not colour. */
+const ANSI_ESCAPE = /\x1B\[[0-9;?]*[ -\/]*[@-~]/g;
+function stripAnsi(s) {
+  return typeof s === "string" ? s.replace(ANSI_ESCAPE, "") : s;
+}
+
 function formatErr(err) {
   if (!err) return "";
-  if (typeof err === "string") return err;
-  return err.stack || err.message || (() => {
+  if (typeof err === "string") return stripAnsi(err);
+  return stripAnsi(err.stack || err.message || (() => {
     // A non-Error object with circular refs. Falling back to String() still
     // gives the user something to copy, which is the whole point.
     try { return JSON.stringify(err, null, 2); } catch { return String(err); }
-  })();
+  })());
 }
 
 let errorReturnFocus = null;
@@ -2343,6 +2402,24 @@ function refreshRunEnabled() {
   $("runBtn").disabled = !(svc && state.bytes) || busy.active;
 }
 
+/* Covers ONE of the two ways a connection ends: a clean close (codes 1000/1001,
+   e.g. the worker restarting or the token expiring), which is the only case
+   hypha-rpc reports to the page. An unexpected drop is retried silently and
+   effectively forever, console-only, with no callback — so there is deliberately
+   nothing here for that case. See § Losing the connection while the page sits
+   idle for why a heartbeat is usually the wrong answer.
+
+   `_connection` is a private field, not public API. Every hop is optional-chained
+   so a hypha-rpc release that moves it costs us the disconnect notice and
+   nothing else. */
+function watchForDisconnect() {
+  server?.rpc?._connection?.on_disconnected?.((reason) => {
+    svc = null;                      // stale handle; refreshRunEnabled() disables Run
+    refreshRunEnabled();
+    setStatus("err", "Disconnected from the worker. Reload the page to reconnect.");
+  });
+}
+
 async function connectWithToken(token) {
   setLoggingInUI();
   // Page-load connect is the wait the old template sat silent through.
@@ -2352,6 +2429,7 @@ async function connectWithToken(token) {
   });
   try {
     server = await connectToServer({ server_url: SERVER_URL, token });
+    watchForDisconnect();
     userWorkspace = server.config.workspace;
     userEmail = (server.config.user && server.config.user.email) || userWorkspace;
     setLoggedInUI();
@@ -2519,6 +2597,23 @@ function setOverlay(src, approxBytes) {
     state.overlayDims = [$("overlayImg").naturalWidth, $("overlayImg").naturalHeight];
     $("overlayDims").textContent = `${state.overlayDims[0]} × ${state.overlayDims[1]}`;
   };
+  /* The call can succeed and still hand back bytes the browser cannot decode,
+     e.g. a truncated or mislabelled PNG. Without this the user sees a broken
+     image glyph, a dims chip stuck on the placeholder, and no explanation,
+     which reads as a frontend bug when it is a backend one. */
+  $("overlayImg").onerror = () => {
+    $("overlayWrap").hidden = true;
+    $("overlayDims").textContent = "—";
+    showError({
+      title: "Result image could not be displayed",
+      subtitle: SERVICE_ID || "",
+      message: "The run finished, but the returned image data could not be decoded.",
+      detail: "The worker replied successfully, so this is not a connection problem. "
+            + "The returned bytes are not a valid image, which usually means the app "
+            + "encoded the result incorrectly.\n\nReported size: "
+            + fmtBytes(state.overlaySize),
+    });
+  };
   $("overlayWrap").hidden = false;
   updateCompareVisibility();
 }
@@ -2607,7 +2702,7 @@ $("runBtn").addEventListener("click", async () => {
 - **localStorage cache with 3 h TTL** — mirrors `bioimage.io`'s `LoginButton` so users move between apps without re-authenticating.
 - **`SERVER_URL` defaults to `window.location.origin`** — when the page is served from a Hypha instance (e.g. `https://hypha.aicell.io/...`), the same instance is the right RPC target by default, so the user never has to pass `?server=`. The `http(s):` protocol check guards against `file://` and other non-http origins falling through into `connectToServer`, in which case the hardcoded `https://hypha.aicell.io` fallback kicks in. Still allow `?server=` to override (e.g. for cross-instance development).
 - **`?token=` URL param** — testing-only path. Documented in the source as such because tokens in URLs are visible in browser history.
-- **`{ _rkwargs: true }` on every `getService(...)` and RPC call** — required in JavaScript; not needed in Python.
+- **`{ _rkwargs: true }` on every `getService(...)` and RPC call** — required in JavaScript, and **not accepted** in Python. It is a JS-only marker telling the RPC codec to unpack the trailing object as keyword arguments; the Python client already passes kwargs natively, so passing `_rkwargs=False` there is not harmless, it is a hard `TypeError: got an unexpected keyword argument '_rkwargs'`.
 - **`data-theme` is set by an inline script in `<head>`, before the stylesheet paints.** Any theme decision made after first paint is a visible flash. This is the same discipline as the topbar's "both buttons start hidden" rule, applied to colour.
 - **`SEED_FROM_OS` / `DEFAULT_THEME` are named constants, not a buried expression.** Browsers cannot report "no preference" — `prefers-color-scheme` resolves to `light` unless dark is explicitly set — so seeding from the OS means most stock machines start light. Seeding is the right default for a real app; set `SEED_FROM_OS = false` for demo or screenshot work, where a consistent first frame matters more.
 - **The theme switch uses a temporary `html.theme-switching *` rule.** It is the one blunt selector in the file: it transitions five colour properties for 160ms and is then removed, so it can never interfere with the interaction transitions. Enumerating per-component colour transitions instead costs ~40 rules and leaks theme timing into hover timing. Verified not to move layout.
@@ -2747,6 +2842,16 @@ With the shipped defaults:
 | JS disabled / localStorage blocked | **light** — the `data-theme` on `<html>` |
 | Returning user who has toggled | **their choice**, always, over anything above |
 
+> **What "JS disabled" actually looks like, beyond the theme.** The row above answers *which
+> colours*, which is the least of it. With JS off the page renders complete and operational and
+> does nothing at all: the file input never uploads, the status line sits on "Connecting…"
+> forever, and — this is the non-obvious one — **neither auth button is visible**, because the
+> topbar deliberately starts both `hidden` and lets the boot script reveal exactly one (that is
+> what stops a Login button flashing at a returning user). No boot script, no reveal. The
+> template therefore ships a `<noscript>` block above the header saying so plainly. Keep it if
+> you re-theme, and keep it *above* the fold: a notice underneath the UI is found after the
+> visitor has already spent a minute clicking a dead interface.
+
 Set the `<html data-theme="...">` attribute to match whichever theme you want on a no-JS load;
 it governs nothing else, because the boot script overwrites it before first paint.
 
@@ -2860,9 +2965,58 @@ lines / 7430 characters** of nested traceback. So the pane is `max-height` + `ov
 + `white-space: pre-wrap`: the dialog never stretches the page, the newlines survive, and the
 user can scroll and copy the whole thing. Note that Chromium now draws fade-in *overlay*
 scrollbars and ignores `::-webkit-scrollbar`, so the scrollbar alone does not tell anyone
-there is more below — the template adds an explicit "scroll for more" fade, toggled by scroll
-position. In a Python traceback the line that matters is the **last** one, so this is not
-cosmetic.
+there is more below — the template adds an explicit "scroll for more" cue, toggled by scroll
+position, in a row **reserved beneath** the pane rather than floating over the text. A cue
+added because the scrollbar is invisible must not itself cover the content it advertises.
+
+**Do not tell the user the answer is on the last line.** That is true of a traceback printed
+in a terminal, and false here: `err.stack` in the browser appends the hypha-rpc frames loaded
+from the CDN *after* the Python traceback, so the actionable exception usually sits in the
+**middle** of the scroll. The user has to be able to reach all of it, which is exactly why the
+pane scrolls and why the cue exists.
+
+**Strip ANSI escapes before display.** Ray colourises worker tracebacks, and those escapes
+render inside a `<pre>` as literal `?[36m` garbage wrapped around the exception name, which is
+the first thing the user reads. `formatErr` strips them at the single choke point every caller
+already goes through, so no call site can forget. The regex anchors on the ESC byte, which
+never occurs in ordinary traceback text, so it cannot eat real content. Strip for the
+clipboard too: escape codes pasted into a bug report are noise, not colour.
+
+#### Losing the connection while the page sits idle
+
+Everything above is about a call that *failed*. A page left open for an hour has a different
+problem: the websocket drops and nothing tells the user, so the next click fails for a reason
+that has nothing to do with what they clicked. Here is what hypha-rpc actually does, verified
+against the `0.20.54` build this template pins:
+
+| What happened | What hypha-rpc does | What you must do |
+|---|---|---|
+| **Clean close** (codes 1000/1001: server restart, token expiry, workspace shut down) | Calls the connection's `on_disconnected(reason)` handler once. | Register a handler and reflect it in the status line. |
+| **Unexpected drop** (network blip, laptop sleep, proxy timeout) | **Reconnects silently, effectively forever** — the retry cap is 10<sup>6</sup> — and reports each attempt to the *console only*. `on_disconnected` is **never called**. | Nothing to hook. Do not claim live connection state you do not have. |
+| **A call in flight when the socket dropped** | Rejects on the per-call method timeout (30 s default). | Already covered: it arrives at your `catch` as an ordinary RPC failure. |
+
+So the hook exists but only covers the clean case:
+
+```javascript
+// The connection lives on a private field. Guard the whole path — it is not
+// public API and can move between hypha-rpc releases; a missing hook must
+// degrade to "no disconnect notice", never to a TypeError at boot.
+server.rpc?._connection?.on_disconnected?.((reason) => {
+  setStatus("err", "Disconnected from the worker. Reload to reconnect.");
+});
+```
+
+**And be honest in the status line.** Because the silent-reconnect path is unobservable from
+the page, a green "Connected" dot cannot mean *connected right now*. It means *the last call
+succeeded*. Word it that way, or drive it from the last successful call rather than from the
+connect event. The browser's `online` / `offline` events are a useful complement (they catch
+the laptop going offline) but they are not a substitute: `offline` means *this browser* has no
+network, and says nothing about whether the worker is reachable or alive.
+
+Do not paper the gap over with a polling heartbeat unless the app genuinely needs live
+presence. An extra RPC every few seconds per open tab is a real cost on a shared worker, and
+the honest cheap version — surface clean closes, let call failures speak for themselves, and
+never overclaim in the status line — covers what a user can actually act on.
 
 Non-negotiables for the dialog itself:
 
@@ -2886,13 +3040,13 @@ An uncommented empty catch is indistinguishable from a bug.
 
 When a button handler triggers a Hypha RPC and it fails, surface the failure as a **modal error dialog with a scrollable detail block** — not a silent console log, and not `window.alert()`. Users need to see *what* broke (server message, stack) to file a useful bug, and `alert()` truncates long stacks and blocks the event loop.
 
-The rule applies to **user-initiated** RPCs (button clicks, form submits). Background / boot-time refreshes (page-load auto-connect, pre-fetching dropdown contents) should keep failing silently with a log line — popping a modal on page load is hostile. The pattern below is a single shared helper plus a `popupOnError` flag so refresh functions can be reused from both contexts.
+The **modal** applies to **user-initiated** RPCs (button clicks, form submits). Background and boot-time refreshes (page-load auto-connect, pre-fetching dropdown contents) must not pop a modal, because ambushing a page load is hostile — but they must not fail silently either. They route through `deferError` instead, which puts the message in the status line and makes that line a button carrying the full trace (see *Never silently drop an external error* above). The pattern below is a single shared helper plus a `popupOnError` flag so refresh functions can be reused from both contexts.
 
 ```html
 <!-- Error dialog (placed next to the confirm dialog if you have one). Reuses
-     the same .dialog-backdrop / .dialog styles; .dialog-wide widens it and
+     the same .modal-backdrop / .dialog styles; .dialog-wide widens it and
      .dialog-detail adds a scrollable monospace block for stack traces. -->
-<div id="errorDialog" class="dialog-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="errorTitle" hidden>
+<div id="errorDialog" class="modal-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="errorTitle" hidden>
   <div class="dialog dialog-wide">
     <div class="dialog-title">
       <span class="dialog-icon">
@@ -2908,8 +3062,8 @@ The rule applies to **user-initiated** RPCs (button clicks, form submits). Backg
     <div class="dialog-message" id="errorMessage"></div>
     <pre class="dialog-detail" id="errorDetail"></pre>
     <div class="dialog-actions">
-      <button class="dialog-btn cancel" type="button" id="errorCopy">Copy</button>
-      <button class="dialog-btn danger" type="button" id="errorClose">Close</button>
+      <button class="btn" type="button" id="errorCopy">Copy</button>
+      <button class="btn btn-primary" type="button" id="errorClose">Close</button>
     </div>
   </div>
 </div>
@@ -2933,13 +3087,18 @@ The rule applies to **user-initiated** RPCs (button clicks, form submits). Backg
 
 ```javascript
 // Stack → message → JSON, so the user gets the most useful representation
-// of whatever the RPC layer surfaces.
+// of whatever the RPC layer surfaces. Ray colourises worker tracebacks with
+// ANSI escapes, which render as literal "?[36m" garbage in a <pre>; strip them
+// at this one choke point so no call site can forget.
+const ANSI_ESCAPE = /\x1B\[[0-9;?]*[ -\/]*[@-~]/g;
+const stripAnsi = s => (typeof s === "string" ? s.replace(ANSI_ESCAPE, "") : s);
+
 function formatErr(err) {
   if (!err) return "";
-  if (typeof err === "string") return err;
-  return err.stack || err.message || (() => {
+  if (typeof err === "string") return stripAnsi(err);
+  return stripAnsi(err.stack || err.message || (() => {
     try { return JSON.stringify(err, null, 2); } catch { return String(err); }
-  })();
+  })());
 }
 function showError({ title = "Something went wrong", message = "", detail = "" } = {}) {
   $("errorTitle").textContent = title;
@@ -2970,7 +3129,7 @@ document.addEventListener("keydown", (e) => {
 });
 ```
 
-**Apply to button handlers, not background loaders.** Refresh functions called from both boot and a button should accept `{ popupOnError = false }` so the boot caller stays quiet:
+**Modal for button handlers, deferred status line for background loaders.** Refresh functions called from both boot and a button should accept `{ popupOnError = false }`, and the flag selects *which surface*, never whether the user is told at all. The boot path is quiet, not silent:
 
 ```javascript
 async function refreshTests({ popupOnError = false } = {}) {
@@ -2978,17 +3137,22 @@ async function refreshTests({ popupOnError = false } = {}) {
   catch (err) {
     cachedTests = [];
     log("list_visual_tests failed: " + err.message, "err");
-    if (popupOnError) showError({
-      title: "Could not refresh visual tests",
-      message: "<code>list_visual_tests</code> failed on the worker.",
-      detail: formatErr(err),
-    });
+    const surfaced = {
+      title:    "Could not refresh visual tests",
+      subtitle: SERVICE_ID,
+      message:  "The list of visual tests could not be read from the worker.",
+      detail:   formatErr(err),
+    };
+    // Same error, same full trace, two surfaces. The boot path must never be a
+    // bare log(): a log line is invisible to the person the app is failing on.
+    if (popupOnError) showError(surfaced);
+    else deferError({ status: "Could not load visual tests.", ...surfaced });
   }
   renderTestList();
 }
-// boot: silent
+// boot: no modal, but a clickable status line carrying the trace
 refreshTests();
-// button: popup on failure
+// button: modal on failure
 $("refreshBtn").addEventListener("click", () => refreshTests({ popupOnError: true }));
 ```
 

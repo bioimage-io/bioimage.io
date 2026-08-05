@@ -368,6 +368,15 @@ function renderApps(s) {
 </html>
 ```
 
+> **On the two `console.error` calls above.** This dashboard is read-only and deliberately
+> minimal, and it does put `err.message` in the status line, so a failure is never wholly
+> invisible. The full trace is still console-only, which is below the bar an interactive app
+> has to meet. If you add any action a user initiates (deploy, stop, restart) or otherwise
+> grow this into an app, adopt the error surfacing from
+> [app_templates.md § Never silently drop an external error](app_templates.md#never-silently-drop-an-external-error):
+> a modal with the full copyable trace for user-initiated calls, and a clickable status line
+> for boot-time and background ones.
+
 ---
 
 ## 6. Customisation hooks
