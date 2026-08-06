@@ -18,6 +18,13 @@
 
 export interface RoleUser {
   id: string;
+  /**
+   * The stable human user id when `id` is an ephemeral token id. Hypha's
+   * `generate_token` mints a child token whose `id` is random (e.g.
+   * "helix-mind-47125673") and carries the real id (e.g. "github|49943582")
+   * in `parent`. See `UserInfo.get_effective_user_id()` in hypha/core.
+   */
+  parent?: string;
   email?: string;
   roles?: string[];
 }
@@ -28,6 +35,43 @@ export interface CollectionConfig {
 
 // Collection permission codes that grant write (edit / commit) access.
 const REVIEWER_CODES = new Set(['rw', 'rw+', '*']);
+
+/**
+ * Every identity a Hypha permissions map may be keyed on for this user.
+ *
+ * Hypha resolves a permission entry by token id, then by effective (parent)
+ * id, then by email (artifact.py `_check_permissions`), so a grant written
+ * against any one of them is honoured by the backend. Matching only on
+ * `user.id` here made the UI treat an email-keyed or parent-keyed grant as no
+ * permission at all, hiding actions the backend would have allowed.
+ *
+ * `email` and `parent` are both optional on a Hypha UserInfo, so blanks are
+ * dropped rather than being looked up as a literal "undefined" key.
+ */
+function permissionKeys(user: RoleUser): string[] {
+  return [user.id, user.parent, user.email].filter(
+    (key): key is string => typeof key === 'string' && key.length > 0,
+  );
+}
+
+/**
+ * True when the entry under ANY of the user's identities satisfies `grants`.
+ *
+ * Checks every identity rather than stopping at the first entry found, because
+ * hypha does the same: a user whose id-keyed entry lacks an operation is still
+ * allowed it when their email-keyed entry grants it.
+ */
+function anyIdentityGrants(
+  permissions: Record<string, unknown> | null | undefined,
+  user: RoleUser,
+  grants: (permission: unknown) => boolean,
+): boolean {
+  if (!permissions) return false;
+  return permissionKeys(user).some((key) => {
+    const permission = permissions[key];
+    return permission !== undefined && grants(permission);
+  });
+}
 
 /**
  * Reviewer / moderator. May edit, stage, add/remove files, create versions,
@@ -41,8 +85,11 @@ export function getIsReviewer(
 ): boolean {
   if (!user) return false;
   if (user.roles?.includes('admin')) return true;
-  const code = collectionConfig?.permissions?.[user.id];
-  return typeof code === 'string' && REVIEWER_CODES.has(code);
+  return anyIdentityGrants(
+    collectionConfig?.permissions,
+    user,
+    (code) => typeof code === 'string' && REVIEWER_CODES.has(code),
+  );
 }
 
 /**
@@ -98,7 +145,14 @@ export function getIsCollectionAdmin(
 ): boolean {
   if (!user) return false;
   if (user.roles?.includes('admin')) return true;
-  return Array.isArray(owners) && !!user.id && owners.includes(user.id);
+  if (!Array.isArray(owners)) return false;
+  // Hypha matches workspace owners on id OR email, and deliberately NOT on
+  // `parent` (see the owners check in hypha/core). Accepting `parent` here
+  // would show Delete to a session hypha would then reject.
+  return (
+    (!!user.id && owners.includes(user.id)) ||
+    (!!user.email && owners.includes(user.email))
+  );
 }
 
 /**
@@ -136,13 +190,12 @@ export function getArtifactRights(
   if (!user || !artifact) {
     return { isUploader: false, hasArtifactEdit: false, hasArtifactDelete: false };
   }
-  const artPerms = artifact._permissions?.[user.id];
-  const hasArtifactEdit = Array.isArray(artPerms)
-    ? artPerms.includes('edit') || artPerms.includes('*')
-    : artPerms === '*';
-  const hasArtifactDelete = Array.isArray(artPerms)
-    ? artPerms.includes('delete') || artPerms.includes('*')
-    : artPerms === '*';
+  const holds = (operation: string) => (permission: unknown) =>
+    Array.isArray(permission)
+      ? permission.includes(operation) || permission.includes('*')
+      : permission === '*';
+  const hasArtifactEdit = anyIdentityGrants(artifact._permissions, user, holds('edit'));
+  const hasArtifactDelete = anyIdentityGrants(artifact._permissions, user, holds('delete'));
   const uploaderEmail = artifact.manifest?.uploader?.email?.toLowerCase?.();
   const matchesUploaderEmail =
     !!uploaderEmail && uploaderEmail === user.email?.toLowerCase?.();
