@@ -70,6 +70,55 @@ deprecated on two counts — the decorator will fail introspection, and `num_gpu
 from the decorator surface in bioengine 0.15.0. Scaling is not a decorator field either; pass
 it at deploy time via `deploy_app(scaling={...})`.
 
+> **`gpu_memory_mb` reserves, it does not cap.** The number is consumed by the scheduler when
+> it places the replica and by nothing afterwards. A replica declaring `gpu_memory_mb=8192` was
+> observed allocating **12 GiB** and continuing to run normally. Two things follow. Your own
+> app is not protected from OOM by the number you declared, so size it against the largest
+> input you will actually accept. And a device that looks half-free by reservation can be full
+> in fact, which is why the numbers in `bioengine cluster status` are capacity planning rather
+> than truth — read `nvidia-smi` on the node when it matters.
+>
+> **Over-requesting VRAM hangs instead of failing.** CPU and RAM over-requests reach
+> `DEPLOY_FAILED` in about 9 seconds. A VRAM over-request is unschedulable rather than
+> invalid, so the replica sits in `DEPLOYING` with no timeout (measured at 10.8 minutes).
+> Put a wall-clock deadline on every GPU deploy wait.
+
+### Sizing the number
+
+There is no way to look this up, and guessing runs high: an app that guessed `8192` peaked at
+**1180 MB**, 7× over. On a 24 GB card that guess costs six co-tenants their slot. Measure it:
+
+1. Deploy once with `gpu_memory_mb=-1`. A whole-device request always schedules on an idle GPU,
+   so this step cannot hit the hang above.
+2. Run your real workload at the largest input you intend to support, and read the peak from
+   torch rather than from any BioEngine or NVML field:
+   ```python
+   import torch
+   torch.cuda.reset_peak_memory_stats()
+   ...                                      # the real call
+   peak_mb = round(torch.cuda.max_memory_allocated() / 2**20)
+   ```
+3. Redeploy with the peak plus generous headroom (30% is cheap, being short is an OOM
+   mid-request).
+
+`torch.cuda.max_memory_allocated()` reports what **torch** allocated, which excludes the CUDA
+context itself (a few hundred MB) and anything TensorFlow or onnxruntime is holding. That is
+part of what the headroom is for.
+
+**Warm up in `async_init`.** Loading weights onto the device is not the whole cold start. With
+the model already resident, the first call still cost **2.19×** the tenth — CUDA context
+creation, kernel autotuning and cuDNN algorithm selection all fire on the first tensor that
+reaches the device. One throwaway forward pass at a realistic input shape moves that cost into
+startup. A warm-up at the wrong shape re-triggers autotuning when the real one arrives.
+
+**Confirm the work landed on the GPU by asserting on tensors**, not on
+`torch.cuda.is_available()` (a fact about the host, true throughout a silent CPU fallback) and
+not on utilisation (NVML averages over ~1 s, so a short call reads 0%):
+```python
+assert next(model.parameters()).is_cuda
+assert out.device.type == "cuda"
+```
+
 ### Single large model — one full GPU per replica
 
 ```python
@@ -99,6 +148,17 @@ for the largest input you expect, not for a share of the device.
 
 Omit `gpu_memory_mb` entirely. `gpu_memory_mb=0` is hard-rejected, so translating an old
 `num_gpus=0` literally will not deploy.
+
+### Releasing VRAM between calls
+
+Because the reservation is not a cap, a long-lived replica that creeps upward will eventually
+OOM itself or a co-tenant, and `torch.cuda.empty_cache()` only reaches torch's own allocator.
+If your deployment mixes frameworks, or you need "no VRAM left over" to be a guarantee rather
+than a hope, run each inference in a **subprocess** and let the OS reclaim the whole CUDA
+context on exit. This is what the built-in `model-runner` app does. The pattern is written up
+under [Model caching](#model-caching) because that is where it
+first came up, but it is not specific to caching or to TensorFlow — it is the general answer
+whenever process-lifetime VRAM ownership is the thing you cannot tolerate.
 
 ---
 

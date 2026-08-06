@@ -142,7 +142,7 @@ from typing import Dict, Union
 
 import bioengine
 
-logger = bioengine.logger  # never use print(); see the logging note below
+logger = bioengine.logger  # read the logging note below BEFORE you rely on this
 
 
 @bioengine.app(
@@ -185,18 +185,23 @@ class MyDeployment:
 ### Key rules
 
 - Use `@bioengine.app(num_cpus=..., gpu_memory_mb=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
-- **`logger.info()` goes nowhere by default, and the silence is misleading.** `bioengine.logger` is the `bioengine.app` logger with no handlers and level `NOTSET`, propagating to an unconfigured root, so Python's last-resort handler takes over and only **WARNING and above** survives. Meanwhile the framework's *own* INFO lines are captured, so a log you read back looks populated while your lines are missing — which reads as "my code never ran" rather than "my level was dropped". Either use `logger.warning()` for anything you actually need to read back, or attach a handler once at module scope:
+- **For anything you need to read back, `print(..., flush=True)` beats the logger.** This inverts the usual advice, so here is the measurement rather than the principle. In one instrumented app, 13 of 13 `print(..., file=sys.stderr, flush=True)` lines came back through `bioengine apps status <id> --logs 300 --json`, and 0 of 13 `bioengine.logger` lines and 0 stdlib `logging` lines did. The logger is not broken, it is under-configured: `bioengine.logger` has no handlers and level `NOTSET`, propagating to an unconfigured root, so Python's last-resort handler emits and that is fixed at **WARNING**. `logger.setLevel(logging.INFO)` alone changes nothing, because with no handler on the chain the last-resort handler is still the thing emitting.
+  ```python
+  import sys
+  print("loaded model in %.1fs" % dt, file=sys.stderr, flush=True)   # arrives, reliably
+  ```
+  `flush=True` is load-bearing. Replica stdout/stderr is block-buffered when it is not a terminal, so an unflushed line sits in the buffer until the process exits or the buffer fills, which looks exactly like a line that was never written. If you prefer the logger's formatting, attach a handler once at module scope and use `logger.warning()` for the lines that matter:
   ```python
   import logging, sys
 
   logger = bioengine.logger
   if not logger.handlers:                       # idempotent: replicas re-import
-      _h = logging.StreamHandler(sys.stdout)    # stdout, so it lands in logs["stdout"]
+      _h = logging.StreamHandler(sys.stderr)
       _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
       logger.addHandler(_h)
       logger.setLevel(logging.INFO)
   ```
-  Setting `logger.setLevel(logging.INFO)` alone is not enough — with no handler anywhere on the chain, the last-resort handler is still the thing emitting, and it is fixed at WARNING.
+  Either way, the failure mode is the dangerous one: the framework's own INFO lines *are* captured, so a log you read back looks populated while your lines are absent. That reads as "my code never ran" when the truth is "my line was dropped". Before you debug an app on the strength of its logs, print one line you know executes and confirm you can see it.
 - **Extract the `pip=[...]` list to a `requirements-<module>.txt` file** next to the module (e.g. `requirements-runtime.txt` next to `runtime.py`) and load it via a small helper. Same pin values ship, but the deps look like a real requirements file — Dependabot / pip-audit can point at the file, PR diffs isolate dep bumps, and the decorator stays readable:
   ```python
   from pathlib import Path
@@ -245,7 +250,34 @@ class MyDeployment:
   ```
   Then the loop you could not have before: `python -c "import app_core; print(app_core.process([1,2,3], 1.0))"`, plus the failure paths, before spending a deploy round-trip on a logic bug.
   Worth getting right locally: unhandled, this surfaces as a `DEPLOY_FAILED` on a live worker with the real cause buried in `deployments[<name>].message`.
-- Never return raw numpy arrays over RPC — call `.tolist()` first. This applies at the **external Hypha boundary only** (an `@bioengine.method` return value going back to a client). Calls *between* composed deployments route through Ray Serve's own transport, so raw numpy passes between them directly — see [references/app_templates.md](references/app_templates.md#composition-app-template). That rule governs the *type* of a return value and says nothing about its *size* — cap per-object results on the backend and flag the truncation, see [Capping what you send back](references/app_templates.md#capping-what-you-send-back).
+
+  **Then import the decorated module too, and read *which* error you get.** "A `[cli]` venv cannot import an app module" is true as a statement about success and misleading as advice, because `@bioengine.app` validates its own kwargs *before* it reaches `from ray import serve`. So `python -c "import app"` is a working decorator-argument lint, and the two outcomes mean opposite things:
+  ```
+  ModuleNotFoundError: No module named 'ray'        # decorator args are fine — this is as far as a [cli] venv goes
+  TypeError: app() got an unexpected keyword argument 'num_gpus'   # real bug, found in 0.2 s instead of a deploy round-trip
+  ```
+  This is not hypothetical: it is what caught an app still passing the pre-0.15.0 `num_gpus`. It costs one command and it is the only offline check of the BioEngine surface you have. Reaching `No module named 'ray'` is the pass condition, so write it that way in a script rather than treating any traceback as failure.
+- **Return only builtin types across the Hypha boundary.** The familiar form of this rule is "call `.tolist()` on numpy arrays", and that under-generalises in a way that costs a deploy round-trip. The client-side proxy reconstructs whatever you returned, so **any object whose class is defined in a third-party package fails on the client**, with an error naming a module the client was never supposed to need:
+  ```
+  ModuleNotFoundError: No module named 'torch'
+  ```
+  That one came from returning `torch.__version__`, which looks like a string and is a `torch.torch_version.TorchVersion` subclass of `str`. The same trap applies to `np.float32` / `np.int64` scalars (`float(x)`, `int(x)`), `pathlib.Path` (`str(p)`), `enum.Enum` members (`e.value`), pydantic models (`m.model_dump()`) and `datetime` (`.isoformat()`). Coerce at the return statement, not at the point of creation: `str(torch.__version__)`, `float(score)`, `arr.tolist()`. Isinstance checks will not save you here — `isinstance(torch.__version__, str)` is `True`.
+
+  Two scope notes. This applies at the **external Hypha boundary only**: calls *between* composed deployments route through Ray Serve's own transport, so raw numpy passes between them directly, see [references/app_templates.md](references/app_templates.md#composition-app-template). And it governs the *type* of a return value, not its *size* — cap per-object results on the backend and flag the truncation, see [Capping what you send back](references/app_templates.md#capping-what-you-send-back).
+
+  You can catch this before deploying, and `json.dumps` locally is **not** the test — it fails on numpy but happily serialises a `str` subclass. Assert on the exact types instead:
+  ```python
+  # test_returns.py — runs in a [cli] venv against your undecorated core module
+  def assert_builtin(o, path="result"):
+      if type(o) in (str, int, float, bool, type(None)):
+          return
+      if type(o) is list:
+          return [assert_builtin(v, f"{path}[{i}]") for i, v in enumerate(o)]
+      if type(o) is dict:
+          return [assert_builtin(v, f"{path}[{k!r}]") for k, v in o.items()]
+      raise TypeError(f"{path} is {type(o).__module__}.{type(o).__name__}, not RPC-safe")
+  ```
+  `type(o) is str` rather than `isinstance` is the whole point: it is what rejects `TorchVersion` and `np.str_`.
 - **Don't pin `pydantic` yourself unless you have to.** BioEngine auto-injects the driver's pydantic into your `runtime_env.pip` so the deployment unpickles cleanly on the Ray Serve replica. If you *do* pin pydantic explicitly, it must resolve to the same `pydantic-core` as the driver — otherwise the pre-flight check refuses to deploy. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important).
 - **If your app imports `torch` (>=2.5), set `USER`/`LOGNAME` defaults at the very top of the module.** `torch._dynamo` calls `getpass.getuser()` at import time, which raises `KeyError: getpwuid(): uid not found` when the actor runs as a host uid that has no `/etc/passwd` entry (the default for slim Docker images launched with `--user $(id -u):$(id -g)`). `setdefault` preserves the real identity wherever it's already set (HPC apptainer, K8s pods with a populated passwd) and only injects a placeholder when nothing else exists:
   ```python
@@ -255,13 +287,71 @@ class MyDeployment:
   import torch  # or anything that transitively imports torch
   ```
 
+### GPU apps
+
+`gpu_memory_mb` is one number and getting it wrong is the most expensive mistake in this document, because too high does not fail — it hangs. Read this section before your first GPU deploy.
+
+**Measure the number, do not guess it.** There is no sizing guidance in a model card and guessing overshoots badly: an app that guessed `8192` measured a **1180 MB** peak, 7× over. Reserving 8 GB on a 24 GB card when you need 1.2 GB costs six other replicas their slot. Measure it once, in the app itself, and read it out of the logs:
+
+```python
+@bioengine.method
+async def measure(self) -> dict:
+    import torch
+    torch.cuda.reset_peak_memory_stats()
+    await self.infer(...)                                   # your real workload, largest input you expect
+    return {"peak_mb": round(torch.cuda.max_memory_allocated() / 2**20)}
+```
+
+Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle GPU), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
+
+**It is a scheduling reservation, not a cap.** Nothing enforces it at runtime. A replica declaring `gpu_memory_mb=8192` was observed allocating **12 GiB** and continuing to run. So the number does not protect you from your own OOM, and it does not protect co-tenants from you either. Two consequences: your headroom estimate has to be right, because the runtime will not clip you at the boundary, and a card that looks half-free by reservation can be full in fact.
+
+**Over-requesting VRAM hangs with no terminal state.** This is the failure you must recognise, because the skill's usual "poll until terminal state" advice deadlocks on it.
+
+| You over-request | What happens |
+|---|---|
+| CPU or RAM | `DEPLOY_FAILED` in ~9 s, with `Insufficient resources` |
+| VRAM | stays `DEPLOYING` indefinitely — measured at **10.8 minutes** before it was killed by hand |
+
+Ray has nothing to schedule the replica onto, so it queues forever rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm) and treat "still `DEPLOYING` at the deadline" as the diagnosis *over-requested VRAM*, not as slowness. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
+
+**The insufficient-resources error does not name the resource that was short.** It prints the whole request dict and leaves you to compare it against the cluster yourself. Change one resource at a time when you are converging on a working set, or you will not know which one moved.
+
+**Warm up the device in `async_init`.** Preloading weights is not enough. With the model already resident, the first call still cost **2.19×** the tenth — that is CUDA context creation, kernel autotuning and cuDNN algorithm selection, all triggered by the first tensor that actually reaches the device. One throwaway forward pass in `async_init` moves the whole cost into startup, where nobody is waiting on it:
+
+```python
+@bioengine.async_init
+async def load(self) -> None:
+    import numpy as np, torch
+    self._model = ...                                       # weights on device
+    with torch.inference_mode():
+        self._model(self._to_tensor(np.zeros((256, 256), np.float32)))   # discard the result
+```
+
+Use a realistically-shaped input. A warm-up at the wrong shape re-triggers autotuning when the real one arrives.
+
+**Verify your computation ran on the GPU, not merely that a GPU exists.** `torch.cuda.is_available()` answers a question about the *host* and stays `True` while your model quietly runs on CPU. Assert on the tensors instead:
+
+```python
+assert next(self._model.parameters()).is_cuda        # weights are on the device
+assert out.device.type == "cuda"                     # so is the output
+```
+
+And do not use GPU utilisation to answer this. NVML averages over roughly a **1 second** window, so a sub-second inference call reads **0%** on a card that just ran it — which looks exactly like silent CPU fallback. If you want a utilisation reading to mean something, loop the call for several seconds while you sample.
+
+**Treat the reported GPU numbers as unreliable.** On a working GPU app, `application_resources.num_gpus` read `0`, and `bioengine cluster status` reported `used_gpu: 0.01`. `used_gpu_memory` was wrong in both directions in the same session: **466 MiB with nothing deployed**, and **1624 MiB after everything had stopped**, against 15 MiB actually on the card. These fields are for rough capacity planning. For "is my app on the GPU", use the tensor assertions above, and for "what is really on the card", read `nvidia-smi` on the node.
+
+**Stopping an app does not free its GPU immediately.** `bioengine apps stop` returns before the resources are back: a redeploy issued 5 seconds later failed with `Insufficient resources`. Poll `bioengine cluster status` until the VRAM is actually released rather than sleeping a fixed amount.
+
+For VRAM sizing procedure, release-between-calls patterns and per-strategy examples, **load [references/model_serving.md](references/model_serving.md#gpu-allocation-strategies)**.
+
 ### Composition apps and frontends
 
 For apps with multiple deployments (e.g. one entry deployment routing to several runtimes) or a frontend HTML UI, **load [references/app_templates.md](references/app_templates.md)** — full working templates for simple, composition, and frontend cases.
 
 ### Advanced serving patterns
 
-Multiplexing, HuggingFace integration, BioImage.IO model loading, auto-scaling: **load [references/model_serving.md](references/model_serving.md)**.
+GPU VRAM sizing and release, multiplexing, HuggingFace integration, BioImage.IO model loading, auto-scaling: **load [references/model_serving.md](references/model_serving.md)**.
 
 ### Streaming datasets into your app
 
@@ -418,6 +508,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 
 **That state machine describes a *first* deploy only.** An app you are updating is already `RUNNING`, so a "poll until terminal state" loop exits on the first poll and reports success on whatever replica is live — stale or not. For updates, ignore `status` and confirm behaviourally (see [Live test cycle](#live-test-cycle)).
 
+**And `DEPLOYING` is not guaranteed to be transient.** A replica asking for more VRAM than any device can give is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` (measured at 10.8 minutes before manual intervention), while the same over-request on CPU or RAM fails in about 9 seconds. Every wait loop needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
+
 > **`bioengine apps status --json` response shape.** The top-level dict is keyed by **app id** (not flat). The real payload carries about 27 keys per app; these are the ones worth knowing:
 > ```json
 > {
@@ -440,6 +532,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
 >
 > **Three reported values do not echo your decorator, and none of them means it was ignored.** `max_ongoing_requests` has been observed reporting `10` against a declared `4`, `memory` reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
+>
+> **`application_resources` is the better field, not a reliable one, and on GPU it is neither.** The same field read `num_gpus: 0` for an app that was demonstrably running on the device. Nothing in this payload settles whether your work reached a GPU — assert on tensor placement inside the app instead, see [GPU apps](#gpu-apps).
 
 > **`bioengine apps list --json` has a different top-level shape from `apps status --json`.** These are the two commands you will use together to verify a deletion, and they are not keyed alike. `apps list --json` is keyed by **full artifact id** and each value wraps the manifest one level down:
 > ```json
@@ -458,7 +552,15 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >     print(f"--- {replica_id}")
 >     print("\n".join(lines[-50:]))
 > ```
-> **Your records land in `stdout`, the framework's in `stderr`**, so reading only one of them hides half the picture — and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
+> **Read both channels.** Which one your own lines land in depends on how you emitted them (see the logging note under [Key rules](#key-rules)), and the framework writes to `stderr` regardless. Reading only one hides half the picture, and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
+>
+> **The framework logs every call for you, and that line is often all you need.** Each `@bioengine.method` invocation emits an audit line carrying the method name, the outcome and the wall-clock duration:
+> ```
+> CALL analyze OK 19453.3ms
+> ```
+> It comes from the framework, so it survives whatever your own logging is doing — which makes it the thing to look for first when you are asking "did my method run at all, and how long did it take". Timing an app end to end usually needs no instrumentation beyond grepping `CALL` out of the logs.
+>
+> **`--logs N` is not a hard bound.** It is a hint applied per replica per stream, not a total: `--logs 40` returned **795 lines**. Slice on your side after flattening (`lines[-40:]`) if you need a bounded amount, and do not size a buffer or a context window on the number you passed.
 
 > **Transient invalid JSON during `DEPLOYING`.** While an app is still `DEPLOYING`, the `--json` payload can contain raw unescaped control characters in the `message`/`logs` string fields (pip/progress-bar output leaking through), which makes strict `json.loads` fail with "Invalid control character" errors at varying offsets. This self-resolves once the app reaches `RUNNING`. Parse defensively (`json.loads(text, strict=False)`), or only strictly parse once `status` is `RUNNING` or `DEPLOY_FAILED`.
 
@@ -568,6 +670,14 @@ When working with a specific deployed app, load its dedicated subskill for the m
 |---|---|
 | `ModuleNotFoundError` at import | Add to `runtime_env.pip`; import inside method |
 | numpy array over RPC error | Call `.tolist()` before returning |
+| `ModuleNotFoundError: No module named 'torch'` **on the client**, not the worker | You returned a third-party type across the Hypha boundary (classically `torch.__version__`, a `str` subclass). Coerce to a builtin at the return statement: `str(...)`, `float(...)`, `.tolist()` |
+| App stuck in `DEPLOYING` for minutes with no error | You asked for more `gpu_memory_mb` than any device has. It is unschedulable, not invalid, so it never reaches `DEPLOY_FAILED`. Lower the request; put a deadline on the wait loop |
+| `Insufficient resources` printing the whole request dict | It does not name which resource was short. Change one of `num_cpus` / `memory_mb` / `gpu_memory_mb` at a time and re-read `bioengine cluster status` |
+| GPU utilisation reads 0% during a call that clearly ran | NVML averages over ~1 s, so a sub-second call is invisible. Assert on `tensor.device.type == "cuda"` instead of on utilisation |
+| First request far slower than steady state with weights already loaded | CUDA context + kernel autotuning, not model loading. Run one throwaway forward pass at a realistic shape in `async_init` |
+| `bioengine apps stop` then immediately redeploy → `Insufficient resources` | Stop does not release resources synchronously. Observed still held 5 s later. Poll `bioengine cluster status` until the resource is back before redeploying |
+| `apps deploy` printed no `Uploading…` line | It still uploaded. The line is not emitted on every path, so its absence is not evidence that the artifact was unchanged. Verify with the artifact version, not the console output |
+| `nvml_compute_processes` PIDs match nothing you can see | They are **host** PIDs. Inside the container `os.getpid()` is in a different namespace (7167 against an NVML pid of 2846561), so matching them is not a valid way to find your own process |
 | Long cold start on first request | `min_replicas: 1`; preload model in `async_init()` |
 | Blocking inference stalls event loop | `await asyncio.get_event_loop().run_in_executor(None, fn)` |
 | `Multiple services found` error | Use `connect_service()` from `bioengine.cli.utils` |
@@ -599,7 +709,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/worker_onboarding.md](references/worker_onboarding.md) | Set up a worker — mode selection + 7-check readiness test (Task 1) |
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
-| [references/model_serving.md](references/model_serving.md) | Multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
+| [references/model_serving.md](references/model_serving.md) | GPU VRAM sizing, multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
 | [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive, IDR / OMERO, and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |

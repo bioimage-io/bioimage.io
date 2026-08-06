@@ -391,7 +391,9 @@ What you get beyond auth and RPC wiring:
      ▸ EDIT 3  TOKEN_KEY / TOKEN_EXPIRY — must be unique per app
      ▸ EDIT 4  callBackend() — your @bioengine.method name and arguments
      ▸ EDIT 5  renderResult() — how your result object maps onto the UI
-     ▸ EDIT 6  the parameter controls in the "Parameters" card
+     ▸ EDIT 6  the parameter controls in the "Parameters" card — bounded by
+               ▸ EDIT 6 BEGIN / ▸ EDIT 6 END. The Run button sits in the same
+               card, below the END marker; replacing the whole card deletes it.
      =========================================================================== -->
 <!-- data-theme here only governs the very first paint when JS has not run (or
      localStorage is blocked). Light, because that is what bioimage.io looks
@@ -1446,7 +1448,12 @@ What you get beyond auth and RPC wiring:
         </div>
       </div>
 
-      <!-- ▸ EDIT 6 — replace these with your method's parameters -->
+      <!-- ▸ EDIT 6 BEGIN — replace the .field-row blocks below with your method's
+           parameters. The region ENDS at "▸ EDIT 6 END", which is above the Run
+           button on purpose: the button lives inside this same card, and deleting
+           the card wholesale removes it with no error and no visible clue beyond
+           a page that cannot be run. Replace the rows, keep everything after the
+           END marker. -->
       <div class="card">
         <h2>Parameters</h2>
         <div class="field-row">
@@ -1472,6 +1479,8 @@ What you get beyond auth and RPC wiring:
             <input id="minDistInput" type="number" min="1" max="200" step="1" value="5" />
           </div>
         </div>
+
+        <!-- ▸ EDIT 6 END — everything below stays. -->
 
         <!-- The button carries its own phase: an inline spinner replaces the
              play icon and the label names what is happening. It never just
@@ -3087,7 +3096,15 @@ against the `0.20.54` build this template pins:
 |---|---|---|
 | **Clean close** (codes 1000/1001: server restart, token expiry, workspace shut down) | Calls the connection's `on_disconnected(reason)` handler once. | Register a handler and reflect it in the status line. |
 | **Unexpected drop** (network blip, laptop sleep, proxy timeout) | **Reconnects silently, effectively forever** — the retry cap is 10<sup>6</sup> — and reports each attempt to the *console only*. `on_disconnected` is **never called**. | Nothing to hook. Do not claim live connection state you do not have. |
-| **A call in flight when the socket dropped** | Rejects on the per-call method timeout (30 s default). | Already covered: it arrives at your `catch` as an ordinary RPC failure. |
+| **A call in flight when the socket dropped** | Rejects on the per-call method timeout, eventually. | Already covered: it arrives at your `catch` as an ordinary RPC failure. |
+
+> **Do not design around a 30 s call timeout.** It is documented as the hypha-rpc default and it
+> is not what apps observe: a single call measured at **72.7 s** returned normally, no timeout,
+> no retry. Whatever the effective value is, it is longer than 30 s and it is not something to
+> build a UI contract on. Two practical consequences. Your progress affordance has to cover
+> arbitrarily long calls rather than assume one resolves or rejects inside half a minute (see
+> the busy-state notes above). And if you need a bound, impose your own with
+> `Promise.race([call, rejectAfter(ms)])` — then you know the number, because you chose it.
 
 So the hook exists but only covers the clean case:
 
