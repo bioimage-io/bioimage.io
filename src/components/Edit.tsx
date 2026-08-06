@@ -2677,6 +2677,10 @@ const Edit: React.FC = () => {
     setIsCreatingVersion(true);
     setCopyProgress(null);
 
+    // Files that could not be copied into the new version, reported to the user
+    // after the copy loop finishes.
+    const copyFailures: string[] = [];
+
     try {
       // Remember the current committed version before entering staging
       const previousVersion = artifactInfo?.versions?.[artifactInfo.versions.length - 1]?.version;
@@ -2710,8 +2714,15 @@ const Edit: React.FC = () => {
             _rkwargs: true
           });
 
-          // Filter out directories
-          const filesToCopy = (fileList || []).filter((file: any) => file.type !== 'directory');
+          // Filter out directories, then copy smallest-first. Large files (model
+          // weights, typically) are the ones that fail: each file is buffered as
+          // a Blob in memory before being re-uploaded, so a multi-GB weight file
+          // can exhaust the tab. Copying it last means every small file has
+          // already landed in the new version, and only the weights need to be
+          // uploaded manually afterwards.
+          const filesToCopy = (fileList || [])
+            .filter((file: any) => file.type !== 'directory')
+            .sort((a: any, b: any) => (a.size ?? 0) - (b.size ?? 0));
 
           if (filesToCopy.length > 0) {
             setUploadStatus({
@@ -2763,6 +2774,7 @@ const Edit: React.FC = () => {
                 console.log(`Copied ${file.name} (${i + 1}/${filesToCopy.length})`);
               } catch (fileError) {
                 console.error(`Error copying ${file.name}:`, fileError);
+                copyFailures.push(file.name);
                 setUploadStatus({
                   message: `Warning: Failed to copy ${file.name}. Continuing...`,
                   severity: 'error'
@@ -2782,10 +2794,25 @@ const Edit: React.FC = () => {
         }
       }
 
-      setUploadStatus({
-        message: 'New version created successfully. Redirecting to edit mode...',
-        severity: 'success'
-      });
+      // A file that failed to copy is not fatal (the version exists and holds
+      // the rest of the files), but the user has to know which files they still
+      // need to upload by hand. The status banner auto-dismisses after 3s and
+      // the redirect below overwrites it, so raise the shared error dialog,
+      // which persists until dismissed.
+      if (copyFailures.length > 0) {
+        showError(
+          'New version created, but some files were not copied',
+          new Error(
+            `These files could not be copied from the previous version and must be uploaded manually: ${copyFailures.join(', ')}.`
+          ),
+          artifactId
+        );
+      } else {
+        setUploadStatus({
+          message: 'New version created successfully. Redirecting to edit mode...',
+          severity: 'success'
+        });
+      }
 
       // Close the dialog
       setShowNewVersionDialog(false);
