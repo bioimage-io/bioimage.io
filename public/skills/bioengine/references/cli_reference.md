@@ -160,6 +160,8 @@ Usage: bioengine apps logs [OPTIONS] APP_ID
 Options: -n/--tail N [default: 100], --json
 ```
 
+**Caveat:** this has been observed printing empty per-deployment sections while the replica had thousands of characters of logs. Prefer `bioengine apps status APP_ID --logs N --json`, where `deployments[<name>]["logs"]` is a dict keyed by replica id whose values are **lists of lines** (not a string — slicing it directly raises `TypeError: unhashable type: 'slice'`).
+
 ### `bioengine apps stop`
 
 ```

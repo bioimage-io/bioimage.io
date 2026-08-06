@@ -6,6 +6,7 @@
 - [Frontend UI template](#frontend-ui-template)
   - [Getting the frontend URL](#getting-the-frontend-url)
   - [Sending an uploaded image to the backend](#sending-an-uploaded-image-to-the-backend)
+  - [Capping what you send back](#capping-what-you-send-back)
   - [Shipping a multi-file frontend](#shipping-a-multi-file-frontend)
   - [Testing your frontend](#testing-your-frontend)
   - [Choosing your theme (both are shipped)](#choosing-your-theme-both-are-shipped)
@@ -1859,6 +1860,15 @@ function notify(message, kind = "warn", ms = 4200) {
 const RUN_LABEL = $("runLabel").textContent;
 const busy = { active: false, button: false, t0: 0, tick: null, hint: null, reveal: null };
 
+/* Owned by the run handler, deliberately NOT part of `busy`. busy.active cannot
+   carry this: beginBusy() opens by calling endBusy() so two busy states can
+   never stack, and endBusy() closes with refreshRunEnabled() — at which point
+   busy.active is still false. Deriving the Run button from busy.active alone
+   therefore re-enables it a few frames into the very run that disabled it, and
+   a second click starts an overlapping call. Declared up here, beside busy, so
+   it cannot land in the temporal dead zone of an early refreshRunEnabled(). */
+let runInFlight = false;
+
 function showBusyChrome(on) {
   $("statusSpinner").hidden = !on;
   $("statusDot").hidden = on;
@@ -2124,6 +2134,12 @@ async function readFileWithProgress(file, onProgress) {
 }
 
 async function acceptFile(file) {
+  if (runInFlight) {
+    // Loading a new file mid-run would swap state.bytes under the call already
+    // in flight, so the result would be rendered against the wrong input.
+    notify("A run is still going. Wait for it to finish before loading another image.");
+    return;
+  }
   if (!looksLikeImage(file)) {
     // Visible, non-blocking, and the zone keeps whatever it already had.
     notify(`“${file.name}” is not an image — expected PNG, TIFF or JPEG.`);
@@ -2192,7 +2208,13 @@ function clearInput({ keepResult = false } = {}) {
   updateCompareVisibility();
   refreshRunEnabled();
 }
-$("clearBtn").addEventListener("click", (e) => { e.stopPropagation(); clearInput(); });
+$("clearBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  // Same reason as acceptFile: clearing revokes the object URL the running
+  // render still needs.
+  if (runInFlight) { notify("A run is still going. Wait for it to finish."); return; }
+  clearInput();
+});
 
 /* ==========================================================================
    INSPECT VIEWER — zoom (wheel + buttons), pan, fit, 1:1
@@ -2399,7 +2421,7 @@ function setLoggedInUI() {
   $("userWs").textContent = userWorkspace || "—";
 }
 function refreshRunEnabled() {
-  $("runBtn").disabled = !(svc && state.bytes) || busy.active;
+  $("runBtn").disabled = runInFlight || !(svc && state.bytes) || busy.active;
 }
 
 /* Covers ONE of the two ways a connection ends: a clean close (codes 1000/1001,
@@ -2440,7 +2462,10 @@ async function connectWithToken(token) {
     }
     busyPhase("Resolving service");
     svc = await server.getService(SERVICE_ID, { _rkwargs: true });
-    endBusy({ kind: "ok", status: "Connected to " + SERVICE_ID });
+    // Past tense on purpose. A silent reconnect is unobservable from the page,
+    // so the strongest true statement is that the resolve succeeded, not that
+    // the socket is live now. See § Losing the connection while the page sits idle.
+    endBusy({ kind: "ok", status: "Ready — resolved " + SERVICE_ID + "." });
   } catch (err) {
     // Rethrown on purpose: both callers surface it — startLogin() with a modal
     // (user-initiated) and boot with deferError() (must not ambush a load).
@@ -2635,6 +2660,8 @@ $("runBtn").addEventListener("click", async () => {
   if (!svc || !state.bytes) return;
   $("runBtn").disabled = true;
 
+  runInFlight = true;
+
   const firstRun = $("resultBody").hidden;
   beginBusy("Starting", {
     button: true,
@@ -2662,6 +2689,9 @@ $("runBtn").addEventListener("click", async () => {
   } catch (e) {
     err = e;
   } finally {
+    // Cleared BEFORE endBusy(), because endBusy() ends with refreshRunEnabled()
+    // and that is the call which must see the run as over.
+    runInFlight = false;
     // The ONLY exit from the busy state, on both paths. This is what stops a
     // failed call leaving the spinner running forever.
     endBusy(err ? { kind: "err", status: "Run failed." }
@@ -2712,6 +2742,7 @@ $("runBtn").addEventListener("click", async () => {
 - **The Run button's icon is wrapped in a `<span>`.** `hidden` is an `HTMLElement` property; `SVGElement` does not reflect it. See § *Two traps*.
 - **`#notice` layers its tint over an opaque base.** See § *Two traps*.
 - **Every wait exits through one `endBusy()`, called from a `finally`.** A spinner still spinning after a failed call is the classic bug in this pattern, and it is a bug of structure: as soon as two code paths can end a wait, one of them eventually will not.
+- **Do not derive the Run button's disabled state from the busy flag.** This looks like the tidy version and it is broken. `beginBusy()` opens by calling `endBusy()` so two busy states can never stack, and `endBusy()` closes by recomputing the button — with the busy flag still `false`. The button you just disabled comes back a few frames into the run, a second click starts an overlapping call, and whichever run finishes last writes the status line, so a green "Done" can end up sitting behind an open "Run failed" modal. Give the run its own `runInFlight` flag, include it in the enable check, and clear it in the `finally` **before** `endBusy()`. Verify it by reading `runBtn.disabled` from the console partway through a real run, not by clicking once and watching.
 
 **Key points:**
 - Import `login` and `connectToServer` from the same CDN module — no npm needed.
@@ -2782,6 +2813,25 @@ async def segment(
 ```
 
 Note the return direction is still governed by the `.tolist()` rule — send masks and coordinate arrays back as plain lists (or, for a preview image, a base64 PNG string).
+
+### Capping what you send back
+
+The `.tolist()` rule governs the *type* of a return value. Nothing governs its *size*, and size is where apps shaped like this template actually fall over. A per-object table is fine on the 300-object image you tested with and is not fine on the 50,000-object image a user brings a week later: the payload crosses the socket, `renderResult` maps the whole array, and the DOM absorbs 50,000 rows. The template's own `renderResult` maps unconditionally, so it inherits the problem.
+
+Cap it on the backend, where you know the real count, and say so in the response rather than truncating quietly:
+
+```python
+MAX_OBJECTS = 5000
+
+objects = measure_all(mask)                       # the real result
+payload = {
+    "count": len(objects),                        # always the true count
+    "objects": objects[:MAX_OBJECTS],
+    "objects_truncated": len(objects) > MAX_OBJECTS,
+}
+```
+
+Then have the frontend render the true `count` and show a visible notice when `objects_truncated` is set, so a user reading a 5,000-row table knows it is not the whole picture. Summary statistics should be computed over everything before the slice, never over the truncated list. Pick the cap from what the UI can actually draw, not from what the socket can carry — the table is the tighter limit.
 
 ### Shipping a multi-file frontend
 
@@ -2869,7 +2919,7 @@ The template implements the rules below; they are worth restating because they a
 - **Say more after ~10s.** Silence past ten seconds reads as a crash. The template surfaces a reassurance line ("Still running — large images take longer.").
 - **Skeleton the *first* result only.** On a re-run, keep the previous result on screen and dim it: the layout then never jumps at all.
 - **Let completion register, once.** Every run updates the status line and the dot; only the first run plays the badge animation. Someone running the same app twenty times does not need twenty celebrations.
-- **Errors must clear the busy state everywhere.** Structure this so it cannot rot: one `endBusy()` that resets every affordance, called from a `finally` on every path. Then test the failure path deliberately — send bytes the backend cannot decode and confirm the spinner stops, the label resets, and the button re-enables.
+- **Errors must clear the busy state everywhere.** Structure this so it cannot rot: one `endBusy()` that resets every affordance, called from a `finally` on every path. Then test the failure path deliberately — send bytes the backend cannot decode and confirm the spinner stops, the label resets, and the button re-enables. Test the *concurrency* path too, by clicking Run twice in quick succession: if the second click starts anything, the enable check is reading the wrong state (see the `runInFlight` note above).
 
 ```javascript
 // The shape that makes the invariant hold. Note there is exactly one exit.
@@ -3042,92 +3092,13 @@ When a button handler triggers a Hypha RPC and it fails, surface the failure as 
 
 The **modal** applies to **user-initiated** RPCs (button clicks, form submits). Background and boot-time refreshes (page-load auto-connect, pre-fetching dropdown contents) must not pop a modal, because ambushing a page load is hostile — but they must not fail silently either. They route through `deferError` instead, which puts the message in the status line and makes that line a button carrying the full trace (see *Never silently drop an external error* above). The pattern below is a single shared helper plus a `popupOnError` flag so refresh functions can be reused from both contexts.
 
-```html
-<!-- Error dialog (placed next to the confirm dialog if you have one). Reuses
-     the same .modal-backdrop / .dialog styles; .dialog-wide widens it and
-     .dialog-detail adds a scrollable monospace block for stack traces. -->
-<div id="errorDialog" class="modal-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="errorTitle" hidden>
-  <div class="dialog dialog-wide">
-    <div class="dialog-title">
-      <span class="dialog-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="13"/>
-          <line x1="12" y1="16.5" x2="12" y2="16.5"/>
-        </svg>
-      </span>
-      <span id="errorTitle">Something went wrong</span>
-    </div>
-    <div class="dialog-message" id="errorMessage"></div>
-    <pre class="dialog-detail" id="errorDetail"></pre>
-    <div class="dialog-actions">
-      <button class="btn" type="button" id="errorCopy">Copy</button>
-      <button class="btn btn-primary" type="button" id="errorClose">Close</button>
-    </div>
-  </div>
-</div>
-```
-
-```css
-/* Wider variant + scrollable monospace block for stack traces. */
-.dialog.dialog-wide { max-width: 36rem; }
-.dialog .dialog-detail {
-  margin: 0 0 1.1rem;
-  padding: 0.7rem 0.85rem;
-  background: var(--bg-0); border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--fg-dim);
-  max-height: 50vh; overflow-y: auto;
-  white-space: pre-wrap; word-break: break-word;
-}
-.dialog .dialog-detail:empty { display: none; }
-```
-
-```javascript
-// Stack → message → JSON, so the user gets the most useful representation
-// of whatever the RPC layer surfaces. Ray colourises worker tracebacks with
-// ANSI escapes, which render as literal "?[36m" garbage in a <pre>; strip them
-// at this one choke point so no call site can forget.
-const ANSI_ESCAPE = /\x1B\[[0-9;?]*[ -\/]*[@-~]/g;
-const stripAnsi = s => (typeof s === "string" ? s.replace(ANSI_ESCAPE, "") : s);
-
-function formatErr(err) {
-  if (!err) return "";
-  if (typeof err === "string") return stripAnsi(err);
-  return stripAnsi(err.stack || err.message || (() => {
-    try { return JSON.stringify(err, null, 2); } catch { return String(err); }
-  })());
-}
-function showError({ title = "Something went wrong", message = "", detail = "" } = {}) {
-  $("errorTitle").textContent = title;
-  $("errorMessage").innerHTML = message;     // HTML so callers can <strong> the resource name
-  $("errorDetail").textContent = detail;     // textContent: never inject server output as HTML
-  $("errorDialog").hidden = false;
-  setTimeout(() => $("errorClose").focus(), 0);
-}
-function closeError() { $("errorDialog").hidden = true; }
-$("errorClose").addEventListener("click", closeError);
-$("errorDialog").addEventListener("click", (e) => {
-  if (e.target === $("errorDialog")) closeError();
-});
-$("errorCopy").addEventListener("click", async () => {
-  const text = [$("errorTitle").textContent, $("errorMessage").textContent, $("errorDetail").textContent]
-    .filter(Boolean).join("\n\n");
-  try {
-    await navigator.clipboard?.writeText(text);
-    $("errorCopy").textContent = "Copied";
-    setTimeout(() => { $("errorCopy").textContent = "Copy"; }, 1200);
-  } catch (_) {}
-});
-// Esc closes the topmost open dialog (error first, then confirm).
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!$("errorDialog").hidden) { closeError(); return; }
-  if (!$("confirmDialog").hidden) closeConfirm(false);
-});
-```
+> **The implementation lives in the frontend template above, not here.** Use the `showError()` /
+> `deferError()` / `formatErr()` code from the [Frontend UI template](#frontend-ui-template)
+> and treat this section as the *rules* for calling it. An earlier, weaker copy of the dialog used
+> to be inlined here — no `subtitle`, no scroll cue, no focus return, and a different
+> `max-height` — and the two drifted apart far enough that the examples below were passing a
+> `subtitle` the local version silently dropped. There is now one implementation. Do not
+> reintroduce a second.
 
 **Modal for button handlers, deferred status line for background loaders.** Refresh functions called from both boot and a button should accept `{ popupOnError = false }`, and the flag selects *which surface*, never whether the user is told at all. The boot path is quiet, not silent:
 
