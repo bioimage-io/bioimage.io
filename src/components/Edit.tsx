@@ -156,6 +156,12 @@ const Edit: React.FC = () => {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
+  // Whether the artifact has a pending staged version on the server. `isStaged`
+  // only tracks the ROUTE (/edit/<id>/stage), so on the published route it is
+  // false even for an artifact that is in fact staged. `read()` without a
+  // version never returns the `staging` field, so this is probed separately
+  // with `read({ version: 'stage' })`. Used to label the stage button honestly.
+  const [hasStagedVersion, setHasStagedVersion] = useState(false);
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   // Weight-change safeguard: set when a user tries to add/overwrite/delete a
   // model weight file while editing an already-published version in place.
@@ -569,6 +575,26 @@ const Edit: React.FC = () => {
       }
 
       setArtifactInfo(artifact);
+
+      // On the published route, find out whether a staged version is already
+      // pending so the stage button can say "Continue" rather than "Stage".
+      // Returns staging: null (rather than throwing) when nothing is staged.
+      if (currentIsStaged) {
+        setHasStagedVersion(true);
+      } else {
+        try {
+          const staged = await artifactManager.read({
+            artifact_id: artifactId,
+            version: 'stage',
+            _rkwargs: true
+          });
+          setHasStagedVersion(!!staged?.staging);
+        } catch (error) {
+          // Non-fatal: fall back to the plain "Stage for Editing" label.
+          console.warn('Could not determine staging state:', error);
+          setHasStagedVersion(false);
+        }
+      }
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
@@ -2396,7 +2422,7 @@ const Edit: React.FC = () => {
             that already has a committed version (user must click "Stage for Editing" first). */}
         {selectedFile && isTextFile(selectedFile.name) && (
           <HintTooltip
-            hint={!isStaged && hasPublishedVersion ? 'Click "Stage for Editing" before saving changes.' : undefined}
+            hint={!isStaged && hasPublishedVersion ? `Click "${hasStagedVersion ? 'Continue Editing Staged Version' : 'Stage for Editing'}" before saving changes.` : undefined}
             className="w-full sm:w-auto"
           >
             <button
@@ -2492,7 +2518,7 @@ const Edit: React.FC = () => {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
-                  Stage for Editing
+                  {hasStagedVersion ? 'Continue Editing Staged Version' : 'Stage for Editing'}
                 </button>
               );
             }
