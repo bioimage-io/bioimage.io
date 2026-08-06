@@ -55,7 +55,9 @@ logger = bioengine.logger  # never use print()
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=0,
+    # No gpu_memory_mb: this app is CPU-only, and that is expressed by omitting the
+    # kwarg entirely. gpu_memory_mb=0 is hard-rejected. For GPU work pass the VRAM
+    # you need in MB (gpu_memory_mb=8192) or -1 to claim a whole GPU.
     memory_mb=1024,
     pip=[
         # Freeze all versions here BEFORE writing business logic.
@@ -177,7 +179,6 @@ logger = bioengine.logger
 
 @bioengine.app(
     num_cpus=0,
-    num_gpus=0,
     memory_mb=256,
     pip=[],
     max_ongoing_requests=20,
@@ -248,7 +249,6 @@ logger = bioengine.logger
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=0,
     memory_mb=512,
     pip=[],
     max_ongoing_requests=5,
@@ -285,7 +285,6 @@ logger = bioengine.logger
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=0,
     memory_mb=512,
     pip=["numpy==1.26.4"],
     max_ongoing_requests=5,
@@ -320,7 +319,6 @@ logger = bioengine.logger
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=0,
     memory_mb=1024,
     pip=["numpy==1.26.4", "pillow==10.4.0"],
     max_ongoing_requests=5,
@@ -2657,7 +2655,14 @@ function clearResult() {
 let successCount = 0;
 
 $("runBtn").addEventListener("click", async () => {
-  if (!svc || !state.bytes) return;
+  /* runInFlight is checked HERE as well as in refreshRunEnabled(). The disabled
+     attribute stops a human — a disabled button takes neither click nor focus, so
+     there is no keyboard path either — but dispatchEvent still reaches listeners
+     on a disabled button, so a browser extension or a test harness starts a second
+     overlapping call. Whichever run finishes last writes the status line, and you
+     get a green "Done" sitting behind an open "Run failed" modal. The enable check
+     alone is half the fix; the entry point is the other half. */
+  if (runInFlight || !svc || !state.bytes) return;
   $("runBtn").disabled = true;
 
   runInFlight = true;
@@ -2678,23 +2683,36 @@ $("runBtn").addEventListener("click", async () => {
   }
 
   const t0 = performance.now();
-  let doneMsg = "", err = null;
+  let doneMsg = "", err = null, failedStage = "";
   try {
     const res = await callBackend(busyPhase);
     busyPhase("Rendering result");
-    if (firstRun) clearResult();
-    renderResult(res);
+    /* Render sits in its own try so it gets its own attribution. Leaving it in
+       the outer one makes every bug in your renderResult() surface as "Run
+       failed … did not complete on the worker", which accuses a worker that did
+       its job and sends you debugging the wrong machine. This is the same rule
+       as § Error messages below, applied to the template's own code path. */
+    try {
+      if (firstRun) clearResult();
+      renderResult(res);
+    } catch (e) {
+      failedStage = "render";
+      throw e;
+    }
     doneMsg = `Done — ${res.count ?? "?"} objects in `
             + `${((performance.now() - t0) / 1000).toFixed(2)}s.`;
   } catch (e) {
     err = e;
+    if (!failedStage) failedStage = "run";
   } finally {
     // Cleared BEFORE endBusy(), because endBusy() ends with refreshRunEnabled()
     // and that is the call which must see the run as over.
     runInFlight = false;
     // The ONLY exit from the busy state, on both paths. This is what stops a
     // failed call leaving the spinner running forever.
-    endBusy(err ? { kind: "err", status: "Run failed." }
+    endBusy(err ? { kind: "err", status: failedStage === "render"
+                                    ? "Result could not be displayed."
+                                    : "Run failed." }
                 : { kind: "ok", status: doneMsg });
   }
 
@@ -2702,10 +2720,14 @@ $("runBtn").addEventListener("click", async () => {
     if ($("resultBody").hidden) $("resultEmpty").hidden = false;
     // User-initiated RPC → modal with the full trace, never a silent log.
     showError({
-      title: "Run failed",
+      title: failedStage === "render" ? "Could not display result" : "Run failed",
       // One line of context: which file, against which service.
       subtitle: [state.file && state.file.name, SERVICE_ID].filter(Boolean).join("  ·  "),
-      message: "The <code>segment</code> call did not complete on the worker.",
+      // Name the machine that actually failed. A render bug reported as a worker
+      // failure costs an hour of reading worker logs that contain nothing.
+      message: failedStage === "render"
+        ? "The worker returned a result, but this page could not draw it."
+        : "The <code>segment</code> call did not complete on the worker.",
       detail: formatErr(err),
     });
     return;
@@ -2742,7 +2764,8 @@ $("runBtn").addEventListener("click", async () => {
 - **The Run button's icon is wrapped in a `<span>`.** `hidden` is an `HTMLElement` property; `SVGElement` does not reflect it. See § *Two traps*.
 - **`#notice` layers its tint over an opaque base.** See § *Two traps*.
 - **Every wait exits through one `endBusy()`, called from a `finally`.** A spinner still spinning after a failed call is the classic bug in this pattern, and it is a bug of structure: as soon as two code paths can end a wait, one of them eventually will not.
-- **Do not derive the Run button's disabled state from the busy flag.** This looks like the tidy version and it is broken. `beginBusy()` opens by calling `endBusy()` so two busy states can never stack, and `endBusy()` closes by recomputing the button — with the busy flag still `false`. The button you just disabled comes back a few frames into the run, a second click starts an overlapping call, and whichever run finishes last writes the status line, so a green "Done" can end up sitting behind an open "Run failed" modal. Give the run its own `runInFlight` flag, include it in the enable check, and clear it in the `finally` **before** `endBusy()`. Verify it by reading `runBtn.disabled` from the console partway through a real run, not by clicking once and watching.
+- **Do not derive the Run button's disabled state from the busy flag.** This looks like the tidy version and it is broken. `beginBusy()` opens by calling `endBusy()` so two busy states can never stack, and `endBusy()` closes by recomputing the button — with the busy flag still `false`. The button you just disabled comes back a few frames into the run, a second click starts an overlapping call, and whichever run finishes last writes the status line, so a green "Done" can end up sitting behind an open "Run failed" modal. Give the run its own `runInFlight` flag, include it in the enable check **and in the click handler's own early return**, and clear it in the `finally` **before** `endBusy()`. Both places are load-bearing: the enable check is what a human hits, but `dispatchEvent` reaches listeners on a disabled button, so with the entry point unguarded an extension or a test harness still starts the second call. Verify it by reading `runBtn.disabled` from the console partway through a real run, not by clicking once and watching — and, if you want the stronger check, count the frames leaving the socket rather than trusting the button.
+- **Keep the render step out of the call's `try`.** If `renderResult()` throws inside the same `try` that wraps the RPC, your own drawing bug is reported as "Run failed … did not complete on the worker", and you go and read worker logs that contain nothing. Give render its own `try` and its own message, so the dialog names the machine that actually failed. This is § *Error messages* applied to your own code rather than to someone else's.
 
 **Key points:**
 - Import `login` and `connectToServer` from the same CDN module — no npm needed.
@@ -2833,6 +2856,25 @@ payload = {
 
 Then have the frontend render the true `count` and show a visible notice when `objects_truncated` is set, so a user reading a 5,000-row table knows it is not the whole picture. Summary statistics should be computed over everything before the slice, never over the truncated list. Pick the cap from what the UI can actually draw, not from what the socket can carry — the table is the tighter limit.
 
+**Rank before you slice.** `objects[:MAX_OBJECTS]` keeps whichever objects the labeller happened to number first, which is a raster-scan artefact — the user gets the top-left corner of the image and no indication of it. Sort by whatever the app is actually for (area, intensity, score) before truncating, so the retained rows are the ones worth looking at.
+
+**Cap returned images by dimension too, and do it before encoding.** The size trap is not only the per-object table. An overlay or heat map rendered at full sensor resolution is one value in the payload and the largest thing in it: a 6000 × 6000 heat map came back as **45.6 MB and took 31.7 s** end to end, against **5.5 MB and 11.0 s** for the same result downsampled to a 2048 px long edge. Nothing about the answer changed — the display is a few hundred pixels wide either way. Downsample on the backend, before the PNG encode, and return the factor so the frontend can map click coordinates back:
+
+```python
+from skimage.transform import resize        # inside the method, per the import rule
+
+MAX_EDGE = 2048
+
+h, w = overlay.shape[:2]
+scale = min(1.0, MAX_EDGE / max(h, w))
+if scale < 1.0:
+    overlay = resize(overlay, (round(h * scale), round(w * scale)),
+                     order=0, preserve_range=True, anti_aliasing=False).astype(overlay.dtype)
+payload["overlay_scale"] = scale        # 1.0 when untouched
+```
+
+Use nearest-neighbour (`order=0`, no anti-aliasing) for label and mask images — interpolating between label IDs invents objects that do not exist. Full-resolution masks belong in a downloadable artifact, not in the RPC response.
+
 ### Shipping a multi-file frontend
 
 The template is a single self-contained `index.html`, but you are not limited to one file. **Sibling files and nested subdirectories under `frontend/` are all served, with correct MIME types**, at paths relative to the `static_site_url` base (the `root_directory: frontend` prefix is stripped). So this layout works as written:
@@ -2855,6 +2897,8 @@ Two headless-Chromium traps that cost more time than anything BioEngine-related,
 
 - **Waits and screenshots time out on a perfectly healthy page.** Playwright's `wait_for_function` polls on `requestAnimationFrame` by default and `page.screenshot()` waits for frame stability. An occluded headless page intermittently stops producing compositor frames, so both hang until timeout while the app underneath is fine. Fixes: `page.wait_for_function(..., polling=500)` (wall-clock polling instead of rAF), capture via CDP `Page.captureScreenshot` instead of `page.screenshot()`, and launch with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion`.
 - **Don't reuse one browser across a logged-out and a logged-in scenario.** A fresh `launch()` per scenario removed a reproducible connect hang.
+
+**You cannot test the boot-failure path with a deliberately bad `?token=`.** Hypha's static-site endpoint validates the token itself and answers `401 {"detail":"Error decoding token headers."}` before your page is ever served, so the browser gets an error document and none of your boot code runs. To exercise "the cached token failed", seed the `localStorage` token cache with a bad value and load the page without `?token=` — that is the case the deferred-error path is actually written for.
 
 ### Choosing your theme (both are shipped)
 

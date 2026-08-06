@@ -22,7 +22,7 @@ from pydantic import Field
 
 @bioengine.app(
     num_cpus=4,
-    num_gpus=1,
+    gpu_memory_mb=-1,            # a whole GPU: this deployment keeps 4 variants warm
     memory_mb=8 * 1024,
     pip=["cellpose>=4.0"],
 )
@@ -64,36 +64,41 @@ class CachedSegmentation:
 
 ## GPU allocation strategies
 
+GPU is requested as **VRAM in megabytes** on the `@bioengine.app` decorator. The raw
+`@serve.deployment(ray_actor_options={"num_gpus": ...})` form these examples used to show is
+deprecated on two counts — the decorator will fail introspection, and `num_gpus` was removed
+from the decorator surface in bioengine 0.15.0. Scaling is not a decorator field either; pass
+it at deploy time via `deploy_app(scaling={...})`.
+
 ### Single large model — one full GPU per replica
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 1, "num_cpus": 4, "memory": 16 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 2},
-)
+@bioengine.app(num_cpus=4, gpu_memory_mb=-1, memory_mb=16 * 1024)
 ```
 
-Use when: Foundation models (SAM, CellSAM), any model that fills an entire GPU.
+Use when: Foundation models (SAM, CellSAM), any model that fills an entire GPU. `-1` is the
+only way to say "the whole device" — there is no maximum you can name that means the same thing
+on every card.
 
-### Small models — fractional GPU (multi-replica per node)
+### Small models — several replicas per GPU
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 0.25, "num_cpus": 2, "memory": 4 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 8},
-)
+@bioengine.app(num_cpus=2, gpu_memory_mb=2048, memory_mb=4 * 1024)
 ```
 
-Use when: Lightweight CNNs (MitoSegNet, StarDist) using < 2 GB VRAM each. Allows 4 replicas per GPU, 4× throughput. **Only safe if this app is the sole GPU user on the cluster — fractional allocation does not enforce VRAM limits.**
+Use when: Lightweight CNNs (MitoSegNet, StarDist) using < 2 GB VRAM each. On a 24 GB card this
+packs many replicas onto one device, and unlike the old fractional `num_gpus=0.25` it is
+**accounted in the units that actually run out**. Ask for what the model needs plus headroom
+for the largest input you expect, not for a share of the device.
 
 ### CPU-only
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 0, "num_cpus": 4, "memory": 8 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 16},
-)
+@bioengine.app(num_cpus=4, memory_mb=8 * 1024)
 ```
+
+Omit `gpu_memory_mb` entirely. `gpu_memory_mb=0` is hard-rejected, so translating an old
+`num_gpus=0` literally will not deploy.
 
 ---
 
@@ -175,17 +180,16 @@ async def async_init(self) -> None:
 For apps that run both inference and online fine-tuning:
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 1, "num_cpus": 8, "memory": 32 * 1024**3},
-)
+@bioengine.app(num_cpus=8, gpu_memory_mb=-1, memory_mb=32 * 1024)
 class FineTuningDeployment:
     def __init__(self): self._model = None; self._training = False
 
-    async def async_init(self):
+    @bioengine.async_init
+    async def load(self):
         from cellpose import models
         self._model = models.CellposeModel(model_type='cpsam', gpu=True)
 
-    @schema_method
+    @bioengine.method
     async def start_finetuning(
         self,
         images: list,
@@ -199,7 +203,7 @@ class FineTuningDeployment:
         asyncio.create_task(self._train(images, masks, n_epochs, run_id))
         return {"status": "started", "run_id": run_id}
 
-    @schema_method
+    @bioengine.method
     async def get_training_status(self, run_id: str) -> dict:
         """Poll training progress."""
         return self._jobs.get(run_id, {"status": "not_found"})

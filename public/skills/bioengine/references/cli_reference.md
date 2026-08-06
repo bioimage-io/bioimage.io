@@ -304,7 +304,7 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 |---|---|---|
 | `--image IMAGE` | image baked into the launcher | Container image used for Ray-worker `sbatch` jobs. Accepts `docker://...`, a local `.sif`, or an apptainer sandbox dir. |
 | `--worker-workspace-dir PATH` | `--workspace-dir` | Workspace path bound inside each worker job's container. Required when the launch-side `--workspace-dir` is a local realpath that differs from the compute-node mount point. |
-| `--default-num-gpus N` |  | GPUs per Ray-worker sbatch job. Override per-deployment via the artifact's `ray_actor_options.num_gpus`. |
+| `--default-num-gpus N` |  | GPUs per Ray-worker sbatch job. This one is still a **device count** — it sizes the SLURM allocation, not a deployment. What each app then claims out of that allocation is set per-deployment with `@bioengine.app(gpu_memory_mb=...)`. |
 | `--default-num-cpus N` |  | CPUs per Ray-worker sbatch job. |
 | `--default-mem-in-gb-per-cpu GB` |  | Memory per CPU. Total job memory = `num_cpus × mem_per_cpu`. |
 | `--default-time-limit HH:MM:SS` |  | Wall time per sbatch job. |

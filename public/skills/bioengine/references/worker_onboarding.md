@@ -246,7 +246,7 @@ Run all seven before telling the user "your worker is ready." Each is a single P
 > **`run_code` API contract — read before writing any check.** `run_code(code=..., remote_options={...})` schedules a Ray task that imports the code string, looks up a top-level function named **`analyze`** (literal), calls it with no arguments, and returns its value in `result["result"]`. Three rules that catch every agent the first time:
 > 1. The function MUST be named `analyze`. Anything else raises `Object 'analyze' is not callable: None` — a misleading error that does not name the missing symbol.
 > 2. The function MUST return a JSON-serialisable value. `print(...)` lands in the worker logs, not the return.
-> 3. Ray resource options go through `remote_options={"num_cpus": ..., "num_gpus": ...}`, **not** as direct kwargs.
+> 3. Ray resource options go through `remote_options={"num_cpus": ..., "num_gpus": ...}`, **not** as direct kwargs. `num_gpus` is correct *here* and is not a leftover: `remote_options` is passed straight to Ray's own task API, which still counts devices. The `gpu_memory_mb` rewrite in bioengine 0.15.0 applies to `@bioengine.app` only. Don't "fix" this line.
 >
 > All seven checks below follow this contract.
 

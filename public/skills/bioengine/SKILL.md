@@ -40,6 +40,8 @@ Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whet
 > ERROR: Package 'bioengine' requires a different Python: 3.10.14 not in '>=3.11'
 > ```
 > Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — create a fresh 3.11+ env before installing: `conda create -n bioengine python=3.11` or `python3.11 -m venv .venv`.
+>
+> If you reach for `uv`, note that **`uv venv` installs no `pip` into the environment**. A plain `pip install` afterwards therefore runs the *system* pip and reproduces exactly the 3.10 error above, while looking as though the fresh 3.11 env did nothing. Use `uv pip install` (or `.venv/bin/python -m pip` after `uv pip install pip`).
 
 **Install the CLI**:
 ```bash
@@ -53,7 +55,9 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 > ```
 > **This gets you linting, not importing.** `pydantic` clears the *first* import error, not the last: `@bioengine.app` runs `from ray import serve` at decoration time, so applying the decorator — which happens on `import your_app` — fails in any `[cli]`-only venv — usually `ModuleNotFoundError: No module named 'ray'`, or `ImportError: cannot import name 'serve' from 'ray'` where some other package has pulled a partial `ray` in. **A `[cli]` venv cannot import an app module at all**, and installing `[worker]` just to import one pulls in the whole Ray stack. Don't try to smoke-test the decorated class locally. Factor the real logic into a **separate undecorated module that imports nothing from `bioengine`**, and test that; the decorated method becomes a thin wrapper around it. A helper *method* on the decorated class is not enough — it fixes the [`FieldInfo` trap](#key-rules) but is still unreachable locally, because importing it means importing the decorator. Get the shape right and you catch real bugs before a deploy round-trip.
 
-> **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.11.x; installs have shipped 0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
+> **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.15.x; earlier installs shipped 0.11.x–0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
+
+> **Nothing validates a manifest or a decorator short of a deploy.** There is no offline checker: no `apps validate`, no dry-run flag, no schema you can lint against. Manifest fields, `@bioengine.app` kwargs and method signatures are all confirmed only by pushing the artifact and watching the worker's response, so a typo'd kwarg costs a full deploy round-trip to find. Budget for that. The local loop described below covers your *logic* thoroughly and covers the BioEngine surface not at all — copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
 
 **Environment**:
 ```bash
@@ -138,12 +142,13 @@ from typing import Dict, Union
 
 import bioengine
 
-logger = bioengine.logger  # never use print()
+logger = bioengine.logger  # never use print(); see the logging note below
 
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=1,                  # 1 for GPU, 0 for CPU-only; never fractional
+    # CPU-only, so gpu_memory_mb is absent. For GPU add gpu_memory_mb=8192
+    # (VRAM in MB) or -1 for a whole device. There is no zero.
     memory_mb=4096,
     pip=["numpy==1.26.4"],       # pin exact versions — any change = full rebuild
     max_ongoing_requests=10,
@@ -179,7 +184,19 @@ class MyDeployment:
 
 ### Key rules
 
-- Use `@bioengine.app(num_cpus=..., num_gpus=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- Use `@bioengine.app(num_cpus=..., gpu_memory_mb=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- **`logger.info()` goes nowhere by default, and the silence is misleading.** `bioengine.logger` is the `bioengine.app` logger with no handlers and level `NOTSET`, propagating to an unconfigured root, so Python's last-resort handler takes over and only **WARNING and above** survives. Meanwhile the framework's *own* INFO lines are captured, so a log you read back looks populated while your lines are missing — which reads as "my code never ran" rather than "my level was dropped". Either use `logger.warning()` for anything you actually need to read back, or attach a handler once at module scope:
+  ```python
+  import logging, sys
+
+  logger = bioengine.logger
+  if not logger.handlers:                       # idempotent: replicas re-import
+      _h = logging.StreamHandler(sys.stdout)    # stdout, so it lands in logs["stdout"]
+      _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+      logger.addHandler(_h)
+      logger.setLevel(logging.INFO)
+  ```
+  Setting `logger.setLevel(logging.INFO)` alone is not enough — with no handler anywhere on the chain, the last-resort handler is still the thing emitting, and it is fixed at WARNING.
 - **Extract the `pip=[...]` list to a `requirements-<module>.txt` file** next to the module (e.g. `requirements-runtime.txt` next to `runtime.py`) and load it via a small helper. Same pin values ship, but the deps look like a real requirements file — Dependabot / pip-audit can point at the file, PR diffs isolate dep bumps, and the decorator stays readable:
   ```python
   from pathlib import Path
@@ -199,8 +216,8 @@ class MyDeployment:
 - **Model caching is app-managed** — there is no framework model cache. `@bioengine.cached` / `bioengine.cache` were **removed in bioengine 0.11.24 (no shim)** because their torch-only GPU cleanup couldn't reclaim TensorFlow / onnxruntime VRAM. To keep model variants warm, hold them in your own instance dict and load on miss (see `references/model_serving.md`); for guaranteed cross-framework VRAM release run inference in a subprocess, as the built-in `model-runner` app does.
 - API methods: `@bioengine.method` (basic) or `@bioengine.method(context=True)` (opt-in caller-context injection — the user method must declare a `context` parameter; arrives as a plain dict, never a Hypha proxy).
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.
-- `num_gpus: 1` for GPU, `num_gpus: 0` for CPU-only; never use fractional values.
-- Entry/orchestrator deployments in composition apps: `num_cpus: 0, num_gpus: 0`.
+- **GPU is requested in megabytes of VRAM, not in device counts.** `gpu_memory_mb=8192` asks for 8 GB, `gpu_memory_mb=-1` claims a whole GPU, and **CPU-only is expressed by omitting the kwarg** — `gpu_memory_mb=0` is hard-rejected, so "zero means no GPU" does not carry over. `num_gpus` was replaced by `gpu_memory_mb` in bioengine 0.15.0 and is no longer accepted on `@bioengine.app`. Sizing in MB is what makes several small models share one device safely: two 8 GB apps fit a 24 GB card and the third waits, whereas the old fractional `num_gpus=0.25` divided the device without enforcing any VRAM limit.
+- Entry/orchestrator deployments in composition apps: `num_cpus=0` and no `gpu_memory_mb` — they route calls and hold no compute.
 - `Field(None)` not `Field([...])` for mutable defaults — mutable defaults crash at startup.
 - **Never call your own `@bioengine.method` in-process.** From a `@bioengine.smoke_test`, a `@bioengine.health_check`, or one method calling another, any `Field(...)`-defaulted parameter you *don't* pass arrives as a raw `FieldInfo` object rather than its default value, and the body blows up on first use:
   ```
@@ -281,7 +298,9 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 >
 > **Confirm the update behaviourally, not from a status field.** After the update, call the method and look for the thing you changed. `status: RUNNING` is worthless as an update signal, because an app being updated was already `RUNNING` — a "poll until terminal state" loop exits on the first poll, one second in, reporting success on a stale replica. `version_verified: true` has been observed while the live code was two versions old.
 >
-> **`running_version` only tracks the Python replica.** The static frontend and the Ray Serve deployment version-skew independently, by design. Redeploy with a change to `frontend/` only and Ray Serve correctly keeps the existing replica, so **`running_version` never advances — polling it waits forever** while the new HTML is already being served. Verify the two separately: `running_version` for Python changes, and `curl` on `static_site_url` diffed against your local file for frontend changes. A version bump in `manifest.yaml` does not force the replica to restart either; only a Python change does.
+> **`running_version` only tracks the Python replica.** The static frontend and the Ray Serve deployment version-skew independently, by design. Redeploy with a change to `frontend/` only and **`running_version` never advances — polling it waits forever** while the new HTML is already being served. Verify the two separately: `running_version` for Python changes, and `curl` on `static_site_url` diffed against your local file for frontend changes.
+>
+> Be precise about *why*, because the comfortable explanation is wrong and it hides an outage. The replica is **not** kept. A frontend-only redeploy restarts it: replica uptime measured at 70.0 s before and 3.9 s after, with a ~10–15 s window in which the app is unavailable, while the Python files were md5-identical. What does not happen is a *version bump* — the replica comes back at the same version, which is why the number you are polling never moves. So a frontend-only change is not free. If the app is serving users, that redeploy costs them the same interruption a Python change would.
 >
 > **That skew has a user-facing consequence, so deploy defensively.** The static site serves the artifact head while the replica serves whatever version it is actually on. A redeploy that changes both can therefore put a new UI in front of users while the old backend is still answering, and the UI asks for a field the backend cannot return. Two habits make this survivable. Land the Python change and confirm it behaviourally *before* shipping frontend code that depends on it. And render new fields defensively — `o.newMetric != null ? fmt(o.newMetric) : "—"` degrades to a dash instead of `undefined` across the window where the two disagree.
 
@@ -409,7 +428,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >     "version_verified": true,        // do not trust as an update signal — see below
 >     "deployments": {
 >       "MyDeployment":    {"status": "HEALTHY", "message": "...",
->                           "logs": {"<replica_id>": ["line", "line", "…"]}},
+>                           "logs": {"<replica_id>": {"stdout": ["…"], "stderr": ["…"], "…": "…"}}},
 >       "ProxyDeployment": {"status": "HEALTHY", "…": "…"}
 >     },
 >     "service_ids": {"websocket_service_id": "...", "webrtc_service_id": "..."}
@@ -419,12 +438,27 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > So `result[app_id]["deployments"][deployment_name]["message"]` is where the actionable detail lives. The bare `bioengine apps status` output only prints per-deployment *status*, not the message — always pass `--json` when debugging.
 >
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
+>
+> **Three reported values do not echo your decorator, and none of them means it was ignored.** `max_ongoing_requests` has been observed reporting `10` against a declared `4`, `memory` reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
 
-> **`logs` is a dict of lists, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, with a list of lines as each value**, not a single string. Slicing it as if it were text raises `TypeError: unhashable type: 'slice'`. Flatten first:
-> ```python
-> lines = [ln for replica in dep.get("logs", {}).values() for ln in replica]
-> print("\n".join(lines[-50:]))
+> **`bioengine apps list --json` has a different top-level shape from `apps status --json`.** These are the two commands you will use together to verify a deletion, and they are not keyed alike. `apps list --json` is keyed by **full artifact id** and each value wraps the manifest one level down:
+> ```json
+> {"bioimage-io/my-app": {"manifest": {"name": "My App", "version": "1.0.3", "…": "…"}}}
 > ```
+> So it is `result["<workspace>/<alias>"]["manifest"]["version"]`, against `result["<app-id>"]["status"]` for `apps status --json`. A filter written for one shape returns an empty result against the other, with no error to tell you which one you were holding.
+
+> **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
+> ```python
+> {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
+> ```
+> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its four **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr` and read them as four log lines, with no error at all. Reach the lists explicitly:
+> ```python
+> for replica_id, rec in dep.get("logs", {}).items():
+>     lines = rec.get("stdout", []) + rec.get("stderr", [])
+>     print(f"--- {replica_id}")
+>     print("\n".join(lines[-50:]))
+> ```
+> **Your records land in `stdout`, the framework's in `stderr`**, so reading only one of them hides half the picture — and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
 
 > **Transient invalid JSON during `DEPLOYING`.** While an app is still `DEPLOYING`, the `--json` payload can contain raw unescaped control characters in the `message`/`logs` string fields (pip/progress-bar output leaking through), which makes strict `json.loads` fail with "Invalid control character" errors at varying offsets. This self-resolves once the app reaches `RUNNING`. Parse defensively (`json.loads(text, strict=False)`), or only strictly parse once `status` is `RUNNING` or `DEPLOY_FAILED`.
 
@@ -543,7 +577,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `TypeError: float() argument must be … not 'FieldInfo'` | You called your own `@bioengine.method` in-process (usually from a smoke test) and omitted a `Field(...)`-defaulted argument. Factor the body into a separate undecorated module and call that from both sides |
 | `apps status --json` fails to parse while `DEPLOYING` | Pip/progress output leaks unescaped control characters into `message`/`logs`. Use `json.loads(text, strict=False)`, or only parse strictly once `status` is `RUNNING` / `DEPLOY_FAILED` |
 | Frontend URL missing from `bioengine apps status` | The plain status output never prints it. Read `static_site_url` from `bioengine apps status <id> --json` |
-| `running_version` never advances after a redeploy | Expected if you only changed `frontend/`. Ray Serve keeps the existing replica, so the number is correct and polling it never terminates. The new HTML is already live — verify by fetching `static_site_url` instead |
+| `running_version` never advances after a redeploy | Expected if you only changed `frontend/`. The replica does restart (~10–15 s unavailable) but comes back at the same version, so the number is correct and polling it never terminates. The new HTML is already live — verify by fetching `static_site_url` instead |
 | Local `import your_app` fails with `No module named 'ray'` (or `cannot import name 'serve' from 'ray'`) | `@bioengine.app` imports `ray.serve` at decoration time, and `bioengine[cli]` ships no ray. A `[cli]` venv cannot import an app module. Put the logic in a separate module that imports nothing from `bioengine`, and test that |
 | Omitting `--app-id` creates new random instance | Always pass `--app-id <running-id>` to update; check `bioengine apps status` first |
 | `DEPLOY_FAILED` with generic top-level message | Read `deployments[<name>].message` via `apps status --json` or SDK — it carries the real pip/runtime_env/import error |

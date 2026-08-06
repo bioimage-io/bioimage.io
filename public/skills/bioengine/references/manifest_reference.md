@@ -100,7 +100,7 @@ import bioengine
 
 @bioengine.app(
     num_cpus=1,
-    num_gpus=1,                  # 1 for GPU, 0 for CPU-only; never fractional
+    gpu_memory_mb=8192,          # VRAM in MB; -1 for a whole GPU; OMIT for CPU-only
     memory_mb=4096,               # RAM in MB
     pip=["numpy==1.26.4"],       # pin exact versions — any change = full rebuild
     max_ongoing_requests=10,     # concurrent requests per replica
@@ -109,8 +109,13 @@ class MyDeployment:
     ...
 ```
 
-Entry/orchestrator deployments in composition apps use `num_cpus=0,
-num_gpus=0` — they route calls to the runtimes and hold no compute of their
+`gpu_memory_mb` replaced `num_gpus` in bioengine 0.15.0 and is the only GPU
+knob the decorator accepts. It takes **megabytes of VRAM**, or `-1` for a whole
+device. There is no zero: `gpu_memory_mb=0` is rejected outright, and a CPU-only
+app simply leaves the kwarg out.
+
+Entry/orchestrator deployments in composition apps use `num_cpus=0` and no
+`gpu_memory_mb` — they route calls to the runtimes and hold no compute of their
 own (see the composition template's `EntryDeployment`).
 
 **Per-replica scaling (`num_replicas` / `autoscaling_config`) is not a

@@ -115,25 +115,22 @@ Both endpoints return Elasticsearch-style JSON. The shape that matters for strea
 ### Search + stream from an app deployment
 
 ```python
+import bioengine
 import httpx
 import zarr
-from ray import serve
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 2,
-        "num_gpus": 1,
-        "runtime_env": {"pip": ["cellpose>=4.0", "httpx>=0.28", "zarr>=3.0.8"]},
-    },
+@bioengine.app(
+    num_cpus=2,
+    gpu_memory_mb=8192,
+    pip=["cellpose>=4.0", "httpx>=0.28", "zarr>=3.0.8"],
 )
 class CellposeOnBIA:
     def __init__(self, datasets):
         # 'datasets' is a BioEngineDatasets instance injected by BioEngine.
         self.datasets = datasets
 
-    @schema_method
+    @bioengine.method
     async def segment_bia_image(
         self,
         query: str = Field(..., description="BIA search query, e.g. 'HeLa nuclei'"),
@@ -255,31 +252,26 @@ If you need the Zarr URL for an arbitrary IDR image id, the canonical path is to
 ### Search + stream from an app deployment
 
 ```python
+import bioengine
 import csv, io, httpx, zarr
-from ray import serve
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 2,
-        "num_gpus": 1,
-        "runtime_env": {
-            "pip": [
-                "cellpose>=4.0",
-                "httpx>=0.28",
-                "zarr>=3.0.8",
-                "numpy==1.26.4",  # match the worker's numpy ABI to avoid Zarr import-time crashes
-            ],
-        },
-    },
+@bioengine.app(
+    num_cpus=2,
+    gpu_memory_mb=8192,
+    pip=[
+        "cellpose>=4.0",
+        "httpx>=0.28",
+        "zarr>=3.0.8",
+        "numpy==1.26.4",  # match the worker's numpy ABI to avoid Zarr import-time crashes
+    ],
 )
 class CellposeOnIDR:
     def __init__(self, datasets):
         # 'datasets' is a BioEngineDatasets instance injected by BioEngine.
         self.datasets = datasets
 
-    @schema_method
+    @bioengine.method
     async def segment_idr_image(
         self,
         study: str = Field("idr0062", description="IDR study accession, e.g. 'idr0062'"),
