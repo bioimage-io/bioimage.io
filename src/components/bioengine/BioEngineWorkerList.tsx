@@ -2,9 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineGitHubLink from './BioEngineGitHubLink';
-
-const STORAGE_KEY = 'bioengine-observed-workspaces';
-const DEFAULT_PUBLIC_WORKSPACE = 'bioimage-io';
+import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
 
 type GeoLocation = {
   region?: string;
@@ -148,13 +146,6 @@ const BioEngineWorkerList: React.FC = () => {
   const navigate = useNavigate();
   const { server, isLoggedIn } = useHyphaStore();
 
-  // Custom workspaces persisted in localStorage (default workspaces not stored here)
-  const [customWorkspaces, setCustomWorkspaces] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
   const [workspaceInput, setWorkspaceInput] = useState('');
   const [workspaceServices, setWorkspaceServices] = useState<Record<string, BioEngineService[]>>({});
   const [workspaceStatus, setWorkspaceStatus] = useState<Record<string, WorkspaceStatus>>({});
@@ -162,7 +153,7 @@ const BioEngineWorkerList: React.FC = () => {
 
   const userWorkspace = server?.config?.workspace as string | undefined;
 
-  // Default workspaces: always bioimage-io, plus logged-in user's workspace
+  // Pinned here: the public workspace, plus the logged-in user's own.
   const defaultWorkspaces = useMemo(() => {
     const ws = [DEFAULT_PUBLIC_WORKSPACE];
     if (isLoggedIn && userWorkspace && userWorkspace !== DEFAULT_PUBLIC_WORKSPACE) {
@@ -171,29 +162,15 @@ const BioEngineWorkerList: React.FC = () => {
     return ws;
   }, [isLoggedIn, userWorkspace]);
 
-  // All observed workspaces = defaults + custom (deduped)
-  const observedWorkspaces = useMemo(() => {
-    const all = [...defaultWorkspaces];
-    for (const ws of customWorkspaces) {
-      if (!all.includes(ws)) all.push(ws);
-    }
-    return all;
-  }, [defaultWorkspaces, customWorkspaces]);
+  const { observedWorkspaces, addWorkspace, removeWorkspace } = useObservedWorkspaces(defaultWorkspaces);
 
-  // Persist custom workspaces to localStorage on change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(customWorkspaces));
-  }, [customWorkspaces]);
-
-  const addWorkspace = () => {
-    const trimmed = workspaceInput.trim();
-    if (!trimmed || observedWorkspaces.includes(trimmed)) return;
-    setCustomWorkspaces(prev => [...prev, trimmed]);
+  const handleAddWorkspace = () => {
+    addWorkspace(workspaceInput);
     setWorkspaceInput('');
   };
 
-  const removeWorkspace = (ws: string) => {
-    setCustomWorkspaces(prev => prev.filter(w => w !== ws));
+  const handleRemoveWorkspace = (ws: string) => {
+    removeWorkspace(ws);
     setWorkspaceServices(prev => { const next = { ...prev }; delete next[ws]; return next; });
     setWorkspaceStatus(prev => { const next = { ...prev }; delete next[ws]; return next; });
   };
@@ -346,7 +323,7 @@ const BioEngineWorkerList: React.FC = () => {
 
         {/* Add workspace input */}
         <form
-          onSubmit={(e) => { e.preventDefault(); addWorkspace(); }}
+          onSubmit={(e) => { e.preventDefault(); handleAddWorkspace(); }}
           className="flex gap-2 mb-3"
         >
           <input
@@ -399,7 +376,7 @@ const BioEngineWorkerList: React.FC = () => {
                 )}
                 {!isDefault && (
                   <button
-                    onClick={() => removeWorkspace(ws)}
+                    onClick={() => handleRemoveWorkspace(ws)}
                     className="ml-0.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
                     title="Remove workspace"
                   >
