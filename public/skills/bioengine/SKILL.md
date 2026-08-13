@@ -355,7 +355,7 @@ GPU VRAM sizing and release, multiplexing, HuggingFace integration, BioImage.IO 
 
 ### Streaming datasets into your app
 
-If your app reads image data, stream it from a public repository or from the BioEngine local data server instead of bundling it. **Load [references/data_sources.md](references/data_sources.md)** for the BioImage Archive workflow and the choice between `zarr.open(uri)` (vanilla) vs `BioEngineDatasets.open_remote_zarr(uri)` (shared cache).
+If your app reads image data, stream it from a public repository or from the BioEngine local data server instead of bundling it. **Load [references/data_sources.md](references/data_sources.md)** for the BioImage Archive workflow, the choice between `zarr.open(uri)` (vanilla fsspec) and `HttpZarrStore(base_url=uri)` (shared chunk cache), and how to read OME-Zarr from a local BioEngine dataset through the same code path via `bioengine.datasets`.
 
 ### Live test cycle
 
