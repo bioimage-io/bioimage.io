@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { HYPHA_SERVER_URL } from '../../config/hypha';
+import DeploymentConfigModal from './DeploymentConfigModal';
 
 type OSType = 'macos' | 'linux' | 'windows';
 
@@ -106,9 +107,126 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE_VERSION = '0.9.1';
+const DEFAULT_IMAGE_VERSION = '0.16.0';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
+
+// One entry of --startup-applications. `config` is the payload the shared deploy
+// dialog emits (the deploy_app kwargs), or null while the box is still unconfigured.
+interface StartupApplication {
+  uid: string;
+  config: Record<string, any> | null;
+}
+
+// Keys the deploy dialog always emits at the worker's own default. Dropping them
+// keeps the generated command readable without changing what gets deployed.
+const STARTUP_APP_DEFAULTS: Record<string, any> = {
+  disable_gpu: false,
+  auto_redeploy: false,
+  debug: false,
+  max_ongoing_requests: 10,
+};
+
+const startupAppJson = (config: Record<string, any>): string => {
+  const payload: Record<string, any> = {};
+  Object.entries(config).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return;
+    if (STARTUP_APP_DEFAULTS[key] === value) return;
+    if (Array.isArray(value) && value.length === 0) return;
+    if (!Array.isArray(value) && typeof value === 'object' && Object.keys(value).length === 0) return;
+    payload[key] = value;
+  });
+  return JSON.stringify(payload);
+};
+
+// Missing artifact_id => nothing to deploy, so the entry is left out of the command.
+// A missing application_id is not a problem: the worker generates one.
+const getStartupAppWarnings = (config: Record<string, any> | null): string[] => {
+  const warnings: string[] = [];
+  if (!config?.artifact_id) {
+    warnings.push('No Artifact ID set. There is nothing to deploy, so this entry is left out of the generated command until you set one.');
+  }
+  return warnings;
+};
+
+// Slim one-line summary of a configured startup application: application ID,
+// artifact ID and version only. Everything else stays behind the settings dialog.
+const StartupApplicationRow: React.FC<{
+  config: Record<string, any> | null;
+  onOpenSettings: () => void;
+  onRemove: () => void;
+}> = ({ config, onOpenSettings, onRemove }) => {
+  const applicationId = (config?.application_id || '').trim();
+  const artifactId = (config?.artifact_id || '').trim();
+  const version = (config?.version || '').trim();
+  const warnings = getStartupAppWarnings(config);
+  const hasWarning = warnings.length > 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+        hasWarning ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'
+      }`}
+    >
+      {hasWarning && (
+        <span className="relative group flex-shrink-0">
+          <button
+            type="button"
+            aria-label="Incomplete startup application"
+            className="flex items-center text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 rounded"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </button>
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute left-0 top-6 z-20 hidden group-hover:block group-focus-within:block w-72 p-2 rounded-lg bg-gray-900 text-white text-xs shadow-lg"
+          >
+            {warnings.map((warning, i) => (
+              <span key={i} className="block first:mt-0 mt-1.5">{warning}</span>
+            ))}
+          </span>
+        </span>
+      )}
+
+      <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+        {applicationId
+          ? <span className="text-sm font-medium text-gray-800 truncate">{applicationId}</span>
+          : <span className="text-sm text-gray-500 italic">Auto-generated ID</span>}
+        <span className="text-gray-300" aria-hidden="true">|</span>
+        {artifactId
+          ? <code className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded truncate">{artifactId}</code>
+          : <span className="text-sm text-amber-700 italic">No artifact ID</span>}
+        <span className="text-gray-300" aria-hidden="true">|</span>
+        <span className="text-xs text-gray-500">{version || 'latest version'}</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="flex items-center flex-shrink-0 px-2 py-1 text-xs text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+      >
+        <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        Settings
+      </button>
+
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove startup application"
+        className="flex-shrink-0 p-1 text-gray-400 rounded hover:text-red-600 hover:bg-red-50 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+};
 
 const BioEngineGuide: React.FC = () => {
   const { server, isLoggedIn, user } = useHyphaStore();
@@ -126,7 +244,6 @@ const BioEngineGuide: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [copiedStep1, setCopiedStep1] = useState(false);
   const [copiedStep2, setCopiedStep2] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Main settings
@@ -134,6 +251,11 @@ const BioEngineGuide: React.FC = () => {
   const [tokenIsManual, setTokenIsManual] = useState(false);
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
+
+  // Startup applications (--startup-applications)
+  const [startupApps, setStartupApps] = useState<StartupApplication[]>([]);
+  const [editingStartupUid, setEditingStartupUid] = useState<string | null>(null);
+  const startupUidCounter = useRef(0);
 
   // Advanced options
   const [workspace, setWorkspace] = useState('');
@@ -183,7 +305,6 @@ const BioEngineGuide: React.FC = () => {
   const [slurmWorkerWorkspaceDir, setSlurmWorkerWorkspaceDir] = useState('');
   const [copiedSlurmStep1, setCopiedSlurmStep1] = useState(false);
   const [copiedSlurmStep2, setCopiedSlurmStep2] = useState(false);
-  const [copiedSlurmStep3, setCopiedSlurmStep3] = useState(false);
 
   const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
 
@@ -195,28 +316,49 @@ const BioEngineGuide: React.FC = () => {
     }
   }, [showTroubleshooting]);
 
+  // Token lifetime follows how the token is stored. Container and SLURM commands
+  // carry it on the command line, where it is only needed until the worker
+  // connects and starts renewing its own token, so one hour is enough. The
+  // Kubernetes manifest stores it in a long-lived Secret that has to survive pod
+  // restarts, so that one keeps the 30-day lifetime. The agent prompt is also
+  // short-lived: the agent only needs it while it walks through the setup.
+  const wantsLongLivedToken = audience === 'human' && mode === 'external-cluster';
+  const tokenLifetimeSeconds = wantsLongLivedToken ? 30 * 24 * 3600 : 3600;
+  const tokenLifetimeLabel = wantsLongLivedToken ? '30 days' : '1 hour';
+  const tokenLifetimeAdjective = wantsLongLivedToken ? '30-day' : '1-hour';
+  const generatedTokenLifetime = useRef<number | null>(null);
+
   // Auto-generate token when user is logged in and no manual token is set
   const generateToken = useCallback(async () => {
     if (!isLoggedIn || !server) return;
     setIsGeneratingToken(true);
     setTokenError(null);
     try {
-      const thirtyDays = 30 * 24 * 3600;
-      const generatedToken = await server.generateToken({ permission: 'admin', expires_in: thirtyDays });
+      const generatedToken = await server.generateToken({ permission: 'admin', expires_in: tokenLifetimeSeconds });
       setToken(generatedToken);
       setTokenIsManual(false);
+      generatedTokenLifetime.current = tokenLifetimeSeconds;
     } catch (err) {
       setTokenError(`Failed to generate token: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsGeneratingToken(false);
     }
-  }, [isLoggedIn, server]);
+  }, [isLoggedIn, server, tokenLifetimeSeconds]);
 
   useEffect(() => {
     if (isLoggedIn && !tokenIsManual && !token) {
       generateToken();
     }
   }, [isLoggedIn, tokenIsManual, token, generateToken]);
+
+  // Switching mode changes the lifetime the token should have, so reissue the
+  // auto-generated one. A pasted token is left alone.
+  useEffect(() => {
+    if (!isLoggedIn || tokenIsManual || !token) return;
+    if (generatedTokenLifetime.current !== null && generatedTokenLifetime.current !== tokenLifetimeSeconds) {
+      generateToken();
+    }
+  }, [tokenLifetimeSeconds, isLoggedIn, tokenIsManual, token, generateToken]);
 
   // Pre-populate Admin Users with the logged-in user's email — only when the
   // list is currently empty, so manual edits aren't overwritten on re-renders.
@@ -279,6 +421,32 @@ const BioEngineGuide: React.FC = () => {
     return '--gpus=all ';
   };
 
+  const addStartupApp = () => {
+    startupUidCounter.current += 1;
+    const uid = `startup-app-${startupUidCounter.current}`;
+    setStartupApps(prev => [...prev, { uid, config: null }]);
+    // Open the settings dialog straight away: a new box is empty, and an empty
+    // box is exactly the state the row warns about.
+    setEditingStartupUid(uid);
+  };
+
+  const removeStartupApp = (uid: string) => {
+    setStartupApps(prev => prev.filter(app => app.uid !== uid));
+    setEditingStartupUid(current => (current === uid ? null : current));
+  };
+
+  const saveStartupApp = (uid: string, config: Record<string, any>) => {
+    setStartupApps(prev => prev.map(app => (app.uid === uid ? { ...app, config } : app)));
+  };
+
+  const editingStartupApp = startupApps.find(app => app.uid === editingStartupUid) || null;
+
+  // Entries without an artifact ID have nothing to deploy, so they never reach the
+  // generated command. The row itself carries the warning that explains why.
+  const deployableStartupApps = startupApps
+    .map(app => app.config)
+    .filter((config): config is Record<string, any> => Boolean(config?.artifact_id));
+
   const getCommand = () => {
     let args: string[] = [];
 
@@ -309,6 +477,20 @@ const BioEngineGuide: React.FC = () => {
     // at container-runtime via the docker/podman command, not here.
     if (mode === 'slurm' && customImage) args.push(`--image ${customImage}`);
 
+    // --startup-applications takes one JSON object per app (argparse nargs="+").
+    // SLURM always runs through bash, so only the container command on Windows
+    // needs the escaped double-quote form instead of single quotes.
+    if (deployableStartupApps.length > 0) {
+      const useWindowsQuoting = os === 'windows' && mode !== 'slurm';
+      const quoted = deployableStartupApps.map(config => {
+        const json = startupAppJson(config);
+        return useWindowsQuoting
+          ? `"${json.replace(/"/g, '\\"')}"`
+          : `'${json.replace(/'/g, `'\\''`)}'`;
+      });
+      args.push(`--startup-applications ${quoted.join(' ')}`);
+    }
+
     const argsString = args.length > 0 ? args.join(' ') : '';
 
     if (mode === 'slurm') {
@@ -337,10 +519,9 @@ const BioEngineGuide: React.FC = () => {
 
       const hostPath = workspaceDir || '$HOME/.bioengine';
       const createDirCmd = `mkdir -p ${hostPath}`;
-      const tokenExportCmd = token
-        ? `export HYPHA_TOKEN=${token}`
-        : `export HYPHA_TOKEN=<your-hypha-token>`;
-      return { createDirCmd, tokenExportCmd, scriptCmd };
+      // No separate HYPHA_TOKEN export step: the token is already on the script's
+      // command line, and start_hpc_worker.sh forwards it to the worker.
+      return { createDirCmd, scriptCmd };
     }
 
     const platform = getPlatform();
@@ -422,9 +603,9 @@ const BioEngineGuide: React.FC = () => {
       if (typeof command === 'string') {
         textToCopy = command;
       } else if ('scriptCmd' in command) {
-        textToCopy = `# Step 1: Create the BioEngine workspace directory\n${command.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${command.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${command.scriptCmd}`;
+        textToCopy = `# Step 1: Create the BioEngine workspace directory\n${command.createDirCmd}\n\n# Step 2: Launch the BioEngine worker on SLURM\n${command.scriptCmd}`;
       } else {
-        textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
+        textToCopy = `# Step 1: Create the BioEngine workspace directory\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
       }
       await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -444,9 +625,9 @@ const BioEngineGuide: React.FC = () => {
       if (typeof currentCommand === 'string') {
         commandText = currentCommand;
       } else if ('scriptCmd' in currentCommand) {
-        commandText = `# Step 1: Create the BioEngine workspace directory\n${currentCommand.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${currentCommand.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${currentCommand.scriptCmd}`;
+        commandText = `# Step 1: Create the BioEngine workspace directory\n${currentCommand.createDirCmd}\n\n# Step 2: Launch the BioEngine worker on SLURM\n${currentCommand.scriptCmd}`;
       } else {
-        commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
+        commandText = `# Step 1: Create the BioEngine workspace directory\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
       }
       // Redact token from command
       if (token) commandText = commandText.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<my-token>');
@@ -581,6 +762,15 @@ DOCKERFILE`;
     }
     if (workerName) extraArgs += arg('--worker-name', workerName);
 
+    // Startup-app configs are JSON, so they go in single-quoted YAML scalars
+    // (a double-quoted scalar would need every inner quote escaped).
+    if (deployableStartupApps.length > 0) {
+      extraArgs += `\n        - "--startup-applications"`;
+      extraArgs += deployableStartupApps
+        .map(config => `\n        - '${startupAppJson(config).replace(/'/g, "''")}'`)
+        .join('');
+    }
+
     // RAY_AUTH_TOKEN + RAY_AUTH_MODE — only emit when the user provided a
     // Ray Cluster Auth Token. Otherwise the env vars stay unset and Ray
     // Client / proxy actor make unauthenticated requests, which is the
@@ -686,49 +876,49 @@ spec:
           claimName: bioengine-pvc` : ''}`;
   };
 
-  return (
-    <div className="pt-4">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${isExpanded
-            ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
-            : 'bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-2 border-blue-200 hover:shadow-md'
-          }`}
-      >
-        <div className="flex items-center">
-          <div className={`rounded-xl flex items-center justify-center mr-4 transition-all duration-200 ${isExpanded
-              ? 'w-8 h-8 bg-gradient-to-r from-gray-400 to-gray-500'
-              : 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-md'
-            }`}>
-            <svg className={`text-white transition-all duration-200 ${isExpanded ? 'w-4 h-4' : 'w-6 h-6'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h4 className={`font-semibold transition-all duration-200 ${isExpanded ? 'text-sm text-gray-700' : 'text-lg text-gray-800'}`}>
-              Launch Your Own BioEngine Instance
-            </h4>
-            <p className={`text-gray-500 transition-all duration-200 ${isExpanded ? 'text-xs' : 'text-sm font-medium'}`}>
-              Deployment configurator
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center">
-          <span className={`text-gray-500 mr-3 transition-all duration-200 ${isExpanded ? 'text-xs' : 'text-sm font-medium'}`}>{isExpanded ? 'Hide' : 'Show'}</span>
-          <svg className={`text-gray-400 transition-all duration-200 ${isExpanded ? 'w-4 h-4 rotate-180' : 'w-5 h-5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </button>
+  // Rendered between the standard configuration fields and the advanced options,
+  // in both the Kubernetes and the container/SLURM branch of the configurator.
+  const startupApplicationsSection = (
+    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+      <h5 className="text-sm font-semibold text-gray-700">Startup Applications</h5>
+      <p className="text-xs text-gray-500 mt-1 mb-3">
+        Applications the worker deploys automatically every time it starts. Each one is configured with the same dialog as the Deploy button on the BioEngine dashboard.
+      </p>
 
-      {isExpanded && (
-        <form className="mt-4 space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
+      <div className="space-y-2">
+        {startupApps.map(app => (
+          <StartupApplicationRow
+            key={app.uid}
+            config={app.config}
+            onOpenSettings={() => setEditingStartupUid(app.uid)}
+            onRemove={() => removeStartupApp(app.uid)}
+          />
+        ))}
+
+        <button
+          type="button"
+          onClick={addStartupApp}
+          className="w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
+        >
+          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add startup application
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <form className="space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
 
           {/* ── Audience toggle: small segmented control, no explainer (the rest of the form explains itself) ── */}
           <div className="flex justify-center -mb-2">
             <div className="inline-flex items-center bg-gray-100 rounded-lg p-1" role="tablist" aria-label="Audience">
               {(['human', 'agent'] as const).map(value => {
                 const selected = audience === value;
+                const isAgent = value === 'agent';
                 return (
                   <button
                     key={value}
@@ -736,12 +926,22 @@ spec:
                     role="tab"
                     aria-selected={selected}
                     onClick={() => setAudience(value)}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    // The agent tab keeps a light blue tint while unselected so the
+                    // "let an agent do this" route is noticed rather than looking
+                    // like the inactive half of a plain toggle.
+                    className={`flex items-center justify-center gap-1.5 min-w-[7rem] px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                       selected
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900'
+                        ? 'bg-white shadow-sm ' + (isAgent ? 'text-blue-700' : 'text-gray-900')
+                        : isAgent
+                          ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                          : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
+                    {isAgent && (
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                      </svg>
+                    )}
                     {value === 'human' ? 'Human' : 'AI Agent'}
                   </button>
                 );
@@ -754,7 +954,7 @@ spec:
             const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
             const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
             const promptText = (includeAgentToken && token)
-              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace:\n${token}`
+              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace (valid for 1 hour, ask me to generate a new one if it has expired):\n${token}`
               : basePrompt;
             return (
               <div className="space-y-4">
@@ -797,7 +997,7 @@ spec:
                       className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded"
                     />
                     <span className="ml-2 text-sm text-gray-700">
-                      Include an admin Hypha token for my workspace in the prompt
+                      Include an admin Hypha token for my workspace in the prompt (valid for 1 hour)
                       {!isLoggedIn && <span className="text-gray-500"> (log in to enable)</span>}
                       {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
                     </span>
@@ -988,7 +1188,7 @@ spec:
                           <>
                             <p>An authentication token is required. Either:</p>
                             <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a 30-day admin token, or</li>
+                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
                               <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
                             </ol>
                             <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
@@ -1000,21 +1200,26 @@ spec:
                 </div>
               )}
 
+              {/* Startup applications */}
+              {startupApplicationsSection}
+
               {/* Advanced options */}
-              <div className="pt-2 pb-2">  
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                 <button
+                  type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                  className="w-full flex items-center justify-between text-left"
+                  aria-expanded={showAdvanced}
                 >
-                  <svg className={`w-4 h-4 mr-2 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                  <h5 className="text-sm font-semibold text-gray-700">Advanced Options</h5>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`}
                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                  Advanced Options
                 </button>
 
                 {showAdvanced && (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
                       <TagInput
@@ -1043,7 +1248,7 @@ spec:
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                               </svg>
                             )}
-                            Regenerate (30 days)
+                            Regenerate ({tokenLifetimeLabel})
                           </button>
                         )}
                       </div>
@@ -1057,7 +1262,7 @@ spec:
                       />
                       {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                       {isLoggedIn && !tokenIsManual && token && (
-                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
+                        <p className="text-xs text-green-600 mt-1">Auto-generated {tokenLifetimeAdjective} admin token. Regenerate when it expires using the button above.</p>
                       )}
                       <p className="text-xs text-gray-500 mt-1">Used to resolve workspace and populate the deployment YAML. Store in a Kubernetes secret for production.</p>
                     </div>
@@ -1370,7 +1575,7 @@ spec:
                           <>
                             <p>An authentication token is required. Either:</p>
                             <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a 30-day admin token, or</li>
+                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
                               <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
                             </ol>
                             <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
@@ -1571,22 +1776,27 @@ spec:
             </div>
           )}
 
+          {/* ── Startup applications ── */}
+          {mode !== 'external-cluster' && startupApplicationsSection}
+
           {/* ── Advanced options ── */}
           {mode !== 'external-cluster' && (
-            <div>
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
               <button
+                type="button"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                className="w-full flex items-center justify-between text-left"
+                aria-expanded={showAdvanced}
               >
-                <svg className={`w-4 h-4 mr-2 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                <h5 className="text-sm font-semibold text-gray-700">Advanced Options</h5>
+                <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-                Advanced Options
               </button>
 
               {showAdvanced && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
 
                   {/* ── Worker identity ── */}
                   <div>
@@ -1632,7 +1842,7 @@ spec:
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
                           )}
-                          Regenerate (30 days)
+                          Regenerate ({tokenLifetimeLabel})
                         </button>
                       )}
                     </div>
@@ -1646,10 +1856,10 @@ spec:
                     />
                     {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                     {isLoggedIn && !tokenIsManual && token && (
-                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
+                      <p className="text-xs text-green-600 mt-1">Auto-generated {tokenLifetimeAdjective} admin token. Regenerate when it expires using the button above.</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>.
+                      Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>. The short lifetime only has to cover the initial connection: from then on the worker renews its own token. Generate a fresh one here if you start the worker again later.
                     </p>
                   </div>
 
@@ -1785,50 +1995,20 @@ spec:
                 </div>
               </div>
 
-              {/* Step 2: Export Hypha token */}
+              {/* Step 2: Run the SLURM script */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">2. Set your Hypha authentication token</p>
+                  <p className="text-sm text-gray-700 font-medium">2. Launch the BioEngine worker on SLURM</p>
                   <button
                     onClick={async () => {
                       const command = getCommand();
                       if (typeof command !== 'string' && 'scriptCmd' in command) {
-                        try { await navigator.clipboard.writeText(command.tokenExportCmd); setCopiedSlurmStep2(true); setTimeout(() => setCopiedSlurmStep2(false), 2000); } catch (_) {}
+                        try { await navigator.clipboard.writeText(command.scriptCmd); setCopiedSlurmStep2(true); setTimeout(() => setCopiedSlurmStep2(false), 2000); } catch (_) {}
                       }
                     }}
                     className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
                   >
                     {copiedSlurmStep2 ? (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
-                    ) : (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
-                    )}
-                  </button>
-                </div>
-                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
-                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.tokenExportCmd : ''; })()}
-                  </pre>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  The startup script picks up <code className="bg-gray-100 px-1 rounded">HYPHA_TOKEN</code> from the environment (or from a <code className="bg-gray-100 px-1 rounded">.env</code> file in the current directory). Prefer this over baking the token into the command itself so it doesn't end up in your shell history.
-                </p>
-              </div>
-
-              {/* Step 3: Run the SLURM script */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">3. Launch the BioEngine worker on SLURM</p>
-                  <button
-                    onClick={async () => {
-                      const command = getCommand();
-                      if (typeof command !== 'string' && 'scriptCmd' in command) {
-                        try { await navigator.clipboard.writeText(command.scriptCmd); setCopiedSlurmStep3(true); setTimeout(() => setCopiedSlurmStep3(false), 2000); } catch (_) {}
-                      }
-                    }}
-                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
-                  >
-                    {copiedSlurmStep3 ? (
                       <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
                     ) : (
                       <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
@@ -1863,7 +2043,7 @@ spec:
               {/* Step 1: Create directories */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">1. Create directories</p>
+                  <p className="text-sm text-gray-700 font-medium">1. Create the BioEngine workspace directory</p>
                   <button
                     onClick={async () => {
                       const command = getCommand();
@@ -1973,7 +2153,6 @@ spec:
             </a>
           </div>
         </form>
-      )}
 
       {/* ── Ray workspace dir explanation dialog ── */}
       {showRayWorkspaceDirDialog && (
@@ -2075,6 +2254,22 @@ spec:
             </div>
           </div>
         </div>
+      )}
+
+      {/* Startup application settings: the dashboard's deploy dialog, with an
+          editable artifact ID since no artifact card was clicked to pick one. */}
+      {editingStartupApp && (
+        <DeploymentConfigModal
+          isOpen={true}
+          onClose={() => setEditingStartupUid(null)}
+          onDeploy={(config) => saveStartupApp(editingStartupApp.uid, config)}
+          artifactId={editingStartupApp.config?.artifact_id || ''}
+          initialMode={null}
+          initialConfig={editingStartupApp.config}
+          editableArtifactId
+          title="Startup Application"
+          submitLabel="Save"
+        />
       )}
     </div>
   );

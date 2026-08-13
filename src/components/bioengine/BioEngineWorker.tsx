@@ -4,6 +4,7 @@ import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineClusterResources from './BioEngineClusterResources';
 import BioEngineApps from './BioEngineApps';
 import DeploymentConfigModal from './DeploymentConfigModal';
+import BioEngineWorkerList from './BioEngineWorkerList';
 import AppDiskCache from './AppDiskCache';
 import ErrorDialog from '../ErrorDialog';
 
@@ -281,10 +282,9 @@ const BioEngineWorker: React.FC = () => {
           clearInterval(interval);
         };
       }
-    } else {
-      // If no service ID, redirect to home
-      navigate('/bioengine');
     }
+    // Without a service ID this page lists the available workers instead
+    // (see the render branch below), so there is nothing to fetch here.
   }, [serviceId, server, isLoggedIn, autoRefreshEnabled]);
 
   // Separate cleanup effect for component unmount
@@ -1055,6 +1055,33 @@ ${token}`;
     </div>
   );
 
+  // No service_id: this is the worker overview, listing every worker in the
+  // observed workspaces. Picking one navigates back here with its service_id.
+  if (!serviceId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+        <div className="max-w-[1400px] mx-auto px-4 py-8">
+          <div className="flex items-center mb-8">
+            <button
+              onClick={() => navigate('/bioengine')}
+              className="flex items-center text-blue-600 hover:text-blue-800 active:scale-[0.98] transition-all duration-200 mr-4"
+              title="Back to BioEngine"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm font-medium">Back</span>
+            </button>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              BioEngine Workers
+            </h1>
+          </div>
+          <BioEngineWorkerList />
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return <LoadingOverlay />;
   }
@@ -1068,11 +1095,6 @@ ${token}`;
         </div>
       </div>
     );
-  }
-
-  // If no service_id is provided, redirect to home
-  if (!serviceId) {
-    return null; // This will be handled by the useEffect redirect
   }
 
   if (!status) {
@@ -1091,9 +1113,9 @@ ${token}`;
           <div>
             <div className="flex items-center mb-2">
               <button
-                onClick={() => navigate('/bioengine')}
+                onClick={() => navigate('/bioengine/worker')}
                 className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4"
-                title="Back to BioEngine Home"
+                title="Back to BioEngine Workers"
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
