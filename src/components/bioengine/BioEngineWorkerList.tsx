@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
+import BioEngineGitHubLink from './BioEngineGitHubLink';
 
 const STORAGE_KEY = 'bioengine-observed-workspaces';
 const DEFAULT_PUBLIC_WORKSPACE = 'bioimage-io';
@@ -460,6 +461,12 @@ const BioEngineWorkerList: React.FC = () => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Same treatment as the bottom of the setup wizard on /bioengine.
+          Deliberately not on the worker dashboard. */}
+      <div className="flex justify-center pt-4 mt-6 border-t border-gray-200">
+        <BioEngineGitHubLink />
       </div>
     </div>
   );
