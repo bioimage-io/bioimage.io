@@ -312,13 +312,31 @@ class AnnotationSession:
                     manifest["created_by"] = self.user_id
                 if self.user_email:
                     manifest["owner"] = {"id": self.user_id, "email": self.user_email}
-                await self.artifact_manager.create(
-                    parent_id=COLLECTION_ID,
-                    alias=self.artifact_alias,
-                    manifest=manifest,
-                    type="dataset",
-                    stage=True,
-                )
+                create_kwargs: dict = {
+                    "parent_id": COLLECTION_ID,
+                    "alias": self.artifact_alias,
+                    "manifest": manifest,
+                    "type": "dataset",
+                    "stage": True,
+                }
+                # Only the session owner needs ACL access to the artifact.
+                # The annotator and the micro-sam app never touch the ACL:
+                # they read/write via presigned S3 URLs that the owner mints
+                # (get_save_urls / get_embedding_save_url), which are
+                # signature-based and bypass artifact permissions entirely.
+                # Without an explicit block, Hypha would grant write only to
+                # the ephemeral connection workspace (the animal-named
+                # workspace that dies with the websocket), so a reconnect
+                # could no longer mint URLs -> "PermissionError: put_file".
+                # Pinning the owner's *persistent* identity keeps it minting
+                # across reconnects. Anonymous hosts have no persistent id, so
+                # fall back to Hypha's default (writable by the creating
+                # connection only) rather than granting anyone broad access.
+                if self.user_id and self.user_id.strip().lower() != "anonymous":
+                    create_kwargs["config"] = {
+                        "permissions": {self.user_id: "*"}
+                    }
+                await self.artifact_manager.create(**create_kwargs)
                 console.log(f"_ensure_artifact_exists: created {self.artifact_id}")
             except Exception as exc:
                 raise ValueError(
