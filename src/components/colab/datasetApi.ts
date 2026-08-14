@@ -182,22 +182,30 @@ export async function listMyDatasets(artifactManager: any, user: any): Promise<D
   const details = await Promise.all(
     myArtifacts.map((artifact) =>
       limit(async () => {
+        let full = artifact;
         try {
-          return await withStageRetry(() =>
+          full = await withStageRetry(() =>
             artifactManager.read({ artifact_id: artifact.id, stage: true, _rkwargs: true }),
           );
         } catch {
-          return artifact;
+          // fall back to the list entry
         }
+        let labels: DatasetLabelRef[] = [];
+        try {
+          labels = await discoverLabels(artifactManager, artifact.id);
+        } catch {
+          // best-effort
+        }
+        return { artifact: full, labels };
       }),
     ),
   );
 
-  return details.map((artifact) => ({
+  return details.map(({ artifact, labels }) => ({
     artifact_id: artifact.id,
     name: artifact.manifest?.name ?? artifact.id,
     description: artifact.manifest?.description ?? '',
-    labels: artifact.manifest?.labels ?? [],
+    labels,
   }));
 }
 
@@ -211,35 +219,50 @@ export async function listImages(artifactManager: any, artifactId: string): Prom
 }
 
 /**
- * Union of `manifest.labels` and top-level `label_*` directories, so a
- * label folder created out-of-band (or a manifest edit that failed
- * mid-flight) still surfaces. Manifest descriptions win when both exist.
+ * Label discovery lives entirely in `label_*` top-level directories; the
+ * artifact manifest is never read or written for labels (colab-rework-plan.md
+ * §11 item 7). Each folder's description comes from its own
+ * `label_<label>/metadata.json`, written by the broker's `create_label`. A
+ * folder without metadata (created out-of-band) still surfaces, with an
+ * empty description.
  */
 export async function discoverLabels(
   artifactManager: any,
   artifactId: string,
 ): Promise<DatasetLabelRef[]> {
-  const artifact = await withStageRetry(() =>
-    artifactManager.read({ artifact_id: artifactId, stage: true, _rkwargs: true }),
-  );
-  const manifestLabels: DatasetLabelRef[] = artifact.manifest?.labels ?? [];
-  const byName = new Map<string, DatasetLabelRef>();
-  for (const label of manifestLabels) {
-    if (label?.name) byName.set(label.name, { name: label.name, description: label.description ?? '' });
-  }
-
   const rootEntries = await listFilesSafe(artifactManager, artifactId, '');
-  for (const entry of rootEntries) {
-    if (!isDirectoryEntry(entry)) continue;
-    const name = entryName(entry);
-    if (!name.startsWith('label_')) continue;
-    const label = name.slice('label_'.length);
-    if (label && !byName.has(label)) {
-      byName.set(label, { name: label, description: '' });
-    }
-  }
+  const labelNames = rootEntries
+    .filter(isDirectoryEntry)
+    .map(entryName)
+    .filter((name) => name.startsWith('label_'))
+    .map((name) => name.slice('label_'.length))
+    .filter(Boolean);
 
-  return Array.from(byName.values());
+  const limit = pLimit(4);
+  return Promise.all(
+    labelNames.map((label) =>
+      limit(async (): Promise<DatasetLabelRef> => {
+        try {
+          const url = await withStageRetry(() =>
+            artifactManager.get_file({
+              artifact_id: artifactId,
+              file_path: `${labelFolder(label)}/metadata.json`,
+              stage: true,
+              _rkwargs: true,
+            }),
+          );
+          const response = await fetch(url);
+          if (response.ok) {
+            const meta = await response.json();
+            return { name: label, description: meta?.description ?? '' };
+          }
+        } catch {
+          // metadata.json may not exist yet (label folder created out-of-band)
+        }
+        return { name: label, description: '' };
+      }),
+    ),
+  );
 }
 
 /**

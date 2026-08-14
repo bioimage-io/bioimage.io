@@ -283,7 +283,6 @@ class ImageImportSession:
                 manifest: dict = {
                     "name": self.session_name,
                     "description": description,
-                    "labels": [],
                 }
                 if self.user_id:
                     manifest["created_by"] = self.user_id

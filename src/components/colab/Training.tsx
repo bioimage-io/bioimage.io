@@ -948,7 +948,7 @@ const Training: React.FC<TrainingProps> = ({
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Annotation Label</p>
                       <p className="text-sm font-medium text-gray-800">
-                        {label || (datasetInfo?.manifest?.labels && datasetInfo.manifest.labels[0]) || 'default'}
+                        {label || 'default'}
                       </p>
                     </div>
                     <div>

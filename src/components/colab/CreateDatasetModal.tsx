@@ -83,7 +83,7 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
     const alias = await generateUniqueAlias(artifactManager);
     const artifactId = `bioimage-io/${alias}`;
 
-    const manifest: Record<string, unknown> = { name, description, labels: [] };
+    const manifest: Record<string, unknown> = { name, description };
     if (user?.id) manifest.created_by = user.id;
     if (user?.id || user?.email) manifest.owner = { id: user?.id, email: user?.email };
 

@@ -133,25 +133,9 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
         };
         await removeFolderRecursive(folder);
 
-        // Update manifest to remove this label. `manifest.labels` entries
-        // are `{name, description}` objects, but tolerate a legacy plain
-        // string list too.
-        const artifact = await artifactManager.read({
-          artifact_id: dataArtifactId,
-          stage: true,
-          _rkwargs: true,
-        });
-        const existingLabels = artifact.manifest?.labels || [];
-        const updatedLabels = existingLabels.filter((l: any) =>
-          typeof l === 'string' ? l !== currentLabel : l?.name !== currentLabel,
-        );
-        await artifactManager.edit({
-          artifact_id: dataArtifactId,
-          manifest: { ...artifact.manifest, labels: updatedLabels },
-          stage: true,
-          _rkwargs: true,
-        });
-
+        // Label discovery reads only `label_*` folders (no manifest
+        // involvement) — removing the folder (and its metadata.json) is
+        // sufficient to make the label disappear.
         onLabelDeleteSuccess?.(currentLabel);
         setShowDeleteModal(false);
       }
