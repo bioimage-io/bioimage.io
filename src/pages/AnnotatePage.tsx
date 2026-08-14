@@ -289,10 +289,17 @@ print('CLAHE packages ready')
   const [refinePickerOpen, setRefinePickerOpen] = useState(false);
   const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
 
+  // Set when the broker rejects get_dataset_index with a role-too-low
+  // PermissionError (colab-rework-plan.md F5: private datasets require
+  // login; anonymous/under-privileged callers get a login prompt instead
+  // of the generic error banner).
+  const [permissionDenied, setPermissionDenied] = useState(false);
+
   // Fetch the dataset index once the broker connection is up.
   useEffect(() => {
     if (!service) return;
     let cancelled = false;
+    setPermissionDenied(false);
     service.getDatasetIndex()
       .then((index) => {
         if (!cancelled) setDatasetIndex(index);
@@ -300,7 +307,12 @@ print('CLAHE packages ready')
       .catch((err: any) => {
         if (!cancelled) {
           console.error('[AnnotatePage] Failed to load dataset index:', err);
-          setError(err.message || 'Failed to load dataset index');
+          const message = err.message || 'Failed to load dataset index';
+          if (/PermissionError/i.test(message) || /or higher is required/i.test(message)) {
+            setPermissionDenied(true);
+          } else {
+            setError(message);
+          }
         }
       });
     return () => { cancelled = true; };
@@ -1230,7 +1242,9 @@ print("CLAHE_RESULT:" + result_b64)
   }
 
   // Determine the status message for the overlay
-  const showStatusOverlay = serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce);
+  const showStatusOverlay = !permissionDenied && (
+    serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce)
+  );
   let statusMessage = '';
   let statusSeverity: 'info' | 'error' = 'info';
   if (serviceLoading) {
@@ -1470,6 +1484,41 @@ print("CLAHE_RESULT:" + result_b64)
               <MuiButton variant="outlined" onClick={() => advanceToNextImage()}>
                 Retry
               </MuiButton>
+            </Box>
+          </Box>
+        )}
+
+        {permissionDenied && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(0,0,0,0.03)',
+              zIndex: 1100,
+            }}
+          >
+            <Box
+              sx={{
+                textAlign: 'center',
+                p: 5,
+                maxWidth: 480,
+                bgcolor: 'white',
+                borderRadius: 3,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+              }}
+            >
+              <Typography variant="h5" fontWeight={600} gutterBottom>
+                Log in to continue
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                This dataset is private. Log in with an account that has access to view and annotate it.
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <LoginButton />
+              </Box>
             </Box>
           </Box>
         )}
