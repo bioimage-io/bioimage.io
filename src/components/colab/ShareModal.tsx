@@ -1,15 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
+import React, { useState } from 'react';
 
 interface ShareModalProps {
   annotationURL: string;
   label: string;
-  dataArtifactId: string | null;
   setShowShareModal: (show: boolean) => void;
-  cellposeModel?: string;
-  onCellposeModelChange?: (model: string) => void;
-  server?: any;
-  artifactManager?: any;
 }
 
 const QR_SIZE = 200;
@@ -115,134 +109,8 @@ const URLField: React.FC<{
 const ShareModal: React.FC<ShareModalProps> = ({
   annotationURL,
   label,
-  dataArtifactId,
   setShowShareModal,
-  cellposeModel = 'cpsam',
-  onCellposeModelChange,
-  server,
-  artifactManager,
 }) => {
-  const baseModel = { id: 'cpsam', name: 'Base (Cellpose-SAM)', group: 'Default' };
-  const [showInstructions, setShowInstructions] = useState(false);
-  const [availableModels, setAvailableModels] = useState<{ id: string; name: string; group: string }[]>([baseModel]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-
-  const sessionURL = dataArtifactId
-    ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}?label=${encodeURIComponent(label)}`
-    : null;
-
-  useEffect(() => {
-    let mounted = true;
-    
-    async function fetchModels() {
-      setIsLoadingModels(true);
-      const fetchedModels: { id: string; name: string; group: string }[] = [];
-      
-      try {
-        // 1. Fetch dataset-specific training sessions.
-        if (server && dataArtifactId) {
-          try {
-            const cellposeService = await resolvePinnedCellposeService(server);
-            const sessionsDict = await cellposeService.list_training_sessions({
-              dataset_artifact_ids: [dataArtifactId],
-              labels: label ? [label] : undefined,
-              _rkwargs: true
-            });
-
-            if (mounted && sessionsDict) {
-              Object.entries(sessionsDict).forEach(([sessionId, m]: [string, any]) => {
-                const statusText = String(m?.status_type || '').toLowerCase();
-                const isInProgress =
-                  statusText.includes('running') ||
-                  statusText.includes('preparing') ||
-                  statusText.includes('queued');
-
-                fetchedModels.push({
-                  id: sessionId,
-                  name: m?.model_name || sessionId,
-                  group: isInProgress ? 'In-Progress Training Sessions' : 'Models for this Dataset'
-                });
-              });
-            }
-          } catch (e) {
-            console.warn('Skipping dataset model listing, service unavailable:', e);
-          }
-        }
-
-        // Fetch all published fine-tuned model artifacts from colab-annotations.
-        if (artifactManager) {
-          try {
-            const artifacts = await artifactManager.list({
-              parent_id: "bioimage-io/colab-annotations",
-              filters: { type: 'model' },
-              _rkwargs: true
-            });
-            if (mounted && artifacts) {
-              artifacts.forEach((a: any) => {
-                // Avoid duplicating dataset models if they exist here
-                if (!fetchedModels.some(m => m.id === a.id)) {
-                  fetchedModels.push({
-                    id: a.id,
-                    name: a.manifest?.name || a.id,
-                    group: 'Colab Annotations Models'
-                  });
-                }
-              });
-            }
-          } catch (e) {
-            console.error('Error fetching artifact models:', e);
-          }
-        }
-      } catch (e) {
-        console.error('Error in fetchModels:', e);
-      } finally {
-        if (mounted) {
-          const uniqueById = new Map<string, { id: string; name: string; group: string }>();
-          [baseModel, ...fetchedModels].forEach((model) => {
-            uniqueById.set(model.id, model);
-          });
-          setAvailableModels(Array.from(uniqueById.values()));
-          setIsLoadingModels(false);
-        }
-      }
-    }
-
-    fetchModels();
-
-    return () => {
-      mounted = false;
-    };
-  }, [server, dataArtifactId, label, artifactManager]);
-
-  // Group models for select and order groups/models for better discoverability.
-  const groupedModels = availableModels.reduce((acc, m) => {
-    if (!acc[m.group]) acc[m.group] = [];
-    acc[m.group].push(m);
-    return acc;
-  }, {} as Record<string, typeof availableModels>);
-
-  const preferredGroupOrder = [
-    'In-Progress Training Sessions',
-    'Models for this Dataset',
-    'Colab Annotations Models',
-    'Default',
-  ];
-
-  const orderedGroupEntries = [
-    ...preferredGroupOrder
-      .filter((group) => groupedModels[group]?.length)
-      .map((group) => [group, groupedModels[group]] as const),
-    ...Object.entries(groupedModels)
-      .filter(([group]) => !preferredGroupOrder.includes(group))
-      .sort(([a], [b]) => a.localeCompare(b)),
-  ].map(([group, models]) => {
-    const selected = models.filter((m) => m.id === cellposeModel);
-    const rest = models
-      .filter((m) => m.id !== cellposeModel)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return [group, [...selected, ...rest]] as const;
-  });
-
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
       <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full max-h-[90vh] border border-white/20 flex flex-col">
@@ -284,89 +152,15 @@ const ShareModal: React.FC<ShareModalProps> = ({
               </span>
             </div>
 
-            {/* Cellpose Model Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                Cellpose Model for Pre-segmentation
-                {isLoadingModels && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-normal text-gray-500">
-                    <svg className="animate-spin h-3.5 w-3.5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Loading models...
-                  </span>
-                )}
-              </label>
-              <select
-                value={cellposeModel}
-                onChange={(e) => onCellposeModelChange?.(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                disabled={isLoadingModels}
-              >
-                {orderedGroupEntries.map(([group, models]) => (
-                  <optgroup key={group} label={group}>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                The model used for AI-assisted segmentation in the annotation interface.
-              </p>
-            </div>
-
             {/* Annotation URL */}
             <URLField
               label="Annotation URL"
               url={annotationURL}
               qrLabel="Annotation URL"
             />
-
-            {/* Session Resume URL */}
-            {sessionURL && (
-              <URLField
-                label="Session Resume URL"
-                url={sessionURL}
-                qrLabel="Session URL"
-              />
-            )}
-
-            {/* Instructions - Collapsible */}
-            <div className="border border-blue-200 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setShowInstructions(!showInstructions)}
-                className="w-full p-3 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center justify-between"
-              >
-                <div className="flex items-center">
-                  <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm font-semibold text-blue-800">How to use</p>
-                </div>
-                <svg
-                  className={`w-4 h-4 text-blue-600 transition-transform ${showInstructions ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {showInstructions && (
-                <div className="p-4 bg-blue-50 border-t border-blue-200">
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together in real-time</li>
-                    {sessionURL && <li>• <strong>Session Resume URL:</strong> Use to resume this session later</li>}
-                    <li>• Annotations are saved to the cloud automatically</li>
-                    <li>• <strong>Important:</strong> Keep this browser tab open while collaborators use the Annotation URL</li>
-                  </ul>
-                </div>
-              )}
-            </div>
+            <p className="text-xs text-gray-500">
+              Share this link with collaborators to annotate together. Annotations are saved to the cloud automatically.
+            </p>
           </div>
         </div>
 

@@ -23,6 +23,8 @@ import LabelStatsChart from './LabelStatsChart';
 import SharingPanel from './SharingPanel';
 import LabelSelectDialog from './LabelSelectDialog';
 import TrainingModal from './TrainingModal';
+import ShareModal from './ShareModal';
+import DeleteArtifactModal from './DeleteArtifactModal';
 
 export interface DatasetOverviewProps {
   artifactId: string;
@@ -35,9 +37,22 @@ export interface DatasetOverviewProps {
 // per-row action (colab-rework-plan.md F4a's provisional owner/manager
 // entry point) so relocating where annotation starts stays a one-line
 // change, per the plan's explicit note that this entry point is provisional.
-const navigateToAnnotate = (navigate: ReturnType<typeof useNavigate>, artifactId: string, label: string) => {
-  navigate(`/colab/annotate?session_id=${encodeURIComponent(artifactId)}&label=${encodeURIComponent(label)}`);
+const buildAnnotateQuery = (artifactId: string, label: string, cellposeModel?: string) => {
+  const params = new URLSearchParams({ session_id: artifactId, label });
+  if (cellposeModel) params.set('cellpose_model', cellposeModel);
+  return params.toString();
 };
+
+const navigateToAnnotate = (
+  navigate: ReturnType<typeof useNavigate>,
+  artifactId: string,
+  label: string,
+  cellposeModel?: string,
+) => {
+  navigate(`/colab/annotate?${buildAnnotateQuery(artifactId, label, cellposeModel)}`);
+};
+
+const modelStorageKey = (artifactId: string, label: string) => `colab_cellpose_model:${artifactId}:${label}`;
 
 const formatTimestamp = (ts: string): string => {
   const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(ts);
@@ -91,9 +106,28 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
 
   const [showAnnotateDialog, setShowAnnotateDialog] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showDeleteDatasetModal, setShowDeleteDatasetModal] = useState(false);
+  const [deleteLabelTarget, setDeleteLabelTarget] = useState<string | null>(null);
   const [cellposeModel, setCellposeModel] = useState('cpsam');
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Restore the last-used model whenever the selected label changes, so
+  // switching labels keeps its own model choice (models are fine-tuned
+  // per label, not per dataset).
+  useEffect(() => {
+    if (!selectedLabel) return;
+    const stored = localStorage.getItem(modelStorageKey(artifactId, selectedLabel));
+    setCellposeModel(stored || 'cpsam');
+  }, [artifactId, selectedLabel]);
+
+  const handleCellposeModelChange = (model: string) => {
+    setCellposeModel(model);
+    if (selectedLabel) {
+      localStorage.setItem(modelStorageKey(artifactId, selectedLabel), model);
+    }
+  };
 
   // --- Role guard ---
   useEffect(() => {
@@ -503,6 +537,21 @@ print("Service registered successfully", end='')
         >
           Train
         </button>
+        <button
+          onClick={() => setShowShareModal(true)}
+          disabled={!selectedLabel}
+          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
+        >
+          Share
+        </button>
+        {role === 'owner' && (
+          <button
+            onClick={() => setShowDeleteDatasetModal(true)}
+            className="ml-auto px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+          >
+            Delete dataset
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_320px] gap-4">
@@ -613,7 +662,8 @@ print("Service registered successfully", end='')
             selectedLabel={selectedLabel}
             onSelectLabel={setSelectedLabel}
             onLabelsChanged={reloadLabels}
-            onAnnotateLabel={(l) => navigateToAnnotate(navigate, artifactId, l)}
+            onAnnotateLabel={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
+            onDeleteLabel={(l) => setDeleteLabelTarget(l)}
           />
 
           {selectedLabel && (
@@ -636,7 +686,7 @@ print("Service registered successfully", end='')
           artifactId={artifactId}
           role={role}
           onClose={() => setShowAnnotateDialog(false)}
-          onSelect={(l) => navigateToAnnotate(navigate, artifactId, l)}
+          onSelect={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
         />
       )}
 
@@ -648,7 +698,43 @@ print("Service registered successfully", end='')
           server={server}
           artifactManager={artifactManager}
           cellposeModel={cellposeModel}
-          onCellposeModelChange={setCellposeModel}
+          onCellposeModelChange={handleCellposeModelChange}
+        />
+      )}
+
+      {showShareModal && selectedLabel && (
+        <ShareModal
+          setShowShareModal={setShowShareModal}
+          label={selectedLabel}
+          annotationURL={`${window.location.origin}/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel, cellposeModel)}`}
+        />
+      )}
+
+      {showDeleteDatasetModal && (
+        <DeleteArtifactModal
+          setShowDeleteModal={setShowDeleteDatasetModal}
+          dataArtifactId={artifactId}
+          currentLabel={selectedLabel}
+          artifactManager={artifactManager}
+          server={server}
+          initialMode="artifact"
+          onDeleteSuccess={() => navigate('/colab')}
+        />
+      )}
+
+      {deleteLabelTarget && (
+        <DeleteArtifactModal
+          setShowDeleteModal={() => setDeleteLabelTarget(null)}
+          dataArtifactId={artifactId}
+          currentLabel={deleteLabelTarget}
+          artifactManager={artifactManager}
+          server={server}
+          initialMode="label"
+          onDeleteSuccess={() => setDeleteLabelTarget(null)}
+          onLabelDeleteSuccess={() => {
+            setDeleteLabelTarget(null);
+            reloadLabels();
+          }}
         />
       )}
     </div>

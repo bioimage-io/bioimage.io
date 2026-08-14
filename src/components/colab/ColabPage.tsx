@@ -1,13 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation, Routes, Route } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useLocation, Routes, Route } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { KernelProvider, useSharedKernel } from './KernelContext';
 import ColabGuide from './ColabGuide';
-import SessionModal from './SessionModal';
-import ShareModal from './ShareModal';
-import DeleteArtifactModal from './DeleteArtifactModal';
-import TrainingModal from './TrainingModal';
-import ImageViewer, { SplitInfo } from './ImageViewer';
 import DatasetList from './DatasetList';
 import DatasetOverview from './DatasetOverview';
 import TrainingPage from '../../pages/TrainingPage';
@@ -16,544 +11,20 @@ import LoginButton from '../LoginButton';
 import { SUPPORTED_IMAGE_EXTENSIONS } from './imageFormats';
 
 const ColabPageContent: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
 
   // Parse sessionId from path: /colab/bioimage-io/cold-badger-tick-roughly -> bioimage-io/cold-badger-tick-roughly
-  const isTrainingRoute = location.pathname.startsWith('/colab/training');
-  const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
-  const sessionId = !isTrainingRoute && !isAnnotateRoute && location.pathname.startsWith('/colab/')
+  const sessionId = location.pathname.startsWith('/colab/')
     ? location.pathname.slice('/colab/'.length) || undefined
     : undefined;
-  // Label may be encoded in the URL search params (e.g. ?label=Cell)
-  const urlLabel = new URLSearchParams(location.search).get('label') || '';
 
   const { user, server, artifactManager } = useHyphaStore();
-  // Use shared kernel context instead of creating a new one
-  const { isReady, kernelStatus, executeCode, mountDirectory, syncFileSystem, writeFilesToPyodide, imageFolderHandle, setImageFolderHandle, requestKernel } = useSharedKernel();
+  const { kernelStatus } = useSharedKernel();
 
-  // File system state
-  const [imageList, setImageList] = useState<string[]>([]);
-  const [isLoadingImages, setIsLoadingImages] = useState(false);
-  const [annotationsFolderHandle, setAnnotationsFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
-  const [annotationsList, setAnnotationsList] = useState<string[]>([]);
-  const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
-
-  // Session state
-  const [isRunning, setIsRunning] = useState(false);
-  const [annotationURL, setAnnotationURL] = useState('');
-  const [dataArtifactId, setDataArtifactId] = useState<string | null>(null);
-  const [label, setLabel] = useState<string>('');
-  const [sessionName, setSessionName] = useState<string>('');
-  const [dataSourceType, setDataSourceType] = useState<'local' | 'upload' | 'resume'>('upload');
-  const [showSessionModal, setShowSessionModal] = useState(false);
   const [showLoginRequiredDialog, setShowLoginRequiredDialog] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [cellposeModel, setCellposeModel] = useState('cpsam');
-  const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
-  const [modelBannerSession, setModelBannerSession] = useState<string | null>(null);
 
-  // Persist + load model selection per artifact+label
-  const getModelStorageKey = (artifactId: string, lbl: string) =>
-    `colab-model:${artifactId}:${lbl}`;
-
-  // Load persisted model when artifact+label changes and sync to Python service
-  useEffect(() => {
-    if (!dataArtifactId || !label) return;
-    const stored = localStorage.getItem(getModelStorageKey(dataArtifactId, label));
-    if (!stored) return;
-    setCellposeModel(stored);
-    // Sync to running Python service so getImage() returns the correct model
-    if (executeCode) {
-      executeCode(`
-try:
-    if "service_info" in globals() and "_hypha_client" in globals():
-        svc_id = service_info["service_id"]
-        svc = await _hypha_client.get_service(svc_id)
-        await svc.set_cellpose_model("${stored}")
-except Exception as e:
-    print(f"Failed to restore cellpose model: {e}")
-      `).catch(console.error);
-    }
-  }, [dataArtifactId, label]); // intentionally omit cellposeModel/executeCode — run once per session
-
-  // Poll localStorage for newly trained model (set by Training.tsx after completion)
-  useEffect(() => {
-    if (!dataArtifactId || !label) return;
-    const key = getModelStorageKey(dataArtifactId, label);
-
-    const checkForNewModel = () => {
-      const stored = localStorage.getItem(key);
-      if (stored && stored !== cellposeModel) {
-        setCellposeModel(stored);
-        setModelBannerSession(stored);
-        // Auto-dismiss banner after 10s
-        setTimeout(() => setModelBannerSession(null), 10000);
-        // Update running service
-        if (executeCode) {
-          executeCode(`
-try:
-    if "service_info" in globals() and "_hypha_client" in globals():
-        svc_id = service_info["service_id"]
-        svc = await _hypha_client.get_service(svc_id)
-        await svc.set_cellpose_model("${stored}")
-        print(f"Auto-updated cellpose model to ${stored}")
-except Exception as e:
-    print(f"Failed to auto-update cellpose model: {e}")
-          `).catch(console.error);
-        }
-      }
-    };
-
-    // Check on focus (user returns from Training page)
-    window.addEventListener('focus', checkForNewModel);
-    // Also check every 5 seconds
-    const interval = setInterval(checkForNewModel, 5000);
-    return () => {
-      window.removeEventListener('focus', checkForNewModel);
-      clearInterval(interval);
-    };
-  }, [dataArtifactId, label, cellposeModel, executeCode]);
-
-  const handleCellposeModelChange = (model: string) => {
-    setCellposeModel(model);
-    // Persist selection
-    if (dataArtifactId && label) {
-      localStorage.setItem(getModelStorageKey(dataArtifactId, label), model);
-    }
-
-    // Keep the running annotation service in sync when available.
-    if (executeCode) {
-      executeCode(`
-try:
-    if "service_info" in globals() and "_hypha_client" in globals():
-        svc_id = service_info["service_id"]
-        svc = await _hypha_client.get_service(svc_id)
-        await svc.set_cellpose_model("${model}")
-        print(f"Updated cellpose model to {model}")
-except Exception as e:
-    print(f"Failed to update cellpose model: {e}")
-      `).catch(console.error);
-    }
-  };
-
-  // Supported file types
   const supportedFileTypes = SUPPORTED_IMAGE_EXTENSIONS;
-  const [resumeArtifactId, setResumeArtifactId] = useState<string | null>(null);
-
-  const servicesRef = useRef<HTMLDivElement>(null);
-
-
-  // Update file list
-  const updateFileList = async (
-    dirHandle: FileSystemDirectoryHandle,
-    setFileList: React.Dispatch<React.SetStateAction<string[]>>,
-    setLoading: React.Dispatch<React.SetStateAction<boolean>>
-  ) => {
-    setLoading(true);
-    try {
-      const files: string[] = [];
-      for await (const entry of (dirHandle as any).values()) {
-        if (entry.kind === 'file') {
-          const fileType = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-          if (supportedFileTypes.includes(fileType)) {
-            files.push(entry.name);
-          }
-        }
-      }
-      setFileList(files.sort());
-    } catch (error) {
-      console.error('Error updating file list:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load and merge images from artifact and local folder, deduplicating by stem
-  const loadAllImages = async () => {
-    if (!dataArtifactId && !imageFolderHandle) return;
-
-    setIsLoadingImages(true);
-    // Map from stem -> filename; artifact files take precedence over local files
-    const filesByStem = new Map<string, string>();
-    // Track which images are in train/test splits
-    const trainImages: string[] = [];
-    const testImages: string[] = [];
-
-    // 1. Fetch cloud images if we have an artifact ID (added first so they win dedup)
-    if (dataArtifactId && artifactManager) {
-      // Fetch from all three possible folders
-      for (const folder of ['train_images', 'test_images']) {
-        try {
-          const files = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: folder,
-            _rkwargs: true
-          });
-          const imageNames: string[] = files.map((f: any) => f.name);
-          imageNames.forEach((name: string) => {
-            const stem = name.slice(0, name.lastIndexOf('.') !== -1 ? name.lastIndexOf('.') : name.length);
-            filesByStem.set(stem, name);
-            if (folder === 'train_images') trainImages.push(name);
-            if (folder === 'test_images') testImages.push(name);
-          });
-          if (imageNames.length > 0) {
-            console.log(`Loaded ${imageNames.length} images from ${folder}`);
-          }
-        } catch (error) {
-          // Folder may not exist yet — silently skip
-        }
-      }
-    }
-
-    // 2. Fetch local images if we have a folder handle; skip stems already in artifact
-    if (imageFolderHandle && supportedFileTypes.length > 0) {
-      try {
-        for await (const entry of (imageFolderHandle as any).values()) {
-          if (entry.kind === 'file') {
-            const fileType = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-            if (supportedFileTypes.includes(fileType)) {
-              const stem = entry.name.slice(0, entry.name.lastIndexOf('.'));
-              if (!filesByStem.has(stem)) {
-                filesByStem.set(stem, entry.name);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error updating local file list:', error);
-      }
-    }
-
-    setImageList(Array.from(filesByStem.values()).sort());
-
-    // Restore splitInfo if we found images in train/test folders
-    if (trainImages.length > 0 || testImages.length > 0) {
-      setSplitInfo({ applied: true, trainImages, testImages });
-    }
-
-    setIsLoadingImages(false);
-  };
-
-  useEffect(() => {
-    Promise.all([loadAllImages(), updateAnnotations()]);
-  }, [dataArtifactId, imageFolderHandle, artifactManager, supportedFileTypes]);
-
-  // Apply train/test split: move cloud images to the correct folder
-  const handleApplySplit = async (train: string[], test: string[]) => {
-    if (!dataArtifactId || !artifactManager || !server) {
-      throw new Error('Artifact manager not available');
-    }
-
-    // Snapshot both folders once to build a currentFolder map
-    const currentFolder = new Map<string, 'train_images' | 'test_images'>();
-    for (const folder of ['train_images', 'test_images'] as const) {
-      try {
-        const files = await artifactManager.list_files({
-          artifact_id: dataArtifactId,
-          dir_path: folder,
-          _rkwargs: true
-        });
-        for (const f of (files || [])) {
-          currentFolder.set(f.name, folder);
-        }
-      } catch {
-        // folder may not exist yet
-      }
-    }
-
-    const moveImage = async (imageName: string, targetFolder: 'train_images' | 'test_images') => {
-      const sourceFolder = currentFolder.get(imageName);
-      if (!sourceFolder) {
-        // Not yet in the artifact (local-only), nothing to move
-        return;
-      }
-      if (sourceFolder === targetFolder) {
-        return; // Already in correct folder
-      }
-
-      // Download from source
-      const downloadUrl = await artifactManager.get_file({
-        artifact_id: dataArtifactId,
-        file_path: `${sourceFolder}/${imageName}`,
-        _rkwargs: true
-      });
-      const response = await fetch(downloadUrl);
-      if (!response.ok) throw new Error(`Failed to download ${imageName}`);
-      const blob = await response.blob();
-
-      // Upload to target
-      const uploadUrl = await artifactManager.put_file({
-        artifact_id: dataArtifactId,
-        file_path: `${targetFolder}/${imageName}`,
-        _rkwargs: true
-      });
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: blob,
-        headers: { 'Content-Type': blob.type || 'application/octet-stream' },
-      });
-
-      // Delete from source
-      await artifactManager.remove_file({
-        artifact_id: dataArtifactId,
-        file_path: `${sourceFolder}/${imageName}`,
-        _rkwargs: true
-      });
-    };
-
-    // Move all images to their target folder
-    const errors: string[] = [];
-    for (const name of train) {
-      try {
-        await moveImage(name, 'train_images');
-      } catch (e) {
-        console.error(`[handleApplySplit] Failed to move ${name} to train_images:`, e);
-        errors.push(`train/${name}: ${(e as Error).message}`);
-      }
-    }
-    for (const name of test) {
-      try {
-        await moveImage(name, 'test_images');
-      } catch (e) {
-        console.error(`[handleApplySplit] Failed to move ${name} to test_images:`, e);
-        errors.push(`test/${name}: ${(e as Error).message}`);
-      }
-    }
-
-    if (errors.length > 0) {
-      const msg = `Some images could not be moved:\n${errors.join('\n')}`;
-      console.error('[handleApplySplit]', msg);
-      throw new Error(msg);
-    }
-
-    // Update splitInfo state
-    setSplitInfo({ applied: true, trainImages: train, testImages: test });
-
-    // Refresh image list
-    await loadAllImages();
-  };
-
-  // Cleanup refresh interval on unmount
-  useEffect(() => {
-    return () => {
-      const refreshInterval = (window as any).__colabRefreshInterval;
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-        (window as any).__colabRefreshInterval = null;
-      }
-    };
-  }, []);
-
-  const updateImages = async () => {
-    await loadAllImages();
-  };
-
-  const updateAnnotations = async () => {
-    if (annotationsFolderHandle) {
-      // First sync filesystem from Python VFS to native browser filesystem
-      if (syncFileSystem) {
-        console.log('[Manual Refresh] Syncing filesystem...');
-        const syncResult = await syncFileSystem('/mnt');
-        if (syncResult.success) {
-          console.log('[Manual Refresh] FileSystem synced');
-        }
-      }
-      // Then update the file list
-      await updateFileList(annotationsFolderHandle, setAnnotationsList, setIsLoadingAnnotations);
-    } else if (dataArtifactId && artifactManager) {
-      setIsLoadingAnnotations(true);
-      try {
-        const dirPath = label ? `masks_${label}` : "annotations";
-        // Walk up to two levels of subfolders below masks_{label}/ so we
-        // cover every layout produced over time:
-        //   - flat:           masks_{label}/{stem}.png
-        //   - per-user:       masks_{label}/user-X/{stem}.png
-        //   - per-user-round: masks_{label}/user-X/rN/{stem}.png
-        // Entries are stored relative to masks_{label}/, with subfolders
-        // preserved, so the ImageViewer can pick the latest-round path.
-        const isFile = (e: any, name: string): boolean =>
-          !(e?.type === 'directory' || e?.is_dir === true ||
-            !(name.endsWith('.png') || name.endsWith('.geojson')));
-
-        const walk = async (sub: string): Promise<string[]> => {
-          const collected: string[] = [];
-          try {
-            const entries = await artifactManager.list_files({
-              artifact_id: dataArtifactId,
-              dir_path: sub ? `${dirPath}/${sub}` : dirPath,
-              _rkwargs: true,
-            });
-            for (const e of entries || []) {
-              const name = e?.name || '';
-              if (!name) continue;
-              const rel = sub ? `${sub}/${name}` : name;
-              if (isFile(e, name)) {
-                collected.push(rel);
-              } else {
-                const deeper = await walk(rel);
-                collected.push(...deeper);
-              }
-            }
-          } catch {
-            // ignore missing directories
-          }
-          return collected;
-        };
-
-        const all = await walk('');
-        setAnnotationsList(all.sort());
-      } catch (error: any) {
-        const msg = (error?.message || String(error)).toLowerCase();
-        if (!msg.includes('does not exist') && !msg.includes('not found') && !msg.includes('keyerror')) {
-          console.error('Error refreshing remote annotations:', error);
-        }
-      } finally {
-        setIsLoadingAnnotations(false);
-      }
-    }
-  };
-
-  // Poll for remote annotations every 10s, but only after the artifact is confirmed to exist
-  const artifactConfirmedRef = useRef(false);
-  useEffect(() => {
-    // Reset confirmation whenever the artifact ID changes
-    artifactConfirmedRef.current = false;
-  }, [dataArtifactId]);
-
-  useEffect(() => {
-    if (!dataArtifactId || !artifactManager) return;
-
-    const poll = async () => {
-      if (!artifactConfirmedRef.current) {
-        // Probe: try to read the artifact — once it exists, enable polling
-        try {
-          await artifactManager.read({ artifact_id: dataArtifactId, stage: true, _rkwargs: true });
-          artifactConfirmedRef.current = true;
-        } catch {
-          return; // artifact not yet created (lazy) — skip this tick silently
-        }
-      }
-      await updateAnnotations();
-    };
-
-    const intervalId = setInterval(poll, 10000);
-    (window as any).__colabRefreshInterval = intervalId;
-
-    return () => {
-      clearInterval(intervalId);
-      (window as any).__colabRefreshInterval = null;
-    };
-  }, [dataArtifactId, artifactManager, label, annotationsFolderHandle]);
-
-  const createAnnotationSession = () => {
-    if (!user?.email) {
-      setShowLoginRequiredDialog(true);
-      return;
-    }
-    // Kick off the Python kernel boot (idempotent — no-op if already running)
-    // and let the user fill in the session form while it warms up. The dialog
-    // surfaces the kernel status itself; the final Create / Resume submit
-    // waits for ready.
-    requestKernel();
-    setShowSessionModal(true);
-  };
-
-  // Once the user logs in (via the dialog or the navbar), close the
-  // login-required dialog and continue into the session-modal flow.
-  useEffect(() => {
-    if (user?.email && showLoginRequiredDialog) {
-      setShowLoginRequiredDialog(false);
-      requestKernel();
-      setShowSessionModal(true);
-    }
-  }, [user?.email, showLoginRequiredDialog, requestKernel]);
-
-  const handleDeleteSuccess = () => {
-    setDataArtifactId(null);
-    setAnnotationsList([]);
-    setAnnotationURL('');
-    setLabel('');
-    navigate('/colab', { replace: true });
-  };
-
-  const handleLabelDeleteSuccess = (_deletedLabel: string) => {
-    setDataArtifactId(null);
-    setAnnotationsList([]);
-    setAnnotationURL('');
-    setLabel('');
-    navigate('/colab', { replace: true });
-  };
-
-  const handleUploadAll = async () => {
-    if (!server || !annotationURL) {
-      console.error('Missing required dependencies for upload');
-      return;
-    }
-
-    try {
-      console.log(`Uploading ${imageList.length} images to cloud...`);
-
-      // Extract service ID from annotation URL
-      let serviceId = null;
-      const serviceIdMatch = annotationURL.match(/image_provider_id=([^&]+)/);
-      if (serviceIdMatch) {
-        serviceId = decodeURIComponent(serviceIdMatch[1]);
-      } else {
-        const configMatch = annotationURL.match(/config=([^&]+)/);
-        if (configMatch) {
-          const config = JSON.parse(decodeURIComponent(configMatch[1]));
-          serviceId = config.imageProviderId;
-        }
-      }
-
-      if (!serviceId) {
-        throw new Error('Could not extract service ID from annotation URL');
-      }
-
-      // Get the data provider service
-      const dataService = await server.getService(serviceId);
-
-      // Call the service function to upload all local images
-      const result = await dataService.upload_all_images();
-
-      console.log(`Upload result: ${result.success}/${result.total} succeeded, ${result.failed} failed`);
-
-      if (result.total === 0) {
-        const reason = result.errors?.length ? result.errors[0] : 'No local folder mounted';
-        alert(`No local images found to upload. ${reason}. Check the browser console for details.`);
-      } else if (result.failed > 0) {
-        console.error('Upload errors:', result.errors);
-        alert(`Upload completed with errors: ${result.success}/${result.total} succeeded, ${result.failed} failed. Check console for details.`);
-      } else {
-        alert(`Successfully uploaded ${result.success} image(s) to cloud.`);
-        // Refresh image list to show newly uploaded cloud images
-        await loadAllImages();
-      }
-
-      // Update data source type to 'upload'
-      setDataSourceType('upload');
-    } catch (error) {
-      console.error('Error during upload all:', error);
-      alert('Failed to upload images. Check console for details.');
-    }
-  };
-
-  const progressPercentage = annotationsList.length > 0 && imageList.length > 0
-    ? Math.round((annotationsList.length / imageList.length) * 100)
-    : 0;
-
-  if (isTrainingRoute) {
-    return (
-      <Routes>
-        <Route path="training" element={<TrainingPage />} />
-        <Route path="training/:sessionId" element={<TrainingPage />} />
-      </Routes>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
@@ -629,102 +100,8 @@ except Exception as e:
           </div>
         )}
 
-        {/* Workflow Steps - only once a dataset is open; the landing state below (F2) is its own entry point */}
-        {dataArtifactId && (() => {
-          const sessionActive = !!dataArtifactId;
-          const containerPad = sessionActive ? 'p-3' : 'p-6';
-          const containerMargin = sessionActive ? 'mb-4' : 'mb-8';
-          const cardPad = sessionActive ? 'p-2.5' : 'p-4';
-          const markerSize = sessionActive ? 'w-7 h-7 text-sm' : 'w-8 h-8';
-          const titleSize = sessionActive ? 'text-sm' : '';
-          const headerMargin = sessionActive ? 'mb-0' : 'mb-2';
-
-          return (
-            <div className={`max-w-4xl mx-auto ${containerMargin}`}>
-              <div className={`bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md ${containerPad}`}>
-                <div className="grid grid-cols-3 gap-4">
-                  {/* Step 1 - always clickable. When logged out, clicking shows
-                      the login dialog instead of the session modal. The Python
-                      kernel boots in the background as soon as the user logs in
-                      and the modal opens. */}
-                  <button
-                    onClick={createAnnotationSession}
-                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30`}
-                  >
-                    <div className={`flex items-center gap-3 ${headerMargin}`}>
-                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110`}>
-                        1
-                      </div>
-                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Start Session</h3>
-                    </div>
-                    {!sessionActive && (
-                      <p className="text-sm text-gray-600">
-                        Create or resume an annotation session
-                      </p>
-                    )}
-                  </button>
-
-                  {/* Step 2 */}
-                  <button
-                    onClick={() => setShowShareModal(true)}
-                    disabled={!annotationURL || !user?.email}
-                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
-                      annotationURL && user?.email
-                        ? 'border-purple-200/60 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-100 bg-gradient-to-br from-white to-purple-50/30'
-                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                    }`}
-                  >
-                    <div className={`flex items-center gap-3 ${headerMargin}`}>
-                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
-                        annotationURL && user?.email
-                          ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                          : 'bg-gray-200 text-gray-500'
-                      }`}>
-                        2
-                      </div>
-                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Collaborate</h3>
-                    </div>
-                    {!sessionActive && (
-                      <p className="text-sm text-gray-600">
-                        Share URL and annotate together
-                      </p>
-                    )}
-                  </button>
-
-                  {/* Step 3 */}
-                  <button
-                    onClick={() => setShowTrainingModal(true)}
-                    disabled={!dataArtifactId || !user?.email}
-                    className={`group text-left ${cardPad} rounded-xl border-2 transition-all duration-200 ${
-                      dataArtifactId && user?.email
-                        ? 'border-blue-200/60 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-100 bg-gradient-to-br from-white to-blue-50/30'
-                        : 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-60'
-                    }`}
-                  >
-                    <div className={`flex items-center gap-3 ${headerMargin}`}>
-                      <div className={`${markerSize} rounded-lg flex items-center justify-center font-semibold transition-all ${
-                        dataArtifactId && user?.email
-                          ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md group-hover:shadow-lg group-hover:scale-110'
-                          : 'bg-gray-200 text-gray-500'
-                      }`}>
-                        3
-                      </div>
-                      <h3 className={`font-semibold text-gray-900 ${titleSize}`}>Train Model</h3>
-                    </div>
-                    {!sessionActive && (
-                      <p className="text-sm text-gray-600">
-                        Train AI on your annotations
-                      </p>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
         {/* Main Content Area */}
-        <div className="max-w-7xl mx-auto min-h-[600px]" ref={servicesRef}>
+        <div className="max-w-7xl mx-auto min-h-[600px]">
           {sessionId ? (
             server ? (
               <DatasetOverview
@@ -755,147 +132,47 @@ except Exception as e:
           )}
         </div>
 
-      {/* Loading Overlay */}
-      {isRunning && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 flex flex-col items-center">
-            <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-700 font-medium">Setting up annotation session...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Modals */}
-      {showLoginRequiredDialog && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
-          onClick={() => setShowLoginRequiredDialog(false)}
-        >
+        {/* Modals */}
+        {showLoginRequiredDialog && (
           <div
-            className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-6"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            onClick={() => setShowLoginRequiredDialog(false)}
           >
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                </svg>
+            <div
+              className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-gray-900">Log in to continue</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    You need to be logged in to create or resume an annotation session.
+                  </p>
+                </div>
               </div>
-              <div className="flex-1">
-                <h2 className="text-lg font-semibold text-gray-900">Log in to continue</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  You need to be logged in to create or resume an annotation session.
-                </p>
+              <div className="flex items-center justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowLoginRequiredDialog(false)}
+                  className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <LoginButton />
               </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowLoginRequiredDialog(false)}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <LoginButton />
             </div>
           </div>
-        </div>
-      )}
-
-      {showSessionModal && (
-        <SessionModal
-          setShowSessionModal={setShowSessionModal}
-          setIsRunning={setIsRunning}
-          executeCode={executeCode}
-          mountDirectory={mountDirectory}
-          writeFilesToPyodide={writeFilesToPyodide}
-          setAnnotationURL={setAnnotationURL}
-          setDataArtifactId={setDataArtifactId}
-          setSessionLabel={setLabel}
-          setSessionName={setSessionName}
-          setDataSourceType={setDataSourceType}
-          setImageFolderHandle={setImageFolderHandle}
-          onSessionCreated={(artifactId) => {
-            // Reset stale lists so the new session loads fresh
-            setImageList([]);
-            setAnnotationsList([]);
-            setSplitInfo(null);
-            navigate(`/colab/${artifactId}?label=${encodeURIComponent(label)}`, { replace: true });
-          }}
-          server={server}
-          user={user}
-          artifactManager={artifactManager}
-          resumeArtifactId={resumeArtifactId}
-          cellposeModel={cellposeModel}
-        />
-      )}
-
-      {showShareModal && annotationURL && (
-        <ShareModal
-          annotationURL={annotationURL}
-          label={label}
-          dataArtifactId={dataArtifactId}
-          setShowShareModal={setShowShareModal}
-          cellposeModel={cellposeModel}
-          server={server}
-          artifactManager={artifactManager}
-          onCellposeModelChange={handleCellposeModelChange}
-        />
-      )}
-
-      {showDeleteModal && dataArtifactId && (
-        <DeleteArtifactModal
-          setShowDeleteModal={setShowDeleteModal}
-          dataArtifactId={dataArtifactId}
-          currentLabel={label}
-          artifactManager={artifactManager}
-          onDeleteSuccess={handleDeleteSuccess}
-          onLabelDeleteSuccess={handleLabelDeleteSuccess}
-        />
-      )}
-
-      {showTrainingModal && (
-        <TrainingModal
-          setShowTrainingModal={setShowTrainingModal}
-          dataArtifactId={dataArtifactId}
-          label={label}
-          server={server}
-          artifactManager={artifactManager}
-          cellposeModel={cellposeModel}
-          onCellposeModelChange={handleCellposeModelChange}
-          splitInfo={splitInfo}
-        />
-      )}
+        )}
 
         {showGuideModal && (
           <ColabGuide
             supportedFileTypes={supportedFileTypes}
             onClose={() => setShowGuideModal(false)}
           />
-        )}
-
-        {/* Auto-model floating banner */}
-        {modelBannerSession && (
-          <div className="fixed bottom-6 right-6 z-50 max-w-sm">
-            <div className="bg-green-600 text-white rounded-xl shadow-lg px-5 py-4 flex items-start gap-3 animate-slideIn">
-              <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm">New model selected</p>
-                <p className="text-xs text-green-100 mt-0.5">
-                  Training completed. Cellpose model auto-updated to the new session.
-                </p>
-              </div>
-              <button
-                onClick={() => setModelBannerSession(null)}
-                className="text-green-200 hover:text-white transition-colors flex-shrink-0"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
         )}
       </div>
     </div>

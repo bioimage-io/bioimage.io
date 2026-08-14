@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { discoverLabels, getAnnotatedStems, labelFolder, listImages } from './datasetApi';
+import { deleteDatasetRecord } from './brokerApi';
 
 type DeleteMode = 'label' | 'artifact';
 
@@ -7,8 +9,10 @@ interface DeleteArtifactModalProps {
   dataArtifactId: string;
   currentLabel: string;
   artifactManager: any;
+  server: any;
   onDeleteSuccess: () => void;
   onLabelDeleteSuccess?: (deletedLabel: string) => void;
+  initialMode?: DeleteMode;
 }
 
 const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
@@ -16,10 +20,12 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
   dataArtifactId,
   currentLabel,
   artifactManager,
+  server,
   onDeleteSuccess,
   onLabelDeleteSuccess,
+  initialMode,
 }) => {
-  const [mode, setMode] = useState<DeleteMode>('label');
+  const [mode, setMode] = useState<DeleteMode>(initialMode ?? 'label');
   const [confirmationText, setConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,37 +37,24 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
       if (!artifactManager || !dataArtifactId) return;
       setIsLoadingStats(true);
       try {
-        let images = [];
-        try {
-          images = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: 'train_images',
-            _rkwargs: true,
-          });
-        } catch {
-          // folder may not exist
-        }
+        const [images, labels] = await Promise.all([
+          listImages(artifactManager, dataArtifactId),
+          discoverLabels(artifactManager, dataArtifactId),
+        ]);
 
-        const artifact = await artifactManager.read({
-          artifact_id: dataArtifactId,
-          _rkwargs: true,
-        });
-
-        const labels: string[] = artifact.manifest?.labels || (currentLabel ? [currentLabel] : []);
+        const labelNames = labels.length > 0 ? labels.map((l) => l.name) : (currentLabel ? [currentLabel] : []);
         const maskCounts: Record<string, number> = {};
 
-        for (const lbl of labels) {
-          try {
-            const masks = await artifactManager.list_files({
-              artifact_id: dataArtifactId,
-              dir_path: `masks_${lbl}`,
-              _rkwargs: true,
-            });
-            maskCounts[lbl] = masks.length;
-          } catch {
-            maskCounts[lbl] = 0;
-          }
-        }
+        await Promise.all(
+          labelNames.map(async (lbl) => {
+            try {
+              const stems = await getAnnotatedStems(artifactManager, dataArtifactId, lbl);
+              maskCounts[lbl] = stems.size;
+            } catch {
+              maskCounts[lbl] = 0;
+            }
+          }),
+        );
 
         setFileStats({ images: images.length, masks: maskCounts });
       } catch (e) {
@@ -96,42 +89,62 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
           delete_files: true,
           _rkwargs: true,
         });
+        try {
+          await deleteDatasetRecord(server, dataArtifactId);
+        } catch (e) {
+          console.error('Failed to remove broker dataset record after artifact delete:', e);
+        }
         onDeleteSuccess();
         setShowDeleteModal(false);
       } else {
-        // Label-only deletion: remove mask files and update manifest
-        let maskFiles: any[] = [];
-        try {
-          maskFiles = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: `masks_${currentLabel}`,
-            stage: true,
-            _rkwargs: true,
-          });
-        } catch {
-          // folder may not exist — that's fine
-        }
-
-        for (const f of maskFiles) {
-          const filePath = f.name || f.path || f;
+        // Label-only deletion: remove every annotation file under the label
+        // folder (all user subfolders), then update the manifest.
+        const folder = labelFolder(currentLabel);
+        const removeFolderRecursive = async (dirPath: string) => {
+          let entries: any[] = [];
           try {
-            await artifactManager.remove_file({
+            entries = await artifactManager.list_files({
               artifact_id: dataArtifactId,
-              file_path: typeof filePath === 'string' ? filePath : `masks_${currentLabel}/${filePath}`,
+              dir_path: dirPath,
+              stage: true,
               _rkwargs: true,
             });
           } catch {
-            // best-effort per-file removal
+            return;
           }
-        }
+          for (const entry of entries) {
+            const name = entry?.name ?? entry?.path ?? String(entry);
+            const isDir = entry?.type === 'directory' || entry?.is_dir === true;
+            const path = `${dirPath}/${name}`;
+            if (isDir) {
+              await removeFolderRecursive(path);
+            } else {
+              try {
+                await artifactManager.remove_file({
+                  artifact_id: dataArtifactId,
+                  file_path: path,
+                  _rkwargs: true,
+                });
+              } catch {
+                // best-effort per-file removal
+              }
+            }
+          }
+        };
+        await removeFolderRecursive(folder);
 
-        // Update manifest to remove this label
+        // Update manifest to remove this label. `manifest.labels` entries
+        // are `{name, description}` objects, but tolerate a legacy plain
+        // string list too.
         const artifact = await artifactManager.read({
           artifact_id: dataArtifactId,
           stage: true,
           _rkwargs: true,
         });
-        const updatedLabels = (artifact.manifest?.labels || []).filter((l: string) => l !== currentLabel);
+        const existingLabels = artifact.manifest?.labels || [];
+        const updatedLabels = existingLabels.filter((l: any) =>
+          typeof l === 'string' ? l !== currentLabel : l?.name !== currentLabel,
+        );
         await artifactManager.edit({
           artifact_id: dataArtifactId,
           manifest: { ...artifact.manifest, labels: updatedLabels },
@@ -172,31 +185,33 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
 
         <div className="p-6 space-y-4">
 
-          {/* Mode toggle */}
-          <div className="flex rounded-xl overflow-hidden border border-gray-200 text-sm font-medium">
-            <button
-              type="button"
-              onClick={() => setMode('label')}
-              className={`flex-1 py-2.5 transition-colors ${
-                mode === 'label'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Delete Label Only
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('artifact')}
-              className={`flex-1 py-2.5 border-l border-gray-200 transition-colors ${
-                mode === 'artifact'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Delete Entire Artifact
-            </button>
-          </div>
+          {/* Mode toggle (hidden when the caller pins a specific mode) */}
+          {!initialMode && (
+            <div className="flex rounded-xl overflow-hidden border border-gray-200 text-sm font-medium">
+              <button
+                type="button"
+                onClick={() => setMode('label')}
+                className={`flex-1 py-2.5 transition-colors ${
+                  mode === 'label'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Delete Label Only
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('artifact')}
+                className={`flex-1 py-2.5 border-l border-gray-200 transition-colors ${
+                  mode === 'artifact'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Delete Entire Artifact
+              </button>
+            </div>
+          )}
 
           {/* Warning */}
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg">

@@ -312,6 +312,51 @@ export async function getAnnotatedStems(
   return stems;
 }
 
+export interface TrainingPair {
+  image: string;
+  annotation: string;
+  userFolder: string;
+  stem: string;
+}
+
+/**
+ * Explicit `(image, annotation)` training pairs for *label*: the latest
+ * saved annotation per `(user, stem)`, across every annotator.
+ * cellpose-finetuning's glob-based `train_annotations` has no notion of
+ * "latest" — under the timestamped never-overwrite layout a glob over
+ * `label_<label>/*​/*.geojson` matches every historical save, not just the
+ * current one, which would feed stale/duplicate masks into training. So
+ * training data is built from this explicit list (uploaded as a metadata
+ * manifest and passed via `start_training`'s `metadata_dir`) instead of
+ * glob patterns — see colab-rework-plan.md F6.
+ */
+export async function getTrainingPairs(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+): Promise<TrainingPair[]> {
+  const [byUser, images] = await Promise.all([
+    walkLatestPairsByUser(artifactManager, artifactId, label),
+    listImages(artifactManager, artifactId),
+  ]);
+  const imageNameByStem = new Map(images.map((img) => [img.stem, img.name]));
+
+  const pairs: TrainingPair[] = [];
+  for (const [userFolder, stemMap] of byUser) {
+    for (const [stem, entry] of stemMap) {
+      const imageName = imageNameByStem.get(stem);
+      if (!imageName) continue; // source image was deleted after the annotation was saved
+      pairs.push({
+        image: `images/${imageName}`,
+        annotation: entry.geojsonPath,
+        userFolder,
+        stem,
+      });
+    }
+  }
+  return pairs;
+}
+
 /**
  * Every annotation pair for one image across every user, newest first —
  * feeds the dataset overview's annotation browser (prev/next through who
