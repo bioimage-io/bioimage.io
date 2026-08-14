@@ -1082,7 +1082,7 @@ spec:
                     <div className="text-sm text-blue-800">
                       <p className="font-medium">Recommended: mount a shared PVC on your Ray cluster nodes</p>
                       <p className="text-blue-700 text-xs mt-1">
-                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. For apps that communicate through the filesystem (e.g. <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>), scaling to multiple replicas requires a shared volume across all Ray nodes. Otherwise only reduced functionality is available.
+                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. Some apps, like <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>, split work across multiple deployments (an entry app that downloads the model and a compute app that runs inference) that communicate through the filesystem. On a multi-node Ray cluster this can fail even with a single instance, since Ray may place those deployments on different nodes. A shared volume across all Ray nodes avoids this.
                       </p>
                     </div>
                   </div>
@@ -2181,9 +2181,9 @@ spec:
                 In Kubernetes mode the actual BioEngine apps execute on <strong>Ray cluster nodes</strong>, not inside the worker pod. Those nodes need their own writable directory, set with <code className="bg-gray-100 px-1 rounded">--ray-workspace-dir</code>. If this flag is not set, the worker falls back to the same path as <code className="bg-gray-100 px-1 rounded">--workspace-dir</code>, which only works if the Ray nodes can also reach that path.
               </p>
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="font-medium text-amber-800 mb-1">Impact on scaling</p>
+                <p className="font-medium text-amber-800 mb-1">Impact on model-runner (even without scaling)</p>
                 <p className="text-amber-700">
-                  Some apps, like <code className="bg-amber-100 px-1 rounded">bioimage-io/model-runner</code>, communicate between the worker and Ray nodes through the filesystem. Without a shared <strong>ReadWriteMany</strong> PVC mounted at the same path on all Ray nodes, running more than one app replica will result in reduced functionality: only the replica on the node that holds the file will work correctly.
+                  <code className="bg-amber-100 px-1 rounded">bioimage-io/model-runner</code> splits inference into two coupled deployments: an <strong>entry app</strong> that downloads the model, and a <strong>compute app</strong> that runs the computation. On a multi-node Ray cluster, Ray Serve can place these deployments on different nodes, so this breaks even with a single running instance and no scaling requested. Without a shared <strong>ReadWriteMany</strong> PVC mounted at the same path on all Ray nodes, the compute app can't see the model the entry app downloaded, and inference fails until both happen to land on the same node. Scaling to multiple replicas only makes the problem more likely.
                 </p>
               </div>
               <p>
