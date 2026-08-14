@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AnnotationDataService,
   CellposeMask,
@@ -72,6 +72,28 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     }
     return sessionPromiseRef.current;
   }, [service]);
+
+  // Warm the ONNX decoder session as soon as the service is available instead
+  // of waiting for the first box draw, so it downloads in parallel with the
+  // embedding precompute rather than adding its own latency to the first box.
+  const [decoderReady, setDecoderReady] = useState(false);
+  useEffect(() => {
+    if (!service) {
+      setDecoderReady(false);
+      return;
+    }
+    let cancelled = false;
+    ensureSession()
+      .then(() => {
+        if (!cancelled) setDecoderReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setDecoderReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [service, ensureSession]);
 
   const ensureEmbedding = useCallback(
     (url: string, width: number, height: number): Promise<MicroSamEmbedding> => {
@@ -204,5 +226,5 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     embeddingRef.current = null;
   }, []);
 
-  return { decodeBox, reset, setEmbeddingLoader };
+  return { decodeBox, reset, setEmbeddingLoader, decoderReady };
 }

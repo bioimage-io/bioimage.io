@@ -135,6 +135,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     decodeBox: decodeSamBox,
     reset: resetSamDecoder,
     setEmbeddingLoader,
+    decoderReady,
   } = useMicroSamDecoder(service);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
@@ -145,6 +146,9 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // GET urls expire, so only the "is it stored" promise is cached here; a fresh
   // download url is fetched on each use.
   const ensuredEmbeddingRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Set to the image stem once its embedding is confirmed stored (12A: drives
+  // the AI Box tool's "ready" state, distinct from the service being reachable).
+  const [embeddingReadyStem, setEmbeddingReadyStem] = useState<string | null>(null);
 
   // Ensure the μSAM embedding for `imageName` is computed and stored in the
   // session artifact (once per image, keyed by stem + model server-side), then
@@ -560,17 +564,19 @@ print('CLAHE packages ready')
     if (!currentImageStem || imageWidth <= 0 || imageHeight <= 0) return;
     const sourceUrl = originalImageUrl || imageUrl;
     if (!sourceUrl) return;
-    // Already computing/computed for this image: skip the extra round-trip and
-    // the banner flicker (box/AIS fetch their own fresh url when needed).
-    if (ensuredEmbeddingRef.current.has(currentImageStem)) return;
-    const bannerId = addBanner('Preparing micro-sam...', 'loading', 0);
-    ensureStoredEmbedding(currentImageStem, sourceUrl, imageWidth, imageHeight)
+    const stem = currentImageStem;
+    // Already computing/computed for this image: skip the banner flicker, but
+    // still await the (already-memoized) promise so embeddingReadyStem catches up.
+    const alreadyEnsured = ensuredEmbeddingRef.current.has(stem);
+    const bannerId = alreadyEnsured ? null : addBanner('Preparing micro-sam...', 'loading', 0);
+    ensureStoredEmbedding(stem, sourceUrl, imageWidth, imageHeight)
+      .then(() => setEmbeddingReadyStem(stem))
       .catch((e) => {
         // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
         console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
       })
-      .finally(() => removeBanner(bannerId));
-    return () => removeBanner(bannerId);
+      .finally(() => { if (bannerId) removeBanner(bannerId); });
+    return () => { if (bannerId) removeBanner(bannerId); };
   }, [
     microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
     imageUrl, originalImageUrl, ensureStoredEmbedding, addBanner, removeBanner,
@@ -1248,6 +1254,14 @@ print("CLAHE_RESULT:" + result_b64)
     );
   }
 
+  // AI Box readiness (12A): the service being reachable (microSamAvailable) is
+  // not enough to draw a useful box — the ONNX decoder and this image's stored
+  // embedding both need to finish warming up first. ToolBar shows a spinner
+  // for the gap between "available" and "ready"; AnnotationViewer only installs
+  // the box-draw interaction once actually ready.
+  const embeddingReady = embeddingReadyStem !== null && embeddingReadyStem === currentImageStem;
+  const aiBoxReady = microSamAvailable && embeddingReady && decoderReady;
+
   // Determine the status message for the overlay
   const showStatusOverlay = !permissionDenied && (
     serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce)
@@ -1343,6 +1357,7 @@ print("CLAHE_RESULT:" + result_b64)
         cellposeModel={activeCellposeModel}
         cellposeAvailable={cellposeAvailable}
         microSamAvailable={microSamAvailable}
+        aiBoxReady={aiBoxReady}
         isSaving={isSaving}
         isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
@@ -1360,7 +1375,7 @@ print("CLAHE_RESULT:" + result_b64)
             onImageLayerReady={handleImageLayerReady}
             onMapReady={handleMapReady}
             onSamBox={handleSamBox}
-            microSamAvailable={microSamAvailable}
+            microSamAvailable={aiBoxReady}
           />
         )}
 

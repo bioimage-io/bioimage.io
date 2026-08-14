@@ -55,6 +55,30 @@ const TOOLS: ToolDef[] = [
   { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <BrushIcon fontSize="small" /> },
 ];
 
+// Small spinner shown on a tool icon while it's warming up (service reachable
+// but its embedding/decoder prep isn't done yet) — same visual language as the
+// spinner used elsewhere in the app (e.g. DatasetOverview.tsx).
+const ToolSpinner: React.FC<{ size?: number }> = ({ size = 18 }) => (
+  <Box
+    component="svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    sx={{
+      width: size,
+      height: size,
+      animation: 'toolbar-spin 0.8s linear infinite',
+      '@keyframes toolbar-spin': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } },
+    }}
+  >
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity={0.25} />
+    <path
+      fill="currentColor"
+      opacity={0.75}
+      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+    />
+  </Box>
+);
+
 // Shared collapsed-mode icon button style
 const collapsedBtnSx = (active = false) => ({
   borderRadius: 1.5,
@@ -81,6 +105,9 @@ export interface ToolBarProps {
   cellposeModel?: string;
   cellposeAvailable?: boolean;
   microSamAvailable?: boolean;
+  /** True once the μSAM embedding + ONNX decoder are both warmed up and the
+   * AI Box tool will actually respond to a drawn box, not just "reachable". */
+  aiBoxReady?: boolean;
   isSaving: boolean;
   isRunningCellpose: boolean;
   isCLAHEActive: boolean;
@@ -92,6 +119,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig, onSave, onUndo, onResetView,
   onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
   sessionUrl, imageName, cellposeModel, cellposeAvailable = false, microSamAvailable = false,
+  aiBoxReady = false,
   isSaving, isRunningCellpose, isCLAHEActive, isLowContrast = false,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
@@ -178,12 +206,16 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
         {/* Drawing tools */}
         {TOOLS.map((tool) => {
-          const toolDisabled = tool.requiresMicroSam && !microSamAvailable;
+          const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
+          const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
+          const toolDisabled = toolUnavailable || toolPending;
           return (
           <React.Fragment key={tool.id}>
             <Tooltip
-              title={toolDisabled
+              title={toolUnavailable
                 ? `${tool.name} unavailable (micro-sam service is offline)`
+                : toolPending
+                ? `${tool.name} is warming up...`
                 : `${tool.name} (${tool.shortcut})`}
               placement="right"
             >
@@ -195,7 +227,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   disabled={toolDisabled}
                   sx={{ ...collapsedBtnSx(activeTool === tool.id), ...touchSx }}
                 >
-                  {tool.icon}
+                  {toolPending ? <ToolSpinner size={isMobile ? 20 : 18} /> : tool.icon}
                 </IconButton>
               </span>
             </Tooltip>
@@ -407,11 +439,13 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* Drawing tools */}
         {TOOLS.map((tool) => {
           const active = activeTool === tool.id;
-          const toolDisabled = tool.requiresMicroSam && !microSamAvailable;
+          const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
+          const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
+          const toolDisabled = toolUnavailable || toolPending;
           return (
             <React.Fragment key={tool.id}>
               <Tooltip
-                title={toolDisabled ? 'micro-sam service is currently offline' : ''}
+                title={toolUnavailable ? 'micro-sam service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
                 placement="right"
                 disableHoverListener={!toolDisabled}
               >
@@ -423,7 +457,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     sx={{ ...rowSx(active), width: '100%', opacity: toolDisabled ? 0.5 : 1 }}
                   >
                     <Box sx={{ color: active ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0, display: 'flex' }}>
-                      {tool.icon}
+                      {toolPending ? <ToolSpinner size={18} /> : tool.icon}
                     </Box>
                     <Box>
                       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
