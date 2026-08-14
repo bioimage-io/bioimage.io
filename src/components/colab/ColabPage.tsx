@@ -9,11 +9,14 @@ import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton from '../LoginButton';
 import { SUPPORTED_IMAGE_EXTENSIONS } from './imageFormats';
+import { toArtifactId } from './datasetApi';
 
 const ColabPageContent: React.FC = () => {
   const location = useLocation();
 
-  // Parse sessionId from path: /colab/bioimage-io/cold-badger-tick-roughly -> bioimage-io/cold-badger-tick-roughly
+  // Parse sessionId from path: /colab/cold-badger-tick-roughly -> cold-badger-tick-roughly
+  // (old bookmarked /colab/bioimage-io/<alias> links still parse fine, since
+  // toArtifactId() below passes an already-qualified id through unchanged).
   const sessionId = location.pathname.startsWith('/colab/')
     ? location.pathname.slice('/colab/'.length) || undefined
     : undefined;
@@ -105,7 +108,7 @@ const ColabPageContent: React.FC = () => {
           {sessionId ? (
             server ? (
               <DatasetOverview
-                artifactId={sessionId.includes('/') ? sessionId : `${server.config.workspace}/${sessionId}`}
+                artifactId={toArtifactId(sessionId)}
                 server={server}
                 user={user}
                 artifactManager={artifactManager}

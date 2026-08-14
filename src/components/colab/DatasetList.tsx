@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DatasetSummary, getAnnotatedStems, listMyDatasets, pLimit } from './datasetApi';
+import { DatasetSummary, getAnnotatedStems, listMyDatasets, pLimit, toAlias } from './datasetApi';
 import { SharedDatasetSummary, listMyDatasets as listSharedDatasets } from './brokerApi';
 import DatasetCard from './DatasetCard';
 import CreateDatasetModal from './CreateDatasetModal';
@@ -83,12 +83,12 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
   };
 
   const openOwnDataset = (artifactId: string) => {
-    navigate(`/colab/${artifactId}`);
+    navigate(`/colab/${toAlias(artifactId)}`);
   };
 
   const openSharedDataset = (dataset: SharedDatasetSummary) => {
     if (dataset.role === 'manager') {
-      navigate(`/colab/${dataset.artifact_id}`);
+      navigate(`/colab/${toAlias(dataset.artifact_id)}`);
     } else {
       setLabelDialogFor(dataset);
     }
@@ -177,7 +177,7 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
           user={user}
           artifactManager={artifactManager}
           onClose={() => setShowCreateModal(false)}
-          onCreated={(artifactId) => navigate(`/colab/${artifactId}`)}
+          onCreated={(artifactId) => navigate(`/colab/${toAlias(artifactId)}`)}
         />
       )}
 

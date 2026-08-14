@@ -17,7 +17,7 @@ import {
   pLimit,
   withStageRetry,
 } from './datasetApi';
-import { BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
+import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
 import LabelManager from './LabelManager';
 import LabelStatsChart from './LabelStatsChart';
 import SharingPanel from './SharingPanel';
@@ -85,6 +85,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
 
   const [dataset, setDataset] = useState<DatasetWithRole | null>(null);
   const [guardError, setGuardError] = useState<string | null>(null);
+  const [guardErrorCode, setGuardErrorCode] = useState<BrokerErrorCode | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const handleRefresh = () => setRefreshTick((t) => t + 1);
 
@@ -139,9 +140,13 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
         if (active) {
           setDataset(d);
           setGuardError(null);
+          setGuardErrorCode(null);
         }
       } catch (err) {
-        if (active) setGuardError((err as Error).message || 'Access denied.');
+        if (active) {
+          setGuardError((err as Error).message || 'Access denied.');
+          setGuardErrorCode(err instanceof BrokerAccessError ? err.code : 'unknown');
+        }
       }
     })();
     return () => {
@@ -438,6 +443,22 @@ print("Service registered successfully", end='')
 
   if (guardError || (dataset && !canManage)) {
     const canAnnotate = dataset?.role === 'annotator' || dataset?.role === 'public';
+    // A real access denial (dataset && !canManage, or the broker's
+    // PermissionError) reads differently from "this dataset isn't
+    // registered" or a transport hiccup — those aren't about permissions at
+    // all, and telling a user "you don't have access" when the dataset just
+    // failed to load is misleading (colab-rework-plan.md §11 item 6).
+    const isRealDenial = !guardError || guardErrorCode === 'permission-denied';
+    const heading = isRealDenial
+      ? 'You do not have access to this dataset overview'
+      : guardErrorCode === 'not-registered'
+        ? 'This dataset could not be found'
+        : 'This dataset could not be loaded';
+    const body = isRealDenial
+      ? 'Only the dataset owner and its managers can open this page.'
+      : guardErrorCode === 'not-registered'
+        ? 'It may have been deleted, or the link is incorrect.'
+        : 'There was a problem connecting to the annotation service. Please try again.';
     return (
       <div className="max-w-lg mx-auto text-center py-16">
         <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center">
@@ -450,8 +471,8 @@ print("Service registered successfully", end='')
             />
           </svg>
         </div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">You do not have access to this dataset overview</h2>
-        <p className="text-sm text-gray-500 mb-6">Only the dataset owner and its managers can open this page.</p>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">{heading}</h2>
+        <p className="text-sm text-gray-500 mb-6">{body}</p>
         {canAnnotate && (
           <button
             onClick={() => setShowAnnotateDialog(true)}

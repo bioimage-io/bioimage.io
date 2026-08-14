@@ -140,9 +140,40 @@ export async function listMyDatasets(server: any): Promise<{ shared: SharedDatas
   return broker.list_my_datasets({ _rkwargs: true });
 }
 
+/**
+ * Coarse classification of a failed broker call, distinguishing a genuine
+ * access denial from "the dataset isn't registered" or a transport hiccup —
+ * the three fail differently and read the RPC error message text because
+ * hypha-rpc does not carry the remote Python exception's class across the
+ * wire, only `str(exception)`. Matches broker.py's `_metadata_or_raise` /
+ * `_require_role` message shapes; update alongside those if they change.
+ */
+export type BrokerErrorCode = 'not-registered' | 'permission-denied' | 'unavailable' | 'unknown';
+
+export class BrokerAccessError extends Error {
+  code: BrokerErrorCode;
+  constructor(message: string, code: BrokerErrorCode) {
+    super(message);
+    this.name = 'BrokerAccessError';
+    this.code = code;
+  }
+}
+
+function classifyBrokerError(err: unknown): BrokerErrorCode {
+  const message = String((err as Error)?.message ?? err);
+  if (/annotation-broker service is not available/.test(message)) return 'unavailable';
+  if (/is not registered with the broker/.test(message)) return 'not-registered';
+  if (/or higher is required/.test(message)) return 'permission-denied';
+  return 'unknown';
+}
+
 export async function getDataset(server: any, artifactId: string): Promise<DatasetWithRole> {
-  const broker = await resolveBrokerService(server);
-  return broker.get_dataset({ artifact_id: artifactId, _rkwargs: true });
+  try {
+    const broker = await resolveBrokerService(server);
+    return await broker.get_dataset({ artifact_id: artifactId, _rkwargs: true });
+  } catch (err) {
+    throw new BrokerAccessError((err as Error)?.message || 'Failed to load dataset.', classifyBrokerError(err));
+  }
 }
 
 export async function setRole(

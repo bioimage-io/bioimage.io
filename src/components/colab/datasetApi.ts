@@ -11,6 +11,22 @@
 
 export const COLLECTION_ID = 'bioimage-io/colab-annotations';
 
+const ARTIFACT_WORKSPACE = COLLECTION_ID.split('/')[0];
+
+/**
+ * Bare alias -> full artifact id (`bioimage-io/<alias>`) for artifact-manager
+ * and broker calls. Already-qualified ids pass through unchanged, so old
+ * bookmarked `#/colab/bioimage-io/<alias>` links still resolve.
+ */
+export function toArtifactId(idOrAlias: string): string {
+  return idOrAlias.includes('/') ? idOrAlias : `${ARTIFACT_WORKSPACE}/${idOrAlias}`;
+}
+
+/** Full artifact id -> bare alias, for building `#/colab/<alias>` URLs (colab-rework-plan.md §11 item 5). */
+export function toAlias(artifactId: string): string {
+  return artifactId.startsWith(`${ARTIFACT_WORKSPACE}/`) ? artifactId.slice(ARTIFACT_WORKSPACE.length + 1) : artifactId;
+}
+
 // {stem}-{YYYYMMDD-HHMMSS}.{png|geojson} — mirrors broker_core.py's
 // ANNOTATION_FILENAME_RE. The timestamp itself contains a hyphen, so this
 // anchors on the fixed-width digit groups rather than a naive split.
