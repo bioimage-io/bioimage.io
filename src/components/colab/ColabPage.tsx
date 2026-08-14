@@ -9,6 +9,7 @@ import DeleteArtifactModal from './DeleteArtifactModal';
 import TrainingModal from './TrainingModal';
 import ImageViewer, { SplitInfo } from './ImageViewer';
 import DatasetList from './DatasetList';
+import DatasetOverview from './DatasetOverview';
 import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton from '../LoginButton';
@@ -142,227 +143,6 @@ except Exception as e:
   // Supported file types
   const supportedFileTypes = SUPPORTED_IMAGE_EXTENSIONS;
   const [resumeArtifactId, setResumeArtifactId] = useState<string | null>(null);
-
-  // Track if we've already loaded the session from URL
-  const [hasLoadedUrlSession, setHasLoadedUrlSession] = useState(false);
-
-  // Handle session ID from URL path parameter - auto-load without showing modal
-  useEffect(() => {
-    // Skip auto-load if we already have an active session (e.g., just created via SessionModal)
-    if (annotationURL && dataArtifactId) {
-      console.log('Session already active, skipping URL auto-load');
-      return;
-    }
-
-    // Landing on /colab/<sessionId> needs the Python kernel; nudge it.
-    // requestKernel is idempotent so re-firing each render is fine.
-    if (sessionId && user?.email && !hasLoadedUrlSession) {
-      requestKernel();
-    }
-
-    if (sessionId && isReady && user?.email && artifactManager && executeCode && !hasLoadedUrlSession) {
-      console.log('Auto-loading session from URL:', sessionId);
-      setHasLoadedUrlSession(true);
-      setResumeArtifactId(sessionId);
-
-      // Auto-start the session without showing modal
-      const autoStartSession = async () => {
-        try {
-          setIsRunning(true);
-
-          let token = localStorage.getItem('token') || '';
-          if (!token && typeof server?.generateToken === 'function') {
-            try {
-              token = await server.generateToken();
-            } catch (tokenError) {
-              console.warn('Failed to generate token for Python service:', tokenError);
-            }
-          }
-          if (!token) {
-            throw new Error('Authentication token missing. Please log in again.');
-          }
-          const serverUrl = server.config.publicBaseUrl;
-
-          // Install Python packages
-          console.log('Installing Python packages...');
-          const installCode = `
-import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'tifffile==2024.7.24'])
-print("Packages installed", end='')
-`;
-
-          let hasError = false;
-          let lastPythonError: string | null = null;
-          await executeCode(installCode, {
-            onOutput: (output: any) => {
-              if (output.type === 'error') {
-                hasError = true;
-                lastPythonError = output.content || output.short_content || 'Unknown Python error';
-              }
-            },
-          });
-
-          if (hasError) {
-            throw new Error(
-              `Failed to install Python packages${lastPythonError ? `: ${lastPythonError}` : ''}`
-            );
-          }
-
-          // Load service code
-          console.log('Loading service code...');
-          const serviceCodeResponse = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
-          const serviceCode = await serviceCodeResponse.text();
-          hasError = false;
-          lastPythonError = null;
-          await executeCode(serviceCode, {
-            onOutput: (output: any) => {
-              if (output.type === 'error') {
-                hasError = true;
-                lastPythonError = output.content || output.short_content || 'Unknown Python error';
-              }
-            },
-          });
-
-          if (hasError) {
-            throw new Error(
-              `Failed to load service code${lastPythonError ? `: ${lastPythonError}` : ''}`
-            );
-          }
-
-          // Get artifact info to determine label
-          // If sessionId contains '/', it's an absolute artifact ID (workspace/alias)
-          // If not, it's a relative alias from user's own workspace
-          const fullArtifactId = sessionId.includes('/')
-            ? sessionId
-            : `${server.config.workspace}/${sessionId}`;
-          const artifact = await artifactManager.read({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
-
-          // Derive label: URL param takes precedence (exact), then folder structure, then default
-          // f.name may be a full path like "masks_Cell/img.png" or just a dir "masks_Cell"
-          let sessionLabel = urlLabel;
-          if (!sessionLabel) {
-            try {
-              const files = await artifactManager.list_files({ artifact_id: fullArtifactId, stage: true, _rkwargs: true });
-              for (const f of (files || [])) {
-                const topDir = (f?.name as string || '').split('/')[0];
-                if (topDir.startsWith('masks_') && topDir.length > 'masks_'.length) {
-                  sessionLabel = topDir.substring('masks_'.length);
-                  break;
-                }
-              }
-            } catch (e) {
-              console.warn('Could not derive label from folder structure:', e);
-            }
-          }
-          if (!sessionLabel) {
-            sessionLabel = 'cells';
-          }
-
-          let sessionName = artifact.manifest?.name || 'Annotation Session';
-          if (sessionName.startsWith('Annotation Session ')) {
-            sessionName = sessionName.substring('Annotation Session '.length);
-          }
-
-          // Cloud availability is handled per image in the viewer.
-          // Do not block session resume based on legacy manifest.data_source.
-
-          // Register service
-          const clientId = `colab-client-${Date.now()}`;
-          const serviceId = `data-provider-${Date.now()}`;
-
-          // Read persisted model from localStorage before registering so the annotation UI
-          // sees the correct model from the very first getImage() call.
-          const storedModelForResume = localStorage.getItem(getModelStorageKey(fullArtifactId, sessionLabel)) || cellposeModel || 'cpsam';
-
-          const registerCode = `
-service_info = await register_service(
-    server_url="${serverUrl}",
-    token="${token}",
-    name="${sessionName}",
-    description="Resumed session",
-    artifact_alias="${fullArtifactId}",
-    images_path=None,
-    label="${sessionLabel}",
-    client_id="${clientId}",
-    service_id="${serviceId}",
-    cellpose_model="${storedModelForResume}",
-    user_id="${user?.id || ''}",
-    user_email="${user?.email || ''}"
-)
-print("Service registered successfully", end='')
-`;
-
-          await executeCode(registerCode, {
-            onOutput: (output: any) => {
-              if (output.type === 'error') {
-                hasError = true;
-                lastPythonError = output.content || output.short_content || 'Unknown Python error';
-              }
-            },
-          });
-
-          if (hasError) {
-            throw new Error(
-              `Failed to register service${lastPythonError ? `: ${lastPythonError}` : ''}`
-            );
-          }
-
-          const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
-
-          // Generate annotation URL pointing to our own #/colab/annotate page
-          const annotateParams = new URLSearchParams({
-            server_url: serverUrl,
-            image_provider_id: fullServiceId,
-            label: sessionLabel,
-          });
-          if (fullArtifactId) {
-            annotateParams.set('session_id', fullArtifactId);
-          }
-          const baseUrl = window.location.origin + window.location.pathname;
-          const annotatorUrl = `${baseUrl}#/colab/annotate?${annotateParams.toString()}`;
-
-          // Update state
-          setAnnotationURL(annotatorUrl);
-          setDataArtifactId(fullArtifactId);
-          setLabel(sessionLabel);
-          setSessionName(sessionName);
-          setDataSourceType('resume');
-
-          // Update URL to reflect the loaded session with full artifact ID and label
-          navigate(`/colab/${fullArtifactId}?label=${encodeURIComponent(sessionLabel)}`, { replace: true });
-
-          console.log('✓ Session loaded from URL successfully!');
-          setIsRunning(false);
-        } catch (err: any) {
-          console.error('Failed to auto-load session:', err);
-          setIsRunning(false);
-
-          const msg: string = err?.message || '';
-          if (
-            msg.includes('does not exist') ||
-            msg.includes('not found') ||
-            msg.includes('404') ||
-            msg.includes('Cannot read')
-          ) {
-            // Artifact may not exist yet (lazy creation — no images uploaded yet)
-            // or it was genuinely deleted.
-            alert(
-              'This session has not been initialized yet or no longer exists.\n\n' +
-              'If you just started a new local session, images are uploaded on demand ' +
-              'when you open the annotation view from the Colab page.'
-            );
-            navigate('/colab', { replace: true });
-          } else {
-            alert('Failed to load session: ' + msg);
-            // Fallback: show modal for manual configuration
-            setShowSessionModal(true);
-          }
-        }
-      };
-
-      autoStartSession();
-    }
-  }, [sessionId, isReady, user?.email, artifactManager, executeCode, hasLoadedUrlSession, server, annotationURL, dataArtifactId, requestKernel]);
 
   const servicesRef = useRef<HTMLDivElement>(null);
 
@@ -944,33 +724,27 @@ print("Service registered successfully", end='')
         })()}
 
         {/* Main Content Area */}
-        <div className="max-w-7xl mx-auto h-[600px]" ref={servicesRef}>
-          {dataArtifactId ? (
-            <ImageViewer
-              imageList={imageList}
-              annotationsList={annotationsList}
-              dataArtifactId={dataArtifactId}
-              label={label}
-              artifactManager={artifactManager}
-              serverUrl={server.config.publicBaseUrl}
-              isLoadingImages={isLoadingImages}
-              isLoadingAnnotations={isLoadingAnnotations}
-              sessionName={sessionName}
-              dataSourceType={dataSourceType}
-              imageFolderHandle={imageFolderHandle}
-              executeCode={executeCode}
-              annotationURL={annotationURL}
-              server={server}
-              cellposeModel={cellposeModel}
-              splitInfo={splitInfo}
-              onApplySplit={handleApplySplit}
-              onDelete={() => setShowDeleteModal(true)}
-              onUploadAll={handleUploadAll}
-              onRefresh={async () => {
-                await updateImages();
-                await updateAnnotations();
-              }}
-            />
+        <div className="max-w-7xl mx-auto min-h-[600px]" ref={servicesRef}>
+          {sessionId ? (
+            server ? (
+              <DatasetOverview
+                artifactId={sessionId.includes('/') ? sessionId : `${server.config.workspace}/${sessionId}`}
+                server={server}
+                user={user}
+                artifactManager={artifactManager}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64">
+                <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              </div>
+            )
           ) : (
             <DatasetList
               user={user}

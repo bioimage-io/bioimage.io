@@ -1,0 +1,139 @@
+import React, { useState } from 'react';
+import { DatasetLabelRef } from './datasetApi';
+import { createLabel } from './brokerApi';
+import { LABEL_PALETTE } from './ImagePreview';
+
+export interface LabelManagerProps {
+  server: any;
+  artifactId: string;
+  role: 'owner' | 'manager';
+  labels: DatasetLabelRef[];
+  labelCounts: Record<string, number>;
+  selectedLabel: string;
+  onSelectLabel: (label: string) => void;
+  onLabelsChanged: () => void;
+  onAnnotateLabel: (label: string) => void;
+}
+
+const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
+
+// F4 (colab-rework-plan.md): list/create labels via `broker.create_label`,
+// with per-label annotated counts. Each row's inline "Annotate" action jumps
+// straight into annotation for that label, skipping LabelSelectDialog (F4a)
+// since the label is already explicit here.
+const LabelManager: React.FC<LabelManagerProps> = ({
+  server,
+  artifactId,
+  labels,
+  labelCounts,
+  selectedLabel,
+  onSelectLabel,
+  onLabelsChanged,
+  onAnnotateLabel,
+}) => {
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createLabel(server, artifactId, name.trim(), description.trim());
+      setName('');
+      setDescription('');
+      setShowForm(false);
+      onLabelsChanged();
+    } catch (err) {
+      setError((err as Error).message || 'Failed to create label.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900">Labels</h3>
+        <button
+          onClick={() => setShowForm((s) => !s)}
+          className="text-xs font-medium text-purple-600 hover:text-purple-700 transition-colors"
+        >
+          {showForm ? 'Cancel' : '+ New label'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mb-3 p-3 bg-gray-50 rounded-xl space-y-2">
+          <input
+            type="text"
+            placeholder="Label name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            autoFocus
+          />
+          <input
+            type="text"
+            placeholder="Description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+          />
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button
+            onClick={handleCreate}
+            disabled={busy || !name.trim()}
+            className="w-full px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 text-sm font-medium transition-colors"
+          >
+            {busy ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+      )}
+
+      {labels.length === 0 ? (
+        <p className="text-sm text-gray-400">No labels yet. Create one to start annotating.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {labels.map((label, i) => (
+            <div
+              key={label.name}
+              onClick={() => onSelectLabel(label.name)}
+              className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                selectedLabel === label.name
+                  ? 'bg-purple-50 border border-purple-300'
+                  : 'border border-transparent hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: rgb(LABEL_PALETTE[i % LABEL_PALETTE.length]) }}
+                />
+                <span className="text-sm font-medium text-gray-800 truncate">{label.name}</span>
+                <span className="text-xs text-gray-400 shrink-0">
+                  {labelCounts[label.name] !== undefined ? `${labelCounts[label.name]}` : ''}
+                </span>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAnnotateLabel(label.name);
+                }}
+                title={`Annotate ${label.name}`}
+                className="text-xs font-medium text-purple-600 hover:text-purple-700 shrink-0"
+              >
+                Annotate
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default LabelManager;
