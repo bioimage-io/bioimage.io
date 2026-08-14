@@ -3,17 +3,20 @@ import { hyphaWebsocketClient } from 'hypha-rpc';
 import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
 import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
+import { HYPHA_SERVER_URL } from '../../../config/hypha';
+import {
+  DatasetIndex,
+  EmbeddingUrls,
+  SaveUrls as BrokerSaveUrls,
+  getDatasetIndex as brokerGetDatasetIndex,
+  getSaveUrls as brokerGetSaveUrls,
+  getEmbeddingUrls as brokerGetEmbeddingUrls,
+  withRetry,
+} from '../../colab/brokerApi';
 
 export interface AnnotationServiceConfig {
-  serverUrl: string;
-  imageProviderId: string;
-  label?: string;
-}
-
-export interface SaveUrls {
-  png_url: string;
-  geojson_url: string;
-  image_stem: string;
+  artifactId: string;
+  label: string;
 }
 
 export interface CellposeMask {
@@ -81,48 +84,20 @@ export interface NoImagesResult {
   message: string;
 }
 
-export interface ImageResult {
-  url: string;
-  name: string;
-  cellpose_model?: string;
-  existing_geojson_url?: string | null;
-  round?: number;
-}
-
-export interface CurrentRoundResult {
-  current_round: number;
-  max_existing_round: number;
-}
-
-export interface ImageInfo {
-  name: string;
-  stem: string;
-  source: 'local' | 'remote';
-  /** Whether the *current annotator* has saved both PNG + GeoJSON for this image. */
-  is_annotated: boolean;
-  /** Whether *any* annotator has saved this image (used for global progress). */
-  annotated_by_any?: boolean;
-}
-
-export interface ImageNotFoundResult {
-  status: 'not_found';
-  message: string;
-}
-
 export interface AnnotationDataService {
-  /** The annotator id resolved at connect time (Hypha workspace user id, or
-   *  a localStorage anon uuid for booth visitors). Surfaced for diagnostic
-   *  banners and as the key for round-state storage. */
-  userId: string;
-  /** Highest existing round number for this user when the connection was
-   *  established. Returned by the colab service's get_current_round. The
-   *  React component holds the live current round in its own state and
-   *  passes it to every call below. */
-  initialRound: number;
-  getImage: (round: number) => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
-  getImageByStem: (stem: string, round: number) => Promise<ImageResult | ImageNotFoundResult>;
-  listImages: (round: number) => Promise<ImageInfo[]>;
-  getSaveUrls: (imageName: string, round: number) => Promise<SaveUrls>;
+  /** Full broker-index snapshot: every image in the dataset plus this
+   *  caller's own latest annotation per (label, stem). Wrapped in
+   *  `withRetry` since the broker's read paths don't self-heal internally
+   *  (colab-rework-plan.md F5). */
+  getDatasetIndex: () => Promise<DatasetIndex>;
+  /** Presigned PUT urls (+ the timestamp the broker minted) to save one
+   *  annotation pair for `imageStem` under this session's label. Every
+   *  save is a new timestamped pair; nothing is overwritten. */
+  getSaveUrls: (imageStem: string) => Promise<BrokerSaveUrls>;
+  /** Presigned urls for the stored μSAM embedding of `imageStem` (pinned
+   *  model type): either a GET url if it already exists, or a PUT url to
+   *  upload a freshly computed one. */
+  getEmbeddingUrls: (imageStem: string) => Promise<EmbeddingUrls>;
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
@@ -137,12 +112,6 @@ export interface AnnotationDataService {
    *  encoder features plus the geometry the ONNX decoder needs. Cached per
    *  image URL by the decoder hook. */
   computeMicroSamEmbedding: (imageUrl: string, width: number, height: number) => Promise<MicroSamEmbedding>;
-  /** Check whether a μSAM embedding for this image + pinned model is already
-   *  stored in the session artifact. Returns its presigned GET url when so. */
-  getMicroSamEmbeddingInfo: (imageName: string) => Promise<{ exists: boolean; getUrl: string | null }>;
-  /** Presigned PUT url the μSAM service uploads a freshly computed ``.npz``
-   *  embedding to (session artifact, keyed by image stem + model). */
-  getMicroSamEmbeddingSaveUrl: (imageName: string) => Promise<{ uploadUrl: string; filePath: string }>;
   /** Run the μSAM encoder and have the service write the ``.npz`` straight into
    *  the session artifact via ``embedding_upload_url``. No features returned. */
   computeMicroSamEmbeddingToArtifact: (imageUrl: string, width: number, height: number, uploadUrl: string) => Promise<void>;
@@ -417,10 +386,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
       try {
         // Pull the user's auth token from localStorage so logged-in users
-        // connect into their own Hypha workspace (ws-user-<id>). The
-        // workspace shape is what useHyphaService uses to resolve a stable
-        // per-annotator user_id below. Anonymous booth visitors fall back
-        // to a localStorage anon uuid.
+        // connect into their own Hypha workspace (ws-user-<id>). Anonymous
+        // visitors connect without a token; the broker only allows
+        // unauthenticated reads/writes on public datasets
+        // (colab-rework-plan.md §8).
         let storedToken: string | undefined;
         try {
           const t = window.localStorage.getItem('token');
@@ -430,7 +399,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         } catch {
           // localStorage may be unavailable in private modes; carry on anonymous.
         }
-        const connectCfg: any = { server_url: config.serverUrl };
+        const connectCfg: any = { server_url: HYPHA_SERVER_URL };
         if (storedToken) connectCfg.token = storedToken;
         const server = await hyphaWebsocketClient.connectToServer(connectCfg);
         if (cancelled) {
@@ -440,51 +409,13 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = server;
         console.log('[useHyphaService] Connected to workspace:', server.config.workspace);
 
-        // Derive a stable per-annotator id. Logged-in users get their Hypha
-        // user id (workspace shape ws-user-<id>). Anonymous booth visitors
-        // get a localStorage-backed uuid that persists across reloads on
-        // the same browser, so their per-user mask folder stays consistent.
-        const workspaceName: string = server.config?.workspace || '';
-        let resolvedUserId = '';
-        if (workspaceName.startsWith('ws-user-')) {
-          resolvedUserId = workspaceName.substring('ws-user-'.length);
-        } else {
-          try {
-            const stored = window.localStorage.getItem('bioimage_annot_anon_id');
-            if (stored) {
-              resolvedUserId = stored;
-            } else {
-              const fresh = 'anon-' + Math.random().toString(36).slice(2, 12);
-              window.localStorage.setItem('bioimage_annot_anon_id', fresh);
-              resolvedUserId = fresh;
-            }
-          } catch {
-            resolvedUserId = 'anon-' + Math.random().toString(36).slice(2, 12);
-          }
-        }
-        console.log('[useHyphaService] Resolved annotator user_id:', resolvedUserId);
-
-        const dataService = await server.getService(config.imageProviderId);
-        if (cancelled) return;
-        console.log('[useHyphaService] Got data service:', dataService);
-
-        // Ask the data service which round this user is on. New users get 1;
-        // returning users pick up where they left off.
-        let resolvedInitialRound = 1;
-        try {
-          const cr = await dataService.get_current_round({
-            user_id: resolvedUserId,
-            _rkwargs: true,
-          });
-          const n = cr && (cr.current_round as number);
-          if (typeof n === 'number' && n > 0) {
-            resolvedInitialRound = n;
-          }
-          console.log('[useHyphaService] Initial round:', resolvedInitialRound,
-            '(max existing:', cr?.max_existing_round, ')');
-        } catch (err) {
-          console.warn('[useHyphaService] get_current_round failed, defaulting to 1:', err);
-        }
+        // The session_id in the URL may be a bare alias or a full
+        // workspace/alias; normalize against the connected server's own
+        // workspace (mirrors the pattern in ColabPage.tsx).
+        const artifactId = config.artifactId.includes('/')
+          ? config.artifactId
+          : `${server.config.workspace}/${config.artifactId}`;
+        console.log('[useHyphaService] Resolved artifact id:', artifactId);
 
         // Cellpose service: probe once at connect time. The probe
         // intentionally pins the replica id in sessionStorage so every
@@ -531,91 +462,11 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         }
 
         const wrappedService: AnnotationDataService = {
-          userId: resolvedUserId,
-          initialRound: resolvedInitialRound,
-          getImage: async (round: number) => {
-            const result = await dataService.get_image({
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            // Service returns a dict with status field for terminal states
-            if (result && typeof result === 'object') {
-              const status = (result as any).status;
-              if (status === 'all_annotated') {
-                console.log('[useHyphaService] All images annotated:', result);
-                return result as AllAnnotatedResult;
-              }
-              if (status === 'no_images') {
-                console.log('[useHyphaService] No images available:', result);
-                return result as NoImagesResult;
-              }
-            }
-            // Older versions or different implementations might still return a string
-            if (typeof result === 'string') {
-              console.log('[useHyphaService] Image URL:', result);
-              const name = result.split('/').pop()?.split('?')[0] || 'image.png';
-              return { url: result, name } as ImageResult;
-            }
-            console.log('[useHyphaService] Image Info:', result);
-            return result as ImageResult;
-          },
-          getImageByStem: async (stem: string, round: number) => {
-            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label, 'user:', resolvedUserId, 'round:', round);
-            const result = await dataService.get_image_by_stem({
-              image_stem: stem,
-              label: config.label,
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            if (result && typeof result === 'object' && (result as any).status === 'not_found') {
-              console.warn('[useHyphaService] Image not found:', result);
-              return result as ImageNotFoundResult;
-            }
-            return result as ImageResult;
-          },
-          listImages: async (round: number) => {
-            const result = await dataService.list_images({
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            return (result || []) as ImageInfo[];
-          },
-          getSaveUrls: async (imageName: string, round: number) => {
-            console.log('[useHyphaService] Getting save URLs for:', imageName, 'user:', resolvedUserId, 'round:', round);
-            const urls = await dataService.get_save_urls({
-              image_name: imageName,
-              label: config.label,
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            return urls as SaveUrls;
-          },
-          getMicroSamEmbeddingInfo: async (imageName: string) => {
-            const info = await dataService.get_embedding({
-              image_name: imageName,
-              model_type: MICRO_SAM_MODEL_TYPE,
-              _rkwargs: true,
-            });
-            return {
-              exists: !!info?.exists,
-              getUrl: info?.get_url ?? null,
-            };
-          },
-          getMicroSamEmbeddingSaveUrl: async (imageName: string) => {
-            const res = await dataService.get_embedding_save_url({
-              image_name: imageName,
-              model_type: MICRO_SAM_MODEL_TYPE,
-              _rkwargs: true,
-            });
-            return {
-              uploadUrl: res.upload_url as string,
-              filePath: res.file_path as string,
-            };
-          },
+          getDatasetIndex: async () => withRetry(() => brokerGetDatasetIndex(server, artifactId)),
+          getSaveUrls: async (imageStem: string) =>
+            withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
+          getEmbeddingUrls: async (imageStem: string) =>
+            withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, MICRO_SAM_MODEL_TYPE)),
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
@@ -1065,7 +916,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = null;
       }
     };
-  }, [config?.serverUrl, config?.imageProviderId]);
+  }, [config?.artifactId, config?.label]);
 
   return { service, loading, error, cellposeAvailable, microSamAvailable };
 }

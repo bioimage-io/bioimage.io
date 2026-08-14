@@ -78,6 +78,33 @@ export interface SaveUrls {
   geojson_put_url: string;
 }
 
+/**
+ * Retry *fn* up to `maxAttempts` times with a fixed backoff between
+ * attempts. Unlike `datasetApi.ts`'s `withStageRetry` (which only retries
+ * "not in stage mode" errors), this retries on any error: the broker's own
+ * write-path RPCs already self-heal stage-mode issues internally, but
+ * read-path RPCs (`get_dataset_index`, `get_embedding_urls`) do not, and
+ * broker RPCs in general should tolerate a transient network/Ray hiccup
+ * (colab-rework-plan.md F5).
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  backoffMs = 1000,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxAttempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw lastErr;
+}
+
 let brokerServicePromise: Promise<any> | null = null;
 
 /**

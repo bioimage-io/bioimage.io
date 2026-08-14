@@ -12,7 +12,8 @@ import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
+import { DatasetIndex } from '../components/colab/brokerApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -33,15 +34,6 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const serviceConfig = useMemo<AnnotationServiceConfig | null>(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const serverUrl = searchParams.get('server_url') || searchParams.get('serverUrl');
-    const imageProviderId = searchParams.get('image_provider_id') || searchParams.get('imageProviderId');
-    const label = searchParams.get('label') || undefined;
-    if (!serverUrl || !imageProviderId) return null;
-    return { serverUrl, imageProviderId, label };
-  }, [location.search]);
-
   // Read cellpose model from URL (set by the session owner in the Colab page)
   const cellposeModelId = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -53,6 +45,13 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     const searchParams = new URLSearchParams(location.search);
     return searchParams.get('session_id') || undefined;
   }, [location.search]);
+
+  const serviceConfig = useMemo<AnnotationServiceConfig | null>(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const label = searchParams.get('label');
+    if (!sessionId || !label) return null;
+    return { artifactId: sessionId, label };
+  }, [sessionId, location.search]);
 
   const sessionUrl = useMemo(() => {
     if (!sessionId) return null;
@@ -139,8 +138,8 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   } = useMicroSamDecoder(service);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
-  // Mirror of currentImageName for use inside stable callbacks/effects.
-  const currentImageNameRef = useRef<string | null>(null);
+  // Mirror of currentImageStem for use inside stable callbacks/effects.
+  const currentImageStemRef = useRef<string | null>(null);
   // Per-image memoization of the compute+upload step (the expensive part) so
   // eager-load, AIS, and the box loader all dedupe to a single encode. Presigned
   // GET urls expire, so only the "is it stored" promise is cached here; a fresh
@@ -155,31 +154,30 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // `.npz` this produces.
   const ensureStoredEmbedding = useCallback(
     async (
-      imageName: string,
+      imageStem: string,
       sourceUrl: string,
       width: number,
       height: number,
     ): Promise<string> => {
       if (!service) throw new Error('micro-sam service unavailable');
       const cache = ensuredEmbeddingRef.current;
-      let stored = cache.get(imageName);
+      let stored = cache.get(imageStem);
       if (!stored) {
         stored = (async () => {
-          const info = await service.getMicroSamEmbeddingInfo(imageName);
-          if (info.exists) return;
-          const { uploadUrl } = await service.getMicroSamEmbeddingSaveUrl(imageName);
-          await service.computeMicroSamEmbeddingToArtifact(sourceUrl, width, height, uploadUrl);
+          const urls = await service.getEmbeddingUrls(imageStem);
+          if (urls.exists) return;
+          await service.computeMicroSamEmbeddingToArtifact(sourceUrl, width, height, urls.embedding_put_url);
         })().catch((e) => {
           // Drop the entry so a later box/AIS request retries the encode+upload.
-          cache.delete(imageName);
+          cache.delete(imageStem);
           throw e;
         });
-        cache.set(imageName, stored);
+        cache.set(imageStem, stored);
       }
       await stored;
-      const info = await service.getMicroSamEmbeddingInfo(imageName);
-      if (!info.getUrl) throw new Error('micro-sam embedding is unavailable after upload');
-      return info.getUrl;
+      const urls = await service.getEmbeddingUrls(imageStem);
+      if (!urls.exists) throw new Error('micro-sam embedding is unavailable after upload');
+      return urls.read_url;
     },
     [service],
   );
@@ -228,7 +226,7 @@ print('CLAHE packages ready')
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [currentImageName, setCurrentImageName] = useState<string | null>(null);
+  const [currentImageStem, setCurrentImageStem] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -278,27 +276,44 @@ print('CLAHE packages ready')
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
-  // Current annotation round for this user. Initialised from
-  // service.initialRound once the connection is up (see effect below).
-  // The "Start Round N+1" CTA in the empty state bumps this; every
-  // subsequent save targets the new round folder.
-  const [currentRound, setCurrentRound] = useState<number>(1);
+  // Full broker-index snapshot for this dataset: every image plus this
+  // user's own latest annotation per (label, stem). Drives image picking
+  // and the always-available image browser (colab-rework-plan.md F5).
+  const [datasetIndex, setDatasetIndex] = useState<DatasetIndex | null>(null);
 
-  // Refine flow: when a user picks a previously-annotated image to refine,
-  // we load that image and any existing GeoJSON into the vector source. The
-  // pending GeoJSON lands here first because the vector source ref may not
-  // be available until AnnotationViewer remounts with the new image.
+  // Image picker: lets a user jump to any image in the dataset (already
+  // annotated or not) and reloads their latest GeoJSON for it if one
+  // exists. The pending GeoJSON lands here first because the vector
+  // source ref may not be available until AnnotationViewer remounts with
+  // the new image.
   const [refinePickerOpen, setRefinePickerOpen] = useState(false);
-  const [refineImageList, setRefineImageList] = useState<ImageInfo[]>([]);
-  const [refineLoadingList, setRefineLoadingList] = useState(false);
   const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
 
-  // Keep currentRound in sync with the latest service connection.
+  // Fetch the dataset index once the broker connection is up.
   useEffect(() => {
-    if (service?.initialRound && service.initialRound > 0) {
-      setCurrentRound(service.initialRound);
-    }
-  }, [service]);
+    if (!service) return;
+    let cancelled = false;
+    service.getDatasetIndex()
+      .then((index) => {
+        if (!cancelled) setDatasetIndex(index);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          console.error('[AnnotatePage] Failed to load dataset index:', err);
+          setError(err.message || 'Failed to load dataset index');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [service, setError]);
+
+  // Pick a random stem from `index` that this user hasn't annotated yet
+  // under `label`. Returns null when everything is annotated.
+  const pickNextUnannotated = useCallback((index: DatasetIndex, label: string): string | null => {
+    const annotated = index.my_annotations[label] || {};
+    const remaining = index.images.filter((img) => !annotated[img.stem]);
+    if (remaining.length === 0) return null;
+    return remaining[Math.floor(Math.random() * remaining.length)].stem;
+  }, []);
 
   // Detect low contrast by sampling luminance values from the loaded image.
   // Returns true when the 5th–95th percentile luminance range is below 60/255.
@@ -327,8 +342,19 @@ print('CLAHE packages ready')
     }
   }, []);
 
-  const loadNewImage = useCallback(async (showBanner = true) => {
-    if (!service) return;
+  // Load one image by stem: fetches its pixels from the index's presigned
+  // read url, then stages this user's latest existing GeoJSON for that
+  // (label, stem) pair (if any) so it can be re-applied to the vector
+  // source once AnnotationViewer remounts. `index` is passed explicitly
+  // (rather than read from the `datasetIndex` state) so a caller that just
+  // refetched a fresh index doesn't race the state update.
+  const loadImageByStem = useCallback(async (index: DatasetIndex, stem: string, showBanner = true) => {
+    if (!service || !serviceConfig) return;
+    const imageEntry = index.images.find((img) => img.stem === stem);
+    if (!imageEntry) {
+      addBanner(`Image "${stem}" was not found in this dataset`, 'warning', 5000);
+      return;
+    }
     setIsLoadingImage(true);
     setError(null);
     setAllAnnotatedInfo(null);
@@ -336,37 +362,11 @@ print('CLAHE packages ready')
     setIsCLAHEActive(false);
     setIsLowContrast(false);
     setOriginalImageUrl(null);
-    console.log('[AnnotatePage] Loading new image for round', currentRound);
-    const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
+    setPendingGeoJSON(null);
+    const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
-      const result = await service.getImage(currentRound);
-
-      // Check for terminal status responses
-      if (result && typeof result === 'object' && 'status' in result) {
-        if (result.status === 'all_annotated') {
-          console.log('[AnnotatePage] All images annotated:', result);
-          setAllAnnotatedInfo(result as AllAnnotatedResult);
-          setHasLoadedOnce(true);
-          return;
-        }
-        if (result.status === 'no_images') {
-          console.log('[AnnotatePage] No images available:', result);
-          setNoImagesInfo(result as NoImagesResult);
-          setHasLoadedOnce(true);
-          return;
-        }
-      }
-
-      const imageResult = result as { url: string; name: string; cellpose_model?: string };
-      const url = imageResult.url;
-      const imageName = imageResult.name || url.split('/').pop()?.split('?')[0] || 'image.png';
-
-      if (imageResult.cellpose_model) {
-        setDynamicCellposeModel(imageResult.cellpose_model);
-      }
-
-      console.log('[AnnotatePage] Got image URL for:', imageName);
-      setCurrentImageName(imageName);
+      const url = imageEntry.read_url;
+      setCurrentImageStem(stem);
 
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -379,68 +379,11 @@ print('CLAHE packages ready')
       setIsLowContrast(detectLowContrast(img));
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
-    } catch (err: any) {
-      console.error('[AnnotatePage] Image load failed:', err);
-      setError(err.message || 'Failed to load image');
-    } finally {
-      setIsLoadingImage(false);
-      if (bannerId) removeBanner(bannerId);
-    }
-  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
-  // Load the first image once the service is ready
-  useEffect(() => {
-    if (!service || hasLoadedOnce) return;
-    setIsLoading(true);
-    loadNewImage(false).finally(() => setIsLoading(false));
-  }, [service, hasLoadedOnce, loadNewImage, setIsLoading]);
-
-  // Load a specific image (by stem) for refinement. Replaces the current
-  // image and stages any existing GeoJSON so it can be re-applied to the
-  // vector source once AnnotationViewer remounts.
-  const loadSpecificImage = useCallback(async (stem: string) => {
-    if (!service) return;
-    setIsLoadingImage(true);
-    setError(null);
-    setAllAnnotatedInfo(null);
-    setNoImagesInfo(null);
-    setIsCLAHEActive(false);
-    setIsLowContrast(false);
-    setOriginalImageUrl(null);
-    setPendingGeoJSON(null);
-    const bannerId = addBanner('Loading image for refinement...', 'loading', 0);
-    try {
-      const result = await service.getImageByStem(stem, currentRound);
-      if ('status' in result && result.status === 'not_found') {
-        addBanner(result.message, 'warning', 5000);
-        return;
-      }
-      const imageResult = result as { url: string; name: string; existing_geojson_url?: string | null; cellpose_model?: string };
-      const url = imageResult.url;
-      const imageName = imageResult.name || stem;
-
-      if (imageResult.cellpose_model) {
-        setDynamicCellposeModel(imageResult.cellpose_model);
-      }
-
-      setCurrentImageName(imageName);
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Failed to load image'));
-      });
-      setIsLowContrast(detectLowContrast(img));
-      setImageInfo(url, img.naturalWidth, img.naturalHeight);
-      setHasLoadedOnce(true);
-
-      // Pre-fetch existing GeoJSON so it can be applied once the vector
-      // source is ready (see effect below).
-      if (imageResult.existing_geojson_url) {
+      const existing = index.my_annotations[serviceConfig.label]?.[stem];
+      if (existing?.geojson_read_url) {
         try {
-          const res = await fetch(imageResult.existing_geojson_url);
+          const res = await fetch(existing.geojson_read_url);
           if (res.ok) {
             const data = await res.json();
             setPendingGeoJSON(data);
@@ -452,13 +395,73 @@ print('CLAHE packages ready')
         }
       }
     } catch (err: any) {
-      console.error('[AnnotatePage] loadSpecificImage failed:', err);
+      console.error('[AnnotatePage] loadImageByStem failed:', err);
       setError(err.message || 'Failed to load image');
     } finally {
       setIsLoadingImage(false);
-      removeBanner(bannerId);
+      if (bannerId) removeBanner(bannerId);
     }
-  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+  }, [service, serviceConfig, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+
+  // Once the dataset index is in, pick an unannotated image (or show a
+  // terminal state) and load it. Runs once per page load.
+  useEffect(() => {
+    if (!datasetIndex || hasLoadedOnce || !serviceConfig) return;
+    if (datasetIndex.images.length === 0) {
+      setNoImagesInfo({ status: 'no_images', message: 'This dataset has no images yet.' });
+      setHasLoadedOnce(true);
+      return;
+    }
+    const stem = pickNextUnannotated(datasetIndex, serviceConfig.label);
+    if (!stem) {
+      const annotatedCount = Object.keys(datasetIndex.my_annotations[serviceConfig.label] || {}).length;
+      setAllAnnotatedInfo({
+        status: 'all_annotated',
+        total: datasetIndex.images.length,
+        annotated: annotatedCount,
+        label: serviceConfig.label,
+        message: `You have annotated all ${datasetIndex.images.length} image${datasetIndex.images.length !== 1 ? 's' : ''} for "${serviceConfig.label}".`,
+      });
+      setHasLoadedOnce(true);
+      return;
+    }
+    setIsLoading(true);
+    loadImageByStem(datasetIndex, stem, false).finally(() => setIsLoading(false));
+  }, [datasetIndex, hasLoadedOnce, serviceConfig, pickNextUnannotated, loadImageByStem, setIsLoading]);
+
+  // Refetch the dataset index and load the next unannotated image (or show
+  // a terminal state). Called after a save and from the "Retry"/"Check for
+  // new images" actions, so newly added images or teammates' progress are
+  // picked up without a full page reload.
+  const advanceToNextImage = useCallback(async () => {
+    if (!service || !serviceConfig) return;
+    try {
+      const index = await service.getDatasetIndex();
+      setDatasetIndex(index);
+      if (index.images.length === 0) {
+        setNoImagesInfo({ status: 'no_images', message: 'This dataset has no images yet.' });
+        return;
+      }
+      const stem = pickNextUnannotated(index, serviceConfig.label);
+      if (!stem) {
+        const annotatedCount = Object.keys(index.my_annotations[serviceConfig.label] || {}).length;
+        setAllAnnotatedInfo({
+          status: 'all_annotated',
+          total: index.images.length,
+          annotated: annotatedCount,
+          label: serviceConfig.label,
+          message: `You have annotated all ${index.images.length} image${index.images.length !== 1 ? 's' : ''} for "${serviceConfig.label}".`,
+        });
+        return;
+      }
+      setAllAnnotatedInfo(null);
+      setNoImagesInfo(null);
+      await loadImageByStem(index, stem);
+    } catch (err: any) {
+      console.error('[AnnotatePage] Failed to advance to next image:', err);
+      setError(err.message || 'Failed to load next image');
+    }
+  }, [service, serviceConfig, pickNextUnannotated, loadImageByStem, setError]);
 
   // Apply pending GeoJSON once both the data and the vector source are ready.
   useEffect(() => {
@@ -479,26 +482,17 @@ print('CLAHE packages ready')
     }
   }, [pendingGeoJSON, getVectorSource, imageHeight, activeLabel, addBanner]);
 
-  // Open the refine picker and fetch the image list.
-  const handleOpenRefinePicker = useCallback(async () => {
-    if (!service) return;
+  // Open the image picker. The dataset index is already loaded, so this is
+  // just a visibility toggle.
+  const handleOpenRefinePicker = useCallback(() => {
     setRefinePickerOpen(true);
-    setRefineLoadingList(true);
-    try {
-      const list = await service.listImages(currentRound);
-      setRefineImageList(list);
-    } catch (err: any) {
-      console.error('[AnnotatePage] Failed to list images:', err);
-      addBanner('Failed to load image list: ' + (err.message || 'unknown error'), 'error', 8000);
-    } finally {
-      setRefineLoadingList(false);
-    }
-  }, [service, currentRound, addBanner]);
+  }, []);
 
   const handlePickRefineImage = useCallback((stem: string) => {
     setRefinePickerOpen(false);
-    loadSpecificImage(stem);
-  }, [loadSpecificImage]);
+    if (!datasetIndex) return;
+    loadImageByStem(datasetIndex, stem);
+  }, [datasetIndex, loadImageByStem]);
 
   // Cellpose feature-replacement helper: removes everything we added on the
   // previous run/preview and stamps in the new polygons. Non-Cellpose
@@ -540,10 +534,10 @@ print('CLAHE packages ready')
   }, [imageUrl, originalImageUrl, resetSamDecoder]);
 
   // Keep the ref in sync so the stable box embedding loader can read the current
-  // image name without being torn down and re-registered on every image switch.
+  // image stem without being torn down and re-registered on every image switch.
   useEffect(() => {
-    currentImageNameRef.current = currentImageName;
-  }, [currentImageName]);
+    currentImageStemRef.current = currentImageStem;
+  }, [currentImageStem]);
 
   // Eagerly compute + store the μSAM embedding as soon as an image is ready so
   // the first box draw and the first AIS run reuse it instead of each encoding
@@ -551,14 +545,14 @@ print('CLAHE packages ready')
   // reloads of the same image a no-op, so this only fires once per image.
   useEffect(() => {
     if (!microSamAvailable || !service) return;
-    if (!currentImageName || imageWidth <= 0 || imageHeight <= 0) return;
+    if (!currentImageStem || imageWidth <= 0 || imageHeight <= 0) return;
     const sourceUrl = originalImageUrl || imageUrl;
     if (!sourceUrl) return;
     // Already computing/computed for this image: skip the extra round-trip and
     // the banner flicker (box/AIS fetch their own fresh url when needed).
-    if (ensuredEmbeddingRef.current.has(currentImageName)) return;
+    if (ensuredEmbeddingRef.current.has(currentImageStem)) return;
     const bannerId = addBanner('Preparing micro-sam...', 'loading', 0);
-    ensureStoredEmbedding(currentImageName, sourceUrl, imageWidth, imageHeight)
+    ensureStoredEmbedding(currentImageStem, sourceUrl, imageWidth, imageHeight)
       .catch((e) => {
         // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
         console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
@@ -566,7 +560,7 @@ print('CLAHE packages ready')
       .finally(() => removeBanner(bannerId));
     return () => removeBanner(bannerId);
   }, [
-    microSamAvailable, service, currentImageName, imageWidth, imageHeight,
+    microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
     imageUrl, originalImageUrl, ensureStoredEmbedding, addBanner, removeBanner,
   ]);
 
@@ -575,9 +569,9 @@ print('CLAHE packages ready')
   useEffect(() => {
     if (!service) return;
     setEmbeddingLoader(async (url, width, height) => {
-      const name = currentImageNameRef.current;
-      if (!name) throw new Error('no active image for micro-sam');
-      const npzUrl = await ensureStoredEmbedding(name, url, width, height);
+      const stem = currentImageStemRef.current;
+      if (!stem) throw new Error('no active image for micro-sam');
+      const npzUrl = await ensureStoredEmbedding(stem, url, width, height);
       return service.loadMicroSamEmbedding(npzUrl);
     });
     return () => setEmbeddingLoader(null);
@@ -748,7 +742,7 @@ print('CLAHE packages ready')
           // Reuse the precomputed embedding: AIS runs fully server-side from the
           // stored `.npz` link (the browser never pulls the ~4 MB features).
           const npzUrl = await ensureStoredEmbedding(
-            currentImageName ?? sourceUrl,
+            currentImageStem ?? sourceUrl,
             sourceUrl,
             imageWidth,
             imageHeight,
@@ -841,7 +835,7 @@ print('CLAHE packages ready')
     }
   }, [
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
-    cellposeConfig, isCLAHEActive, kernelReady, currentImageName,
+    cellposeConfig, isCLAHEActive, kernelReady, currentImageStem,
     ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
     getVectorSource, pushUndo, addBanner, removeBanner,
   ]);
@@ -895,29 +889,27 @@ print('CLAHE packages ready')
     if (features.length === 0) {
       console.log('[AnnotatePage] No annotations to save, skipping');
       addBanner('No annotations to save, skipping', 'warning', 5000);
-      await loadNewImage();
+      await advanceToNextImage();
       return;
     }
+
+    if (!service || !currentImageStem) return;
 
     console.log('[AnnotatePage] Saving', features.length, 'annotations...');
     setIsSaving(true);
     const saveBannerId = addBanner('Saving annotation...', 'loading', 0);
     try {
-      const imageName = currentImageName || imageUrl?.split('/').pop()?.split('?')[0] || 'annotation.png';
+      const saveUrls = await service.getSaveUrls(currentImageStem);
+      console.log('[AnnotatePage] Got save URLs, timestamp:', saveUrls.timestamp);
 
-      if (service) {
-        const saveUrls = await service.getSaveUrls(imageName, currentRound);
-        console.log('[AnnotatePage] Got save URLs for:', saveUrls.image_stem);
+      const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
+      const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+      await fetch(saveUrls.geojson_put_url, { method: 'PUT', body: geojsonBlob });
+      console.log('[AnnotatePage] Uploaded GeoJSON');
 
-        const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
-        const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
-        await fetch(saveUrls.geojson_url, { method: 'PUT', body: geojsonBlob });
-        console.log('[AnnotatePage] Uploaded GeoJSON');
-
-        const pngBlob = renderInstanceSegmentationPNG(vs, imageWidth, imageHeight);
-        await fetch(saveUrls.png_url, { method: 'PUT', body: pngBlob });
-        console.log('[AnnotatePage] Uploaded PNG mask');
-      }
+      const pngBlob = renderInstanceSegmentationPNG(vs, imageWidth, imageHeight);
+      await fetch(saveUrls.png_put_url, { method: 'PUT', body: pngBlob });
+      console.log('[AnnotatePage] Uploaded PNG mask');
 
       removeBanner(saveBannerId);
       addBanner('Annotation saved successfully', 'success', 5000);
@@ -925,7 +917,7 @@ print('CLAHE packages ready')
 
       vs.clear();
       useAnnotationStore.setState({ undoStack: [], canUndo: false });
-      await loadNewImage();
+      await advanceToNextImage();
     } catch (err: any) {
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Save failed:', fullError);
@@ -935,7 +927,7 @@ print('CLAHE packages ready')
     } finally {
       setIsSaving(false);
     }
-  }, [service, currentRound, imageUrl, originalImageUrl, imageWidth, imageHeight, currentImageName, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
+  }, [service, currentImageStem, imageWidth, imageHeight, setError, getVectorSource, advanceToNextImage, addBanner, removeBanner]);
 
   const handleUndo = useCallback(() => {
     console.log('[AnnotatePage] Undo triggered');
@@ -1231,7 +1223,7 @@ print("CLAHE_RESULT:" + result_b64)
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', p: 4 }}>
         <Alert severity="warning">
-          Missing service configuration. URL must include <code>server_url</code> and <code>image_provider_id</code> parameters.
+          Missing service configuration. URL must include <code>session_id</code> and <code>label</code> parameters.
         </Alert>
       </Box>
     );
@@ -1306,11 +1298,6 @@ print("CLAHE_RESULT:" + result_b64)
               {serviceConfig.label}
             </span>
           )}
-          <Tooltip title="Annotation round. Each round saves to its own subfolder so multiple passes never overwrite each other.">
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300 tracking-wide">
-              Round {currentRound}
-            </span>
-          </Tooltip>
         </div>
 
         <div className="z-10 flex-shrink-0">
@@ -1331,7 +1318,7 @@ print("CLAHE_RESULT:" + result_b64)
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
         onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
-        imageName={currentImageName || undefined}
+        imageName={currentImageStem || undefined}
         cellposeModel={activeCellposeModel}
         cellposeAvailable={cellposeAvailable}
         microSamAvailable={microSamAvailable}
@@ -1425,7 +1412,7 @@ print("CLAHE_RESULT:" + result_b64)
             >
               <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={600} gutterBottom>
-                All Images Annotated for Round {currentRound}
+                All Images Annotated
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
@@ -1434,16 +1421,10 @@ print("CLAHE_RESULT:" + result_b64)
                 <MuiButton
                   variant="contained"
                   color="primary"
-                  onClick={() => {
-                    const nextRound = currentRound + 1;
-                    setCurrentRound(nextRound);
-                    setAllAnnotatedInfo(null);
-                    addBanner(`Starting round ${nextRound}`, 'info', 4000);
-                    loadNewImage(false);
-                  }}
+                  onClick={() => advanceToNextImage()}
                   sx={{ textTransform: 'none' }}
                 >
-                  Start Round {currentRound + 1}
+                  Check for new images
                 </MuiButton>
                 <MuiButton
                   variant="outlined"
@@ -1451,7 +1432,7 @@ print("CLAHE_RESULT:" + result_b64)
                   onClick={handleOpenRefinePicker}
                   sx={{ textTransform: 'none' }}
                 >
-                  Refine round {currentRound}
+                  Browse images
                 </MuiButton>
               </Box>
             </Box>
@@ -1486,7 +1467,7 @@ print("CLAHE_RESULT:" + result_b64)
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {noImagesInfo.message}
               </Typography>
-              <MuiButton variant="outlined" onClick={() => loadNewImage()}>
+              <MuiButton variant="outlined" onClick={() => advanceToNextImage()}>
                 Retry
               </MuiButton>
             </Box>
@@ -1563,40 +1544,44 @@ print("CLAHE_RESULT:" + result_b64)
         fullWidth
       >
         <DialogTitle>
-          Pick an annotated image to refine
+          Browse images
         </DialogTitle>
         <DialogContent dividers sx={{ p: 0 }}>
-          {refineLoadingList ? (
+          {!datasetIndex ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
               <CircularProgress size={28} />
             </Box>
-          ) : refineImageList.length === 0 ? (
+          ) : datasetIndex.images.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                No images in this session.
+                No images in this dataset.
               </Typography>
             </Box>
           ) : (
             <List dense sx={{ maxHeight: 360, overflowY: 'auto' }}>
-              {refineImageList.map((img) => (
-                <ListItemButton
-                  key={img.stem}
-                  onClick={() => handlePickRefineImage(img.stem)}
-                  disabled={!img.is_annotated}
-                >
-                  <ListItemIcon sx={{ minWidth: 36 }}>
-                    {img.is_annotated ? (
-                      <CheckCircleOutlineIcon sx={{ color: 'success.main', fontSize: 20 }} />
-                    ) : (
-                      <Box sx={{ width: 20, height: 20 }} />
-                    )}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={img.name}
-                    secondary={img.is_annotated ? 'Annotated' : 'Not annotated'}
-                  />
-                </ListItemButton>
-              ))}
+              {datasetIndex.images.map((img) => {
+                const isAnnotated = Boolean(
+                  serviceConfig && datasetIndex.my_annotations[serviceConfig.label]?.[img.stem],
+                );
+                return (
+                  <ListItemButton
+                    key={img.stem}
+                    onClick={() => handlePickRefineImage(img.stem)}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>
+                      {isAnnotated ? (
+                        <CheckCircleOutlineIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                      ) : (
+                        <Box sx={{ width: 20, height: 20 }} />
+                      )}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={img.stem}
+                      secondary={isAnnotated ? 'Annotated' : 'Not annotated'}
+                    />
+                  </ListItemButton>
+                );
+              })}
             </List>
           )}
         </DialogContent>
