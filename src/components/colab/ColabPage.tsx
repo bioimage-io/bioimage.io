@@ -8,6 +8,7 @@ import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
 import TrainingModal from './TrainingModal';
 import ImageViewer, { SplitInfo } from './ImageViewer';
+import DatasetList from './DatasetList';
 import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton from '../LoginButton';
@@ -790,7 +791,16 @@ print("Service registered successfully", end='')
               </p>
             </div>
             {/* Kernel Status */}
-            <div className="flex-1 flex justify-end">
+            <div className="flex-1 flex justify-end items-center gap-3">
+              <button
+                onClick={() => setShowGuideModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-purple-200 bg-white/80 text-purple-700 text-xs font-medium hover:bg-purple-50 transition-colors shadow-sm"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Guide
+              </button>
               <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm transition-all ${
                 kernelStatus === 'idle' ? 'bg-emerald-50 border-emerald-200' :
                 kernelStatus === 'busy' ? 'bg-amber-50 border-amber-200' :
@@ -839,8 +849,8 @@ print("Service registered successfully", end='')
           </div>
         )}
 
-        {/* Workflow Steps - compact once a session is active so the viewer below gets the real estate */}
-        {(() => {
+        {/* Workflow Steps - only once a dataset is open; the landing state below (F2) is its own entry point */}
+        {dataArtifactId && (() => {
           const sessionActive = !!dataArtifactId;
           const containerPad = sessionActive ? 'p-3' : 'p-6';
           const containerMargin = sessionActive ? 'mb-4' : 'mb-8';
@@ -962,63 +972,12 @@ print("Service registered successfully", end='')
               }}
             />
           ) : (
-            <div className="h-full bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60 shadow-md flex flex-col overflow-hidden">
-              {/* Empty State */}
-              <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
-                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-purple-100 via-pink-100 to-blue-100 flex items-center justify-center mb-6 shadow-lg">
-                  <svg className="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-2">
-                  No Active Session
-                </h3>
-                <p className="text-gray-600 mb-8 max-w-md">
-                  Click "Start Session" above to create a new annotation session or resume an existing one.
-                </p>
-
-                {/* Guide Link */}
-                <button
-                  onClick={() => setShowGuideModal(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Learn how it works
-                </button>
-              </div>
-
-              {/* Footer Feature List */}
-              <div className="border-t border-gray-200/60 bg-gradient-to-r from-gray-50 to-purple-50/30 px-8 py-4">
-                <div className="flex items-center justify-center gap-8 text-sm">
-                  <div className="flex items-center gap-2 text-purple-600">
-                    <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                    </div>
-                    <span className="font-medium">Collaborative</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-pink-600">
-                    <div className="w-6 h-6 rounded-lg bg-pink-100 flex items-center justify-center">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>
-                    </div>
-                    <span className="font-medium">AI-Powered</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                      </svg>
-                    </div>
-                    <span className="font-medium">Browser-Based</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <DatasetList
+              user={user}
+              server={server}
+              artifactManager={artifactManager}
+              onRequireLogin={() => setShowLoginRequiredDialog(true)}
+            />
           )}
         </div>
 

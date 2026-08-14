@@ -1,5 +1,21 @@
 import React, { useState, useEffect } from 'react';
 
+// Shared with DatasetCard (colab-rework-plan.md F2) for label badge colors,
+// and with the mask recoloring below, so a label's badge and its instance
+// colors in the annotated view draw from the same set.
+export const LABEL_PALETTE: Array<[number, number, number]> = [
+  [37, 99, 235],
+  [147, 51, 234],
+  [219, 39, 119],
+  [22, 163, 74],
+  [234, 88, 12],
+  [220, 38, 38],
+  [202, 138, 4],
+  [6, 182, 212],
+  [139, 92, 246],
+  [244, 63, 94],
+];
+
 // Recolors a label-id-encoded mask PNG (label id packed into the red/green
 // channels as `(r << 8) | g`) using a fixed palette, entirely client-side via
 // a canvas. Shared by ImageViewer (session dashboard) and the dataset
