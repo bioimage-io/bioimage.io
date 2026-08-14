@@ -20,6 +20,7 @@ import {
 import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
 import LabelManager from './LabelManager';
 import LabelStatsChart from './LabelStatsChart';
+import AnnotationStatsView from './AnnotationStatsView';
 import SharingPanel from './SharingPanel';
 import LabelSelectDialog from './LabelSelectDialog';
 import TrainingModal from './TrainingModal';
@@ -129,6 +130,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [imageUrl, setImageUrl] = useState('');
   const [pairs, setPairs] = useState<AnnotationPair[]>([]);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [statsViewOpen, setStatsViewOpen] = useState(false);
   const [browserIndex, setBrowserIndex] = useState(0);
   const [labelUsers, setLabelUsers] = useState<Record<string, LabelUserRef>>({});
   const [annotationUrl, setAnnotationUrl] = useState('');
@@ -347,28 +349,6 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [artifactManager, artifactId, currentPair]);
-
-  const handleDeleteImage = async () => {
-    if (!selectedStem) return;
-    const row = imageRows.find((r) => r.stem === selectedStem);
-    if (!row) return;
-    if (!row.isCloud) {
-      // Nothing uploaded yet for this stem, just forget the pending local upload.
-      setLocalImages((prev) => prev.filter((i) => i.stem !== selectedStem));
-      setSelectedStem(null);
-      return;
-    }
-    if (!window.confirm(`Delete image "${selectedStem}" and all of its annotations? This cannot be undone.`)) {
-      return;
-    }
-    try {
-      await deleteImageEverywhere(artifactManager, artifactId, selectedStem);
-      setSelectedStem(null);
-      handleRefresh();
-    } catch (err) {
-      setError((err as Error).message || 'Failed to delete image.');
-    }
-  };
 
   // colab-rework-plan.md §11 item 2: mounting a folder never uploads
   // anything by itself, it only registers the Python data-provider service
@@ -674,25 +654,12 @@ print("Service registered successfully", end='')
         >
           Refresh
         </button>
-        <button
-          onClick={handleDeleteImage}
-          disabled={!selectedStem}
-          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
-        >
-          Delete image
-        </button>
         <a
           href={downloadZipUrl}
           className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
         >
           Download ZIP
         </a>
-        <button
-          onClick={() => setShowAnnotateDialog(true)}
-          className="px-3.5 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 text-sm font-medium transition-colors"
-        >
-          Annotate
-        </button>
         <button
           onClick={() => setShowTrainingModal(true)}
           disabled={!selectedLabel}
@@ -735,53 +702,64 @@ print("Service registered successfully", end='')
               <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
             ) : (
               imageRows.map((row) => (
-                <button
-                  key={row.stem}
-                  onClick={() => handleSelectImage(row)}
-                  className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
-                    selectedStem === row.stem
-                      ? 'bg-purple-50 border-l-2 border-purple-500'
-                      : 'hover:bg-gray-50 border-l-2 border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center flex-1 min-w-0 gap-2">
-                    {row.isCloud ? (
-                      <div
-                        className="group relative shrink-0 cursor-pointer active:scale-90 transition-transform"
-                        onClick={(e) => handleDeleteCloudImage(row.stem, e)}
-                        title="Delete image from the dataset"
-                      >
-                        <svg className="w-4 h-4 text-blue-500 group-hover:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div key={row.stem} className="group relative">
+                  <button
+                    onClick={() => handleSelectImage(row)}
+                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
+                      selectedStem === row.stem
+                        ? 'bg-purple-50 border-l-2 border-purple-500'
+                        : 'hover:bg-gray-50 border-l-2 border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center flex-1 min-w-0 gap-2">
+                      {row.isCloud ? (
+                        <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                         </svg>
-                        <svg className="w-4 h-4 text-red-500 hidden group-hover:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </div>
-                    ) : uploadingStems.has(row.stem) ? (
-                      <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
-                    ) : (
-                      <div
-                        className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          uploadSingleImage({ stem: row.stem, format: row.format! });
-                        }}
-                        title="Upload to the dataset"
+                      ) : uploadingStems.has(row.stem) ? (
+                        <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
+                      ) : (
+                        <div
+                          className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            uploadSingleImage({ stem: row.stem, format: row.format! });
+                          }}
+                          title="Upload to the dataset"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-700 truncate">{row.stem}</span>
+                    </div>
+                    {row.isCloud && annotatedStems.has(row.stem) && (
+                      <svg
+                        className={`w-4 h-4 text-emerald-500 shrink-0 transition-opacity ${
+                          row.isCloud ? 'group-hover:opacity-0' : ''
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                      </div>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
                     )}
-                    <span className="text-sm text-gray-700 truncate">{row.stem}</span>
-                  </div>
-                  {row.isCloud && annotatedStems.has(row.stem) && (
-                    <svg className="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
+                  </button>
+                  {row.isCloud && (
+                    <button
+                      onClick={(e) => handleDeleteCloudImage(row.stem, e)}
+                      title="Delete image from the dataset"
+                      aria-label="Delete image from the dataset"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
+                    >
+                      <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   )}
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -789,8 +767,20 @@ print("Service registered successfully", end='')
 
         {/* Center: preview + annotation browser */}
         <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col">
+          {selectedLabel && (
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => setStatsViewOpen((v) => !v)}
+                className="text-xs font-medium text-purple-600 hover:text-purple-700 transition-colors"
+              >
+                {statsViewOpen ? 'Show image preview' : 'Show annotation stats'}
+              </button>
+            </div>
+          )}
           <div className="flex-1 min-h-[360px] flex items-center justify-center bg-gray-50 rounded-xl overflow-hidden">
-            {selectedStem ? (
+            {statsViewOpen && selectedLabel ? (
+              <AnnotationStatsView images={images ?? []} stats={labelStats} label={selectedLabel} />
+            ) : selectedStem ? (
               imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
                 <ImagePreview
                   viewMode={browserOpen ? 'annotated' : 'raw'}
@@ -816,7 +806,7 @@ print("Service registered successfully", end='')
             )}
           </div>
 
-          {selectedStem && selectedLabel && (
+          {selectedStem && selectedLabel && !statsViewOpen && (
             <div className="mt-3 border-t border-gray-100 pt-3">
               <button
                 onClick={() => setBrowserOpen((v) => !v)}
