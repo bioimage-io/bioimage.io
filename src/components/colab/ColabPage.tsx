@@ -11,6 +11,7 @@ import ImageViewer, { SplitInfo } from './ImageViewer';
 import TrainingPage from '../../pages/TrainingPage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton from '../LoginButton';
+import { SUPPORTED_IMAGE_EXTENSIONS } from './imageFormats';
 
 const ColabPageContent: React.FC = () => {
   const navigate = useNavigate();
@@ -138,30 +139,8 @@ except Exception as e:
   };
 
   // Supported file types
-  const [supportedFileTypes, setSupportedFileTypes] = useState<string[]>([]);
+  const supportedFileTypes = SUPPORTED_IMAGE_EXTENSIONS;
   const [resumeArtifactId, setResumeArtifactId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadSupportedTypes = async () => {
-      try {
-        const response = await fetch(`${process.env.PUBLIC_URL}/colab_service.py`);
-        const text = await response.text();
-        const match = text.match(/class ImageFormat\(str, Enum\):([\s\S]*?)(?=\n\n|\n[a-zA-Z])/);
-        if (match) {
-          const enumContent = match[1];
-          const typeMatches = enumContent.matchAll(/=\s*"([^"]+)"/g);
-          const types = Array.from(typeMatches).map(m => '.' + m[1]);
-          setSupportedFileTypes(types);
-        } else {
-          throw new Error('Could not find ImageFormat enum in colab_service.py');
-        }
-      } catch (error) {
-        console.error('Failed to load supported file types:', error);
-        alert('Failed to load supported file types: ' + (error as Error).message);
-      }
-    };
-    loadSupportedTypes();
-  }, []);
 
   // Track if we've already loaded the session from URL
   const [hasLoadedUrlSession, setHasLoadedUrlSession] = useState(false);
