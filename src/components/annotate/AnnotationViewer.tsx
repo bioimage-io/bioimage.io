@@ -83,6 +83,7 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   return (
     <Box
       ref={containerRef}
+      data-testid="annotation-viewer"
       sx={{
         flex: 1,
         width: '100%',
