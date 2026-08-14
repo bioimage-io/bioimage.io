@@ -569,6 +569,7 @@ export function useDrawInteraction(
         const draw = new Draw({
           type: 'Circle',
           geometryFunction: createBox(),
+          freehand: true,
           style: SAMBOX_STYLE,
         });
         draw.on('drawend', (e) => {

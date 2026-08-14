@@ -236,6 +236,50 @@ function getImagePixelsCHW(
   });
 }
 
+/** Zero out every pixel except those in the largest 8-connected component,
+ *  so a handful of stray noise pixels can't outweigh the real blob. */
+function largestConnectedComponent(binary: Uint8Array, width: number, height: number): Uint8Array {
+  const visited = new Uint8Array(width * height);
+  let bestIndices: number[] | null = null;
+  const stack: number[] = [];
+
+  for (let start = 0; start < binary.length; start++) {
+    if (binary[start] !== 1 || visited[start]) continue;
+    const componentIndices: number[] = [];
+    stack.length = 0;
+    stack.push(start);
+    visited[start] = 1;
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      componentIndices.push(idx);
+      const cx = idx % width;
+      const cy = (idx / width) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const nIdx = ny * width + nx;
+          if (binary[nIdx] === 1 && !visited[nIdx]) {
+            visited[nIdx] = 1;
+            stack.push(nIdx);
+          }
+        }
+      }
+    }
+    if (!bestIndices || componentIndices.length > bestIndices.length) {
+      bestIndices = componentIndices;
+    }
+  }
+
+  const result = new Uint8Array(width * height);
+  if (bestIndices) {
+    for (const idx of bestIndices) result[idx] = 1;
+  }
+  return result;
+}
+
 /** Convert cellpose mask (2D label array) to polygon contours using marching squares */
 function maskToPolygons(maskData: number[] | Uint16Array | Uint32Array | Float32Array, width: number, height: number): CellposeMask[] {
   // Find unique labels (skip 0 = background)
@@ -248,12 +292,24 @@ function maskToPolygons(maskData: number[] | Uint16Array | Uint32Array | Float32
 
   for (const label of Array.from(labelSet)) {
     // Create binary mask for this label
-    const binary = new Uint8Array(width * height);
+    let binary = new Uint8Array(width * height);
+    for (let i = 0; i < maskData.length; i++) {
+      if (maskData[i] === label) binary[i] = 1;
+    }
+
+    // Restrict to the largest connected component. traceContour always
+    // starts at the first fg pixel found by raster scan (top-left-most) and
+    // stops as soon as it loops back to that start point, so a single
+    // isolated above-threshold noise pixel elsewhere in the frame (common in
+    // the SAM box decoder's raw logit mask, which isn't guaranteed to be one
+    // clean blob) hijacks the trace into a degenerate few-point polygon
+    // instead of the real region.
+    binary = largestConnectedComponent(binary, width, height);
+
     let minX = width, maxX = 0, minY = height, maxY = 0;
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        if (maskData[y * width + x] === label) {
-          binary[y * width + x] = 1;
+        if (binary[y * width + x] === 1) {
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
           minY = Math.min(minY, y);
@@ -304,30 +360,54 @@ function traceContour(binary: Uint8Array, width: number, height: number, minX: n
   };
 
   let x = startX, y = startY;
-  let dir = 0; // start looking up
+  // The raster scan above always finds the start pixel by sweeping left-to-right,
+  // so treat it as if we'd arrived by moving East from its (guaranteed background)
+  // West neighbor - dir=2 (East), matching the dirs[] index below. Starting from
+  // dir=0 searched the wrong neighbor order and could spiral into a degenerate
+  // 2-3 point loop right at the start pixel whenever it was a single-pixel-wide
+  // tip (e.g. the top of a circular blob), instead of following the real boundary.
+  let dir = 2;
   const maxSteps = (maxX - minX + 3) * (maxY - minY + 3) * 2;
   let steps = 0;
+  // Jacob's stopping criterion: remember the first boundary pixel reached from
+  // start, and only stop once we're back at start about to take that exact same
+  // step again - just re-touching the start pixel's coordinates isn't enough,
+  // since a thin protrusion can touch it again mid-trace without having gone
+  // all the way around the shape.
+  let firstX = -1, firstY = -1;
 
   do {
     points.push([x, y]);
     // Find next boundary pixel
     let found = false;
     const searchStart = (dir + 5) % 8; // start searching from dir-3
+    let nx = -1, ny = -1, nd = -1;
     for (let i = 0; i < 8; i++) {
       const d = (searchStart + i) % 8;
-      const nx = x + dirs[d][0];
-      const ny = y + dirs[d][1];
-      if (getPixel(nx, ny) === 1) {
-        x = nx;
-        y = ny;
-        dir = d;
+      const cx = x + dirs[d][0];
+      const cy = y + dirs[d][1];
+      if (getPixel(cx, cy) === 1) {
+        nx = cx;
+        ny = cy;
+        nd = d;
         found = true;
         break;
       }
     }
     if (!found) break;
+
+    if (firstX === -1) {
+      firstX = nx;
+      firstY = ny;
+    } else if (x === startX && y === startY && nx === firstX && ny === firstY) {
+      break;
+    }
+
+    x = nx;
+    y = ny;
+    dir = nd;
     steps++;
-  } while ((x !== startX || y !== startY) && steps < maxSteps);
+  } while (steps < maxSteps);
 
   // Simplify: take every Nth point for large contours
   if (points.length > 200) {

@@ -68,30 +68,51 @@ test.describe('AI Box (micro-sam) tool', () => {
     await expect(viewer).toBeVisible({ timeout: 180000 });
     await expect(viewer.locator('canvas').first()).toBeVisible({ timeout: 60000 });
 
+    // The initial view doesn't reliably land centered on the image (its
+    // fit-to-extent can run before the container has its final size), so
+    // without this the box below can land on empty map canvas instead of
+    // the actual image and never trigger a decode at all. Click twice with a
+    // pause so the second fit runs against a settled container size.
+    await page.locator('[data-tool="fit"]').click();
+    await page.waitForTimeout(1000);
+    await page.locator('[data-tool="fit"]').click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'test-results/ai-box-after-fit.png' });
+
     // AI Box becomes enabled once the embedding + ONNX decoder are ready
     // (12A). Give it generous time for the first-load embedding compute.
     const aiBoxButton = page.locator('[data-tool="sambox"]');
     await expect(aiBoxButton).toBeEnabled({ timeout: 90000 });
     await aiBoxButton.click();
 
+    // Small settle buffer: the tool-select click flips activeTool via a
+    // Zustand setState, and the OL Draw interaction for 'sambox' is
+    // (re)installed inside a plain useEffect, which runs asynchronously
+    // after paint.
+    await page.waitForTimeout(300);
+
     const box = await viewer.boundingBox();
     if (!box) throw new Error('annotation-viewer has no bounding box');
 
-    // Draw a box roughly in the center-ish region of the visible image —
-    // good enough to land on *some* cell in a densely-packed HPA crop.
-    const x1 = box.x + box.width * 0.4;
-    const y1 = box.y + box.height * 0.4;
-    const x2 = box.x + box.width * 0.55;
-    const y2 = box.y + box.height * 0.55;
+    // Draw a box over the upper-left cell body (clearly on a cell, not the
+    // inter-cellular gap that the old 0.4-0.55 center box landed on for this
+    // particular HPA crop) so the resulting mask is checkable against a real
+    // cell rather than background noise.
+    const x1 = box.x + box.width * 0.28;
+    const y1 = box.y + box.height * 0.1;
+    const x2 = box.x + box.width * 0.42;
+    const y2 = box.y + box.height * 0.32;
 
     await page.mouse.move(x1, y1);
     await page.mouse.down();
     await page.mouse.move(x2, y2, { steps: 10 });
     await page.mouse.up();
 
-    // Give the decode round-trip (embedding already loaded, ONNX inference)
-    // a moment, then screenshot for visual/manual review.
-    await page.waitForTimeout(1500);
+    // Give the decode round-trip (embedding compute/upload if not already
+    // cached, plus ONNX inference) real time to finish. A cold embedding
+    // precompute can take well over a second, so wait generously rather than
+    // screenshotting mid-flight.
+    await page.waitForTimeout(15000);
     await page.screenshot({ path: 'test-results/ai-box-debug.png' });
 
     console.log('--- browser console ---');
