@@ -4,6 +4,7 @@ import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip,
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
+import ActionPanel from '../components/annotate/ActionPanel';
 import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
 import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
@@ -1120,17 +1121,6 @@ print("CLAHE_RESULT:" + result_b64)
     }
   }, [imageUrl, originalImageUrl, getImageLayer, executeCode, kernelPackagesInstalled, claheConfig, closeCLAHEDialog, addBanner, removeBanner]);
 
-  const hasCustomCellposeConfig = useMemo(() => {
-    return (
-      cellposeConfig.model !== DEFAULT_CELLPOSE_CONFIG.model ||
-      cellposeConfig.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter ||
-      cellposeConfig.flow_threshold !== DEFAULT_CELLPOSE_CONFIG.flow_threshold ||
-      cellposeConfig.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
-      cellposeConfig.niter !== DEFAULT_CELLPOSE_CONFIG.niter ||
-      cellposeConfig.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area
-    );
-  }, [cellposeConfig]);
-
   const handleSaveUndo = useCallback(() => {
     const vs = getVectorSource?.();
     if (vs) {
@@ -1281,11 +1271,15 @@ print("CLAHE_RESULT:" + result_b64)
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* Compact header with logo and user button */}
+    <Box
+      sx={{ position: 'relative', height: '100vh', overflow: 'hidden' }}
+      style={{ '--annotate-header-h': isMobile ? '48px' : '40px' } as React.CSSProperties}
+    >
+      {/* Floating header bar (Google-Maps-like: spans full width, overlays the
+          fullscreen viewer rather than pushing it down) */}
       <div
-        className="flex items-center justify-between px-3 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
-        style={{ position: 'relative', zIndex: 1000, height: isMobile ? 48 : 40 }}
+        className="flex items-center justify-between px-3 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1200, height: isMobile ? 48 : 40 }}
       >
         <div className="flex items-center gap-2 z-10 flex-shrink-0">
           {sessionUrl && (
@@ -1340,11 +1334,19 @@ print("CLAHE_RESULT:" + result_b64)
         </div>
       </div>
 
-      {/* Main annotation area */}
-      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
+      {/* Fullscreen annotation area — the viewer fills the entire route;
+          tools and actions float on top as separate edge-anchored panels
+          (left/right in landscape, top/bottom in portrait). */}
+      <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
       <ToolBar
-        onRunCellpose={handleRunCellpose}
         onOpenCellposeConfig={openCellposeConfig}
+        cellposeModel={activeCellposeModel}
+        cellposeAvailable={cellposeAvailable}
+        microSamAvailable={microSamAvailable}
+        aiBoxReady={aiBoxReady}
+        isRunningCellpose={isRunningCellpose}
+      />
+      <ActionPanel
         onSave={handleSave}
         onUndo={handleUndo}
         onResetView={() => resetView?.()}
@@ -1354,17 +1356,11 @@ print("CLAHE_RESULT:" + result_b64)
         onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
         imageName={currentImageStem || undefined}
-        cellposeModel={activeCellposeModel}
-        cellposeAvailable={cellposeAvailable}
-        microSamAvailable={microSamAvailable}
-        aiBoxReady={aiBoxReady}
         isSaving={isSaving}
-        isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
         isLowContrast={isLowContrast}
-        hasCustomCellposeConfig={hasCustomCellposeConfig}
       />
-      <Box sx={{ flex: 1, position: 'relative' }}>
+      <Box sx={{ position: 'absolute', inset: 0 }}>
         {imageUrl && !allAnnotatedInfo && !noImagesInfo && (
           <AnnotationViewer
             imageUrl={imageUrl}

@@ -96,7 +96,7 @@ const FloatingBanners: React.FC<FloatingBannersProps> = ({ banners }) => {
       <Box
         sx={{
           position: 'absolute',
-          top: 8,
+          top: 'calc(var(--annotate-header-h, 0px) + 8px)',
           right: 8,
           zIndex: 1200,
           display: 'flex',
