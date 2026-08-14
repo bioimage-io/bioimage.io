@@ -239,13 +239,14 @@ const BioEngineGuide: React.FC = () => {
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
-  const [cpus, setCpus] = useState(2);
-  const [gpus, setGpus] = useState(0);
-  const [memory, setMemory] = useState(10);
+  const [cpus, setCpus] = useState(4);
+  const [gpus, setGpus] = useState(1);
+  const [memory, setMemory] = useState(24);
   const [copied, setCopied] = useState(false);
   const [copiedStep1, setCopiedStep1] = useState(false);
   const [copiedStep2, setCopiedStep2] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showContainerRuntimeInfo, setShowContainerRuntimeInfo] = useState(false);
 
   // Main settings
   const [token, setToken] = useState('');
@@ -277,6 +278,7 @@ const BioEngineGuide: React.FC = () => {
 
   // Kubernetes-specific options
   const [hasPvc, setHasPvc] = useState(false);
+  const [hasSharedRayPvc, setHasSharedRayPvc] = useState(false);
   const [rayWorkspaceDir, setRayWorkspaceDir] = useState('');
   const [k8sNamespace, setK8sNamespace] = useState('');
   // Optional Bearer token for token-protected Ray clusters. Same value is
@@ -1056,57 +1058,46 @@ spec:
             <div className="space-y-4 border-t border-gray-200 pt-4">
 
               {/* Intro */}
-              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                <p className="text-sm font-semibold text-orange-800 mb-1">Starting from an existing Ray cluster</p>
-                <p className="text-sm text-orange-700">
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl border border-blue-200">
+                <p className="text-sm font-semibold text-gray-800 mb-1">Getting started on Kubernetes clusters</p>
+                <p className="text-sm text-gray-700">
                   This mode connects the BioEngine worker to a Ray cluster already running on Kubernetes.
                   If you don't have one yet, follow the{' '}
                   <a
                     href="https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="underline font-medium hover:text-orange-900"
+                    className="underline font-medium hover:text-blue-900"
                   >
                     KubeRay Quick Start Guide
-                  </a>.
+                  </a>. The latest image is <strong>~1.1 GB</strong> and is pulled automatically when the worker pod starts.
                 </p>
               </div>
 
               {/* Note 1: Ray workspace directory */}
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start flex-1 mr-3">
-                    <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="text-sm text-blue-800">
-                      <p className="font-medium">Recommended: mount a shared PVC on your Ray cluster nodes</p>
-                      <p className="text-blue-700 text-xs mt-1">
-                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. Some apps, like <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>, split work across multiple deployments (an entry app that downloads the model and a compute app that runs inference) that communicate through the filesystem. On a multi-node Ray cluster this can fail even with a single instance, since Ray may place those deployments on different nodes. A shared volume across all Ray nodes avoids this.
-                      </p>
+              {!hasSharedRayPvc && (
+                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start flex-1 mr-3">
+                      <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div className="text-sm text-blue-800">
+                        <p className="font-medium">Recommended: mount a shared PVC on your Ray cluster nodes</p>
+                        <p className="text-blue-700 text-xs mt-1">
+                          BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. Some apps, like <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>, split work across multiple deployments (an entry app that downloads the model and a compute app that runs inference) that communicate through the filesystem. On a multi-node Ray cluster this can fail even with a single instance, since Ray may place those deployments on different nodes. A shared volume across all Ray nodes avoids this.
+                        </p>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => setShowRayWorkspaceDirDialog(true)}
+                      className="flex-shrink-0 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      Learn more
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setShowRayWorkspaceDirDialog(true)}
-                    className="flex-shrink-0 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors"
-                  >
-                    Learn more
-                  </button>
                 </div>
-              </div>
-
-              {/* Note 2: PVC for BioEngine workspace dir */}
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-start">
-                  <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm text-blue-800">
-                    <span className="font-medium">Recommended: mount a PVC at the BioEngine Workspace Directory</span>
-                    <span className="text-blue-700">. Worker logs will otherwise be lost when the pod restarts.</span>
-                  </p>
-                </div>
-              </div>
+              )}
 
               {/* Standard configuration fields */}
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
@@ -1162,6 +1153,18 @@ spec:
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
                         type="checkbox"
+                        checked={hasSharedRayPvc}
+                        onChange={(e) => setHasSharedRayPvc(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">I have a shared PVC mounted on all Ray cluster nodes at the Ray Workspace Directory</span>
+                    </label>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
                         checked={hasPvc}
                         onChange={(e) => setHasPvc(e.target.checked)}
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1169,37 +1172,22 @@ spec:
                       <span className="text-sm font-medium text-gray-700">I have a PVC named <code className="bg-gray-100 px-1 rounded">bioengine-pvc</code> available in this namespace</span>
                     </label>
                     <p className="text-xs text-gray-500 mt-1">Mounts the PVC into the <strong>BioEngine worker pod</strong> at <code className="bg-gray-100 px-1 rounded">/home/bioengine</code> to persist worker logs. This is separate from the Ray cluster PVC.</p>
+                    {!hasPvc && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-start">
+                          <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-sm text-blue-800">
+                            <span className="font-medium">Recommended: mount a PVC at the BioEngine Workspace Directory</span>
+                            <span className="text-blue-700">. Worker logs will otherwise be lost when the pod restarts.</span>
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-
-              {/* Auth warning */}
-              {!token && (
-                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    <div className="text-sm text-amber-800">
-                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
-                      <div className="text-amber-700 space-y-1">
-                        {isLoggedIn ? (
-                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
-                        ) : (
-                          <>
-                            <p>An authentication token is required. Either:</p>
-                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
-                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
-                            </ol>
-                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Startup applications */}
               {startupApplicationsSection}
@@ -1339,6 +1327,34 @@ spec:
                   </div>
                 )}
               </div>
+
+              {/* Auth warning */}
+              {!token && (
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                  <div className="flex items-start">
+                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <div className="text-sm text-amber-800">
+                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
+                      <div className="text-amber-700 space-y-1">
+                        {isLoggedIn ? (
+                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
+                        ) : (
+                          <>
+                            <p>An authentication token is required. Either:</p>
+                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
+                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
+                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
+                            </ol>
+                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Build & push a custom image (only when a non-default Ray version is requested) */}
               {rayVersion && (
@@ -1529,99 +1545,24 @@ spec:
           {mode !== 'external-cluster' && (
             <div className="space-y-4">
 
-              {/* Container runtime requirement */}
-              {mode === 'single-machine' && (
-                <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                  <p className="text-sm font-semibold text-orange-800 mb-1">Container runtime required</p>
-                  <p className="text-sm text-orange-700">
-                    BioEngine runs inside a container. Install one of the supported runtimes: <strong>Docker</strong> (most common), <strong>Podman</strong> (rootless alternative), <strong>Apptainer</strong> (HPC, Singularity successor), or <strong>Singularity</strong>. The latest image is ~1.1 GB and will be pulled automatically on first run.
-                  </p>
-                  {gpus > 0 && (
-                    <p className="text-sm text-orange-700 mt-2">
-                      <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-900">installation guide</a>.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Workspace directory info */}
-              {mode === 'single-machine' && (
-                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                  <div className="flex items-start">
-                    <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-sm text-blue-800">
-                      <span className="font-medium">BioEngine Workspace Directory: </span>
-                      <code className="bg-blue-100 px-1 rounded">{workspaceDir || (os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine')}</code>
-                      <span className="text-blue-700 text-xs block mt-1">This directory is created on the host and mounted into the container. It stores apps, logs, and temporary files. Change it in Advanced Options below.</span>
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Authentication Required warning when no token */}
-              {!token && (
-                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    <div className="text-sm text-amber-800">
-                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
-                      <div className="text-amber-700 space-y-1">
-                        {isLoggedIn ? (
-                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
-                        ) : (
-                          <>
-                            <p>An authentication token is required. Either:</p>
-                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
-                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
-                            </ol>
-                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* SLURM info */}
               {mode === 'slurm' && (
                 <>
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                    <p className="text-sm font-semibold text-blue-800 mb-1">HPC Cluster Setup</p>
-                    <p className="text-sm text-blue-700">
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl border border-blue-200">
+                    <p className="text-sm font-semibold text-gray-800 mb-1">Getting started on HPC clusters</p>
+                    <p className="text-sm text-gray-700">
                       Run BioEngine on an HPC cluster managed by SLURM. The head node runs on the login node inside an Apptainer/Singularity container and submits SLURM jobs to scale Ray workers up and down on demand. Please report issues and feedback on <a href="https://github.com/aicell-lab/bioengine/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">GitHub</a>.
                     </p>
-                  </div>
-
-                  {/* Cluster requirements */}
-                  <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                    <p className="text-sm font-semibold text-orange-800 mb-1">Cluster requirements</p>
-                    <ul className="text-sm text-orange-700 list-disc list-inside space-y-1">
-                      <li>Run from a <strong>login node</strong> with <code className="bg-orange-100 px-1 rounded">sbatch</code>, <code className="bg-orange-100 px-1 rounded">squeue</code>, <code className="bg-orange-100 px-1 rounded">scancel</code>, and <code className="bg-orange-100 px-1 rounded">sinfo</code> available.</li>
+                    <p className="text-sm font-medium text-gray-800 mt-3 mb-1">Cluster requirements</p>
+                    <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
+                      <li>Run from a <strong>login node</strong> with <code className="bg-white/60 px-1 rounded">sbatch</code>, <code className="bg-white/60 px-1 rounded">squeue</code>, <code className="bg-white/60 px-1 rounded">scancel</code>, and <code className="bg-white/60 px-1 rounded">sinfo</code> available.</li>
                       <li><strong>Apptainer</strong> or <strong>Singularity</strong> available on both login and compute nodes.</li>
-                      <li>The BioEngine workspace directory must live on a <strong>shared filesystem</strong> visible to every compute node (e.g. <code className="bg-orange-100 px-1 rounded">/proj/...</code> or <code className="bg-orange-100 px-1 rounded">/home/...</code> on most clusters).</li>
+                      <li>The BioEngine workspace directory must live on a <strong>shared filesystem</strong> visible to every compute node (e.g. <code className="bg-white/60 px-1 rounded">/proj/...</code> or <code className="bg-white/60 px-1 rounded">/home/...</code> on most clusters).</li>
                       <li>Your SLURM account/project must have <strong>sufficient allocation</strong> for the requested GPUs and time.</li>
+                      <li>The latest image is <strong>~1.1 GB</strong> and is pulled automatically on the first worker job.</li>
                     </ul>
                   </div>
 
-                  {/* Workspace directory info */}
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                    <div className="flex items-start">
-                      <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <p className="text-sm text-blue-800">
-                        <span className="font-medium">BioEngine Workspace Directory: </span>
-                        <code className="bg-blue-100 px-1 rounded">{workspaceDir || '$HOME/.bioengine'}</code>
-                        <span className="text-blue-700 text-xs block mt-1">Created on the login node, mounted into the head and worker containers. Stores apps, logs, the Apptainer image cache, and Ray temporary files. Must be on a filesystem shared between login and compute nodes. Change it in Advanced Options below.</span>
-                      </p>
-                    </div>
-                  </div>
                 </>
               )}
 
@@ -1719,7 +1660,19 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Container Runtime</label>
+                      <div className="flex items-center gap-1 mb-1">
+                        <label className="block text-sm font-medium text-gray-700">Container Runtime</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowContainerRuntimeInfo(!showContainerRuntimeInfo)}
+                          className="text-gray-400 hover:text-blue-600 transition-colors"
+                          aria-label="Container runtime info"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      </div>
                       <select value={containerRuntime} onChange={(e) => setContainerRuntime(e.target.value as ContainerRuntimeType)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="docker">Docker</option>
@@ -1733,6 +1686,18 @@ spec:
                           : containerRuntime === 'apptainer' ? 'HPC runtime (Singularity successor)'
                           : 'Original HPC runtime'}
                       </p>
+                      {showContainerRuntimeInfo && (
+                        <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-xs text-blue-800">
+                            BioEngine runs inside a container. Make sure the selected container runtime is installed on this machine. The latest image is ~1.1 GB and will be pulled automatically on first run.
+                          </p>
+                          {gpus > 0 && (
+                            <p className="text-xs text-blue-800 mt-2">
+                              <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1743,7 +1708,9 @@ spec:
                           <option key={v} value={v}>{v.replace('g', ' GB')}</option>
                         ))}
                       </select>
-                      <p className="text-xs text-gray-500 mt-1">Increase for large models{(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? ' (uses system shm)' : ''}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Sizes /dev/shm for Ray's object store, shared in-memory data between actors in this container{(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? ' (uses system shm)' : ''}. Independent of the Workspace Directory mount below, which is for persistent files on the host.
+                      </p>
                     </div>
 
                     <div>
@@ -1769,7 +1736,7 @@ spec:
                       <input type="number" min="0" max="512" value={memory}
                         onChange={(e) => setMemory(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">RAM for Ray head node in GB (0 = auto-detect)</p>
+                      <p className="text-xs text-gray-500 mt-1">Total RAM available to Ray on this machine (0 = auto-detect). model-runner and micro-sam need ~16 GB combined, 24 GB leaves headroom for Ray overhead and model loading.</p>
                     </div>
                   </div>
                 </div>
@@ -1966,6 +1933,34 @@ spec:
             </div>
           )}
 
+          {/* ── Authentication Required warning when no token ── */}
+          {mode !== 'external-cluster' && !token && (
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
+                  <div className="text-amber-700 space-y-1">
+                    {isLoggedIn ? (
+                      <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
+                    ) : (
+                      <>
+                        <p>An authentication token is required. Either:</p>
+                        <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
+                          <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
+                          <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
+                        </ol>
+                        <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Generated command (SLURM step-by-step) ── */}
           {mode === 'slurm' && (
             <div className="space-y-3 border-t border-gray-200 pt-4">
@@ -1994,6 +1989,9 @@ spec:
                     {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.createDirCmd : ''; })()}
                   </pre>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <code className="bg-gray-100 px-1 rounded">{workspaceDir || '$HOME/.bioengine'}</code> is created on the login node and mounted into the head and worker containers. Stores apps, logs, the Apptainer image cache, and Ray temporary files. Must be on a filesystem shared between login and compute nodes. Change it in Advanced Options below.
+                </p>
               </div>
 
               {/* Step 2: Run the SLURM script */}
@@ -2066,6 +2064,9 @@ spec:
                     {(() => { const command = getCommand(); return typeof command !== 'string' ? command.createDirCmd : ''; })()}
                   </pre>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <code className="bg-gray-100 px-1 rounded">{workspaceDir || (os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine')}</code> is mounted into the container. Stores apps, logs, and temporary files. Change it in Advanced Options below.
+                </p>
               </div>
 
               {/* Step 2: Run container */}
