@@ -159,7 +159,7 @@ export class BrokerAccessError extends Error {
   }
 }
 
-function classifyBrokerError(err: unknown): BrokerErrorCode {
+export function classifyBrokerError(err: unknown): BrokerErrorCode {
   const message = String((err as Error)?.message ?? err);
   if (/annotation-broker service is not available/.test(message)) return 'unavailable';
   if (/is not registered with the broker/.test(message)) return 'not-registered';

@@ -13,10 +13,16 @@ import fs from 'fs';
 // a cell and checks the resulting mask polygon is not degenerately tiny
 // relative to the box — the "tiny triangle" regression this harness exists
 // to catch and, longer-term, guard against.
+//
+// Navigates with the BARE alias (not the full "bioimage-io/..." artifact
+// id) so this also covers the alias-canonicalization regression keen-puma
+// found: a bare-alias session_id must always resolve against the fixed
+// bioimage-io collection workspace, never the connected user's own
+// workspace (useHyphaService.ts, fixed alongside toArtifactId reuse).
 
 test.use({ baseURL: 'http://localhost:3012' });
 
-const ARTIFACT_ID = 'bioimage-io/annotation-mst3ebzz-o5px';
+const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';
 
 function readHyphaToken(): string | undefined {
@@ -58,7 +64,7 @@ test.describe('AI Box (micro-sam) tool', () => {
       localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
     }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 
-    const url = `/#/colab/annotate?session_id=${encodeURIComponent(ARTIFACT_ID)}&label=${encodeURIComponent(LABEL)}`;
+    const url = `/#/colab/annotate?session_id=${encodeURIComponent(DATASET_ALIAS)}&label=${encodeURIComponent(LABEL)}`;
     await page.goto(url);
 
     // Wait for the image to actually render before touching AI tools. A cold

@@ -13,6 +13,7 @@ import {
   getEmbeddingUrls as brokerGetEmbeddingUrls,
   withRetry,
 } from '../../colab/brokerApi';
+import { toArtifactId } from '../../colab/datasetApi';
 
 export interface AnnotationServiceConfig {
   artifactId: string;
@@ -443,12 +444,15 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   error: string | null;
   cellposeAvailable: boolean;
   microSamAvailable: boolean;
+  /** Tear down and re-run the connect flow from scratch (same config). */
+  retry: () => void;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cellposeAvailable, setCellposeAvailable] = useState(false);
   const [microSamAvailable, setMicroSamAvailable] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const serverRef = useRef<any>(null);
 
   useEffect(() => {
@@ -490,11 +494,12 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         console.log('[useHyphaService] Connected to workspace:', server.config.workspace);
 
         // The session_id in the URL may be a bare alias or a full
-        // workspace/alias; normalize against the connected server's own
-        // workspace (mirrors the pattern in ColabPage.tsx).
-        const artifactId = config.artifactId.includes('/')
-          ? config.artifactId
-          : `${server.config.workspace}/${config.artifactId}`;
+        // workspace/alias; datasets always live in the fixed bioimage-io
+        // collection workspace, never the connected (annotating) user's own
+        // workspace, so this must NOT use server.config.workspace (that was
+        // the bug: an annotator's own workspace differs from bioimage-io,
+        // so a bare-alias URL resolved to an id that was never registered).
+        const artifactId = toArtifactId(config.artifactId);
         console.log('[useHyphaService] Resolved artifact id:', artifactId);
 
         // Cellpose service: probe once at connect time. The probe
@@ -996,7 +1001,9 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = null;
       }
     };
-  }, [config?.artifactId, config?.label]);
+  }, [config?.artifactId, config?.label, retryNonce]);
 
-  return { service, loading, error, cellposeAvailable, microSamAvailable };
+  const retry = () => setRetryNonce((n) => n + 1);
+
+  return { service, loading, error, cellposeAvailable, microSamAvailable, retry };
 }

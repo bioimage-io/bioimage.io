@@ -14,7 +14,7 @@ import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
-import { DatasetIndex } from '../components/colab/brokerApi';
+import { DatasetIndex, classifyBrokerError } from '../components/colab/brokerApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -71,7 +71,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
 
-  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable } = useHyphaService(serviceConfig);
+  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
@@ -322,6 +322,16 @@ print('CLAHE packages ready')
       });
     return () => { cancelled = true; };
   }, [service, setError]);
+
+  // Retry after a connect or dataset-index failure: clear the stale error
+  // and tear the Hypha connection down so useHyphaService reconnects from
+  // scratch, which in turn re-triggers the dataset-index fetch above once
+  // the new `service` lands.
+  const handleRetryConnection = useCallback(() => {
+    setError(null);
+    setPermissionDenied(false);
+    retryService();
+  }, [setError, retryService]);
 
   // Pick a random stem from `index` that this user hasn't annotated yet
   // under `label`. Returns null when everything is annotated.
@@ -1258,14 +1268,28 @@ print("CLAHE_RESULT:" + result_b64)
   );
   let statusMessage = '';
   let statusSeverity: 'info' | 'error' = 'info';
+  let statusHeading = '';
+  let statusBody = '';
   if (serviceLoading) {
     statusMessage = 'Connecting to annotation service...';
-  } else if (serviceError) {
-    statusMessage = `Service connection failed: ${serviceError}`;
+  } else if (serviceError || (error && !hasLoadedOnce)) {
+    // The raw message can be a full Ray traceback (broker/service errors
+    // cross the wire as plain str(exception), not a typed error) — log it
+    // for debugging but show a short, classified message to the user.
     statusSeverity = 'error';
-  } else if (error && !hasLoadedOnce) {
-    statusMessage = error;
-    statusSeverity = 'error';
+    const rawMessage = serviceError || error || '';
+    console.error('[AnnotatePage] Connection error:', rawMessage);
+    const errorCode = classifyBrokerError(rawMessage);
+    statusHeading = errorCode === 'not-registered'
+      ? 'This dataset could not be found'
+      : errorCode === 'unavailable'
+        ? 'Annotation service is unavailable'
+        : 'Something went wrong';
+    statusBody = errorCode === 'not-registered'
+      ? 'It may have been deleted, or the link is incorrect.'
+      : errorCode === 'unavailable'
+        ? 'The annotation service is temporarily down. Try again in a moment.'
+        : 'There was a problem connecting to the annotation service.';
   } else if (!hasLoadedOnce && !error) {
     statusMessage = 'Loading image...';
   }
@@ -1557,7 +1581,26 @@ print("CLAHE_RESULT:" + result_b64)
             }}
           >
             {statusSeverity === 'error' ? (
-              <Alert severity="error">{statusMessage}</Alert>
+              <Box
+                sx={{
+                  bgcolor: '#fff',
+                  borderRadius: 3,
+                  p: 3,
+                  maxWidth: 360,
+                  textAlign: 'center',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+                }}
+              >
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  {statusHeading}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+                  {statusBody}
+                </Typography>
+                <MuiButton variant="contained" onClick={handleRetryConnection}>
+                  Try again
+                </MuiButton>
+              </Box>
             ) : (
               <>
                 <CircularProgress size={48} sx={{ color: '#fff' }} />
@@ -1602,7 +1645,10 @@ print("CLAHE_RESULT:" + result_b64)
         onBanner={addBanner}
       />
 
-      <HelpTutorial open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {/* Never show the first-visit tutorial on top of the connecting/error
+          overlay (bug reported by keen-puma) — it stays queued in `helpOpen`
+          and appears once the overlay clears. */}
+      <HelpTutorial open={helpOpen && !showStatusOverlay} onClose={() => setHelpOpen(false)} />
 
       <Dialog
         open={refinePickerOpen}
