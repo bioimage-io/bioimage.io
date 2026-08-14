@@ -934,8 +934,15 @@ print('CLAHE packages ready')
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Save failed:', fullError);
       removeBanner(saveBannerId);
-      addBanner('Failed to save annotation', 'error', 8000, fullError);
-      setError(fullError);
+      if (/PermissionError/i.test(fullError) || /or higher is required/i.test(fullError)) {
+        // Public datasets allow anonymous viewing but saving always
+        // requires a Hypha login (colab-rework-plan.md F5, revised).
+        addBanner('Log in to save annotations', 'warning', 8000);
+        setPermissionDenied(true);
+      } else {
+        addBanner('Failed to save annotation', 'error', 8000, fullError);
+        setError(fullError);
+      }
     } finally {
       setIsSaving(false);
     }
