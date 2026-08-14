@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSharedKernel } from './KernelContext';
 import { ImagePreview } from './ImagePreview';
@@ -31,6 +31,18 @@ export interface DatasetOverviewProps {
   server: any;
   user: any;
   artifactManager: any;
+  // A folder handle carried over from CreateDatasetModal via router state
+  // (colab-rework-plan.md §11 item 1-2): creation never mounts or uploads
+  // anything, so if the user picked a folder there, we mount it lazily here
+  // instead of asking them to pick it again.
+  initialFolderHandle?: any;
+}
+
+interface ImageRow {
+  stem: string;
+  name: string;
+  format?: string;
+  isCloud: boolean;
 }
 
 // Shared by the action-bar "Annotate" button and LabelManager's inline
@@ -79,7 +91,13 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'w-8 h-8 text-p
 // owner/manager already holds `*`/`rw+` ACL; role, sharing, and label
 // creation go through the broker (brokerApi.ts), which is the source of
 // truth for those.
-const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, user, artifactManager }) => {
+const DatasetOverview: React.FC<DatasetOverviewProps> = ({
+  artifactId,
+  server,
+  user,
+  artifactManager,
+  initialFolderHandle,
+}) => {
   const navigate = useNavigate();
   const { executeCode, mountDirectory, requestKernel } = useSharedKernel();
 
@@ -91,6 +109,16 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
 
   const [images, setImages] = useState<DatasetImage[] | null>(null);
   const [selectedStem, setSelectedStem] = useState<string | null>(null);
+
+  // Local-only images: mounted via the kernel but not yet uploaded to the
+  // artifact (colab-rework-plan.md §11 items 1-4). dataServiceRef holds the
+  // Python-side data-provider service registered by the mount, reused for
+  // every subsequent per-image or bulk upload call without re-mounting.
+  const dataServiceRef = useRef<any>(null);
+  const autoMountedRef = useRef(false);
+  const [localImages, setLocalImages] = useState<{ stem: string; format: string }[]>([]);
+  const [uploadingStems, setUploadingStems] = useState<Set<string>>(new Set());
+  const [mounting, setMounting] = useState(false);
 
   const [labels, setLabels] = useState<DatasetLabelRef[] | null>(null);
   const [selectedLabel, setSelectedLabel] = useState('');
@@ -322,6 +350,14 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
 
   const handleDeleteImage = async () => {
     if (!selectedStem) return;
+    const row = imageRows.find((r) => r.stem === selectedStem);
+    if (!row) return;
+    if (!row.isCloud) {
+      // Nothing uploaded yet for this stem, just forget the pending local upload.
+      setLocalImages((prev) => prev.filter((i) => i.stem !== selectedStem));
+      setSelectedStem(null);
+      return;
+    }
     if (!window.confirm(`Delete image "${selectedStem}" and all of its annotations? This cannot be undone.`)) {
       return;
     }
@@ -334,62 +370,55 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({ artifactId, server, u
     }
   };
 
-  const handleUploadClick = async () => {
-    requestKernel();
-    let dirHandle: any;
-    try {
-      dirHandle = await (window as any).showDirectoryPicker();
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setError((err as Error).message || 'Failed to select folder.');
-      }
-      return;
-    }
-
-    try {
+  // colab-rework-plan.md §11 item 2: mounting a folder never uploads
+  // anything by itself, it only registers the Python data-provider service
+  // (reused by uploadSingleImage/handleUploadAll below) and lists which
+  // local images are not yet in the cloud `images/` folder.
+  const mountLocalFolder = useCallback(
+    async (dirHandle: any) => {
       if (!executeCode || !mountDirectory) {
-        throw new Error('Python kernel is not ready. Please wait a moment and try again.');
+        setError('Python kernel is not ready. Please wait a moment and try again.');
+        return;
       }
+      setMounting(true);
+      try {
+        let token = localStorage.getItem('token') || '';
+        if (!token && typeof server?.generateToken === 'function') {
+          token = await server.generateToken();
+        }
+        if (!token) throw new Error('Authentication token missing. Please log in again.');
 
-      let token = localStorage.getItem('token') || '';
-      if (!token && typeof server?.generateToken === 'function') {
-        token = await server.generateToken();
-      }
-      if (!token) throw new Error('Authentication token missing. Please log in again.');
+        const runCode = async (code: string) => {
+          let failed = false;
+          let message = '';
+          await executeCode(code, {
+            onOutput: (output: any) => {
+              if (output.type === 'error') {
+                failed = true;
+                message = output.content || output.short_content || 'Unknown Python error';
+              }
+            },
+          });
+          if (failed) throw new Error(message);
+        };
 
-      const runCode = async (code: string) => {
-        let failed = false;
-        let message = '';
-        await executeCode(code, {
-          onOutput: (output: any) => {
-            if (output.type === 'error') {
-              failed = true;
-              message = output.content || output.short_content || 'Unknown Python error';
-            }
-          },
-        });
-        if (failed) throw new Error(message);
-      };
-
-      setUploadProgress({ current: 0, total: 0 });
-
-      await runCode(`
+        await runCode(`
 import micropip
 await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'tifffile==2024.7.24'])
 print("Packages installed", end='')
 `);
 
-      const serviceCode = await (await fetch(`${process.env.PUBLIC_URL}/colab_service.py`)).text();
-      await runCode(serviceCode);
+        const serviceCode = await (await fetch(`${process.env.PUBLIC_URL}/colab_service.py`)).text();
+        await runCode(serviceCode);
 
-      const mounted = await mountDirectory('/mnt', dirHandle);
-      if (!mounted) throw new Error('Failed to mount the local folder.');
+        const mounted = await mountDirectory('/mnt', dirHandle);
+        if (!mounted) throw new Error('Failed to mount the local folder.');
 
-      const alias = artifactId.split('/').slice(1).join('/');
-      const clientId = `colab-client-${Date.now()}`;
-      const serviceId = `data-provider-${Date.now()}`;
+        const alias = artifactId.split('/').slice(1).join('/');
+        const clientId = `colab-client-${Date.now()}`;
+        const serviceId = `data-provider-${Date.now()}`;
 
-      await runCode(`
+        await runCode(`
 service_info = await register_service(
     server_url=${JSON.stringify(server.config.publicBaseUrl)},
     token=${JSON.stringify(token)},
@@ -405,25 +434,108 @@ service_info = await register_service(
 print("Service registered successfully", end='')
 `);
 
-      const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
-      const dataService = await server.getService(fullServiceId);
-      await dataService.create_dataset();
+        const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
+        const dataService = await server.getService(fullServiceId);
+        await dataService.create_dataset();
 
-      const localImages: Array<{ stem: string; format: string }> = await dataService.list_local_images();
-      setUploadProgress({ current: 0, total: localImages.length });
-      for (let i = 0; i < localImages.length; i++) {
-        const image = localImages[i];
-        await dataService.upload_image(`${image.stem}.${image.format}`);
-        setUploadProgress({ current: i + 1, total: localImages.length });
+        const localList: Array<{ stem: string; format: string }> = await dataService.list_local_images();
+        const cloudStems = new Set((images ?? []).map((i) => i.stem));
+        dataServiceRef.current = dataService;
+        setLocalImages(localList.filter((l) => !cloudStems.has(l.stem)));
+      } catch (err) {
+        setError((err as Error).message || 'Failed to mount local folder.');
+      } finally {
+        setMounting(false);
       }
+    },
+    [executeCode, mountDirectory, server, user, artifactId, images],
+  );
 
-      handleRefresh();
+  const handleUploadClick = async () => {
+    requestKernel();
+    let dirHandle: any;
+    try {
+      dirHandle = await (window as any).showDirectoryPicker();
     } catch (err) {
-      setError((err as Error).message || 'Failed to upload images.');
+      if ((err as Error).name !== 'AbortError') {
+        setError((err as Error).message || 'Failed to select folder.');
+      }
+      return;
+    }
+    await mountLocalFolder(dirHandle);
+  };
+
+  // Auto-mount the folder handed over from CreateDatasetModal, if any, so
+  // the user doesn't have to pick it a second time.
+  useEffect(() => {
+    if (!initialFolderHandle || autoMountedRef.current || !canManage) return;
+    autoMountedRef.current = true;
+    requestKernel();
+    mountLocalFolder(initialFolderHandle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFolderHandle, canManage]);
+
+  // colab-rework-plan.md §11 item 2: per-image lazy upload, triggered either
+  // by the row's own upload-outstanding icon or by selecting the row (i.e.
+  // "opening" it) to preview it.
+  const uploadSingleImage = useCallback(async (item: { stem: string; format: string }) => {
+    if (!dataServiceRef.current) return;
+    setUploadingStems((prev) => new Set(prev).add(item.stem));
+    try {
+      await dataServiceRef.current.upload_image(`${item.stem}.${item.format}`);
+      setLocalImages((prev) => prev.filter((i) => i.stem !== item.stem));
+      setImages((prev) => [...(prev ?? []), { stem: item.stem, name: `${item.stem}.png` }]);
+    } catch (err) {
+      setError(`Failed to upload "${item.stem}": ${(err as Error).message || 'unknown error'}`);
     } finally {
-      setUploadProgress(null);
+      setUploadingStems((prev) => {
+        const next = new Set(prev);
+        next.delete(item.stem);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleUploadAll = async () => {
+    if (!dataServiceRef.current || localImages.length === 0) return;
+    const items = [...localImages];
+    setUploadProgress({ current: 0, total: items.length });
+    for (let i = 0; i < items.length; i++) {
+      await uploadSingleImage(items[i]);
+      setUploadProgress({ current: i + 1, total: items.length });
+    }
+    setUploadProgress(null);
+  };
+
+  const handleSelectImage = (row: ImageRow) => {
+    setSelectedStem(row.stem);
+    if (!row.isCloud && !uploadingStems.has(row.stem)) {
+      uploadSingleImage({ stem: row.stem, format: row.format! });
     }
   };
+
+  const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
+    try {
+      await deleteImageEverywhere(artifactManager, artifactId, stem);
+      if (selectedStem === stem) setSelectedStem(null);
+      handleRefresh();
+    } catch (err) {
+      setError((err as Error).message || 'Failed to delete image.');
+    }
+  };
+
+  const imageRows: ImageRow[] = useMemo(() => {
+    const cloudRows: ImageRow[] = (images ?? []).map((img) => ({ stem: img.stem, name: img.name, isCloud: true }));
+    const localRows: ImageRow[] = localImages.map((li) => ({
+      stem: li.stem,
+      name: `${li.stem}.${li.format}`,
+      format: li.format,
+      isCloud: false,
+    }));
+    return [...cloudRows, ...localRows];
+  }, [images, localImages]);
 
   const downloadZipUrl = server?.config?.publicBaseUrl
     ? `${server.config.publicBaseUrl}/${artifactId.split('/')[0]}/artifacts/${artifactId
@@ -519,13 +631,43 @@ print("Service registered successfully", end='')
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <button
           onClick={handleUploadClick}
-          disabled={!!uploadProgress}
+          disabled={mounting}
           className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
         >
-          {uploadProgress
-            ? `Uploading ${uploadProgress.current}/${uploadProgress.total}...`
-            : 'Mount folder / Upload images'}
+          {mounting ? 'Mounting...' : 'Mount local folder'}
         </button>
+        {localImages.length > 0 && (
+          <button
+            onClick={handleUploadAll}
+            disabled={!!uploadProgress}
+            className={`px-3.5 py-2 rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-1.5 ${
+              uploadProgress
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200 hover:from-blue-100 hover:to-indigo-100 hover:shadow-md active:scale-[0.98]'
+            }`}
+          >
+            {uploadProgress ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Uploading {uploadProgress.current}/{uploadProgress.total}...
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Upload all
+              </>
+            )}
+          </button>
+        )}
         <button
           onClick={handleRefresh}
           className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
@@ -580,28 +722,61 @@ print("Service registered successfully", end='')
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[70vh]">
           <div className="px-4 py-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-900">Images</h3>
-            <p className="text-xs text-gray-400">{images?.length ?? 0} total</p>
+            <p className="text-xs text-gray-400">
+              {imageRows.length} total{localImages.length > 0 ? ` · ${localImages.length} pending upload` : ''}
+            </p>
           </div>
           <div className="overflow-y-auto divide-y divide-gray-100 flex-1">
             {images === null ? (
               <div className="flex items-center justify-center py-8">
                 <Spinner className="w-6 h-6 text-purple-600" />
               </div>
-            ) : images.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Upload some to get started.</p>
+            ) : imageRows.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
             ) : (
-              images.map((image) => (
+              imageRows.map((row) => (
                 <button
-                  key={image.stem}
-                  onClick={() => setSelectedStem(image.stem)}
+                  key={row.stem}
+                  onClick={() => handleSelectImage(row)}
                   className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
-                    selectedStem === image.stem
+                    selectedStem === row.stem
                       ? 'bg-purple-50 border-l-2 border-purple-500'
                       : 'hover:bg-gray-50 border-l-2 border-transparent'
                   }`}
                 >
-                  <span className="text-sm text-gray-700 truncate">{image.stem}</span>
-                  {annotatedStems.has(image.stem) && (
+                  <div className="flex items-center flex-1 min-w-0 gap-2">
+                    {row.isCloud ? (
+                      <div
+                        className="group relative shrink-0 cursor-pointer active:scale-90 transition-transform"
+                        onClick={(e) => handleDeleteCloudImage(row.stem, e)}
+                        title="Delete image from the dataset"
+                      >
+                        <svg className="w-4 h-4 text-blue-500 group-hover:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                        </svg>
+                        <svg className="w-4 h-4 text-red-500 hidden group-hover:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </div>
+                    ) : uploadingStems.has(row.stem) ? (
+                      <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
+                    ) : (
+                      <div
+                        className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          uploadSingleImage({ stem: row.stem, format: row.format! });
+                        }}
+                        title="Upload to the dataset"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-700 truncate">{row.stem}</span>
+                  </div>
+                  {row.isCloud && annotatedStems.has(row.stem) && (
                     <svg className="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
@@ -616,13 +791,26 @@ print("Service registered successfully", end='')
         <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col">
           <div className="flex-1 min-h-[360px] flex items-center justify-center bg-gray-50 rounded-xl overflow-hidden">
             {selectedStem ? (
-              <ImagePreview
-                viewMode={browserOpen ? 'annotated' : 'raw'}
-                imageUrl={imageUrl}
-                annotationUrl={annotationUrl}
-                hasAnnotation={!!currentPair}
-                alt={selectedStem}
-              />
+              imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
+                <ImagePreview
+                  viewMode={browserOpen ? 'annotated' : 'raw'}
+                  imageUrl={imageUrl}
+                  annotationUrl={annotationUrl}
+                  hasAnnotation={!!currentPair}
+                  alt={selectedStem}
+                />
+              ) : (
+                <div className="text-center text-sm text-gray-400">
+                  {uploadingStems.has(selectedStem) ? (
+                    <>
+                      <Spinner className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+                      Uploading...
+                    </>
+                  ) : (
+                    'This image has not been uploaded yet.'
+                  )}
+                </div>
+              )
             ) : (
               <p className="text-sm text-gray-400">Select an image to preview it.</p>
             )}

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useSharedKernel } from './KernelContext';
 import { COLLECTION_ID } from './datasetApi';
 import { registerDataset } from './brokerApi';
 
@@ -8,7 +7,7 @@ export interface CreateDatasetModalProps {
   user: any;
   artifactManager: any;
   onClose: () => void;
-  onCreated: (artifactId: string) => void;
+  onCreated: (artifactId: string, folderHandle?: any) => void;
 }
 
 const SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.tif', '.tiff'];
@@ -30,15 +29,13 @@ async function generateUniqueAlias(artifactManager: any): Promise<string> {
   throw new Error('Could not generate a unique dataset alias after 5 attempts.');
 }
 
-// F3 (colab-rework-plan.md): fast path skips the kernel entirely (a direct
-// artifact-manager `create`, mirroring colab_service.py's
-// `_ensure_artifact_exists`); the mount path boots the kernel only when a
-// local folder is chosen, then follows the established
-// register_service -> create_dataset -> per-image upload_image flow.
-// `executeCode` never surfaces a Python return value to JS (see
-// KernelContext.tsx), so every id used below is generated in JS first and
-// any data genuinely produced by Python is fetched by calling the freshly
-// registered Hypha service directly, not by parsing kernel output.
+// colab-rework-plan.md §11 item 1: creating a dataset does exactly two
+// things — create the artifact + broker `register_dataset` — regardless of
+// whether a local folder was picked. No kernel, no image upload happens
+// here. A picked folder is only used to default the dataset name and to
+// hand the (in-memory, unserializable) directory handle forward via router
+// state, so the overview page can mount it lazily (item 2) without asking
+// the user to pick it again.
 const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
   server,
   user,
@@ -46,18 +43,14 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
   onClose,
   onCreated,
 }) => {
-  const { isReady: isKernelReady, kernelStatus, executeCode, mountDirectory, requestKernel } = useSharedKernel();
-
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [folderHandle, setFolderHandle] = useState<any>(null);
   const [fileCount, setFileCount] = useState(0);
   const [step, setStep] = useState<'configure' | 'creating'>('configure');
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
   const handleFolderClick = async () => {
-    requestKernel();
     try {
       const dirHandle = await (window as any).showDirectoryPicker();
       setFolderHandle(dirHandle);
@@ -79,7 +72,7 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
     }
   };
 
-  const createFastPath = async (): Promise<string> => {
+  const createDataset = async (): Promise<string> => {
     const alias = await generateUniqueAlias(artifactManager);
     const artifactId = `bioimage-io/${alias}`;
 
@@ -102,85 +95,6 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
     return artifactId;
   };
 
-  const createMountPath = async (): Promise<string> => {
-    if (!executeCode || !mountDirectory || !folderHandle) {
-      throw new Error('Python kernel is not ready.');
-    }
-
-    let token = localStorage.getItem('token') || '';
-    if (!token && typeof server?.generateToken === 'function') {
-      token = await server.generateToken();
-    }
-    if (!token) {
-      throw new Error('Authentication token missing. Please log in again.');
-    }
-    const serverUrl = server.config.publicBaseUrl;
-    const alias = await generateUniqueAlias(artifactManager);
-
-    const runCode = async (code: string) => {
-      let failed = false;
-      let message = '';
-      await executeCode(code, {
-        onOutput: (output: any) => {
-          if (output.type === 'error') {
-            failed = true;
-            message = output.content || output.short_content || 'Unknown Python error';
-          }
-        },
-      });
-      if (failed) throw new Error(message);
-    };
-
-    await runCode(`
-import micropip
-await micropip.install(['numpy', 'Pillow', 'hypha-rpc', 'tifffile==2024.7.24'])
-print("Packages installed", end='')
-`);
-
-    const serviceCode = await (await fetch(`${process.env.PUBLIC_URL}/colab_service.py`)).text();
-    await runCode(serviceCode);
-
-    const mounted = await mountDirectory('/mnt', folderHandle);
-    if (!mounted) {
-      throw new Error('Failed to mount the local folder.');
-    }
-
-    const clientId = `colab-client-${Date.now()}`;
-    const serviceId = `data-provider-${Date.now()}`;
-
-    await runCode(`
-service_info = await register_service(
-    server_url=${JSON.stringify(serverUrl)},
-    token=${JSON.stringify(token)},
-    name=${JSON.stringify(name)},
-    description=${JSON.stringify(description)},
-    artifact_alias=${JSON.stringify(alias)},
-    images_path="/mnt",
-    client_id=${JSON.stringify(clientId)},
-    service_id=${JSON.stringify(serviceId)},
-    user_id=${JSON.stringify(user?.id || '')},
-    user_email=${JSON.stringify(user?.email || '')}
-)
-print("Service registered successfully", end='')
-`);
-
-    const fullServiceId = `${server.config.workspace}/${clientId}:${serviceId}`;
-    const dataService = await server.getService(fullServiceId);
-
-    const created = await dataService.create_dataset();
-    const artifactId: string = created.artifact_id;
-
-    const localImages: Array<{ stem: string; format: string }> = await dataService.list_local_images();
-    setProgress({ current: 0, total: localImages.length });
-    for (let i = 0; i < localImages.length; i++) {
-      const image = localImages[i];
-      await dataService.upload_image(`${image.stem}.${image.format}`);
-      setProgress({ current: i + 1, total: localImages.length });
-    }
-
-    return artifactId;
-  };
-
   const handleCreate = async () => {
     if (!name.trim()) {
       setError('Please name your dataset.');
@@ -193,20 +107,18 @@ print("Service registered successfully", end='')
 
     setStep('creating');
     setError(null);
-    setProgress(null);
 
     try {
-      const artifactId = folderHandle ? await createMountPath() : await createFastPath();
+      const artifactId = await createDataset();
       await registerDataset(server, artifactId);
-      onCreated(artifactId);
+      onCreated(artifactId, folderHandle);
     } catch (err) {
       setError((err as Error).message || 'Failed to create dataset.');
       setStep('configure');
     }
   };
 
-  const kernelBlocked = !!folderHandle && !isKernelReady;
-  const isDisabled = !name.trim() || kernelBlocked;
+  const isDisabled = !name.trim();
 
   return (
     <div
@@ -266,7 +178,9 @@ print("Service registered successfully", end='')
                   </svg>
                   {folderHandle ? `${folderHandle.name} (${fileCount} images)` : 'Choose a folder to mount'}
                 </button>
-                <p className="text-xs text-gray-500 mt-1.5">You can also add images later from the dataset page.</p>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Images are not uploaded now. You can upload them, one at a time or all at once, from the dataset page.
+                </p>
               </div>
 
               {error && (
@@ -277,52 +191,17 @@ print("Service registered successfully", end='')
                 <button
                   onClick={handleCreate}
                   disabled={isDisabled}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-medium shadow-sm hover:shadow-md active:scale-[0.98] transition-all"
                 >
-                  {kernelBlocked ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                        <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" />
-                      </svg>
-                      Preparing kernel...
-                    </>
-                  ) : (
-                    'Create dataset'
-                  )}
+                  Create dataset
                 </button>
-                {kernelBlocked && (
-                  <p className="text-xs text-gray-500 mt-1.5 text-center">
-                    {kernelStatus === 'error'
-                      ? 'Python kernel failed to start. Please reload the page.'
-                      : 'Preparing the in-browser Python kernel to read your local folder.'}
-                  </p>
-                )}
               </div>
             </>
           ) : (
             <div className="text-center py-8">
               <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
               <h3 className="text-base font-semibold text-gray-800 mb-1">Creating dataset...</h3>
-              {progress ? (
-                <>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Uploading images: {progress.current}/{progress.total}
-                  </p>
-                  <div className="max-w-xs mx-auto bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-gray-600">
-                  {folderHandle ? 'Mounting local folder...' : 'Registering artifact...'}
-                </p>
-              )}
+              <p className="text-sm text-gray-600">Registering artifact...</p>
             </div>
           )}
         </div>

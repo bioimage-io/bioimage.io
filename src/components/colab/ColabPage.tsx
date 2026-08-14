@@ -112,6 +112,7 @@ const ColabPageContent: React.FC = () => {
                 server={server}
                 user={user}
                 artifactManager={artifactManager}
+                initialFolderHandle={(location.state as any)?.folderHandle}
               />
             ) : (
               <div className="flex items-center justify-center h-64">

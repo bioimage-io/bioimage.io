@@ -177,7 +177,9 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
           user={user}
           artifactManager={artifactManager}
           onClose={() => setShowCreateModal(false)}
-          onCreated={(artifactId) => navigate(`/colab/${toAlias(artifactId)}`)}
+          onCreated={(artifactId, folderHandle) =>
+            navigate(`/colab/${toAlias(artifactId)}`, { state: { folderHandle } })
+          }
         />
       )}
 
