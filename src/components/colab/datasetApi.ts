@@ -1,0 +1,476 @@
+// Owner/manager-side dataset reads and writes, straight through the Hypha
+// artifact-manager. No kernel involved: this is the frontend half of the
+// architecture split in colab-rework-plan.md §1 — everything an
+// owner/manager needs (their own dataset list, image list, label discovery,
+// annotation browsing, stats, image deletion) works from direct artifact
+// reads because they already hold `*` permission. Annotators go through
+// `brokerApi.ts` instead (see F4a's rationale for why: a dataset only
+// appears in "shared with you" once the broker has granted read access, so
+// direct reads always succeed there too, but the broker index sidesteps
+// stage/permission edge cases for a caller with only `r+`).
+
+export const COLLECTION_ID = 'bioimage-io/colab-annotations';
+
+// {stem}-{YYYYMMDD-HHMMSS}.{png|geojson} — mirrors broker_core.py's
+// ANNOTATION_FILENAME_RE. The timestamp itself contains a hyphen, so this
+// anchors on the fixed-width digit groups rather than a naive split.
+const ANNOTATION_FILENAME_RE = /^(.+)-(\d{8}-\d{6})\.(png|geojson)$/;
+
+export interface DatasetSummary {
+  artifact_id: string;
+  name: string;
+  description: string;
+  labels: DatasetLabelRef[];
+}
+
+export interface DatasetLabelRef {
+  name: string;
+  description: string;
+}
+
+export interface DatasetImage {
+  stem: string;
+  name: string;
+}
+
+export interface AnnotationPair {
+  userFolder: string;
+  stem: string;
+  timestamp: string;
+  pngPath: string;
+  geojsonPath: string;
+}
+
+export interface LabelUserRef {
+  id?: string;
+  email?: string;
+}
+
+/**
+ * Retry *fn* up to `maxAttempts` times when it fails with a Hypha "not in
+ * stage mode" error, matching the broker's own `ensure_staged` behavior.
+ * Wrap every artifact-manager call that reads or writes the staged version.
+ */
+export async function withStageRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  backoffMs = 1000,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const message = String((err as Error)?.message || err).toLowerCase();
+      if (!message.includes('stage') || attempt === maxAttempts) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw lastErr;
+}
+
+/** A small `p-limit`-style concurrency gate, no dependency needed for 4 slots. */
+export function pLimit(concurrency: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  const runNext = () => {
+    active -= 1;
+    const next = queue.shift();
+    if (next) next();
+  };
+
+  return function limited<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const start = () => {
+        active += 1;
+        fn().then(
+          (value) => {
+            resolve(value);
+            runNext();
+          },
+          (err) => {
+            reject(err);
+            runNext();
+          },
+        );
+      };
+      if (active < concurrency) start();
+      else queue.push(start);
+    });
+  };
+}
+
+function isDirectoryEntry(entry: any): boolean {
+  return entry?.type === 'directory' || entry?.is_dir === true;
+}
+
+function entryName(entry: any): string {
+  return (entry?.name ?? entry?.path ?? String(entry ?? '')) as string;
+}
+
+async function listFilesSafe(
+  artifactManager: any,
+  artifactId: string,
+  dirPath: string,
+): Promise<any[]> {
+  try {
+    const files = await withStageRetry(() =>
+      artifactManager.list_files({
+        artifact_id: artifactId,
+        dir_path: dirPath,
+        stage: true,
+        _rkwargs: true,
+      }),
+    );
+    return files ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function parseAnnotationFilename(
+  filename: string,
+): { stem: string; timestamp: string; ext: 'png' | 'geojson' } | null {
+  const match = ANNOTATION_FILENAME_RE.exec(filename);
+  if (!match) return null;
+  return { stem: match[1], timestamp: match[2], ext: match[3] as 'png' | 'geojson' };
+}
+
+/** `label_<label>` — matches the broker's `label_folder` (not `label:`; colons break URL/path layers). */
+export function labelFolder(label: string): string {
+  return `label_${label}`;
+}
+
+/**
+ * Own datasets: staged + committed union under the collection, deduplicated
+ * by id, filtered to artifacts the caller owns. Mirrors the pattern in
+ * `SessionModal.tsx`'s `fetchUserArtifacts` (staged datasets are put back
+ * into staging mode by `colab_service.py` on session resume, so both lists
+ * matter). Full per-artifact reads pick up the current label list.
+ */
+export async function listMyDatasets(artifactManager: any, user: any): Promise<DatasetSummary[]> {
+  if (!artifactManager || !user) return [];
+
+  const [stagedResult, committedResult] = await Promise.allSettled([
+    artifactManager.list({ parent_id: COLLECTION_ID, stage: true, _rkwargs: true }),
+    artifactManager.list({ parent_id: COLLECTION_ID, _rkwargs: true }),
+  ]);
+
+  const seen = new Set<string>();
+  const allArtifacts: any[] = [];
+  for (const result of [stagedResult, committedResult]) {
+    if (result.status === 'fulfilled') {
+      for (const artifact of result.value ?? []) {
+        if (!seen.has(artifact.id)) {
+          seen.add(artifact.id);
+          allArtifacts.push(artifact);
+        }
+      }
+    }
+  }
+
+  const myArtifacts = allArtifacts.filter(
+    (artifact) =>
+      artifact.manifest?.owner?.id === user.id || artifact.manifest?.created_by === user.id,
+  );
+
+  const limit = pLimit(4);
+  const details = await Promise.all(
+    myArtifacts.map((artifact) =>
+      limit(async () => {
+        try {
+          return await withStageRetry(() =>
+            artifactManager.read({ artifact_id: artifact.id, stage: true, _rkwargs: true }),
+          );
+        } catch {
+          return artifact;
+        }
+      }),
+    ),
+  );
+
+  return details.map((artifact) => ({
+    artifact_id: artifact.id,
+    name: artifact.manifest?.name ?? artifact.id,
+    description: artifact.manifest?.description ?? '',
+    labels: artifact.manifest?.labels ?? [],
+  }));
+}
+
+export async function listImages(artifactManager: any, artifactId: string): Promise<DatasetImage[]> {
+  const entries = await listFilesSafe(artifactManager, artifactId, 'images');
+  return entries
+    .filter((entry) => !isDirectoryEntry(entry))
+    .map((entry) => entryName(entry))
+    .filter(Boolean)
+    .map((name) => ({ stem: name.replace(/\.[^./]+$/, ''), name }));
+}
+
+/**
+ * Union of `manifest.labels` and top-level `label_*` directories, so a
+ * label folder created out-of-band (or a manifest edit that failed
+ * mid-flight) still surfaces. Manifest descriptions win when both exist.
+ */
+export async function discoverLabels(
+  artifactManager: any,
+  artifactId: string,
+): Promise<DatasetLabelRef[]> {
+  const artifact = await withStageRetry(() =>
+    artifactManager.read({ artifact_id: artifactId, stage: true, _rkwargs: true }),
+  );
+  const manifestLabels: DatasetLabelRef[] = artifact.manifest?.labels ?? [];
+  const byName = new Map<string, DatasetLabelRef>();
+  for (const label of manifestLabels) {
+    if (label?.name) byName.set(label.name, { name: label.name, description: label.description ?? '' });
+  }
+
+  const rootEntries = await listFilesSafe(artifactManager, artifactId, '');
+  for (const entry of rootEntries) {
+    if (!isDirectoryEntry(entry)) continue;
+    const name = entryName(entry);
+    if (!name.startsWith('label_')) continue;
+    const label = name.slice('label_'.length);
+    if (label && !byName.has(label)) {
+      byName.set(label, { name: label, description: '' });
+    }
+  }
+
+  return Array.from(byName.values());
+}
+
+/**
+ * All `(user, stem)` pairs annotated for *label*, across every user folder,
+ * keeping only each user's latest (lexicographically greatest, i.e. most
+ * recent) timestamp per stem — mirrors broker_core.py's
+ * `latest_pairs_by_stem`, applied per user directory then unioned.
+ */
+async function walkLatestPairsByUser(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+): Promise<Map<string, Map<string, { timestamp: string; pngPath: string; geojsonPath: string }>>> {
+  const folder = labelFolder(label);
+  const userDirs = (await listFilesSafe(artifactManager, artifactId, folder)).filter(isDirectoryEntry);
+
+  const result = new Map<string, Map<string, { timestamp: string; pngPath: string; geojsonPath: string }>>();
+
+  const limit = pLimit(4);
+  await Promise.all(
+    userDirs.map((dirEntry) =>
+      limit(async () => {
+        const userFolder = entryName(dirEntry);
+        if (!userFolder.startsWith('user-')) return;
+        const dirPath = `${folder}/${userFolder}`;
+        const files = await listFilesSafe(artifactManager, artifactId, dirPath);
+
+        const byStemTs = new Map<string, Map<string, { png?: string; geojson?: string }>>();
+        for (const file of files) {
+          const parsed = parseAnnotationFilename(entryName(file));
+          if (!parsed) continue;
+          const tsMap = byStemTs.get(parsed.stem) ?? new Map();
+          const pair = tsMap.get(parsed.timestamp) ?? {};
+          pair[parsed.ext] = entryName(file);
+          tsMap.set(parsed.timestamp, pair);
+          byStemTs.set(parsed.stem, tsMap);
+        }
+
+        const stemMap = new Map<string, { timestamp: string; pngPath: string; geojsonPath: string }>();
+        for (const [stem, tsMap] of byStemTs) {
+          const complete = Array.from(tsMap.entries()).filter(([, files]) => files.png && files.geojson);
+          if (complete.length === 0) continue;
+          complete.sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0));
+          const [timestamp, pair] = complete[0];
+          stemMap.set(stem, {
+            timestamp,
+            pngPath: `${dirPath}/${pair.png}`,
+            geojsonPath: `${dirPath}/${pair.geojson}`,
+          });
+        }
+        if (stemMap.size > 0) result.set(userFolder, stemMap);
+      }),
+    ),
+  );
+
+  return result;
+}
+
+/** Stems with at least one complete annotation pair, by any user, for *label*. */
+export async function getAnnotatedStems(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+): Promise<Set<string>> {
+  const byUser = await walkLatestPairsByUser(artifactManager, artifactId, label);
+  const stems = new Set<string>();
+  for (const stemMap of byUser.values()) {
+    for (const stem of stemMap.keys()) stems.add(stem);
+  }
+  return stems;
+}
+
+/**
+ * Every annotation pair for one image across every user, newest first —
+ * feeds the dataset overview's annotation browser (prev/next through who
+ * annotated what and when).
+ */
+export async function listAnnotationPairs(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+  stem: string,
+): Promise<AnnotationPair[]> {
+  const byUser = await walkLatestPairsByUser(artifactManager, artifactId, label);
+  const pairs: AnnotationPair[] = [];
+  for (const [userFolder, stemMap] of byUser) {
+    const entry = stemMap.get(stem);
+    if (!entry) continue;
+    pairs.push({
+      userFolder,
+      stem,
+      timestamp: entry.timestamp,
+      pngPath: entry.pngPath,
+      geojsonPath: entry.geojsonPath,
+    });
+  }
+  pairs.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
+  return pairs;
+}
+
+const labelUsersCache = new Map<string, Record<string, LabelUserRef>>();
+
+/** Fetch (and cache) `label_<label>/users.json`: sanitized user folder -> `{id, email}`. */
+export async function getLabelUsers(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+  force = false,
+): Promise<Record<string, LabelUserRef>> {
+  const cacheKey = `${artifactId}::${label}`;
+  if (!force && labelUsersCache.has(cacheKey)) {
+    return labelUsersCache.get(cacheKey)!;
+  }
+
+  let users: Record<string, LabelUserRef> = {};
+  try {
+    const url = await withStageRetry(() =>
+      artifactManager.get_file({
+        artifact_id: artifactId,
+        file_path: `${labelFolder(label)}/users.json`,
+        stage: true,
+        _rkwargs: true,
+      }),
+    );
+    const response = await fetch(url);
+    if (response.ok) {
+      users = await response.json();
+    }
+  } catch {
+    // users.json may not exist yet — no annotations saved for this label.
+  }
+
+  labelUsersCache.set(cacheKey, users);
+  return users;
+}
+
+/**
+ * Per-stem annotation instance counts for *label*: each user's latest
+ * geojson feature count, summed per stem. Downloads every user's latest
+ * geojson for the label (bounded by `pLimit(4)`).
+ */
+export async function getLabelStats(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+): Promise<Record<string, number>> {
+  const byUser = await walkLatestPairsByUser(artifactManager, artifactId, label);
+  const counts: Record<string, number> = {};
+  const limit = pLimit(4);
+
+  const jobs: Array<Promise<void>> = [];
+  for (const stemMap of byUser.values()) {
+    for (const [stem, entry] of stemMap) {
+      jobs.push(
+        limit(async () => {
+          try {
+            const url = await withStageRetry(() =>
+              artifactManager.get_file({
+                artifact_id: artifactId,
+                file_path: entry.geojsonPath,
+                stage: true,
+                _rkwargs: true,
+              }),
+            );
+            const response = await fetch(url);
+            if (!response.ok) return;
+            const geojson = await response.json();
+            const featureCount = Array.isArray(geojson?.features) ? geojson.features.length : 0;
+            counts[stem] = (counts[stem] ?? 0) + featureCount;
+          } catch {
+            // best-effort; skip pairs that fail to download
+          }
+        }),
+      );
+    }
+  }
+  await Promise.all(jobs);
+
+  return counts;
+}
+
+/**
+ * Remove every trace of an image: `images/{stem}.png`, every
+ * annotation pair under each `label_<name>/user-<id>` folder, and
+ * `embeddings/{stem}_<model>.npz`. Best-effort per file so one
+ * missing/already-removed entry does not abort the rest.
+ */
+export async function deleteImageEverywhere(
+  artifactManager: any,
+  artifactId: string,
+  stem: string,
+): Promise<void> {
+  const removeFile = async (filePath: string) => {
+    try {
+      await withStageRetry(() =>
+        artifactManager.remove_file({ artifact_id: artifactId, file_path: filePath, _rkwargs: true }),
+      );
+    } catch {
+      // best-effort
+    }
+  };
+
+  const images = await listImages(artifactManager, artifactId);
+  const imageEntry = images.find((image) => image.stem === stem);
+  if (imageEntry) {
+    await removeFile(`images/${imageEntry.name}`);
+  }
+
+  const embeddingEntries = await listFilesSafe(artifactManager, artifactId, 'embeddings');
+  for (const entry of embeddingEntries) {
+    const name = entryName(entry);
+    if (name.startsWith(`${stem}_`) && name.endsWith('.npz')) {
+      await removeFile(`embeddings/${name}`);
+    }
+  }
+
+  const labels = await discoverLabels(artifactManager, artifactId);
+  for (const label of labels) {
+    const folder = labelFolder(label.name);
+    const userDirs = (await listFilesSafe(artifactManager, artifactId, folder)).filter(isDirectoryEntry);
+    for (const dirEntry of userDirs) {
+      const userFolder = entryName(dirEntry);
+      const dirPath = `${folder}/${userFolder}`;
+      const files = await listFilesSafe(artifactManager, artifactId, dirPath);
+      for (const file of files) {
+        const name = entryName(file);
+        const parsed = parseAnnotationFilename(name);
+        if (parsed && parsed.stem === stem) {
+          await removeFile(`${dirPath}/${name}`);
+        }
+      }
+    }
+  }
+}
