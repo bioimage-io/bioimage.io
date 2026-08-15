@@ -74,7 +74,14 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
   }, [mode]);
 
   const expectedConfirmation = mode === 'label' ? currentLabel : dataArtifactId;
-  const isConfirmed = confirmationText === expectedConfirmation;
+  const labelMaskCount = fileStats?.masks[currentLabel] ?? 0;
+  // Typed-name confirmation is a safeguard against losing real annotation
+  // work. An empty label has nothing to lose, so skip the gate for it, but
+  // only once stats have actually loaded (default to requiring it while
+  // still unknown) and never relax it for a full artifact delete, which
+  // also removes the images themselves.
+  const requiresConfirmation = mode === 'artifact' || fileStats === null || labelMaskCount > 0;
+  const isConfirmed = requiresConfirmation ? confirmationText === expectedConfirmation : true;
 
   const handleDelete = async () => {
     if (!isConfirmed) return;
@@ -128,8 +135,6 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
       setIsDeleting(false);
     }
   };
-
-  const labelMaskCount = fileStats?.masks[currentLabel] ?? 0;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
@@ -209,23 +214,31 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
             </div>
           ) : null}
 
-          {/* Confirmation input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {mode === 'label' ? 'Type the label name to confirm' : 'Type the Artifact ID to confirm'}
-            </label>
-            <div className="mb-2 p-2 bg-gray-100 rounded text-xs font-mono select-all break-all">
-              {expectedConfirmation}
+          {/* Confirmation input: only required when there is real annotation
+              work at stake (a label with masks, or any artifact delete). An
+              empty label can be removed without typing its name. */}
+          {requiresConfirmation ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {mode === 'label' ? 'Type the label name to confirm' : 'Type the Artifact ID to confirm'}
+              </label>
+              <div className="mb-2 p-2 bg-gray-100 rounded text-xs font-mono select-all break-all">
+                {expectedConfirmation}
+              </div>
+              <input
+                type="text"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                value={confirmationText}
+                onChange={(e) => setConfirmationText(e.target.value)}
+                placeholder={expectedConfirmation}
+                disabled={isDeleting}
+              />
             </div>
-            <input
-              type="text"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              value={confirmationText}
-              onChange={(e) => setConfirmationText(e.target.value)}
-              placeholder={expectedConfirmation}
-              disabled={isDeleting}
-            />
-          </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Label "{currentLabel}" has no masks yet, so it can be deleted without typing its name.
+            </p>
+          )}
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg">

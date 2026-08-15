@@ -296,8 +296,10 @@ test.describe('Label deletion (§15 item 2)', () => {
       await expect(deleteIcon).toBeVisible({ timeout: 10000 });
       await deleteIcon.click({ force: true });
 
-      // DeleteArtifactModal in label mode: type the label name to confirm,
-      // then submit. A successful delete now round-trips through exactly one
+      // DeleteArtifactModal in label mode: a freshly created label has zero
+      // masks, so the typed-name confirmation gate (§18.11) is skipped and
+      // the Delete button is enabled immediately, no matching text needed. A
+      // successful delete now round-trips through exactly one
       // `broker.delete_label` RPC (DeleteArtifactModal.tsx) instead of the
       // old N-file client-side recursive delete. Note: the broker only
       // removes files from its staged overlay and never commits, so the
@@ -311,11 +313,9 @@ test.describe('Label deletion (§15 item 2)', () => {
       // above completes.
       // force: true — this sandbox's headless Chromium doesn't tick
       // requestAnimationFrame, which Playwright's click-stability wait
-      // depends on (same reason every other click in this suite uses it);
-      // the confirmation gate itself was already verified correct by
-      // reading DeleteArtifactModal.tsx's isConfirmed wiring directly.
+      // depends on (same reason every other click in this suite uses it).
       await expect(page.getByRole('heading', { name: `Delete Label "${tempLabel}"` })).toBeVisible({ timeout: 10000 });
-      await page.getByPlaceholder(tempLabel).fill(tempLabel);
+      await expect(page.getByText('has no masks yet', { exact: false })).toBeVisible({ timeout: 10000 });
       await page.getByRole('button', { name: `Delete Label "${tempLabel}"`, exact: true }).click({ force: true });
 
       // The modal closing is a stronger completion signal than the row's
