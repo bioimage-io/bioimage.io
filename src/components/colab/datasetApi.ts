@@ -505,6 +505,67 @@ export async function getLabelStats(
   return counts;
 }
 
+export interface LabelTotals {
+  /** Every complete png+geojson pair, across all users and all timestamps
+   *  (never deduped to "latest per user" like getAnnotatedStems/getLabelStats). */
+  totalAnnotations: number;
+  /** Stems with at least one complete pair, from any user, at any timestamp. */
+  annotatedStems: Set<string>;
+}
+
+/**
+ * Full annotation history for *label*, unlike getAnnotatedStems/getLabelStats
+ * which only look at each user's latest save per stem. Walks every
+ * `label_<label>/user-*` directory and counts every (stem, timestamp) with
+ * both a `.png` and a `.geojson`, so 50 images saved 8 times each by one
+ * user reports totalAnnotations=400 (colab-rework-plan.md §13 item 5).
+ */
+export async function getLabelTotals(
+  artifactManager: any,
+  artifactId: string,
+  label: string,
+): Promise<LabelTotals> {
+  const folder = labelFolder(label);
+  const userDirs = (await listFilesSafe(artifactManager, artifactId, folder)).filter(isDirectoryEntry);
+
+  let totalAnnotations = 0;
+  const annotatedStems = new Set<string>();
+
+  const limit = pLimit(4);
+  await Promise.all(
+    userDirs.map((dirEntry) =>
+      limit(async () => {
+        const userFolder = entryName(dirEntry);
+        if (!userFolder.startsWith('user-')) return;
+        const dirPath = `${folder}/${userFolder}`;
+        const files = await listFilesSafe(artifactManager, artifactId, dirPath);
+
+        const byStemTs = new Map<string, Map<string, { png?: string; geojson?: string }>>();
+        for (const file of files) {
+          const parsed = parseAnnotationFilename(entryName(file));
+          if (!parsed) continue;
+          const tsMap = byStemTs.get(parsed.stem) ?? new Map();
+          const pair = tsMap.get(parsed.timestamp) ?? {};
+          pair[parsed.ext] = entryName(file);
+          tsMap.set(parsed.timestamp, pair);
+          byStemTs.set(parsed.stem, tsMap);
+        }
+
+        for (const [stem, tsMap] of byStemTs) {
+          for (const pair of tsMap.values()) {
+            if (pair.png && pair.geojson) {
+              totalAnnotations += 1;
+              annotatedStems.add(stem);
+            }
+          }
+        }
+      }),
+    ),
+  );
+
+  return { totalAnnotations, annotatedStems };
+}
+
 /**
  * Remove every trace of an image: `images/{stem}.png`, every
  * annotation pair under each `label_<name>/user-<id>` folder, and
