@@ -23,7 +23,6 @@ import {
 } from './datasetApi';
 import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
 import LabelManager from './LabelManager';
-import LabelStatsChart from './LabelStatsChart';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
 import TrainingModal from './TrainingModal';
@@ -880,7 +879,7 @@ print("Service registered successfully", end='')
         </div>
 
         {/* Center: preview + annotation browser */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col">
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col max-h-[70vh] overflow-hidden">
           <div className="flex-1 min-h-[360px] flex items-center justify-center bg-gray-50 rounded-xl overflow-hidden">
             {statsViewOpen && selectedLabel ? (
               <AnnotationStatsView
@@ -976,12 +975,6 @@ print("Service registered successfully", end='')
               onDeleteLabel={(l) => setDeleteLabelTarget(l)}
             />
           </div>
-
-          {selectedLabel && (
-            <div className="shrink-0">
-              <LabelStatsChart totalImages={totalImages} annotatedCount={annotatedStems.size} stats={labelStats} />
-            </div>
-          )}
         </div>
       </div>
 
