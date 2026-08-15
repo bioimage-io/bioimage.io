@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DatasetLabelRef } from './datasetApi';
+import { DatasetLabelRef, LabelTotals } from './datasetApi';
 import { createLabel } from './brokerApi';
 import { LABEL_PALETTE } from './ImagePreview';
 
@@ -7,8 +7,10 @@ export interface LabelManagerProps {
   server: any;
   artifactId: string;
   role: 'owner' | 'manager';
+  /** Already sorted by the parent (percentage annotated desc, then total desc). */
   labels: DatasetLabelRef[];
-  labelCounts: Record<string, number>;
+  labelTotals: Record<string, LabelTotals>;
+  totalImages: number;
   selectedLabel: string;
   onSelectLabel: (label: string) => void;
   onLabelsChanged: () => void;
@@ -26,7 +28,8 @@ const LabelManager: React.FC<LabelManagerProps> = ({
   server,
   artifactId,
   labels,
-  labelCounts,
+  labelTotals,
+  totalImages,
   selectedLabel,
   onSelectLabel,
   onLabelsChanged,
@@ -57,8 +60,8 @@ const LabelManager: React.FC<LabelManagerProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 h-full flex flex-col">
+      <div className="flex items-center justify-between mb-3 shrink-0">
         <h3 className="text-sm font-semibold text-gray-900">Labels</h3>
         <button
           onClick={() => setShowForm((s) => !s)}
@@ -69,7 +72,7 @@ const LabelManager: React.FC<LabelManagerProps> = ({
       </div>
 
       {showForm && (
-        <div className="mb-3 p-3 bg-gray-50 rounded-xl space-y-2">
+        <div className="mb-3 p-3 bg-gray-50 rounded-xl space-y-2 shrink-0">
           <input
             type="text"
             placeholder="Label name"
@@ -99,53 +102,59 @@ const LabelManager: React.FC<LabelManagerProps> = ({
       {labels.length === 0 ? (
         <p className="text-sm text-gray-400">No labels yet. Create one to start annotating.</p>
       ) : (
-        <div className="space-y-1.5">
-          {labels.map((label, i) => (
-            <div
-              key={label.name}
-              onClick={() => onSelectLabel(label.name)}
-              className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                selectedLabel === label.name
-                  ? 'bg-purple-50 border border-purple-300'
-                  : 'border border-transparent hover:bg-gray-50'
-              }`}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: rgb(LABEL_PALETTE[i % LABEL_PALETTE.length]) }}
-                />
-                <span className="text-sm font-medium text-gray-800 truncate">{label.name}</span>
-                <span className="text-xs text-gray-400 shrink-0">
-                  {labelCounts[label.name] !== undefined ? `${labelCounts[label.name]}` : ''}
-                </span>
+        <div className="space-y-1.5 flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+          {labels.map((label, i) => {
+            const totals = labelTotals[label.name];
+            const pct = totals && totalImages > 0 ? Math.round((totals.annotatedStems.size / totalImages) * 100) : null;
+            return (
+              <div
+                key={label.name}
+                onClick={() => onSelectLabel(label.name)}
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                  selectedLabel === label.name
+                    ? 'bg-purple-50 border border-purple-300'
+                    : 'border border-transparent hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: rgb(LABEL_PALETTE[i % LABEL_PALETTE.length]) }}
+                  />
+                  <span className="text-sm font-medium text-gray-800 truncate">{label.name}</span>
+                  {totals && (
+                    <span className="text-xs text-gray-400 shrink-0">
+                      {totals.totalAnnotations} · {pct}%
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAnnotateLabel(label.name);
+                    }}
+                    title={`Annotate ${label.name}`}
+                    className="text-xs font-medium text-purple-600 hover:text-purple-700"
+                  >
+                    Annotate
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteLabel(label.name);
+                    }}
+                    title={`Delete label "${label.name}"`}
+                    className="text-gray-300 hover:text-red-500 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAnnotateLabel(label.name);
-                  }}
-                  title={`Annotate ${label.name}`}
-                  className="text-xs font-medium text-purple-600 hover:text-purple-700"
-                >
-                  Annotate
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteLabel(label.name);
-                  }}
-                  title={`Delete label "${label.name}"`}
-                  className="text-gray-300 hover:text-red-500 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

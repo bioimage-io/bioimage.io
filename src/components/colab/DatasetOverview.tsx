@@ -6,12 +6,14 @@ import {
   AnnotationPair,
   DatasetImage,
   DatasetLabelRef,
+  LabelTotals,
   LabelUserRef,
   buildAnnotateQuery,
   deleteImageEverywhere,
   discoverLabels,
   getAnnotatedStems,
   getLabelStats,
+  getLabelTotals,
   getLabelUsers,
   listAnnotationPairs,
   listImages,
@@ -120,7 +122,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
 
   const [labels, setLabels] = useState<DatasetLabelRef[] | null>(null);
   const [selectedLabel, setSelectedLabel] = useState('');
-  const [labelCounts, setLabelCounts] = useState<Record<string, number>>({});
+  const [labelTotals, setLabelTotals] = useState<Record<string, LabelTotals>>({});
   const [annotatedStems, setAnnotatedStems] = useState<Set<string>>(new Set());
   const [labelStats, setLabelStats] = useState<Record<string, number>>({});
 
@@ -243,8 +245,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         found.map((l) =>
           limit(async () => {
             try {
-              const stems = await getAnnotatedStems(artifactManager, artifactId, l.name);
-              setLabelCounts((prev) => ({ ...prev, [l.name]: stems.size }));
+              const totals = await getLabelTotals(artifactManager, artifactId, l.name);
+              setLabelTotals((prev) => ({ ...prev, [l.name]: totals }));
             } catch {
               // best-effort count
             }
@@ -260,6 +262,23 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     if (!canManage) return;
     reloadLabels();
   }, [canManage, refreshTick, reloadLabels]);
+
+  // Sort by percentage-of-images-annotated desc, then total annotations desc
+  // (colab-rework-plan.md §13 item 5), so the labels closest to done float
+  // to the top of the Labels box.
+  const totalImages = images?.length ?? 0;
+  const sortedLabels = useMemo(() => {
+    if (!labels) return [];
+    const pct = (name: string) => {
+      const t = labelTotals[name];
+      return t && totalImages > 0 ? t.annotatedStems.size / totalImages : 0;
+    };
+    return [...labels].sort((a, b) => {
+      const pctDiff = pct(b.name) - pct(a.name);
+      if (pctDiff !== 0) return pctDiff;
+      return (labelTotals[b.name]?.totalAnnotations ?? 0) - (labelTotals[a.name]?.totalAnnotations ?? 0);
+    });
+  }, [labels, labelTotals, totalImages]);
 
   // --- Annotated stems + stats for the selected label ---
   useEffect(() => {
@@ -935,23 +954,28 @@ print("Service registered successfully", end='')
           )}
         </div>
 
-        {/* Right: labels, stats, sharing */}
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-0.5">
-          <LabelManager
-            server={server}
-            artifactId={artifactId}
-            role={role as 'owner' | 'manager'}
-            labels={labels ?? []}
-            labelCounts={labelCounts}
-            selectedLabel={selectedLabel}
-            onSelectLabel={setSelectedLabel}
-            onLabelsChanged={reloadLabels}
-            onAnnotateLabel={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
-            onDeleteLabel={(l) => setDeleteLabelTarget(l)}
-          />
+        {/* Right: labels, stats */}
+        <div className="flex flex-col gap-4 max-h-[70vh]">
+          <div className="flex-1 min-h-0">
+            <LabelManager
+              server={server}
+              artifactId={artifactId}
+              role={role as 'owner' | 'manager'}
+              labels={sortedLabels}
+              labelTotals={labelTotals}
+              totalImages={totalImages}
+              selectedLabel={selectedLabel}
+              onSelectLabel={setSelectedLabel}
+              onLabelsChanged={reloadLabels}
+              onAnnotateLabel={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
+              onDeleteLabel={(l) => setDeleteLabelTarget(l)}
+            />
+          </div>
 
           {selectedLabel && (
-            <LabelStatsChart totalImages={images?.length ?? 0} annotatedCount={annotatedStems.size} stats={labelStats} />
+            <div className="shrink-0">
+              <LabelStatsChart totalImages={totalImages} annotatedCount={annotatedStems.size} stats={labelStats} />
+            </div>
           )}
         </div>
       </div>
