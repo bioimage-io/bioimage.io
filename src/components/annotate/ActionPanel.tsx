@@ -6,7 +6,6 @@ import {
   Typography,
   Divider,
   ButtonBase,
-  Button,
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -16,6 +15,8 @@ import SaveIcon from '@mui/icons-material/Save';
 import UndoIcon from '@mui/icons-material/Undo';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ContrastIcon from '@mui/icons-material/Contrast';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -30,6 +31,8 @@ export interface ActionPanelProps {
   onSave: () => void;
   onUndo: () => void;
   onResetView: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
   onClearAll: () => void;
   onToggleCLAHE: () => void;
   onOpenMaskFilter: () => void;
@@ -42,7 +45,7 @@ export interface ActionPanelProps {
 }
 
 const ActionPanel: React.FC<ActionPanelProps> = ({
-  onSave, onUndo, onResetView, onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
+  onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
   imageName, isSaving, isCLAHEActive, isLowContrast = false,
 }) => {
   const canUndo = useAnnotationStore((s) => s.canUndo);
@@ -121,58 +124,25 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
         }}>
-          <Tooltip title={isSaving ? 'Saving…' : 'Save Annotation'} placement={tooltipPlacement}>
-            <span>
-              <IconButton
-                size={btnSize}
-                data-tool="save"
-                onClick={onSave}
-                disabled={isSaving}
-                aria-label="Save Annotation"
-                sx={{
-                  ...floatingBtnSx(), flexShrink: 0,
-                  bgcolor: 'success.main', color: 'white',
-                  '&:hover': { bgcolor: 'success.dark' },
-                  '&.Mui-disabled': { bgcolor: 'rgba(0,0,0,0.12)', color: 'rgba(0,0,0,0.3)' },
-                  ...touchSx,
-                }}
-              >
-                <SaveIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-
-          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
-
-          <Tooltip title="Undo (Ctrl+Z)" placement={tooltipPlacement}>
-            <span>
-              <IconButton size={btnSize} data-tool="undo" onClick={onUndo} disabled={!canUndo} aria-label="Undo"
-                sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
-                <UndoIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-
-          <Tooltip title="Clear All Annotations" placement={tooltipPlacement}>
-            <IconButton size={btnSize} data-tool="clear" onClick={onClearAll} aria-label="Clear All Annotations"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, color: 'error.main', ...touchSx }}>
-              <DeleteSweepIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-
-          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
-
-          <Tooltip title="Filter Masks by Area" placement={tooltipPlacement}>
-            <IconButton size={btnSize} data-tool="filter" onClick={onOpenMaskFilter} aria-label="Filter Masks by Area"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
-              <FilterListIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-
+          {/* View */}
           <Tooltip title="Fit to Image" placement={tooltipPlacement}>
             <IconButton size={btnSize} data-tool="fit" onClick={onResetView} aria-label="Fit to Image"
               sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
               <CenterFocusStrongIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Zoom In" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="zoom-in" onClick={onZoomIn} aria-label="Zoom In"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+              <ZoomInIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Zoom Out" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="zoom-out" onClick={onZoomOut} aria-label="Zoom Out"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+              <ZoomOutIcon fontSize="small" />
             </IconButton>
           </Tooltip>
 
@@ -194,11 +164,52 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
 
-          <Tooltip title={`${imageName || 'No image'} (${imageWidth}×${imageHeight} px)`} placement={tooltipPlacement}>
-            <IconButton size={btnSize} data-tool="info" aria-label="Image info"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
-              <InfoIcon fontSize="small" />
+          {/* Edit */}
+          <Tooltip title="Undo (Ctrl+Z)" placement={tooltipPlacement}>
+            <span>
+              <IconButton size={btnSize} data-tool="undo" onClick={onUndo} disabled={!canUndo} aria-label="Undo"
+                sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+                <UndoIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+
+          <Tooltip title="Clear All Annotations" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="clear" onClick={onClearAll} aria-label="Clear All Annotations"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, color: 'error.main', ...touchSx }}>
+              <DeleteSweepIcon fontSize="small" />
             </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Filter Masks by Area" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="filter" onClick={onOpenMaskFilter} aria-label="Filter Masks by Area"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+              <FilterListIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
+
+          {/* Data */}
+          <Tooltip title={isSaving ? 'Saving…' : 'Save Annotation'} placement={tooltipPlacement}>
+            <span>
+              <IconButton
+                size={btnSize}
+                data-tool="save"
+                onClick={onSave}
+                disabled={isSaving}
+                aria-label="Save Annotation"
+                sx={{
+                  ...floatingBtnSx(), flexShrink: 0,
+                  bgcolor: 'success.main', color: 'white',
+                  '&:hover': { bgcolor: 'success.dark' },
+                  '&.Mui-disabled': { bgcolor: 'rgba(0,0,0,0.12)', color: 'rgba(0,0,0,0.3)' },
+                  ...touchSx,
+                }}
+              >
+                <SaveIcon fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
 
           <Tooltip title="Upload GeoJSON" placement={tooltipPlacement}>
@@ -208,6 +219,16 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </IconButton>
           </Tooltip>
           {fileInput}
+
+          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
+
+          {/* Help */}
+          <Tooltip title={`${imageName || 'No image'} (${imageWidth}×${imageHeight} px)`} placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="info" aria-label="Image info"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+              <InfoIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
 
           <Tooltip title="Help & Tutorial" placement={tooltipPlacement}>
             <IconButton size={btnSize} data-tool="help" onClick={onHelp} aria-label="Help & Tutorial"
@@ -266,55 +287,53 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </Typography>
           </Box>
 
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            fullWidth
-            startIcon={<SaveIcon />}
-            onClick={onSave}
-            disabled={isSaving}
-            data-tool="save"
+          <ButtonBase onClick={onResetView} data-tool="fit" aria-label="Fit to Image"
             sx={{
-              textTransform: 'none', borderRadius: 1.5,
-              justifyContent: 'flex-start', px: 1.25,
-              py: isCompact ? 1 : 0.7, my: 0.25,
-              minHeight: isCompact ? 48 : undefined,
-              touchAction: 'manipulation',
-              transition: 'transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms ease',
-              '&:active': { transform: 'scale(0.98)' },
-              ...reducedMotionSx,
-            }}
-          >
-            <Box sx={{ textAlign: 'left', ml: 0.25 }}>
-              <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
-                {isSaving ? 'Saving…' : 'Save Annotation'}
-              </Typography>
-              <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
-                Upload masks to cloud storage
+              display: 'flex', alignItems: 'flex-start', gap: 1,
+              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
+            }}>
+            <CenterFocusStrongIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box>
+              <Typography variant="caption" fontWeight={600} display="block">Fit to Image</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                Reset the view to show the full image
               </Typography>
             </Box>
-          </Button>
+          </ButtonBase>
 
-          {[
-            { key: 'fit', label: 'Fit to Image', desc: 'Reset the view to show the full image', icon: <CenterFocusStrongIcon fontSize="small" />, onClick: onResetView },
-          ].map((row) => (
-            <ButtonBase key={row.key} onClick={row.onClick} data-tool={row.key} aria-label={row.label}
-              sx={{
-                display: 'flex', alignItems: 'flex-start', gap: 1,
-                px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
-                '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
-                minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
-              }}>
-              <Box sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }}>{row.icon}</Box>
-              <Box>
-                <Typography variant="caption" fontWeight={600} display="block">{row.label}</Typography>
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                  {row.desc}
-                </Typography>
-              </Box>
-            </ButtonBase>
-          ))}
+          <ButtonBase onClick={onZoomIn} data-tool="zoom-in" aria-label="Zoom In"
+            sx={{
+              display: 'flex', alignItems: 'flex-start', gap: 1,
+              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
+            }}>
+            <ZoomInIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box>
+              <Typography variant="caption" fontWeight={600} display="block">Zoom In</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                Increase magnification
+              </Typography>
+            </Box>
+          </ButtonBase>
+
+          <ButtonBase onClick={onZoomOut} data-tool="zoom-out" aria-label="Zoom Out"
+            sx={{
+              display: 'flex', alignItems: 'flex-start', gap: 1,
+              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
+            }}>
+            <ZoomOutIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box>
+              <Typography variant="caption" fontWeight={600} display="block">Zoom Out</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                Decrease magnification
+              </Typography>
+            </Box>
+          </ButtonBase>
 
           <ButtonBase onClick={onToggleCLAHE} data-tool="clahe" aria-label="Enhance Contrast"
             sx={{
@@ -334,6 +353,8 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               </Typography>
             </Box>
           </ButtonBase>
+
+          <Divider sx={{ my: 0.5 }} />
 
           <ButtonBase onClick={onUndo} disabled={!canUndo} data-tool="undo" aria-label="Undo"
             sx={{
@@ -375,8 +396,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </Box>
           </ButtonBase>
 
-          <Divider sx={{ my: 0.5 }} />
-
           <ButtonBase onClick={onOpenMaskFilter} data-tool="filter" aria-label="Filter Masks by Area"
             sx={{
               display: 'flex', alignItems: 'flex-start', gap: 1,
@@ -389,6 +408,30 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <Typography variant="caption" fontWeight={600} display="block">Filter Masks</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Remove masks below a minimum area
+              </Typography>
+            </Box>
+          </ButtonBase>
+
+          <Divider sx={{ my: 0.5 }} />
+
+          <ButtonBase onClick={onSave} disabled={isSaving} data-tool="save" aria-label="Save Annotation"
+            sx={{
+              display: 'flex', alignItems: 'flex-start', gap: 1,
+              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+              bgcolor: 'success.main', color: 'success.contrastText',
+              '&:hover': { bgcolor: 'success.dark' }, '&.Mui-disabled': { bgcolor: 'rgba(0,0,0,0.12)', color: 'rgba(0,0,0,0.3)' },
+              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
+              transition: 'transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms ease',
+              '&:active': { transform: 'scale(0.98)' },
+              ...reducedMotionSx,
+            }}>
+            <SaveIcon fontSize="small" sx={{ mt: 0.2, flexShrink: 0 }} />
+            <Box>
+              <Typography variant="caption" fontWeight={700} display="block">
+                {isSaving ? 'Saving…' : 'Save Annotation'}
+              </Typography>
+              <Typography variant="caption" display="block" sx={{ fontSize: '0.63rem', opacity: 0.85, lineHeight: 1.3, mt: 0.1 }}>
+                Upload masks to cloud storage
               </Typography>
             </Box>
           </ButtonBase>
@@ -410,6 +453,8 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           </ButtonBase>
           {fileInput}
 
+          <Divider sx={{ my: 0.5 }} />
+
           {(imageName || (imageWidth && imageHeight)) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, py: 0.4 }}>
               <InfoIcon sx={{ fontSize: '0.85rem', color: 'text.disabled' }} aria-hidden="true" />
@@ -419,8 +464,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </Box>
           )}
 
-          <Divider sx={{ my: 0.5 }} />
-
           <ButtonBase onClick={onHelp} data-tool="help" aria-label="Help & Tutorial"
             sx={{
               display: 'flex', alignItems: 'flex-start', gap: 1,
@@ -429,7 +472,12 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
             <HelpOutlineIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
-            <Typography variant="caption" fontWeight={600}>Help & Tutorial</Typography>
+            <Box>
+              <Typography variant="caption" fontWeight={600} display="block">Help & Tutorial</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                Open the annotation walkthrough
+              </Typography>
+            </Box>
           </ButtonBase>
         </Box>
       )}

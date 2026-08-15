@@ -316,6 +316,16 @@ print('CLAHE packages ready')
     setGetOlMap(() => fn);
   }, []);
 
+  const handleZoomIn = useCallback(() => {
+    const view = getOlMap?.()?.getView();
+    if (view) view.animate({ zoom: (view.getZoom() ?? 0) + 1, duration: 200 });
+  }, [getOlMap]);
+
+  const handleZoomOut = useCallback(() => {
+    const view = getOlMap?.()?.getView();
+    if (view) view.animate({ zoom: (view.getZoom() ?? 0) - 1, duration: 200 });
+  }, [getOlMap]);
+
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
@@ -1477,6 +1487,8 @@ print("CLAHE_RESULT:" + result_b64)
         onSave={handleSave}
         onUndo={handleUndo}
         onResetView={() => resetView?.()}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
         onClearAll={handleClearAll}
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
