@@ -16,6 +16,7 @@ import {
   MenuItem,
   Collapse,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -211,8 +212,39 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
     prevLivePreviewReady.current = livePreviewReady;
   }, [livePreviewReady]);
 
+  // Flow Threshold and Cell Probability Threshold repaint the mask overlay
+  // live, so while either is being dragged the dialog fades out to reveal
+  // the image underneath. The slider itself stays fully opaque (only the
+  // Paper/backdrop backgrounds lose alpha), and the dialog restores on release.
+  const [draggingSlider, setDraggingSlider] = useState(false);
+  const startSliderDrag = () => setDraggingSlider(true);
+  const endSliderDrag = () => setDraggingSlider(false);
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: (theme) => ({
+          borderRadius: 3,
+          transition: 'background-color 180ms ease, box-shadow 180ms ease',
+          ...(draggingSlider && {
+            bgcolor: alpha(theme.palette.background.paper, 0.1),
+            boxShadow: 'none',
+          }),
+        }),
+      }}
+      slotProps={{
+        backdrop: {
+          sx: {
+            transition: 'background-color 180ms ease',
+            ...(draggingSlider && { bgcolor: 'rgba(0,0,0,0.04)' }),
+          },
+        },
+      }}
+    >
       <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>AI Pre-Segmentation Settings</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
@@ -318,6 +350,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         <Slider
                           value={config.flow_threshold}
                           onChange={(_, val) => update('flow_threshold', val as number)}
+                          onChangeCommitted={endSliderDrag}
+                          onPointerDown={startSliderDrag}
                           min={0} max={3} step={0.1}
                           valueLabelDisplay="auto"
                           size="small"
@@ -340,6 +374,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         <Slider
                           value={config.cellprob_threshold}
                           onChange={(_, val) => update('cellprob_threshold', val as number)}
+                          onChangeCommitted={endSliderDrag}
+                          onPointerDown={startSliderDrag}
                           min={-6} max={6} step={0.1}
                           valueLabelDisplay="auto"
                           size="small"
