@@ -836,7 +836,7 @@ print("Service registered successfully", end='')
           {role === 'owner' && (
             <button
               onClick={() => setShowDeleteDatasetModal(true)}
-              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-gray-900 hover:text-red-600 transition-colors"
             >
               Delete
             </button>
