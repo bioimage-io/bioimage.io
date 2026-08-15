@@ -14,8 +14,11 @@ import {
   Box,
   Select,
   MenuItem,
+  Collapse,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 /** Which segmentation backend the AI Pre-Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
@@ -98,49 +101,37 @@ interface CellposeConfigDialogProps {
   microSamAvailable?: boolean;
 }
 
-/** Tiny "server" / "instant" group badge that sits next to each field label. */
-const GroupChip: React.FC<{ kind: 'server' | 'instant'; livePreviewReady?: boolean }> = ({
-  kind,
-  livePreviewReady,
-}) => {
-  const isInstantActive = kind === 'instant' && livePreviewReady;
-  const isInstantIdle = kind === 'instant' && !livePreviewReady;
-  const bg = kind === 'server'
-    ? 'rgba(255,167,38,0.12)'
-    : isInstantActive ? 'rgba(76,175,80,0.16)' : 'rgba(120,120,120,0.10)';
-  const fg = kind === 'server'
-    ? 'warning.main'
-    : isInstantActive ? 'success.main' : 'text.disabled';
-  const label = kind === 'server' ? 'server' : isInstantActive ? 'live' : 'after run';
-  const tip = kind === 'server'
-    ? 'Affects the network output. Changing this needs another GPU round-trip via Run.'
-    : isInstantActive
-      ? 'Live preview is active. The polygon overlay updates as you drag.'
-      : isInstantIdle
-        ? 'Mask-gen knob. Click Run once. Afterwards this slider updates the preview without a server hit.'
-        : '';
-  return (
-    <Tooltip title={tip} placement="top" arrow>
-      <Box
-        component="span"
-        sx={{
-          ml: 0.75, px: 0.7, py: 0.05,
-          borderRadius: 0.75,
-          bgcolor: bg,
-          color: fg,
-          fontSize: '0.62rem',
-          fontWeight: 700,
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          lineHeight: 1.35,
-          verticalAlign: 'middle',
-        }}
-      >
-        {label}
-      </Box>
-    </Tooltip>
-  );
-};
+/** Collapsible section header: click to toggle, chevron shows current state. */
+const SectionHeader: React.FC<{ title: string; subtitle?: string; open: boolean; onToggle: () => void }> = ({
+  title,
+  subtitle,
+  open,
+  onToggle,
+}) => (
+  <Box
+    component="button"
+    type="button"
+    onClick={onToggle}
+    aria-expanded={open}
+    sx={{
+      display: 'flex', alignItems: 'center', width: '100%',
+      px: 1.25, py: 0.75,
+      borderRadius: 1.5, border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+      bgcolor: 'action.hover',
+      '&:hover': { bgcolor: 'action.selected' },
+    }}
+  >
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography variant="body2" fontWeight={600}>{title}</Typography>
+      {subtitle && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.1 }}>
+          {subtitle}
+        </Typography>
+      )}
+    </Box>
+    {open ? <ExpandLessIcon fontSize="small" sx={{ flexShrink: 0, ml: 1 }} /> : <ExpandMoreIcon fontSize="small" sx={{ flexShrink: 0, ml: 1 }} />}
+  </Box>
+);
 
 const INSTANT_KEYS: (keyof CellposeConfig)[] = [
   'flow_threshold',
@@ -195,13 +186,38 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   const isMicroSam = config.backend === 'microsam';
   const showReset = configDiffersFromDefault(config);
 
+  // Section 1 ("Run") starts open and Section 2 ("Refine Results") starts
+  // closed. Reopening the dialog after a run restores whichever state
+  // matches the current readiness instead of always resetting to defaults.
+  const [runSectionOpen, setRunSectionOpen] = useState(!livePreviewReady);
+  const [refineSectionOpen, setRefineSectionOpen] = useState(!!livePreviewReady);
+
+  useEffect(() => {
+    if (open) {
+      setRunSectionOpen(!livePreviewReady);
+      setRefineSectionOpen(!!livePreviewReady);
+    }
+    // Only re-derive on the open transition, not on every livePreviewReady
+    // change while open (that case is handled by the effect below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const prevLivePreviewReady = useRef(livePreviewReady);
+  useEffect(() => {
+    if (livePreviewReady && !prevLivePreviewReady.current) {
+      setRunSectionOpen(false);
+      setRefineSectionOpen(true);
+    }
+    prevLivePreviewReady.current = livePreviewReady;
+  }, [livePreviewReady]);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>AI Pre-Segmentation Settings</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
 
-          {/* Backend selector */}
+          {/* Backend selector — always visible, not part of either section */}
           <Grid item xs={12}>
             <Box sx={{
               display: 'flex', alignItems: 'center', gap: 1,
@@ -231,126 +247,149 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             )}
           </Grid>
 
-          {/* Live preview status row */}
-          {onInstantConfigChange && !isMicroSam && (
+          {/* ── μSAM: single field, no sections (nothing here is tunable after a run) ── */}
+          {isMicroSam && (
             <Grid item xs={12}>
-              <Box sx={{
-                display: 'flex', alignItems: 'center', gap: 1,
-                px: 1.25, py: 0.6,
-                borderRadius: 1.5,
-                bgcolor: livePreviewReady ? 'rgba(76,175,80,0.10)' : 'rgba(120,120,120,0.06)',
-                border: '1px solid',
-                borderColor: livePreviewReady ? 'rgba(76,175,80,0.35)' : 'divider',
-              }}>
-                <Box sx={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  bgcolor: livePreviewReady ? 'success.main' : 'text.disabled',
-                  boxShadow: livePreviewReady ? '0 0 0 3px rgba(76,175,80,0.15)' : 'none',
-                  flexShrink: 0,
-                }} />
-                <Typography variant="caption" sx={{ fontWeight: 600, color: livePreviewReady ? 'success.main' : 'text.secondary' }}>
-                  {livePreviewReady ? 'Live preview is active' : 'Live preview will activate after Run'}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto', fontStyle: 'italic', display: { xs: 'none', sm: 'inline' } }}>
-                  {livePreviewReady
-                    ? 'instant sliders update without a server hit'
-                    : 'one server call caches the flows; then sliders are local'}
-                </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
+                <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
               </Box>
+              <TextField
+                fullWidth size="small" type="number"
+                value={config.min_mask_area}
+                onChange={(e) => {
+                  const num = parseInt(e.target.value, 10);
+                  if (!isNaN(num) && num >= 0) update('min_mask_area', num);
+                }}
+                slotProps={{ input: { inputProps: { min: 0 } } }}
+              />
             </Grid>
           )}
 
-          {/* ── Flow Threshold ── */}
+          {/* ── Cellpose: two collapsible sections ── */}
           {!isMicroSam && (
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
-              <Typography variant="body2" fontWeight={500}>
-                Flow Threshold
-              </Typography>
-              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {config.flow_threshold.toFixed(1)}
-              </Typography>
-              <InfoTip text="Controls how strictly Cellpose checks that predicted flows are consistent with a valid cell shape. Higher → more masks accepted, including irregular shapes. Lower → only well-formed, round-ish masks kept. Decrease if you see too many oddly-shaped detections." />
-            </Box>
-            <Box sx={{ px: 0.5 }}>
-              <Slider
-                value={config.flow_threshold}
-                onChange={(_, val) => update('flow_threshold', val as number)}
-                min={0} max={3} step={0.1}
-                valueLabelDisplay="auto"
-                size="small"
-              />
-            </Box>
-          </Grid>
-          )}
+            <>
+              {/* Section 1: Run — collapses once flows come back from the server */}
+              <Grid item xs={12}>
+                <SectionHeader
+                  title="Run Segmentation"
+                  subtitle={livePreviewReady
+                    ? 'Segmented. Adjust the sliders below to refine the result.'
+                    : 'One server call computes the network output.'}
+                  open={runSectionOpen}
+                  onToggle={() => setRunSectionOpen((v) => !v)}
+                />
+                <Collapse in={runSectionOpen}>
+                  <Box sx={{ px: 1.25, pt: 1, pb: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {livePreviewReady
+                        ? 'The image has already been segmented. Open Refine Results below to tune the mask output instantly, or click Re-run to segment again.'
+                        : 'Click Run Segmentation to send the image to the server. After that, the sliders below update the preview instantly with no extra server calls.'}
+                    </Typography>
+                  </Box>
+                </Collapse>
+              </Grid>
 
-          {/* ── Cell Probability Threshold ── */}
-          {!isMicroSam && (
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
-              <Typography variant="body2" fontWeight={500}>
-                Cell Probability Threshold
-              </Typography>
-              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {config.cellprob_threshold.toFixed(1)}
-              </Typography>
-              <InfoTip text="Minimum confidence score for a pixel to be considered part of a cell. Decrease → detect more cells, including faint or dim ones. Increase → only high-confidence detections are kept." />
-            </Box>
-            <Box sx={{ px: 0.5 }}>
-              <Slider
-                value={config.cellprob_threshold}
-                onChange={(_, val) => update('cellprob_threshold', val as number)}
-                min={-6} max={6} step={0.1}
-                valueLabelDisplay="auto"
-                size="small"
-              />
-            </Box>
-          </Grid>
-          )}
+              {/* Section 2: Refine Results — opens once flows come back */}
+              <Grid item xs={12}>
+                <SectionHeader
+                  title="Refine Results"
+                  subtitle={livePreviewReady
+                    ? 'Updates the preview instantly as you drag.'
+                    : 'Available after you click Run Segmentation.'}
+                  open={refineSectionOpen}
+                  onToggle={() => setRefineSectionOpen((v) => !v)}
+                />
+                <Collapse in={refineSectionOpen}>
+                  <Grid container spacing={2} sx={{ px: 1.25, pt: 1.25, pb: 0.5 }}>
 
-          {/* ── Niter + Min Mask Area (side by side) ── */}
-          {!isMicroSam && (
-          <Grid item xs={6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="body2" fontWeight={500}>Iterations (niter)</Typography>
-              {onInstantConfigChange && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
-              <InfoTip text="Number of flow dynamics iterations. Leave empty for the default (200). Increase to ~250 for complex or concave cell shapes where the default may fragment masks." />
-            </Box>
-            <TextField
-              fullWidth size="small" type="number" placeholder="Default (200)"
-              value={config.niter === null ? '' : config.niter}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === '') {
-                  update('niter', null);
-                } else {
-                  const num = parseInt(val, 10);
-                  if (!isNaN(num) && num >= 0) update('niter', num === 0 ? null : num);
-                }
-              }}
-              slotProps={{ input: { inputProps: { min: 0 } } }}
-            />
-          </Grid>
-          )}
+                    {/* ── Flow Threshold ── */}
+                    <Grid item xs={12}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
+                        <Typography variant="body2" fontWeight={500}>
+                          Flow Threshold
+                        </Typography>
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          {config.flow_threshold.toFixed(1)}
+                        </Typography>
+                        <InfoTip text="Controls how strictly Cellpose checks that predicted flows are consistent with a valid cell shape. Higher → more masks accepted, including irregular shapes. Lower → only well-formed, round-ish masks kept. Decrease if you see too many oddly-shaped detections." />
+                      </Box>
+                      <Box sx={{ px: 0.5 }}>
+                        <Slider
+                          value={config.flow_threshold}
+                          onChange={(_, val) => update('flow_threshold', val as number)}
+                          min={0} max={3} step={0.1}
+                          valueLabelDisplay="auto"
+                          size="small"
+                        />
+                      </Box>
+                    </Grid>
 
-          <Grid item xs={isMicroSam ? 12 : 6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
-              {onInstantConfigChange && !isMicroSam && <GroupChip kind="instant" livePreviewReady={livePreviewReady} />}
-              <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
-            </Box>
-            <TextField
-              fullWidth size="small" type="number"
-              value={config.min_mask_area}
-              onChange={(e) => {
-                const num = parseInt(e.target.value, 10);
-                if (!isNaN(num) && num >= 0) update('min_mask_area', num);
-              }}
-              slotProps={{ input: { inputProps: { min: 0 } } }}
-            />
-          </Grid>
+                    {/* ── Cell Probability Threshold ── */}
+                    <Grid item xs={12}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
+                        <Typography variant="body2" fontWeight={500}>
+                          Cell Probability Threshold
+                        </Typography>
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          {config.cellprob_threshold.toFixed(1)}
+                        </Typography>
+                        <InfoTip text="Minimum confidence score for a pixel to be considered part of a cell. Decrease → detect more cells, including faint or dim ones. Increase → only high-confidence detections are kept." />
+                      </Box>
+                      <Box sx={{ px: 0.5 }}>
+                        <Slider
+                          value={config.cellprob_threshold}
+                          onChange={(_, val) => update('cellprob_threshold', val as number)}
+                          min={-6} max={6} step={0.1}
+                          valueLabelDisplay="auto"
+                          size="small"
+                        />
+                      </Box>
+                    </Grid>
+
+                    {/* ── Niter + Min Mask Area (side by side) ── */}
+                    <Grid item xs={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" fontWeight={500}>Iterations (niter)</Typography>
+                        <InfoTip text="Number of flow dynamics iterations. Leave empty for the default (200). Increase to ~250 for complex or concave cell shapes where the default may fragment masks." />
+                      </Box>
+                      <TextField
+                        fullWidth size="small" type="number" placeholder="Default (200)"
+                        value={config.niter === null ? '' : config.niter}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') {
+                            update('niter', null);
+                          } else {
+                            const num = parseInt(val, 10);
+                            if (!isNaN(num) && num >= 0) update('niter', num === 0 ? null : num);
+                          }
+                        }}
+                        slotProps={{ input: { inputProps: { min: 0 } } }}
+                      />
+                    </Grid>
+
+                    <Grid item xs={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
+                        <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
+                      </Box>
+                      <TextField
+                        fullWidth size="small" type="number"
+                        value={config.min_mask_area}
+                        onChange={(e) => {
+                          const num = parseInt(e.target.value, 10);
+                          if (!isNaN(num) && num >= 0) update('min_mask_area', num);
+                        }}
+                        slotProps={{ input: { inputProps: { min: 0 } } }}
+                      />
+                    </Grid>
+
+                  </Grid>
+                </Collapse>
+              </Grid>
+            </>
+          )}
 
         </Grid>
       </DialogContent>
@@ -373,7 +412,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             color="secondary"
             disabled={isRunning}
           >
-            {livePreviewReady ? 'Re-run (server)' : 'Run Segmentation'}
+            {livePreviewReady ? 'Re-run on Server' : 'Run Segmentation'}
           </Button>
         )}
       </DialogActions>
