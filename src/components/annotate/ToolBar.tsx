@@ -274,7 +274,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       disabled={toolDisabled}
                       aria-label={tool.name}
                       sx={{
-                        display: 'flex', alignItems: 'flex-start', gap: 1,
+                        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
                         px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
                         bgcolor: active ? (tool.id === 'sambox' ? 'rgba(156,39,176,0.14)' : 'rgba(25,118,210,0.10)')
                           : tool.id === 'sambox' ? 'rgba(156,39,176,0.06)' : 'transparent',
@@ -295,6 +295,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       <Box sx={{ minWidth: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.6 }}>
                           <Typography variant="caption" fontWeight={600} color={active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.primary'}
+                            data-testid="row-title"
                             sx={{ minWidth: 0 }}>
                             {tool.name}
                           </Typography>
@@ -331,7 +332,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                           data-tool="cellpose"
                           aria-label="Full Image Segmentation"
                           sx={{
-                            display: 'flex', alignItems: 'flex-start', gap: 1,
+                            display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
                             px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
                             bgcolor: cellposeConfigOpen ? 'rgba(156,39,176,0.14)' : 'rgba(156,39,176,0.06)',
                             border: '1px solid', borderColor: cellposeConfigOpen ? 'rgba(156,39,176,0.3)' : 'rgba(156,39,176,0.18)',
@@ -348,7 +349,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
                             <AutoAwesomeIcon fontSize="small" />
                           </Box>
                           <Box>
-                            <Typography variant="caption" fontWeight={600} color={cellposeConfigOpen ? 'secondary.main' : 'text.primary'} display="block">
+                            <Typography variant="caption" fontWeight={600} color={cellposeConfigOpen ? 'secondary.main' : 'text.primary'} display="block"
+                              data-testid="row-title">
                               Full Image Segmentation
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block"

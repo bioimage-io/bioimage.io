@@ -291,7 +291,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onResetView} data-tool="fit" aria-label="Fit to Image"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -300,7 +300,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <CenterFocusStrongIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Fit to Image</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Fit to Image</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Reset the view to show the full image
               </Typography>
@@ -309,7 +309,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onZoomIn} data-tool="zoom-in" aria-label="Zoom In"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -318,7 +318,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <ZoomInIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Zoom In</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Zoom In</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Increase magnification
               </Typography>
@@ -327,7 +327,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onZoomOut} data-tool="zoom-out" aria-label="Zoom Out"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -336,7 +336,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <ZoomOutIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Zoom Out</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Zoom Out</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Decrease magnification
               </Typography>
@@ -345,7 +345,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onToggleCLAHE} data-tool="clahe" aria-label="Enhance Contrast"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.10)' : 'transparent',
               '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.14)' : isLowContrast ? 'rgba(237,108,2,0.08)' : 'rgba(0,0,0,0.05)' },
@@ -355,7 +355,8 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <ContrastIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.primary'} display="block">
+              <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.primary'} display="block"
+                data-testid="row-title">
                 {isCLAHEActive ? 'Restore Original' : 'Enhance Contrast'}
               </Typography>
               <Typography variant="caption" color={isLowContrast && !isCLAHEActive ? 'warning.main' : 'text.secondary'} display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -368,7 +369,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onUndo} disabled={!canUndo} data-tool="undo" aria-label="Undo"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }, '&.Mui-disabled': { opacity: 0.45 },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -378,7 +379,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </Box>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
-                <Typography variant="caption" fontWeight={600}>Undo</Typography>
+                <Typography variant="caption" fontWeight={600} data-testid="row-title">Undo</Typography>
                 {!isCompact && (
                   <Typography component="span" sx={{
                     fontSize: '0.58rem', color: 'text.disabled', fontFamily: 'monospace',
@@ -394,7 +395,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onClearAll} data-tool="clear" aria-label="Clear All Annotations"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(211,47,47,0.06)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -403,7 +404,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <DeleteSweepIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} color="error.main" display="block">Clear All</Typography>
+              <Typography variant="caption" fontWeight={600} color="error.main" display="block" data-testid="row-title">Clear All</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Remove all annotations on this image
               </Typography>
@@ -412,7 +413,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onOpenMaskFilter} data-tool="filter" aria-label="Filter Masks by Area"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -421,7 +422,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <FilterListIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Filter Masks</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Filter Masks</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Remove masks below a minimum area
               </Typography>
@@ -432,7 +433,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onSave} disabled={isSaving} data-tool="save" aria-label="Save Annotation"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               bgcolor: 'success.main', color: 'success.contrastText',
               '&:hover': { bgcolor: 'success.dark' }, '&.Mui-disabled': { bgcolor: 'rgba(0,0,0,0.12)', color: 'rgba(0,0,0,0.3)' },
@@ -445,7 +446,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <SaveIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={700} display="block">
+              <Typography variant="caption" fontWeight={700} display="block" data-testid="row-title">
                 {isSaving ? 'Saving…' : 'Save Annotation'}
               </Typography>
               <Typography variant="caption" display="block" sx={{ fontSize: '0.63rem', opacity: 0.85, lineHeight: 1.3, mt: 0.1 }}>
@@ -456,7 +457,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={() => fileInputRef.current?.click()} data-tool="upload" aria-label="Import Annotation"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -465,7 +466,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <UploadFileIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Import Annotation</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Import Annotation</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Uploads a GeoJSON file
               </Typography>
@@ -486,7 +487,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           <ButtonBase onClick={onHelp} data-tool="help" aria-label="Help & Tutorial"
             sx={{
-              display: 'flex', alignItems: 'flex-start', gap: 1,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
@@ -495,7 +496,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <HelpOutlineIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Help & Tutorial</Typography>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Help & Tutorial</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Open the annotation walkthrough
               </Typography>
