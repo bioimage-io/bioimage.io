@@ -122,6 +122,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [localImages, setLocalImages] = useState<{ stem: string; format: string }[]>([]);
   const [uploadingStems, setUploadingStems] = useState<Set<string>>(new Set());
   const [mounting, setMounting] = useState(false);
+  const [folderMounted, setFolderMounted] = useState(false);
 
   const [labels, setLabels] = useState<DatasetLabelRef[] | null>(null);
   const [selectedLabel, setSelectedLabel] = useState('');
@@ -214,9 +215,11 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const canManage = role === 'owner' || role === 'manager';
 
   // --- Images ---
+  const [imagesLoading, setImagesLoading] = useState(false);
   useEffect(() => {
     if (!canManage) return;
     let active = true;
+    setImagesLoading(true);
     (async () => {
       try {
         const imgs = await listImages(artifactManager, artifactId);
@@ -225,6 +228,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         setSelectedStem((prev) => (prev && imgs.some((i) => i.stem === prev) ? prev : imgs[0]?.stem ?? null));
       } catch (err) {
         if (active) setError((err as Error).message || 'Failed to load images.');
+      } finally {
+        if (active) setImagesLoading(false);
       }
     })();
     return () => {
@@ -448,6 +453,7 @@ print("Service registered successfully", end='')
         const cloudStems = new Set((images ?? []).map((i) => i.stem));
         dataServiceRef.current = dataService;
         setLocalImages(localList.filter((l) => !cloudStems.has(l.stem)));
+        setFolderMounted(true);
       } catch (err) {
         setError((err as Error).message || 'Failed to mount local folder.');
       } finally {
@@ -469,6 +475,18 @@ print("Service registered successfully", end='')
       return;
     }
     await mountLocalFolder(dirHandle);
+  };
+
+  // Releases this session's reference to the mounted folder (data-provider
+  // service handle, not-yet-uploaded local image list) so the UI flips back
+  // to "Mount local folder". The kernel keeps running, files already
+  // uploaded stay in the cloud dataset; a fresh mount just re-picks a folder.
+  const handleUnmount = () => {
+    dataServiceRef.current = null;
+    setLocalImages([]);
+    setUploadingStems(new Set());
+    setUploadProgress(null);
+    setFolderMounted(false);
   };
 
   // Auto-mount the folder handed over from CreateDatasetModal, if any, so
@@ -659,11 +677,11 @@ print("Service registered successfully", end='')
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <button
-          onClick={handleUploadClick}
+          onClick={folderMounted ? handleUnmount : handleUploadClick}
           disabled={mounting}
           className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
         >
-          {mounting ? 'Mounting...' : 'Mount local folder'}
+          {mounting ? 'Mounting...' : folderMounted ? 'Unmount folder' : 'Mount local folder'}
         </button>
         {localImages.length > 0 && (
           <button
@@ -697,50 +715,85 @@ print("Service registered successfully", end='')
             )}
           </button>
         )}
-        <button
-          onClick={handleRefresh}
-          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
-        >
-          Refresh
-        </button>
-        <a
-          href={downloadZipUrl}
-          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
-        >
-          Download ZIP
-        </a>
-        <button
-          onClick={() => setShowTrainingModal(true)}
-          disabled={!selectedLabel}
-          className="px-3.5 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50"
-        >
-          Train
-        </button>
-        <button
-          onClick={() => setShowShareModal(true)}
-          disabled={!selectedLabel}
-          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
-        >
-          Share
-        </button>
-        {role === 'owner' && (
+        {selectedLabel && (
           <button
-            onClick={() => setShowDeleteDatasetModal(true)}
-            className="ml-auto px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+            onClick={() => setStatsViewOpen((v) => !v)}
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
           >
-            Delete dataset
+            {statsViewOpen ? 'Show image preview' : 'Show annotation stats'}
           </button>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowShareModal(true)}
+            disabled={!selectedLabel}
+            className="relative px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50"
+          >
+            Share
+            {!!dataset?.access_requests?.length && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[1.15rem] h-[1.15rem] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold shadow-sm">
+                {dataset.access_requests.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setShowTrainingModal(true)}
+            disabled={!selectedLabel}
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
+          >
+            Finetune
+          </button>
+          <a
+            href={downloadZipUrl}
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
+          >
+            Download
+          </a>
+          {role === 'owner' && (
+            <button
+              onClick={() => setShowDeleteDatasetModal(true)}
+              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+            >
+              Delete dataset
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_320px] gap-4">
         {/* Left: image list */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[70vh]">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-900">Images</h3>
-            <p className="text-xs text-gray-400">
-              {imageRows.length} total{localImages.length > 0 ? ` · ${localImages.length} pending upload` : ''}
-            </p>
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Images</h3>
+              <p className="text-xs text-gray-400">
+                {imageRows.length} total{localImages.length > 0 ? ` · ${localImages.length} pending upload` : ''}
+              </p>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={imagesLoading}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center border shadow-sm shrink-0 ${
+                imagesLoading
+                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 hover:from-purple-100 hover:to-pink-100 border-purple-200 hover:shadow-md'
+              }`}
+              title="Refresh image list"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${imagesLoading ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
           </div>
           <div className="overflow-y-auto divide-y divide-gray-100 flex-1">
             {images === null ? (
@@ -816,16 +869,6 @@ print("Service registered successfully", end='')
 
         {/* Center: preview + annotation browser */}
         <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col">
-          {selectedLabel && (
-            <div className="flex justify-end mb-2">
-              <button
-                onClick={() => setStatsViewOpen((v) => !v)}
-                className="text-xs font-medium text-purple-600 hover:text-purple-700 transition-colors"
-              >
-                {statsViewOpen ? 'Show image preview' : 'Show annotation stats'}
-              </button>
-            </div>
-          )}
           <div className="flex-1 min-h-[360px] flex items-center justify-center bg-gray-50 rounded-xl overflow-hidden">
             {statsViewOpen && selectedLabel ? (
               <AnnotationStatsView images={images ?? []} stats={labelStats} label={selectedLabel} />
