@@ -36,14 +36,16 @@ const ColabPageContent: React.FC = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex-1" />
-            <div className="text-center">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight mb-1">
-                BioImage.IO Colab
-              </h1>
-              <p className="text-sm text-gray-600">
-                Collaborative Image Annotation Platform
-              </p>
-            </div>
+            {!sessionId && (
+              <div className="text-center">
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent tracking-tight mb-1">
+                  BioImage.IO Colab
+                </h1>
+                <p className="text-sm text-gray-600">
+                  Collaborative Image Annotation Platform
+                </p>
+              </div>
+            )}
             {/* Kernel Status */}
             <div className="flex-1 flex justify-end items-center gap-3">
               <button

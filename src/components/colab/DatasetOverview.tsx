@@ -15,6 +15,7 @@ import {
   listAnnotationPairs,
   listImages,
   pLimit,
+  toAlias,
   withStageRetry,
 } from './datasetApi';
 import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
@@ -103,6 +104,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const { executeCode, mountDirectory, requestKernel } = useSharedKernel();
 
   const [dataset, setDataset] = useState<DatasetWithRole | null>(null);
+  const [datasetMeta, setDatasetMeta] = useState<{ name: string; description: string } | null>(null);
   const [guardError, setGuardError] = useState<string | null>(null);
   const [guardErrorCode, setGuardErrorCode] = useState<BrokerErrorCode | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -183,6 +185,30 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [server, user, artifactId, refreshTick]);
+
+  // --- Manifest name/description for the header (§13 item 1) ---
+  useEffect(() => {
+    if (!artifactManager) return;
+    let active = true;
+    (async () => {
+      try {
+        const artifact = await withStageRetry(() =>
+          artifactManager.read({ artifact_id: artifactId, stage: true, _rkwargs: true }),
+        );
+        if (active) {
+          setDatasetMeta({
+            name: artifact.manifest?.name ?? toAlias(artifactId),
+            description: artifact.manifest?.description ?? '',
+          });
+        }
+      } catch {
+        // best-effort; header falls back to the bare alias
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [artifactManager, artifactId]);
 
   const role: BrokerRole | undefined = dataset?.role;
   const canManage = role === 'owner' || role === 'manager';
@@ -606,6 +632,29 @@ print("Service registered successfully", end='')
           </button>
         </div>
       )}
+
+      {/* Header */}
+      <div className="flex items-start mb-5">
+        <button
+          onClick={() => navigate('/colab')}
+          className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4 mt-1 shrink-0"
+          title="Back to Colab"
+        >
+          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="text-sm font-medium">Back</span>
+        </button>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-gray-900 truncate">
+            {datasetMeta?.name ?? toAlias(artifactId)}
+          </h1>
+          {datasetMeta?.description && (
+            <p className="text-sm text-gray-600 mt-0.5">{datasetMeta.description}</p>
+          )}
+          <p className="text-xs text-gray-400 mt-0.5">{toAlias(artifactId)}</p>
+        </div>
+      </div>
 
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
