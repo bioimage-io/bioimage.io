@@ -353,7 +353,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                       <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
-                      <InfoTip text="Cellpose-SAM works best when objects are about 30 px across. Diameter rescales the image so objects match that size before segmentation. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
+                      <InfoTip text="Cellpose-SAM is deliberately scale-robust, so this is usually unnecessary. When set, it rescales the image so objects match the network's ~30 px working size before segmentation. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
                       {onMeasureDiameter && (
                         <Tooltip title="Measure a representative object in the image to set the diameter automatically" placement="top" arrow>
                           <Button
