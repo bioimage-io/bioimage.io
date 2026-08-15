@@ -24,6 +24,13 @@ export interface DatasetLabel {
   description: string;
 }
 
+export interface AccessRequest {
+  id: string;
+  email: string;
+  requested_role: string;
+  requested_at: string;
+}
+
 export interface DatasetMetadata {
   artifact_id: string;
   owner: BrokerUserRef;
@@ -31,6 +38,7 @@ export interface DatasetMetadata {
   annotators: BrokerUserRef[];
   public: boolean;
   labels: DatasetLabel[];
+  access_requests: AccessRequest[];
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +210,34 @@ export async function setPublic(
 ): Promise<DatasetMetadata> {
   const broker = await resolveBrokerService(server);
   return broker.set_public({ artifact_id: artifactId, is_public: isPublic, _rkwargs: true });
+}
+
+/**
+ * Ask the broker for a role on a dataset the caller doesn't have one on yet
+ * (colab-rework-plan.md §13). Anonymous callers are rejected server-side
+ * with a PermissionError asking them to log in first; callers should check
+ * `useHyphaStore().user?.email` before calling this.
+ */
+export async function requestAccess(
+  server: any,
+  artifactId: string,
+  role: 'annotator' | 'manager' = 'annotator',
+): Promise<{ status: 'requested' | 'already_has_access'; [key: string]: any }> {
+  const broker = await resolveBrokerService(server);
+  return broker.request_access({ artifact_id: artifactId, role, _rkwargs: true });
+}
+
+/**
+ * Reject a pending access request (manager+ only). Unlike `setRole`, this
+ * does not grant a role, it just clears the request.
+ */
+export async function dismissAccessRequest(
+  server: any,
+  artifactId: string,
+  user: string,
+): Promise<DatasetMetadata> {
+  const broker = await resolveBrokerService(server);
+  return broker.dismiss_access_request({ artifact_id: artifactId, user, _rkwargs: true });
 }
 
 export async function createLabel(
