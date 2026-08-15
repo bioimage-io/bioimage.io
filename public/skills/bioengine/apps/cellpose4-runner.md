@@ -34,7 +34,7 @@ Any `model_id` outside this set is rejected by `infer`.
 | Cancel a still-queued request | `cancel_request(request_id)` |
 | Presigned S3 PUT URL for staging an input | `get_upload_url(file_type)` |
 
-The submit/poll contract is **identical to model-runner**: `infer` returns a `request_id` immediately; poll `get_infer_status(request_id)` until `completed_at` is set, then read `result`.
+Every method this app shares with model-runner has the **same name and signature** — `infer(model_id, inputs, …, cache)`, `get_infer_status(request_id)`, `cancel_request(request_id)`, and `get_upload_url(file_type)` — so one client code path drives both. `list_supported_models()` is the only cp4-specific method (model-runner resolves its models via `search_models` instead). The submit/poll contract is identical: `infer` returns a `request_id` immediately; poll `get_infer_status(request_id)` until `completed_at` is set, then read `result`.
 
 ```python
 import asyncio
@@ -58,6 +58,7 @@ labels = status["result"]["labels"]   # integer instance mask
 - `flow_threshold` / `cellprob_threshold` / `min_size` — override the Cellpose flow-dynamics postprocessing; `None` uses the model RDF defaults (Cellpose-SAM: `0.4` / `0.0` / `15`). Overrides patch only an in-memory RDF copy; a changed override set reloads the resident pipeline.
 - `return_flows=True` — return the raw flow field (`{"flows": array}`, 2 flow components + cell probability) instead of instance masks; the threshold overrides do not apply in this mode.
 - `return_download_url=True` — return each output as a presigned S3 `.npy` URL (1-hour TTL) instead of the raw array.
+- `cache` — model-cache policy, same values and meaning as model-runner's `infer` (there is **no** `skip_cache` alias here — cp4 only ever took `cache`): `"check"` (default) does a real freshness round-trip to the model artifact and reloads the resident pipeline only if it changed; `"skip"` forces a full reload even if the model is resident; `"reuse"` trusts the resident pipeline with no round-trip. A reload's timing surfaces in the `model_download` stage of `get_infer_status` (a genuine warm reuse reports it as skipped).
 
 ## Deployment
 
@@ -66,7 +67,7 @@ The app reads `HYPHA_TOKEN` at startup (Hypha + S3), so a fresh deploy must inje
 ```python
 await worker.deploy_app(
     artifact_id="bioimage-io/cellpose4-runner",
-    version="0.3.0",
+    version="0.6.0",
     application_id="cellpose4-runner",
     hypha_token=HYPHA_TOKEN,
 )

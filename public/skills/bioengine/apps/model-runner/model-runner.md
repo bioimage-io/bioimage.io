@@ -119,7 +119,7 @@ async def run_infer(mr, model_id, inputs, *, poll=1.0, timeout=300, **kwargs):
 
 async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
     """Submit a test job and block until the report is ready.
-    Extra kwargs: stage, skip_cache, custom_environment."""
+    Extra kwargs: stage, cache, custom_environment."""
     test_run_id = await mr.test(model_id=model_id, **kwargs)
     deadline = time.monotonic() + timeout
     while True:
@@ -673,8 +673,9 @@ bioengine call bioimage-io/model-runner validate --args '{"rdf_dict": {"type": "
 # test is asynchronous: submit returns a test_run_id, then poll get_test_status.
 RUN=$(bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant"}' --json)
 bioengine call bioimage-io/model-runner get_test_status --args "{\"test_run_id\": $RUN}" --json
-# skip_cache forces a fresh package download + re-test:
-bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant", "skip_cache": true}' --json
+# cache="skip" forces a fresh package download + re-test ("check" default re-downloads only if the
+# artifact changed; "reuse" trusts the cached package and report):
+bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant", "cache": "skip"}' --json
 ```
 
 In Python, `report = await run_test(mr, "ambitious-ant")` submits and polls in one call (see [§ Async job API](#async-job-api--infer-and-test-return-job-ids)). Pass `custom_environment=True` for a model that declares a `dependencies` conda env (test-only; the report auto-publishes to the `bioimage-io/test-reports` collection).
