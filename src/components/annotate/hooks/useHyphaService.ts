@@ -180,8 +180,16 @@ function decodeLabelMask(maskResult: any): {
   h: number;
 } {
   let buffer = maskResult._rvalue;
-  const shape = maskResult._rshape as number[];
+  let shape = maskResult._rshape as number[];
   const dtype = maskResult._rdtype as string;
+  // cellpose4-runner returns a leading batch axis, e.g. (1, 1, H, W) instead
+  // of the bare (H, W) this function used to assume. Drop leading singleton
+  // dims so w/h always read the real trailing spatial dims; without this,
+  // w and h silently read as 1 and every mask decodes to zero polygons with
+  // no thrown error.
+  while (shape.length > 2 && shape[0] === 1) {
+    shape = shape.slice(1);
+  }
   const w = shape[1];
   const h = shape[0];
   // _rvalue may be a Uint8Array view; slice out its underlying ArrayBuffer.
@@ -858,7 +866,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             }
 
             let buffer = flows._rvalue;
-            const shape = flows._rshape as number[];
+            let shape = flows._rshape as number[];
             if (buffer instanceof Uint8Array) {
               buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
             }
@@ -867,6 +875,13 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             }
             const data = new Float32Array(buffer);
 
+            // cellpose4-runner returns a leading batch axis, e.g. (1, 3, H, W)
+            // instead of the bare (3, H, W) this guard used to require, which
+            // made it throw on every real response and always fall back to
+            // the all-server masks path.
+            while (shape.length > 3 && shape[0] === 1) {
+              shape = shape.slice(1);
+            }
             if (shape.length !== 3 || shape[0] !== 3) {
               throw new Error(`flows shape ${JSON.stringify(shape)} not (3, H, W)`);
             }
