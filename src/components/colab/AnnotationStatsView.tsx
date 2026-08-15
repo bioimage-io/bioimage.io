@@ -6,13 +6,20 @@ export interface AnnotationStatsViewProps {
   stats: Record<string, number>;
   label: string;
   highlightStem?: string | null;
+  onSelectStem?: (stem: string) => void;
 }
 
 // Per-image annotation-instance breakdown for the selected label: every
 // image gets a row (including zero-count ones), unlike LabelStatsChart's
 // capped-at-8 sorted summary. Axis max is the highest per-image count + 1,
 // so even the busiest image's bar stops short of the far edge.
-const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({ images, stats, label, highlightStem }) => {
+const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({
+  images,
+  stats,
+  label,
+  highlightStem,
+  onSelectStem,
+}) => {
   const rows = images
     .map((img) => ({ stem: img.stem, count: stats[img.stem] ?? 0 }))
     .sort((a, b) => b.count - a.count || a.stem.localeCompare(b.stem));
@@ -40,7 +47,8 @@ const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({ images, stats
           <div
             key={stem}
             ref={(el) => { rowRefs.current[stem] = el; }}
-            className={`flex items-center gap-2 rounded ${
+            onClick={() => onSelectStem?.(stem)}
+            className={`flex items-center gap-2 rounded ${onSelectStem ? 'cursor-pointer hover:bg-gray-50' : ''} ${
               stem === highlightStem ? 'bg-purple-50 ring-1 ring-purple-300' : ''
             }`}
           >

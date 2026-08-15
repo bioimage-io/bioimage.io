@@ -364,6 +364,65 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     };
   }, [artifactManager, artifactId, selectedLabel, canManage, refreshTick]);
 
+  // --- Local folder re-enumeration on Refresh (colab-rework-plan.md §15
+  // item 4): mountLocalFolder only lists local files once at mount time, so
+  // the Refresh button re-scans the already-mounted folder too, matching the
+  // same cloud-stem filter used there, instead of only refetching remote
+  // state.
+  useEffect(() => {
+    if (!dataServiceRef.current) return;
+    let active = true;
+    (async () => {
+      try {
+        const localList: Array<{ stem: string; format: string }> = await dataServiceRef.current.list_local_images();
+        if (!active) return;
+        const cloudStems = new Set((images ?? []).map((i) => i.stem));
+        setLocalImages(localList.filter((l) => !cloudStems.has(l.stem)));
+      } catch {
+        // best-effort; a failed local re-scan shouldn't block the remote refresh
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
+
+  // --- 30s periodic remote sync (colab-rework-plan.md §15 item 5): re-poll
+  // images/ and the selected label folder only (not a full index refetch),
+  // diffing against current state so a quiet dataset produces no re-renders.
+  // This is what lets a teammate's save show up here within ~30s without a
+  // manual refresh.
+  useEffect(() => {
+    if (!canManage || !artifactManager) return;
+    const id = setInterval(async () => {
+      try {
+        const imgs = await listImages(artifactManager, artifactId);
+        setImages((prev) => {
+          const prevKey = (prev ?? []).map((i) => i.stem).sort().join(',');
+          const nextKey = imgs.map((i) => i.stem).sort().join(',');
+          return prevKey === nextKey ? prev : imgs;
+        });
+
+        if (selectedLabel) {
+          const [stems, stats] = await Promise.all([
+            getAnnotatedStems(artifactManager, artifactId, selectedLabel),
+            getLabelStats(artifactManager, artifactId, selectedLabel),
+          ]);
+          setAnnotatedStems((prev) => {
+            const prevKey = [...prev].sort().join(',');
+            const nextKey = [...stems].sort().join(',');
+            return prevKey === nextKey ? prev : stems;
+          });
+          setLabelStats((prev) => (JSON.stringify(prev) === JSON.stringify(stats) ? prev : stats));
+        }
+      } catch {
+        // silent -- a transient poll failure just waits for the next tick
+      }
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [canManage, artifactManager, artifactId, selectedLabel]);
+
   // --- Annotation pairs for the selected image + label, newest first ---
   useEffect(() => {
     if (!canManage || !selectedStem || !selectedLabel) {
@@ -1043,6 +1102,7 @@ print("Service registered successfully", end='')
                 stats={labelStats}
                 label={selectedLabel}
                 highlightStem={selectedStem}
+                onSelectStem={setSelectedStem}
               />
             ) : selectedStem ? (
               imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
