@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
-import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
+import { resolveCellpose4RunnerService, pollCellpose4Infer, CELLPOSE4_RUNNER_MODEL_ID } from '../../../utils/cellpose4RunnerService';
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
 import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
 import { HYPHA_SERVER_URL } from '../../../config/hypha';
@@ -520,47 +520,38 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         const artifactId = toArtifactId(config.artifactId);
         console.log('[useHyphaService] Resolved artifact id:', artifactId);
 
-        // Cellpose and micro-sam availability: probed at connect time, but
-        // fired as non-blocking promises rather than awaited. Neither probe
-        // gates anything `wrappedService`'s methods actually need at call
-        // time — `resolveCellposeService` below and the per-call
-        // `resolveMicroSamService` calls further down both re-resolve a
-        // fresh handle on every invocation regardless of whether this probe
-        // succeeded. Blocking `service`/`setLoading(false)` on these was
-        // pure added latency; running them in parallel with building
-        // `wrappedService` lets the index fetch and image load start as
-        // soon as the single `connectToServer` round-trip above completes.
+        // Cellpose (cellpose4-runner) and micro-sam availability: probed at
+        // connect time, but fired as non-blocking promises rather than
+        // awaited. Neither probe gates anything `wrappedService`'s methods
+        // actually need at call time — `resolveCellposeService` below and
+        // the per-call `resolveMicroSamService` calls further down both
+        // re-resolve a fresh handle on every invocation regardless of
+        // whether this probe succeeded. Blocking `service`/`setLoading(false)`
+        // on these was pure added latency; running them in parallel with
+        // building `wrappedService` lets the index fetch and image load
+        // start as soon as the single `connectToServer` round-trip above
+        // completes.
         //
-        // Cellpose service probe intentionally pins the replica id in
-        // sessionStorage so every subsequent call (here and from the colab
-        // Training UI) lands on the same worker. That matters because
-        // cellpose-finetuning persists training state to local disk — see
-        // utils/cellposeServicePin.ts for the rationale.
-        resolvePinnedCellposeService(server)
+        // cellpose4-runner is stateless across replicas (its resident-model
+        // cache is a performance optimization, not per-session state), so
+        // unlike cellpose-finetuning there is nothing to pin — see
+        // utils/cellpose4RunnerService.ts.
+        resolveCellpose4RunnerService(server)
           .then(() => {
-            console.log('[useHyphaService] cellpose-finetuning reachable');
+            console.log('[useHyphaService] cellpose4-runner reachable');
             if (!cancelled) setCellposeAvailable(true);
           })
           .catch((err) => {
-            console.warn('[useHyphaService] cellpose-finetuning not reachable:', err);
+            console.warn('[useHyphaService] cellpose4-runner not reachable:', err);
             if (!cancelled) setCellposeAvailable(false);
           });
 
-        /** Resolve a fresh handle to the *pinned* cellpose-finetuning
-         *  replica per call. Hypha service handles expire after a few
-         *  minutes of inactivity; the symptom is ``Method expired or not
-         *  found`` on the next infer. Cheap to resolve (one websocket
-         *  round-trip) so we re-resolve unconditionally instead of
-         *  caching + retrying. */
-        const resolveCellposeService = async () => {
-          try {
-            return await resolvePinnedCellposeService(server);
-          } catch (err) {
-            throw new Error(
-              `Cellpose service is not available (${(err as Error)?.message || err})`,
-            );
-          }
-        };
+        /** Resolve a fresh handle to the cellpose4-runner service per call.
+         *  Hypha service handles expire after a few minutes of inactivity;
+         *  the symptom is ``Method expired or not found`` on the next
+         *  infer. Cheap to resolve (one websocket round-trip) so we
+         *  re-resolve unconditionally instead of caching + retrying. */
+        const resolveCellposeService = async () => resolveCellpose4RunnerService(server);
 
         // micro-sam (μSAM) service probe. Unlike cellpose-finetuning there
         // is nothing to pin (μSAM is stateless across replicas), so both
@@ -589,7 +580,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose inference with params:', p);
+            console.log('[useHyphaService] Running cellpose4-runner inference with params:', p);
 
             // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format).
             // Images are downsampled to CELLPOSE_MAX_DIM to keep inference fast.
@@ -605,114 +596,36 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            // Build infer kwargs, only include non-default params
+            // cellpose4-runner always targets the published 'idealistic-eagle'
+            // model and takes a single `inputs` value (not a list). It has no
+            // model/diameter/niter knobs.
             const inferArgs: Record<string, any> = {
-              input_arrays: [inputArray],
+              model_id: CELLPOSE4_RUNNER_MODEL_ID,
+              inputs: inputArray,
               _rkwargs: true,
             };
-            if (p.model) inferArgs.model = p.model;
-            if (p.diameter != null && p.diameter > 0) {
-              // Diameter is measured in display-space pixels. Scale it to the
-              // downsampled image so Cellpose rescales the image correctly.
-              const diameterScale = scaledW / width;
-              inferArgs.diameter = p.diameter * diameterScale;
-            }
             if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
             if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
-            if (p.niter != null && p.niter > 0) inferArgs.niter = p.niter;
-            if (p.enable_clahe) inferArgs.enable_clahe = true;
 
-            // Call cellpose infer
-            const result = await cellposeService.infer(inferArgs);
+            // infer() returns a request_id immediately; poll until the job
+            // completes.
+            const requestId = await cellposeService.infer(inferArgs);
+            console.log('[useHyphaService] cellpose4-runner request submitted:', requestId);
+            const result = await pollCellpose4Infer(cellposeService, requestId);
 
-            console.log('[useHyphaService] Cellpose raw result:', result);
-
-            // result is list[PredictionItemModel], each with { input_path, output }
-            // output is an ndarray (int32 label mask, shape [H, W])
-            if (!result || !Array.isArray(result) || result.length === 0) {
-              console.log('[useHyphaService] No results from cellpose');
+            const maskResult = result?.labels;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] No labels ndarray in cellpose4-runner result:', result);
               return [];
             }
 
-            const item = result[0];
-            console.log('[useHyphaService] First result item keys:', Object.keys(item));
-            const maskResult = item.output;
-
-            if (!maskResult) {
-              console.warn('[useHyphaService] No output field in result item:', item);
-              return [];
-            }
-
-            // maskResult should be an ndarray with shape [H, W]
-            let maskData: any;
-            if (maskResult._rtype === 'ndarray') {
-              // Decode the hypha-rpc ndarray
-              let buffer = maskResult._rvalue;
-              const shape = maskResult._rshape;
-              const dtype = maskResult._rdtype;
-              const w = shape[1];
-              const h = shape[0];
-              console.log('[useHyphaService] Mask ndarray: dtype=%s, shape=%s', dtype, JSON.stringify(shape));
-
-              // _rvalue may be Uint8Array; get underlying ArrayBuffer
-              if (buffer instanceof Uint8Array) {
-                buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-              }
-
-              if (dtype === 'int32' || dtype === 'int') {
-                maskData = new Int32Array(buffer);
-              } else if (dtype === 'uint16') {
-                maskData = new Uint16Array(buffer);
-              } else if (dtype === 'float32') {
-                maskData = new Float32Array(buffer);
-              } else if (dtype === 'uint32') {
-                maskData = new Uint32Array(buffer);
-              } else {
-                maskData = new Int32Array(buffer);
-              }
-
-              let polygons = maskToPolygons(maskData, w, h);
-              // Scale min_mask_area to mask space (area shrinks by scale²) so threshold
-              // is applied consistently regardless of downsampling factor.
-              const areaScale = (scaledW / width) * (scaledH / height);
-              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
-              // Scale polygon coordinates back to original image dimensions if downsampled
-              const scaleX = width / scaledW;
-              const scaleY = height / scaledH;
-              if (scaleX !== 1 || scaleY !== 1) {
-                polygons = polygons.map((poly) => ({
-                  ...poly,
-                  coordinates: poly.coordinates.map((ring) =>
-                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
-                  ),
-                }));
-              }
-              console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
-              return polygons;
-            }
-
-            // If it's already an array
-            if (Array.isArray(maskResult)) {
-              const flat = maskResult.flat();
-              let polygons = maskToPolygons(flat, scaledW, scaledH);
-              const areaScale = (scaledW / width) * (scaledH / height);
-              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
-              const scaleX = width / scaledW;
-              const scaleY = height / scaledH;
-              if (scaleX !== 1 || scaleY !== 1) {
-                polygons = polygons.map((poly) => ({
-                  ...poly,
-                  coordinates: poly.coordinates.map((ring) =>
-                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
-                  ),
-                }));
-              }
-              console.log('[useHyphaService] Converted flat array mask to', polygons.length, 'polygons');
-              return polygons;
-            }
-
-            console.warn('[useHyphaService] Unknown mask format:', typeof maskResult, maskResult);
-            return [];
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            console.log('[useHyphaService] Cellpose mask ndarray: dtype=%s, [%d, %d]', maskResult._rdtype, h, w);
+            // maskDataToPolygons handles min-area filtering and rescaling back
+            // to display-space coordinates.
+            const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+            console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
+            return polygons;
           },
           runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             const microSamService = await resolveMicroSamService(server);
@@ -918,7 +831,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           ): Promise<CellposeFlowsResult> => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose flows-only inference:', p);
+            console.log('[useHyphaService] Running cellpose4-runner flows-only inference:', p);
 
             const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
             const inputArray = {
@@ -929,82 +842,57 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             };
 
             const inferArgs: Record<string, any> = {
-              input_arrays: [inputArray],
-              return_flows_only: true,
+              model_id: CELLPOSE4_RUNNER_MODEL_ID,
+              inputs: inputArray,
+              return_flows: true,
               _rkwargs: true,
             };
-            if (p.model) inferArgs.model = p.model;
-            if (p.diameter != null && p.diameter > 0) {
-              const diameterScale = scaledW / width;
-              inferArgs.diameter = p.diameter * diameterScale;
-            }
-            if (p.enable_clahe) inferArgs.enable_clahe = true;
 
-            const result = await cellposeService.infer(inferArgs);
-            if (!result || !Array.isArray(result) || result.length === 0) {
-              throw new Error('Cellpose service returned no items');
-            }
-            const item = result[0];
-            const output = item?.output;
-            if (!output || typeof output !== 'object') {
+            const requestId = await cellposeService.infer(inferArgs);
+            const result = await pollCellpose4Infer(cellposeService, requestId);
+
+            // return_flows=True collapses the 2 flow components + cell
+            // probability into a single 3-channel ndarray, member "flows".
+            const flows = result?.flows;
+            if (!flows || flows._rtype !== 'ndarray') {
               throw new Error(
-                'Cellpose service did not return a flows payload (expected output={dP, cellprob}). '
-                  + 'Is the deployed version >= 0.1.5?',
+                'cellpose4-runner did not return a flows payload (expected result.flows).',
               );
             }
 
-            const decodeFloat32 = (nd: any, fieldName: string): { data: Float32Array; shape: number[] } => {
-              if (!nd || nd._rtype !== 'ndarray') {
-                throw new Error(`${fieldName} is not an ndarray (got ${typeof nd})`);
-              }
-              let buffer = nd._rvalue;
-              const shape = nd._rshape as number[];
-              if (buffer instanceof Uint8Array) {
-                buffer = buffer.buffer.slice(
-                  buffer.byteOffset,
-                  buffer.byteOffset + buffer.byteLength,
-                );
-              }
-              // float16 wire option is not part of v1; the server sends float32.
-              if (nd._rdtype !== 'float32') {
-                console.warn(
-                  `[useHyphaService] ${fieldName} dtype is ${nd._rdtype}, converting`,
-                );
-              }
-              const data = new Float32Array(buffer);
-              return { data, shape };
-            };
-
-            const dPDecoded = decodeFloat32(output.dP, 'dP');
-            const cellprobDecoded = decodeFloat32(output.cellprob, 'cellprob');
-
-            // Sanity-check shapes match what the network was asked to produce.
-            if (dPDecoded.shape.length !== 3 || dPDecoded.shape[0] !== 2) {
-              throw new Error(
-                `dP shape ${JSON.stringify(dPDecoded.shape)} not (2, H, W)`,
-              );
+            let buffer = flows._rvalue;
+            const shape = flows._rshape as number[];
+            if (buffer instanceof Uint8Array) {
+              buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
             }
-            if (
-              cellprobDecoded.shape.length !== 2
-              || cellprobDecoded.shape[0] !== dPDecoded.shape[1]
-              || cellprobDecoded.shape[1] !== dPDecoded.shape[2]
-            ) {
-              throw new Error(
-                `cellprob shape ${JSON.stringify(cellprobDecoded.shape)} disagrees with dP ${JSON.stringify(dPDecoded.shape)}`,
-              );
+            if (flows._rdtype !== 'float32') {
+              console.warn(`[useHyphaService] flows dtype is ${flows._rdtype}, converting`);
             }
+            const data = new Float32Array(buffer);
 
-            const outH = dPDecoded.shape[1];
-            const outW = dPDecoded.shape[2];
+            if (shape.length !== 3 || shape[0] !== 3) {
+              throw new Error(`flows shape ${JSON.stringify(shape)} not (3, H, W)`);
+            }
+            const outH = shape[1];
+            const outW = shape[2];
+            const plane = outH * outW;
+
+            // First two channels are the flow components (dy, dx); the third
+            // is the cell-probability plane. Slicing keeps the existing
+            // CellposeFlowsResult shape the client-side Pyodide mask-gen
+            // (public/cellpose_mask_gen.py) already consumes.
+            const dP = data.subarray(0, 2 * plane);
+            const cellprob = data.subarray(2 * plane, 3 * plane);
+
             console.log(
               '[useHyphaService] Got flows: dP (2,%d,%d) cellprob (%d,%d), %d KB',
               outH, outW, outH, outW,
-              Math.round((dPDecoded.data.byteLength + cellprobDecoded.data.byteLength) / 1024),
+              Math.round(data.byteLength / 1024),
             );
 
             return {
-              dP: dPDecoded.data,
-              cellprob: cellprobDecoded.data,
+              dP,
+              cellprob,
               scaledH: outH,
               scaledW: outW,
               displayW: width,
