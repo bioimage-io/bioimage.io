@@ -213,6 +213,26 @@ export async function setPublic(
 }
 
 /**
+ * Batched ACL update (broker v0.3.1): stage any mix of role grants, removals,
+ * and a public-flag change into a single `update_sharing` call instead of
+ * firing `setRole`/`removeUser`/`setPublic` one at a time. Access-request
+ * entries matching an `add` are auto-cleared server-side. A no-op call (no
+ * actual change) returns instantly without touching the artifact.
+ */
+export async function updateSharing(
+  server: any,
+  artifactId: string,
+  changes: {
+    add?: Array<{ user: BrokerUserRef; role: 'manager' | 'annotator' }>;
+    remove?: BrokerUserRef[];
+    set_public?: boolean;
+  },
+): Promise<DatasetMetadata> {
+  const broker = await resolveBrokerService(server);
+  return broker.update_sharing({ artifact_id: artifactId, ...changes, _rkwargs: true });
+}
+
+/**
  * Ask the broker for a role on a dataset the caller doesn't have one on yet
  * (colab-rework-plan.md §13). Anonymous callers are rejected server-side
  * with a PermissionError asking them to log in first; callers should check
