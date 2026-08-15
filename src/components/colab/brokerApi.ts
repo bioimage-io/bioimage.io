@@ -64,17 +64,14 @@ export interface SharedDatasetSummary {
 
 export interface DatasetIndexImage {
   stem: string;
-  read_url: string;
 }
 
 export interface DatasetIndexEmbedding {
   model_type: string;
-  read_url: string;
 }
 
 export interface DatasetIndexAnnotation {
   latest_ts: string;
-  geojson_read_url: string;
 }
 
 export interface DatasetIndex {
@@ -82,6 +79,21 @@ export interface DatasetIndex {
   embeddings: Record<string, DatasetIndexEmbedding>;
   labels: DatasetLabel[];
   my_annotations: Record<string, Record<string, DatasetIndexAnnotation>>;
+  role: BrokerRole;
+}
+
+export interface ImageUrl {
+  stem: string;
+  read_url: string;
+}
+
+export type MyAnnotationUrl =
+  | { exists: false }
+  | { exists: true; latest_ts: string; geojson_read_url: string };
+
+export interface DeleteLabelResult {
+  failed_files: string[];
+  [key: string]: any;
 }
 
 export type EmbeddingUrls =
@@ -340,6 +352,44 @@ export async function createLabel(
 
 export async function getDatasetIndex(server: any, artifactId: string): Promise<DatasetIndex> {
   return callBroker(server, (broker) => broker.get_dataset_index({ artifact_id: artifactId, _rkwargs: true }));
+}
+
+/**
+ * Resolve a fresh presigned read URL for one image (broker v0.5.0). Public-min
+ * role, safe to call before the caller's role on the dataset is known — this
+ * is what lets the `&image=<stem>` deep link render before `get_dataset_index`
+ * or the auth/role check resolves.
+ */
+export async function getImageUrl(server: any, artifactId: string, imageStem: string): Promise<ImageUrl> {
+  return callBroker(server, (broker) =>
+    broker.get_image_url({ artifact_id: artifactId, image_stem: imageStem, _rkwargs: true }),
+  );
+}
+
+/**
+ * Resolve the caller's own latest annotation for one image+label (broker
+ * v0.5.0), replacing the presigned URLs `get_dataset_index` used to embed in
+ * `my_annotations`. Annotator-min role.
+ */
+export async function getMyAnnotationUrl(
+  server: any,
+  artifactId: string,
+  label: string,
+  imageStem: string,
+): Promise<MyAnnotationUrl> {
+  return callBroker(server, (broker) =>
+    broker.get_my_annotation_url({ artifact_id: artifactId, label, image_stem: imageStem, _rkwargs: true }),
+  );
+}
+
+/**
+ * Recursively delete a label's `label_<name>/` folder server-side in one
+ * call (broker v0.5.0), replacing the old client-side per-file recursive
+ * delete. Manager-min role. Any files that could not be removed are
+ * returned in `failed_files` rather than throwing.
+ */
+export async function deleteLabel(server: any, artifactId: string, name: string): Promise<DeleteLabelResult> {
+  return callBroker(server, (broker) => broker.delete_label({ artifact_id: artifactId, name, _rkwargs: true }));
 }
 
 export async function getEmbeddingUrls(
