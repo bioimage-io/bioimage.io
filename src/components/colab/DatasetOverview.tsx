@@ -63,8 +63,9 @@ const navigateToAnnotate = (
   artifactId: string,
   label: string,
   cellposeModel?: string,
+  imageStem?: string,
 ) => {
-  navigate(`/colab/annotate?${buildAnnotateQuery(artifactId, label, cellposeModel)}`);
+  navigate(`/colab/annotate?${buildAnnotateQuery(artifactId, label, cellposeModel, imageStem)}`);
 };
 
 const modelStorageKey = (artifactId: string, label: string) => `colab_cellpose_model:${artifactId}:${label}`;
@@ -1043,7 +1044,13 @@ print("Service registered successfully", end='')
               selectedLabel={selectedLabel}
               onSelectLabel={setSelectedLabel}
               onLabelsChanged={reloadLabels}
-              onAnnotateLabel={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
+              onAnnotateLabel={(l) => navigateToAnnotate(
+                navigate,
+                artifactId,
+                l,
+                cellposeModel,
+                selectedStem && imageRows.find((r) => r.stem === selectedStem)?.isCloud ? selectedStem : undefined,
+              )}
               onDeleteLabel={(l) => setDeleteLabelTarget(l)}
             />
           </div>

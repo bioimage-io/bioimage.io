@@ -32,9 +32,15 @@ export function toAlias(artifactId: string): string {
  * `DatasetOverview.tsx` (in-app navigation) and `ShareModal.tsx` (the
  * shareable annotation link + QR code) so the two never drift.
  */
-export function buildAnnotateQuery(artifactId: string, label: string, cellposeModel?: string): string {
+export function buildAnnotateQuery(
+  artifactId: string,
+  label: string,
+  cellposeModel?: string,
+  imageStem?: string,
+): string {
   const params = new URLSearchParams({ session_id: toAlias(artifactId), label });
   if (cellposeModel) params.set('cellpose_model', cellposeModel);
+  if (imageStem) params.set('image', imageStem);
   return params.toString();
 }
 

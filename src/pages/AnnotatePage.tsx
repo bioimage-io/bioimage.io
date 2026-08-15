@@ -56,6 +56,13 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     return { artifactId: sessionId, label };
   }, [sessionId, location.search]);
 
+  // Deep link from the overview's Labels box (colab-rework-plan.md §14 item
+  // 10): open exactly this image instead of the next-unannotated pick.
+  const initialImageStem = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('image') || undefined;
+  }, [location.search]);
+
   const sessionUrl = useMemo(() => {
     if (!sessionId) return null;
     const labelParam = serviceConfig?.label ? `?label=${encodeURIComponent(serviceConfig.label)}` : '';
@@ -491,6 +498,12 @@ print('CLAHE packages ready')
       setHasLoadedOnce(true);
       return;
     }
+    if (initialImageStem && datasetIndex.images.some((img) => img.stem === initialImageStem)) {
+      setIsLoading(true);
+      loadImageByStem(datasetIndex, initialImageStem, false).finally(() => setIsLoading(false));
+      setHasLoadedOnce(true);
+      return;
+    }
     const stem = pickNextUnannotated(datasetIndex, serviceConfig.label);
     if (!stem) {
       const annotatedCount = Object.keys(datasetIndex.my_annotations[serviceConfig.label] || {}).length;
@@ -506,7 +519,7 @@ print('CLAHE packages ready')
     }
     setIsLoading(true);
     loadImageByStem(datasetIndex, stem, false).finally(() => setIsLoading(false));
-  }, [datasetIndex, hasLoadedOnce, serviceConfig, pickNextUnannotated, loadImageByStem, setIsLoading]);
+  }, [datasetIndex, hasLoadedOnce, serviceConfig, initialImageStem, pickNextUnannotated, loadImageByStem, setIsLoading]);
 
   // Refetch the dataset index and load the next unannotated image (or show
   // a terminal state). Called after a save and from the "Retry"/"Check for
