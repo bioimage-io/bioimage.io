@@ -13,7 +13,6 @@ import {
   discoverLabels,
   formatDatasetDescription,
   getAnnotatedStems,
-  getLabelStats,
   getLabelTotals,
   getLabelUsers,
   listAnnotationPairs,
@@ -347,13 +346,13 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     let active = true;
     (async () => {
       try {
-        const [stems, stats] = await Promise.all([
+        const [stems, totals] = await Promise.all([
           getAnnotatedStems(artifactManager, artifactId, selectedLabel),
-          getLabelStats(artifactManager, artifactId, selectedLabel),
+          getLabelTotals(artifactManager, artifactId, selectedLabel),
         ]);
         if (active) {
           setAnnotatedStems(stems);
-          setLabelStats(stats);
+          setLabelStats(totals.perStemCounts);
         }
       } catch {
         // best-effort
@@ -405,16 +404,16 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         });
 
         if (selectedLabel) {
-          const [stems, stats] = await Promise.all([
+          const [stems, totals] = await Promise.all([
             getAnnotatedStems(artifactManager, artifactId, selectedLabel),
-            getLabelStats(artifactManager, artifactId, selectedLabel),
+            getLabelTotals(artifactManager, artifactId, selectedLabel),
           ]);
           setAnnotatedStems((prev) => {
             const prevKey = [...prev].sort().join(',');
             const nextKey = [...stems].sort().join(',');
             return prevKey === nextKey ? prev : stems;
           });
-          setLabelStats((prev) => (JSON.stringify(prev) === JSON.stringify(stats) ? prev : stats));
+          setLabelStats((prev) => (JSON.stringify(prev) === JSON.stringify(totals.perStemCounts) ? prev : totals.perStemCounts));
         }
       } catch {
         // silent -- a transient poll failure just waits for the next tick

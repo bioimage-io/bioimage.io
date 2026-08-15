@@ -9,10 +9,12 @@ export interface AnnotationStatsViewProps {
   onSelectStem?: (stem: string) => void;
 }
 
-// Per-image annotation-instance breakdown for the selected label: every
-// image gets a row (including zero-count ones), unlike LabelStatsChart's
-// capped-at-8 sorted summary. Axis max is the highest per-image count + 1,
-// so even the busiest image's bar stops short of the far edge.
+// Per-image annotation-file breakdown for the selected label (count of saved
+// png+geojson pairs per image, across all users and timestamps, not mask
+// instances inside them): every image gets a row (including zero-count
+// ones), unlike LabelStatsChart's capped-at-8 sorted summary. Axis max is
+// the highest per-image count + 1, so even the busiest image's bar stops
+// short of the far edge.
 const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({
   images,
   stats,
@@ -40,7 +42,7 @@ const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({
   return (
     <div className="w-full h-full overflow-y-auto px-1 py-2">
       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-        Instances per image &middot; {label}
+        Annotations per image &middot; {label}
       </p>
       <div className="space-y-1.5">
         {rows.map(({ stem, count }) => (

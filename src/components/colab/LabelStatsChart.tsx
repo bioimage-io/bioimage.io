@@ -7,10 +7,8 @@ export interface LabelStatsChartProps {
 }
 
 // Dependency-free Tailwind bars (colab-rework-plan.md F4, prior plan Commit
-// 7): overall annotated/total progress plus a per-image instance-count
-// breakdown for the selected label. `stats` already reflects
-// latest-pair-per-user semantics (datasetApi.ts's getLabelStats sums each
-// user's latest geojson feature count per stem).
+// 7): overall annotated/total progress plus a per-image count breakdown for
+// the selected label. Not currently rendered anywhere.
 const LabelStatsChart: React.FC<LabelStatsChartProps> = ({ totalImages, annotatedCount, stats }) => {
   const entries = Object.entries(stats)
     .sort(([, a], [, b]) => b - a)

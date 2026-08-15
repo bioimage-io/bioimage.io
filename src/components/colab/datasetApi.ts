@@ -489,62 +489,22 @@ export async function getLabelUsers(
   return users;
 }
 
-/**
- * Per-stem annotation instance counts for *label*: each user's latest
- * geojson feature count, summed per stem. Downloads every user's latest
- * geojson for the label (bounded by `pLimit(4)`).
- */
-export async function getLabelStats(
-  artifactManager: any,
-  artifactId: string,
-  label: string,
-): Promise<Record<string, number>> {
-  const byUser = await walkLatestPairsByUser(artifactManager, artifactId, label);
-  const counts: Record<string, number> = {};
-  const limit = pLimit(4);
-
-  const jobs: Array<Promise<void>> = [];
-  for (const stemMap of byUser.values()) {
-    for (const [stem, entry] of stemMap) {
-      jobs.push(
-        limit(async () => {
-          try {
-            const url = await withStageRetry(() =>
-              artifactManager.get_file({
-                artifact_id: artifactId,
-                file_path: entry.geojsonPath,
-                stage: true,
-                _rkwargs: true,
-              }),
-            );
-            const response = await fetch(url);
-            if (!response.ok) return;
-            const geojson = await response.json();
-            const featureCount = Array.isArray(geojson?.features) ? geojson.features.length : 0;
-            counts[stem] = (counts[stem] ?? 0) + featureCount;
-          } catch {
-            // best-effort; skip pairs that fail to download
-          }
-        }),
-      );
-    }
-  }
-  await Promise.all(jobs);
-
-  return counts;
-}
-
 export interface LabelTotals {
   /** Every complete png+geojson pair, across all users and all timestamps
-   *  (never deduped to "latest per user" like getAnnotatedStems/getLabelStats). */
+   *  (never deduped to "latest per user" like getAnnotatedStems). */
   totalAnnotations: number;
   /** Stems with at least one complete pair, from any user, at any timestamp. */
   annotatedStems: Set<string>;
+  /** Per-stem count of complete png+geojson pairs, across all users and all
+   *  timestamps (i.e. totalAnnotations broken down by image). This is a file
+   *  count, not a mask-instance count: one saved annotation, however many
+   *  masks it contains, is one file pair. */
+  perStemCounts: Record<string, number>;
 }
 
 /**
- * Full annotation history for *label*, unlike getAnnotatedStems/getLabelStats
- * which only look at each user's latest save per stem. Walks every
+ * Full annotation history for *label*, unlike getAnnotatedStems, which only
+ * looks at each user's latest save per stem. Walks every
  * `label_<label>/user-*` directory and counts every (stem, timestamp) with
  * both a `.png` and a `.geojson`, so 50 images saved 8 times each by one
  * user reports totalAnnotations=400 (colab-rework-plan.md §13 item 5).
@@ -559,6 +519,7 @@ export async function getLabelTotals(
 
   let totalAnnotations = 0;
   const annotatedStems = new Set<string>();
+  const perStemCounts: Record<string, number> = {};
 
   const limit = pLimit(4);
   await Promise.all(
@@ -585,6 +546,7 @@ export async function getLabelTotals(
             if (pair.png && pair.geojson) {
               totalAnnotations += 1;
               annotatedStems.add(stem);
+              perStemCounts[stem] = (perStemCounts[stem] ?? 0) + 1;
             }
           }
         }
@@ -592,7 +554,7 @@ export async function getLabelTotals(
     ),
   );
 
-  return { totalAnnotations, annotatedStems };
+  return { totalAnnotations, annotatedStems, perStemCounts };
 }
 
 /**

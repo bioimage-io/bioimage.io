@@ -232,7 +232,7 @@ test.describe('Annotation stats view (§15 item 3)', () => {
     const initialStem = await initialImg.getAttribute('alt');
 
     await statsToggle.click({ force: true });
-    await expect(page.getByText('Instances per image', { exact: false })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Annotations per image', { exact: false })).toBeVisible({ timeout: 15000 });
 
     // Each row's stem label is a `<span title="...">`, unique to the stats
     // view (the image-list rows elsewhere on this page don't set `title`),
