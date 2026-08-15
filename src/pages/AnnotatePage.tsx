@@ -317,6 +317,9 @@ print('CLAHE packages ready')
   // user's own latest annotation per (label, stem). Drives image picking
   // and the always-available image browser (colab-rework-plan.md F5).
   const [datasetIndex, setDatasetIndex] = useState<DatasetIndex | null>(null);
+  // Timestamp of the last successful index fetch, used to decide whether a
+  // tab refocus should silently refetch (colab-rework-plan.md §14b item 4).
+  const lastIndexFetchAtRef = useRef<number>(0);
 
   // Image picker: lets a user jump to any image in the dataset (already
   // annotated or not) and reloads their latest GeoJSON for it if one
@@ -349,7 +352,10 @@ print('CLAHE packages ready')
     setRequestAccessError(null);
     service.getDatasetIndex()
       .then((index) => {
-        if (!cancelled) setDatasetIndex(index);
+        if (!cancelled) {
+          setDatasetIndex(index);
+          lastIndexFetchAtRef.current = Date.now();
+        }
       })
       .catch((err: any) => {
         if (!cancelled) {
@@ -364,6 +370,30 @@ print('CLAHE packages ready')
       });
     return () => { cancelled = true; };
   }, [service, setError]);
+
+  // Presigned read URLs (image, embedding, geojson) expire after about an
+  // hour; a long-idle tab can sit well past that. On tab refocus, silently
+  // refetch the index if it is more than ~20 minutes old so the URLs are
+  // fresh again (colab-rework-plan.md §14b item 4). No user-facing error on
+  // failure: this is a best-effort background refresh, not a load path.
+  useEffect(() => {
+    const STALE_MS = 20 * 60 * 1000;
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!service) return;
+      if (Date.now() - lastIndexFetchAtRef.current < STALE_MS) return;
+      service.getDatasetIndex()
+        .then((index) => {
+          setDatasetIndex(index);
+          lastIndexFetchAtRef.current = Date.now();
+        })
+        .catch((err: any) => {
+          console.warn('[AnnotatePage] Silent index refetch on visibilitychange failed:', err);
+        });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [service]);
 
   // Retry after a connect or dataset-index failure: clear the stale error
   // and tear the Hypha connection down so useHyphaService reconnects from
