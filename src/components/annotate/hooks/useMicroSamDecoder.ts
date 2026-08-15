@@ -38,7 +38,7 @@ async function loadOrt(): Promise<Ort> {
  * each drawn box locally (no per-box network round-trip). Returns OL-space
  * polygons ready to add to the annotation vector source.
  */
-export function useMicroSamDecoder(service: AnnotationDataService | null) {
+export function useMicroSamDecoder(service: AnnotationDataService | null, imageRendered: boolean) {
   // Cached ort InferenceSession (decoder weights). One per page.
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
   // Cached encoder embedding, keyed by image URL so switching images
@@ -73,12 +73,15 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     return sessionPromiseRef.current;
   }, [service]);
 
-  // Warm the ONNX decoder session as soon as the service is available instead
-  // of waiting for the first box draw, so it downloads in parallel with the
-  // embedding precompute rather than adding its own latency to the first box.
+  // Warm the ONNX decoder session once the service is available AND the
+  // current image has rendered, instead of firing at connect time. The
+  // decoder download (~several MB) would otherwise compete for bandwidth
+  // with the image fetch that the user is actually waiting on; deferring it
+  // until `imageRendered` flips true lets the image show up first while the
+  // decoder downloads in the background, ready by the time a box is drawn.
   const [decoderReady, setDecoderReady] = useState(false);
   useEffect(() => {
-    if (!service) {
+    if (!service || !imageRendered) {
       setDecoderReady(false);
       return;
     }
@@ -93,7 +96,7 @@ export function useMicroSamDecoder(service: AnnotationDataService | null) {
     return () => {
       cancelled = true;
     };
-  }, [service, ensureSession]);
+  }, [service, imageRendered, ensureSession]);
 
   const ensureEmbedding = useCallback(
     (url: string, width: number, height: number): Promise<MicroSamEmbedding> => {

@@ -162,14 +162,21 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // existing server path (runCellpose) automatically — see handleRunCellpose.
   const maskGen = useCellposeMaskGen(executeCode, kernelReady);
 
-  // In-browser μSAM box decoder: fetches the ONNX decoder once, embeds each
-  // image once, decodes each drawn box locally. See handleSamBox below.
+  // Declared ahead of its usual position (alongside the other
+  // useAnnotationStore selectors below) so useMicroSamDecoder can gate its
+  // ONNX decoder download on "an image has actually rendered" rather than
+  // firing as soon as the service connects (see the hook's own comment).
+  const imageUrl = useAnnotationStore((s) => s.imageUrl);
+
+  // In-browser μSAM box decoder: fetches the ONNX decoder once the current
+  // image has rendered, embeds each image once, decodes each drawn box
+  // locally. See handleSamBox below.
   const {
     decodeBox: decodeSamBox,
     reset: resetSamDecoder,
     setEmbeddingLoader,
     decoderReady,
-  } = useMicroSamDecoder(service);
+  } = useMicroSamDecoder(service, !!imageUrl);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
   // Mirror of currentImageStem for use inside stable callbacks/effects.
@@ -250,7 +257,6 @@ print('CLAHE packages ready')
     install();
   }, [kernelReady, executeCode, kernelPackagesInstalled]);
 
-  const imageUrl = useAnnotationStore((s) => s.imageUrl);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
   const imageHeight = useAnnotationStore((s) => s.imageHeight);
   const setImageInfo = useAnnotationStore((s) => s.setImageInfo);
@@ -458,19 +464,16 @@ print('CLAHE packages ready')
     }
   }, []);
 
-  // Load one image by stem: fetches its pixels from the index's presigned
-  // read url, then stages this user's latest existing GeoJSON for that
-  // (label, stem) pair (if any) so it can be re-applied to the vector
-  // source once AnnotationViewer remounts. `index` is passed explicitly
-  // (rather than read from the `datasetIndex` state) so a caller that just
-  // refetched a fresh index doesn't race the state update.
-  const loadImageByStem = useCallback(async (index: DatasetIndex, stem: string, showBanner = true) => {
+  // Load one image by stem: fetches a fresh presigned read url for just this
+  // image (broker v0.5.0's `get_image_url`, public-min role) instead of
+  // looking it up in a full index fetch, then fetches this user's latest
+  // existing GeoJSON for that (label, stem) pair (if any) via
+  // `get_my_annotation_url` so it can be re-applied to the vector source
+  // once AnnotationViewer remounts. Neither call depends on `datasetIndex`,
+  // which is what lets an `&image=<stem>` deep link render before the index
+  // or the μSAM probe resolve.
+  const loadImageByStem = useCallback(async (stem: string, showBanner = true) => {
     if (!service || !serviceConfig) return;
-    const imageEntry = index.images.find((img) => img.stem === stem);
-    if (!imageEntry) {
-      addBanner(`Image "${stem}" was not found in this dataset`, 'warning', 5000);
-      return;
-    }
     setIsLoadingImage(true);
     setError(null);
     setAllAnnotatedInfo(null);
@@ -481,7 +484,7 @@ print('CLAHE packages ready')
     setPendingGeoJSON(null);
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
-      const url = imageEntry.read_url;
+      const { read_url: url } = await service.getImageUrl(stem);
       setCurrentImageStem(stem);
 
       const img = new Image();
@@ -496,8 +499,8 @@ print('CLAHE packages ready')
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
 
-      const existing = index.my_annotations[serviceConfig.label]?.[stem];
-      if (existing?.geojson_read_url) {
+      const existing = await service.getMyAnnotationUrl(stem);
+      if (existing.exists) {
         try {
           const res = await fetch(existing.geojson_read_url);
           if (res.ok) {
@@ -519,18 +522,24 @@ print('CLAHE packages ready')
     }
   }, [service, serviceConfig, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
-  // Once the dataset index is in, pick an unannotated image (or show a
-  // terminal state) and load it. Runs once per page load.
+  // Deep-link fast path: as soon as the service is ready, render the
+  // `&image=<stem>` image immediately, independent of the dataset index or
+  // the μSAM probe (both now run in parallel with this instead of gating
+  // it — broker v0.5.0 / colab-rework-plan.md §15 item 1).
   useEffect(() => {
-    if (!datasetIndex || hasLoadedOnce || !serviceConfig) return;
+    if (hasLoadedOnce || !serviceConfig || !service || !initialImageStem) return;
+    setIsLoading(true);
+    setHasLoadedOnce(true);
+    loadImageByStem(initialImageStem, false).finally(() => setIsLoading(false));
+  }, [service, hasLoadedOnce, serviceConfig, initialImageStem, loadImageByStem, setIsLoading]);
+
+  // No-deep-link path: once the dataset index is in, pick an unannotated
+  // image (or show a terminal state) and load it. Guarded off whenever
+  // `initialImageStem` is set so this doesn't race the fast path above.
+  useEffect(() => {
+    if (!datasetIndex || hasLoadedOnce || !serviceConfig || initialImageStem) return;
     if (datasetIndex.images.length === 0) {
       setNoImagesInfo({ status: 'no_images', message: 'This dataset has no images yet.' });
-      setHasLoadedOnce(true);
-      return;
-    }
-    if (initialImageStem && datasetIndex.images.some((img) => img.stem === initialImageStem)) {
-      setIsLoading(true);
-      loadImageByStem(datasetIndex, initialImageStem, false).finally(() => setIsLoading(false));
       setHasLoadedOnce(true);
       return;
     }
@@ -548,7 +557,7 @@ print('CLAHE packages ready')
       return;
     }
     setIsLoading(true);
-    loadImageByStem(datasetIndex, stem, false).finally(() => setIsLoading(false));
+    loadImageByStem(stem, false).finally(() => setIsLoading(false));
   }, [datasetIndex, hasLoadedOnce, serviceConfig, initialImageStem, pickNextUnannotated, loadImageByStem, setIsLoading]);
 
   // Refetch the dataset index and load the next unannotated image (or show
@@ -578,7 +587,7 @@ print('CLAHE packages ready')
       }
       setAllAnnotatedInfo(null);
       setNoImagesInfo(null);
-      await loadImageByStem(index, stem);
+      await loadImageByStem(stem);
     } catch (err: any) {
       console.error('[AnnotatePage] Failed to advance to next image:', err);
       setError(err.message || 'Failed to load next image');
@@ -612,9 +621,8 @@ print('CLAHE packages ready')
 
   const handlePickRefineImage = useCallback((stem: string) => {
     setRefinePickerOpen(false);
-    if (!datasetIndex) return;
-    loadImageByStem(datasetIndex, stem);
-  }, [datasetIndex, loadImageByStem]);
+    loadImageByStem(stem);
+  }, [loadImageByStem]);
 
   // Cellpose feature-replacement helper: removes everything we added on the
   // previous run/preview and stamps in the new polygons. Non-Cellpose
