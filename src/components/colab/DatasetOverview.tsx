@@ -126,6 +126,11 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [uploadingStems, setUploadingStems] = useState<Set<string>>(new Set());
   const [mounting, setMounting] = useState(false);
   const [folderMounted, setFolderMounted] = useState(false);
+  // colab-rework-plan.md §14 item 9: a folder picked before the kernel has
+  // finished starting is queued here instead of erroring, and mounted
+  // automatically once executeCode/mountDirectory become available.
+  const pendingMountHandleRef = useRef<any>(null);
+  const [waitingForKernel, setWaitingForKernel] = useState(false);
 
   const [labels, setLabels] = useState<DatasetLabelRef[] | null>(null);
   const [selectedLabel, setSelectedLabel] = useState('');
@@ -408,7 +413,9 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const mountLocalFolder = useCallback(
     async (dirHandle: any) => {
       if (!executeCode || !mountDirectory) {
-        setError('Python kernel is not ready. Please wait a moment and try again.');
+        pendingMountHandleRef.current = dirHandle;
+        setWaitingForKernel(true);
+        requestKernel();
         return;
       }
       setMounting(true);
@@ -480,8 +487,18 @@ print("Service registered successfully", end='')
         setMounting(false);
       }
     },
-    [executeCode, mountDirectory, server, user, artifactId, images],
+    [executeCode, mountDirectory, requestKernel, server, user, artifactId, images],
   );
+
+  // Completes a mount that was queued in mountLocalFolder because the kernel
+  // wasn't ready yet (colab-rework-plan.md §14 item 9).
+  useEffect(() => {
+    if (!waitingForKernel || !executeCode || !mountDirectory || !pendingMountHandleRef.current) return;
+    const handle = pendingMountHandleRef.current;
+    pendingMountHandleRef.current = null;
+    setWaitingForKernel(false);
+    mountLocalFolder(handle);
+  }, [waitingForKernel, executeCode, mountDirectory, mountLocalFolder]);
 
   const handleUploadClick = async () => {
     requestKernel();
@@ -739,10 +756,16 @@ print("Service registered successfully", end='')
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <button
           onClick={folderMounted ? handleUnmount : handleUploadClick}
-          disabled={mounting}
+          disabled={mounting || waitingForKernel}
           className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
         >
-          {mounting ? 'Mounting...' : folderMounted ? 'Unmount folder' : 'Mount local folder'}
+          {waitingForKernel
+            ? 'Waiting for kernel...'
+            : mounting
+            ? 'Mounting...'
+            : folderMounted
+            ? 'Unmount folder'
+            : 'Mount local folder'}
         </button>
         {localImages.length > 0 && (
           <button
