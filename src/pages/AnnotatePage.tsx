@@ -105,7 +105,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
 
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement } = useCellposeConfig({
+  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
     // The flows + Pyodide path keeps the dialog open so the instant sliders
@@ -1373,6 +1373,7 @@ print("CLAHE_RESULT:" + result_b64)
       <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
       <ToolBar
         onOpenCellposeConfig={openCellposeConfig}
+        cellposeConfigOpen={cellposeConfigOpen}
         cellposeAvailable={cellposeAvailable}
         microSamAvailable={microSamAvailable}
         aiBoxReady={aiBoxReady}

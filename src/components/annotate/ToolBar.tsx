@@ -63,6 +63,9 @@ const aiTintSx = (active: boolean, dim = false) => ({
 
 export interface ToolBarProps {
   onOpenCellposeConfig: () => void;
+  /** True while the Full Image Segmentation dialog is open, used to mark
+   *  the AI pair "active" the same way a selected tool is. */
+  cellposeConfigOpen?: boolean;
   cellposeAvailable?: boolean;
   microSamAvailable?: boolean;
   /** True once the μSAM embedding + ONNX decoder are both warmed up and the
@@ -73,6 +76,7 @@ export interface ToolBarProps {
 
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig,
+  cellposeConfigOpen = false,
   cellposeAvailable = false, microSamAvailable = false,
   aiBoxReady = false,
   isRunningCellpose,
@@ -195,10 +199,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
                           disabled={isRunningCellpose || !cellposeAvailable}
                           aria-label="Full Image Segmentation"
                           sx={{
-                            ...floatingBtnSx(),
+                            ...floatingBtnSx(cellposeConfigOpen),
                             flexShrink: 0,
-                            ...aiTintSx(false, !cellposeAvailable),
-                            color: cellposeAvailable ? 'secondary.main' : undefined,
+                            ...aiTintSx(cellposeConfigOpen, !cellposeAvailable),
+                            color: cellposeConfigOpen ? 'secondary.main' : undefined,
                             ...touchSx,
                           }}
                         >
@@ -329,9 +333,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
                           sx={{
                             display: 'flex', alignItems: 'flex-start', gap: 1,
                             px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
-                            bgcolor: 'rgba(156,39,176,0.06)',
-                            border: '1px solid', borderColor: 'rgba(156,39,176,0.18)',
-                            '&:hover': { bgcolor: 'rgba(156,39,176,0.11)' },
+                            bgcolor: cellposeConfigOpen ? 'rgba(156,39,176,0.14)' : 'rgba(156,39,176,0.06)',
+                            border: '1px solid', borderColor: cellposeConfigOpen ? 'rgba(156,39,176,0.3)' : 'rgba(156,39,176,0.18)',
+                            '&:hover': { bgcolor: cellposeConfigOpen ? 'rgba(156,39,176,0.18)' : 'rgba(156,39,176,0.11)' },
                             transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
                             '&:active': { transform: 'scale(0.98)' },
                             opacity: (isRunningCellpose || !cellposeAvailable) ? 0.5 : 1,
@@ -340,11 +344,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
                             ...reducedMotionSx,
                           }}
                         >
-                          <Box sx={{ ...iconSlotSx, color: 'secondary.main', mt: 0.2 }}>
+                          <Box sx={{ ...iconSlotSx, color: cellposeConfigOpen ? 'secondary.main' : 'text.secondary', mt: 0.2 }}>
                             <AutoAwesomeIcon fontSize="small" />
                           </Box>
                           <Box>
-                            <Typography variant="caption" fontWeight={600} color="secondary.main" display="block">
+                            <Typography variant="caption" fontWeight={600} color={cellposeConfigOpen ? 'secondary.main' : 'text.primary'} display="block">
                               Full Image Segmentation
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block"
