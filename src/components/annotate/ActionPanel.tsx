@@ -25,7 +25,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
-import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx } from './floatingPanelStyles';
+import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
 
 export interface ActionPanelProps {
   onSave: () => void;
@@ -120,6 +120,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
         <Box sx={{
           display: 'flex', flexDirection: isPortrait ? 'row' : 'column', alignItems: 'center',
           p: isCompact ? 0.75 : 0.5, gap: isCompact ? 0.75 : 0.5,
+          height: 'fit-content',
           ...(isPortrait ? { maxWidth: '100%', overflowX: 'auto' } : { maxHeight: '100%', overflowY: 'auto' }),
           ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
@@ -212,8 +213,8 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </span>
           </Tooltip>
 
-          <Tooltip title="Upload GeoJSON" placement={tooltipPlacement}>
-            <IconButton size={btnSize} data-tool="upload" onClick={() => fileInputRef.current?.click()} aria-label="Upload GeoJSON"
+          <Tooltip title="Import Annotation" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="upload" onClick={() => fileInputRef.current?.click()} aria-label="Import Annotation"
               sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
               <UploadFileIcon fontSize="small" />
             </IconButton>
@@ -258,6 +259,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           display: 'flex', flexDirection: 'column',
           p: 1, gap: 0.25,
           width: isPortrait ? '100%' : 224,
+          height: 'fit-content',
           maxHeight: isPortrait ? '55vh' : '100%',
           overflowY: 'auto', overflowX: 'hidden',
           ...floatingPanelSx,
@@ -294,7 +296,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <CenterFocusStrongIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <CenterFocusStrongIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} display="block">Fit to Image</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -310,7 +314,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <ZoomInIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <ZoomInIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} display="block">Zoom In</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -326,7 +332,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <ZoomOutIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <ZoomOutIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} display="block">Zoom Out</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -343,7 +351,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: isCLAHEActive ? 'rgba(25,118,210,0.14)' : isLowContrast ? 'rgba(237,108,2,0.08)' : 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <ContrastIcon fontSize="small" sx={{ color: isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.secondary', mt: 0.2 }}>
+              <ContrastIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} color={isCLAHEActive ? 'primary.main' : isLowContrast ? 'warning.main' : 'text.primary'} display="block">
                 {isCLAHEActive ? 'Restore Original' : 'Enhance Contrast'}
@@ -363,7 +373,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }, '&.Mui-disabled': { opacity: 0.45 },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <UndoIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <UndoIcon fontSize="small" />
+            </Box>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
                 <Typography variant="caption" fontWeight={600}>Undo</Typography>
@@ -387,7 +399,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(211,47,47,0.06)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <DeleteSweepIcon fontSize="small" sx={{ color: 'error.main', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'error.main', mt: 0.2 }}>
+              <DeleteSweepIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} color="error.main" display="block">Clear All</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -403,7 +417,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <FilterListIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <FilterListIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} display="block">Filter Masks</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
@@ -425,7 +441,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:active': { transform: 'scale(0.98)' },
               ...reducedMotionSx,
             }}>
-            <SaveIcon fontSize="small" sx={{ mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, mt: 0.2 }}>
+              <SaveIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={700} display="block">
                 {isSaving ? 'Saving…' : 'Save Annotation'}
@@ -436,18 +454,20 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             </Box>
           </ButtonBase>
 
-          <ButtonBase onClick={() => fileInputRef.current?.click()} data-tool="upload" aria-label="Upload GeoJSON"
+          <ButtonBase onClick={() => fileInputRef.current?.click()} data-tool="upload" aria-label="Import Annotation"
             sx={{
               display: 'flex', alignItems: 'flex-start', gap: 1,
               px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <UploadFileIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <UploadFileIcon fontSize="small" />
+            </Box>
             <Box>
-              <Typography variant="caption" fontWeight={600} display="block">Upload GeoJSON</Typography>
+              <Typography variant="caption" fontWeight={600} display="block">Import Annotation</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                Import annotations from a file
+                Uploads a GeoJSON file
               </Typography>
             </Box>
           </ButtonBase>
@@ -471,7 +491,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
               minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
             }}>
-            <HelpOutlineIcon fontSize="small" sx={{ color: 'text.secondary', mt: 0.2, flexShrink: 0 }} />
+            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
+              <HelpOutlineIcon fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="caption" fontWeight={600} display="block">Help & Tutorial</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>

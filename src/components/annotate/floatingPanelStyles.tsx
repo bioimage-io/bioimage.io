@@ -8,12 +8,23 @@ import { Box } from '@mui/material';
 export const FLOAT_EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
 
 export const floatingPanelSx = {
-  background: 'rgba(255,255,255,0.82)',
-  backdropFilter: 'blur(14px)',
-  WebkitBackdropFilter: 'blur(14px)',
+  background: 'rgba(255,255,255,0.7)',
+  backdropFilter: 'blur(16px)',
+  WebkitBackdropFilter: 'blur(16px)',
   border: '1px solid rgba(255,255,255,0.6)',
   borderRadius: 3,
   boxShadow: '0 4px 24px rgba(15,23,42,0.16)',
+};
+
+// Fixed-size slot every row icon renders inside, so icons with different
+// internal glyph padding still present the same left edge and baseline.
+export const iconSlotSx = {
+  width: 20,
+  height: 20,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
 };
 
 // Edge-fade mask hinting that a collapsed icon strip scrolls further in that
