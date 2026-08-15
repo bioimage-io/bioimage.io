@@ -364,13 +364,17 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       // never ask it for one, regardless of the toggle's last value.
       const effectiveCustomEnv = customEnvDisabled ? false : customEnvironment;
 
+      // "Skip cache" in the UI maps to the runner's "skip" cache mode (force
+      // reload); unchecked maps to "check" (the default: reload only if stale).
+      const cacheMode = skipCache ? 'skip' : 'check';
+
       setLoadingStep('Starting test run...');
-      console.log(`Testing model ${modelId}, stage: ${isStaged}, skip_cache: ${skipCache}, custom_environment: ${effectiveCustomEnv}`);
+      console.log(`Testing model ${modelId}, stage: ${isStaged}, cache: ${cacheMode}, custom_environment: ${effectiveCustomEnv}`);
 
       const testResponse = await runner.test({
         model_id: modelId,
         stage: isStaged,
-        skip_cache: skipCache,
+        cache: cacheMode,
         custom_environment: effectiveCustomEnv,
         _rkwargs: true,
       });

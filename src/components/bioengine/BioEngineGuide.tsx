@@ -719,6 +719,12 @@ spec:
         - "--client-id"
         - "$(BIOENGINE_CLIENT_ID)"${extraArgs}
         env:
+        # UID 65534 (nobody) has no writable home dir (/nonexistent) in the
+        # base image, which crashes the worker on startup. Pin HOME to the
+        # same path mounted below (PVC-backed, or an ephemeral emptyDir when
+        # no PVC is available) so it's always writable.
+        - name: HOME
+          value: /home/bioengine
         - name: HYPHA_TOKEN
           valueFrom:
             secretKeyRef:
@@ -738,7 +744,7 @@ spec:
             - /bin/sh
             - -c
             - 'curl -sf "${serverUrlVal}/${workspaceVal}/services/$POD_NAME:bioengine-worker/get_status"
-              | grep -E "\"is_ready\":\\s*true"'
+              | grep -E ''"is_ready":\\s*true'''
           initialDelaySeconds: 60
           periodSeconds: 20
           timeoutSeconds: 10
@@ -749,18 +755,18 @@ spec:
             - /bin/sh
             - -c
             - 'curl -sf "${serverUrlVal}/${workspaceVal}/services/$POD_NAME:bioengine-worker/get_status"
-              | grep -E "\"is_ready\":\\s*true"'
+              | grep -E ''"is_ready":\\s*true'''
           initialDelaySeconds: 10
           periodSeconds: 30
           timeoutSeconds: 10
-          failureThreshold: 2${hasPvc ? `
+          failureThreshold: 2
         volumeMounts:
         - name: bioengine
           mountPath: /home/bioengine
       volumes:
       - name: bioengine
-        persistentVolumeClaim:
-          claimName: bioengine-pvc` : ''}`;
+        ${hasPvc ? `persistentVolumeClaim:
+          claimName: bioengine-pvc` : `emptyDir: {}`}`;
   };
 
   // Rendered between the standard configuration fields and the advanced options,

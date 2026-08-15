@@ -37,7 +37,9 @@ async def run_test(
     ``asyncio.TimeoutError`` when the run does not complete within
     ``TEST_TIMEOUT_SECONDS``.
     """
-    run_id = await runner.test(model_id=model_id, stage=False, skip_cache=skip_cache)
+    run_id = await runner.test(
+        model_id=model_id, stage=False, cache="skip" if skip_cache else "check"
+    )
 
     # Legacy synchronous runners returned the report dict directly instead of a
     # run id; accept that so the script keeps working during a rollout.
