@@ -6,7 +6,6 @@ import {
   Typography,
   Divider,
   ButtonBase,
-  Button,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -23,7 +22,7 @@ import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import { useAnnotationStore, AnnotationTool } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
-import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx, ToolSpinner } from './floatingPanelStyles';
+import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx, ToolSpinner, iconSlotSx } from './floatingPanelStyles';
 
 interface ToolDef {
   id: AnnotationTool;
@@ -42,11 +41,25 @@ const TOOLS: ToolDef[] = [
   { id: 'move',     name: 'Move',        shortcut: 'M', description: 'Pan and navigate the image',                              icon: <OpenWithIcon fontSize="small" /> },
   { id: 'select',   name: 'Select',      shortcut: 'S', description: 'Click a mask to select it; Shift for multi, Del to delete', icon: <NearMeIcon fontSize="small" /> },
   { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <PolylineIcon fontSize="small" /> },
-  { id: 'sambox',   name: 'AI Box',      shortcut: 'B', description: 'Draw a box around a cell for a one-click AI mask',         icon: <HighlightAltIcon fontSize="small" />, requiresMicroSam: true },
   { id: 'cutter',   name: 'Cut Mask',    shortcut: 'C', description: 'Draw a line across an existing mask to split it',          icon: <ContentCutIcon fontSize="small" /> },
   { id: 'eraser',   name: 'Eraser',      shortcut: 'E', description: 'Paint to remove areas from an existing mask',              icon: <AutoFixOffIcon fontSize="small" /> },
   { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <BrushIcon fontSize="small" /> },
+  // AI tools stay last, rendered after a divider and given a subtler shared
+  // highlight so they read as a matched pair (see the `expander` injection
+  // below for the Full Image Segmentation button that precedes this one).
+  { id: 'sambox',   name: 'Interactive Segmentation', shortcut: 'B', description: 'Draw a box around a cell for a one-click AI mask', icon: <HighlightAltIcon fontSize="small" />, requiresMicroSam: true },
 ];
+
+// Shared, generalized description of the AI backend (not Cellpose-specific):
+// used for the Full Image Segmentation subtitle.
+const AI_BACKEND_DESCRIPTION = 'AI backend: Cellpose4 models (Cellpose-SAM now, Cellpose-DINO coming), or micro-sam AIS';
+
+// Subtle shared tint for the AI tool pair (Full Image Segmentation button +
+// Interactive Segmentation tool row), less heavy than a solid fill.
+const aiTintSx = (active: boolean, dim = false) => ({
+  bgcolor: active ? 'rgba(156,39,176,0.16)' : dim ? undefined : 'rgba(156,39,176,0.07)',
+  '&:hover': { bgcolor: active ? 'rgba(156,39,176,0.16)' : dim ? undefined : 'rgba(156,39,176,0.13)' },
+});
 
 export interface ToolBarProps {
   onOpenCellposeConfig: () => void;
@@ -88,10 +101,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
     setToolsExpanded(!isExpanded, isPortrait);
   };
 
-  const modelLabel = (!cellposeModel || cellposeModel === 'cpsam')
-    ? 'Base (Cellpose-SAM)'
-    : cellposeModel;
-
   // Minimum 44px touch target on phones/tablets.
   const btnSize = isCompact ? 'medium' : 'small';
   const touchSx = isCompact ? { minWidth: 44, minHeight: 44 } : {};
@@ -112,6 +121,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         zIndex: 1000,
         ...anchorSx,
         display: 'flex',
+        alignItems: 'flex-start',
       }}
     >
       {/* ── Collapsed strip ─────────────────────────────────────────────── */}
@@ -119,6 +129,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Box sx={{
           display: 'flex', flexDirection: isPortrait ? 'row' : 'column', alignItems: 'center',
           p: isCompact ? 0.75 : 0.5, gap: isCompact ? 0.75 : 0.5,
+          height: 'fit-content',
           ...(isPortrait ? { maxWidth: '100%', overflowX: 'auto' } : { maxHeight: '100%', overflowY: 'auto' }),
           ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
@@ -157,39 +168,46 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       onClick={() => setActiveTool(tool.id)}
                       disabled={toolDisabled}
                       aria-label={tool.name}
-                      sx={{ ...floatingBtnSx(activeTool === tool.id), flexShrink: 0, ...touchSx }}
+                      sx={{
+                        ...floatingBtnSx(activeTool === tool.id),
+                        flexShrink: 0,
+                        ...(tool.id === 'sambox' ? aiTintSx(activeTool === 'sambox', toolDisabled) : {}),
+                        ...touchSx,
+                      }}
                     >
                       {toolPending ? <ToolSpinner size={isCompact ? 20 : 18} /> : tool.icon}
                     </IconButton>
                   </span>
                 </Tooltip>
 
-                {/* AI Segmentation sits right after Draw Mask */}
-                {tool.id === 'polygon' && (
-                  <Tooltip
-                    title={cellposeAvailable ? `AI Segmentation: ${modelLabel}` : 'AI Segmentation unavailable (cellpose service is offline)'}
-                    placement={tooltipPlacement}
-                  >
-                    <span>
-                      <IconButton
-                        size={btnSize}
-                        data-tool="cellpose"
-                        onClick={onOpenCellposeConfig}
-                        disabled={isRunningCellpose || !cellposeAvailable}
-                        aria-label="AI Segmentation"
-                        sx={{
-                          ...floatingBtnSx(),
-                          flexShrink: 0,
-                          bgcolor: cellposeAvailable ? 'rgba(156,39,176,0.12)' : undefined,
-                          color: cellposeAvailable ? 'secondary.main' : undefined,
-                          '&:hover': { bgcolor: cellposeAvailable ? 'rgba(156,39,176,0.22)' : undefined },
-                          ...touchSx,
-                        }}
-                      >
-                        <AutoAwesomeIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                {/* AI pair sits at the bottom, below Expand Mask, behind a divider */}
+                {tool.id === 'expander' && (
+                  <>
+                    <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
+                    <Tooltip
+                      title={cellposeAvailable ? `Full Image Segmentation: ${AI_BACKEND_DESCRIPTION}` : 'Full Image Segmentation unavailable (cellpose service is offline)'}
+                      placement={tooltipPlacement}
+                    >
+                      <span>
+                        <IconButton
+                          size={btnSize}
+                          data-tool="cellpose"
+                          onClick={onOpenCellposeConfig}
+                          disabled={isRunningCellpose || !cellposeAvailable}
+                          aria-label="Full Image Segmentation"
+                          sx={{
+                            ...floatingBtnSx(),
+                            flexShrink: 0,
+                            ...aiTintSx(false, !cellposeAvailable),
+                            color: cellposeAvailable ? 'secondary.main' : undefined,
+                            ...touchSx,
+                          }}
+                        >
+                          <AutoAwesomeIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </>
                 )}
               </React.Fragment>
             );
@@ -203,6 +221,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           display: 'flex', flexDirection: 'column',
           p: 1, gap: 0.25,
           width: isPortrait ? '100%' : 224,
+          height: 'fit-content',
           maxHeight: isPortrait ? '55vh' : '100%',
           overflowY: 'auto', overflowX: 'hidden',
           ...floatingPanelSx,
@@ -254,9 +273,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       sx={{
                         display: 'flex', alignItems: 'flex-start', gap: 1,
                         px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
-                        bgcolor: active ? 'rgba(25,118,210,0.10)' : 'transparent',
-                        border: '1px solid', borderColor: active ? 'rgba(25,118,210,0.25)' : 'transparent',
-                        '&:hover': { bgcolor: active ? 'rgba(25,118,210,0.14)' : 'rgba(0,0,0,0.05)' },
+                        bgcolor: active ? (tool.id === 'sambox' ? 'rgba(156,39,176,0.14)' : 'rgba(25,118,210,0.10)')
+                          : tool.id === 'sambox' ? 'rgba(156,39,176,0.06)' : 'transparent',
+                        border: '1px solid',
+                        borderColor: active ? (tool.id === 'sambox' ? 'rgba(156,39,176,0.3)' : 'rgba(25,118,210,0.25)') : 'transparent',
+                        '&:hover': { bgcolor: active ? (tool.id === 'sambox' ? 'rgba(156,39,176,0.18)' : 'rgba(25,118,210,0.14)') : tool.id === 'sambox' ? 'rgba(156,39,176,0.11)' : 'rgba(0,0,0,0.05)' },
                         transition: 'background-color 140ms ease, transform 140ms ' + 'cubic-bezier(0.23, 1, 0.32, 1)',
                         '&:active': { transform: 'scale(0.98)' },
                         opacity: toolDisabled ? 0.5 : 1,
@@ -265,12 +286,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         ...reducedMotionSx,
                       }}
                     >
-                      <Box sx={{ color: active ? 'primary.main' : 'text.secondary', mt: 0.2, flexShrink: 0, display: 'flex' }}>
+                      <Box sx={{ ...iconSlotSx, color: active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.secondary', mt: 0.2 }}>
                         {toolPending ? <ToolSpinner size={18} /> : tool.icon}
                       </Box>
                       <Box>
                         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
-                          <Typography variant="caption" fontWeight={600} color={active ? 'primary.main' : 'text.primary'}>
+                          <Typography variant="caption" fontWeight={600} color={active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.primary'}>
                             {tool.name}
                           </Typography>
                           {!isCompact && (
@@ -289,45 +310,51 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   </span>
                 </Tooltip>
 
-                {/* AI Segmentation — prominently after Draw Mask */}
-                {tool.id === 'polygon' && (
-                  <Tooltip
-                    title={cellposeAvailable ? '' : 'Cellpose service is currently offline'}
-                    placement="right"
-                    disableHoverListener={cellposeAvailable}
-                  >
-                    <span style={{ width: '100%' }}>
-                      <Button
-                        variant="contained"
-                        color="secondary"
-                        size="small"
-                        fullWidth
-                        startIcon={<AutoAwesomeIcon fontSize="small" />}
-                        onClick={onOpenCellposeConfig}
-                        disabled={isRunningCellpose || !cellposeAvailable}
-                        data-tool="cellpose"
-                        sx={{
-                          textTransform: 'none', borderRadius: 1.5,
-                          justifyContent: 'flex-start', px: 1.25,
-                          py: isCompact ? 1 : 0.7, my: 0.25,
-                          minHeight: isCompact ? 48 : undefined,
-                          touchAction: 'manipulation',
-                          transition: 'transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms ease',
-                          '&:active': { transform: 'scale(0.98)' },
-                          ...reducedMotionSx,
-                        }}
-                      >
-                        <Box sx={{ textAlign: 'left', ml: 0.25 }}>
-                          <Typography variant="caption" fontWeight={700} display="block" sx={{ lineHeight: 1.2 }}>
-                            AI Pre-Segmentation
-                          </Typography>
-                          <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.85, lineHeight: 1.2 }}>
-                            {cellposeAvailable ? modelLabel : 'Service offline'}
-                          </Typography>
-                        </Box>
-                      </Button>
-                    </span>
-                  </Tooltip>
+                {/* AI pair at the bottom, below Expand Mask, behind a divider */}
+                {tool.id === 'expander' && (
+                  <>
+                    <Divider sx={{ my: 0.4, opacity: 0.5 }} />
+                    <Tooltip
+                      title={cellposeAvailable ? '' : 'Cellpose service is currently offline'}
+                      placement="right"
+                      disableHoverListener={cellposeAvailable}
+                    >
+                      <span style={{ width: '100%' }}>
+                        <ButtonBase
+                          onClick={onOpenCellposeConfig}
+                          disabled={isRunningCellpose || !cellposeAvailable}
+                          data-tool="cellpose"
+                          aria-label="Full Image Segmentation"
+                          sx={{
+                            display: 'flex', alignItems: 'flex-start', gap: 1,
+                            px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+                            bgcolor: 'rgba(156,39,176,0.06)',
+                            border: '1px solid', borderColor: 'rgba(156,39,176,0.18)',
+                            '&:hover': { bgcolor: 'rgba(156,39,176,0.11)' },
+                            transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
+                            '&:active': { transform: 'scale(0.98)' },
+                            opacity: (isRunningCellpose || !cellposeAvailable) ? 0.5 : 1,
+                            minHeight: isCompact ? 48 : undefined,
+                            touchAction: 'manipulation',
+                            ...reducedMotionSx,
+                          }}
+                        >
+                          <Box sx={{ ...iconSlotSx, color: 'secondary.main', mt: 0.2 }}>
+                            <AutoAwesomeIcon fontSize="small" />
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontWeight={600} color="secondary.main" display="block">
+                              Full Image Segmentation
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block"
+                              sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                              {cellposeAvailable ? AI_BACKEND_DESCRIPTION : 'Service offline'}
+                            </Typography>
+                          </Box>
+                        </ButtonBase>
+                      </span>
+                    </Tooltip>
+                  </>
                 )}
               </React.Fragment>
             );
