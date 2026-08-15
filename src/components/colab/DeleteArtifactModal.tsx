@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { discoverLabels, getAnnotatedStems, labelFolder, listImages } from './datasetApi';
-import { deleteDatasetRecord } from './brokerApi';
+import { discoverLabels, getAnnotatedStems, listImages } from './datasetApi';
+import { deleteDatasetRecord, deleteLabel } from './brokerApi';
 
 type DeleteMode = 'label' | 'artifact';
 
@@ -97,45 +97,17 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
         onDeleteSuccess();
         setShowDeleteModal(false);
       } else {
-        // Label-only deletion: remove every annotation file under the label
-        // folder (all user subfolders), then update the manifest.
-        const folder = labelFolder(currentLabel);
-        const removeFolderRecursive = async (dirPath: string) => {
-          let entries: any[] = [];
-          try {
-            entries = await artifactManager.list_files({
-              artifact_id: dataArtifactId,
-              dir_path: dirPath,
-              stage: true,
-              _rkwargs: true,
-            });
-          } catch {
-            return;
-          }
-          for (const entry of entries) {
-            const name = entry?.name ?? entry?.path ?? String(entry);
-            const isDir = entry?.type === 'directory' || entry?.is_dir === true;
-            const path = `${dirPath}/${name}`;
-            if (isDir) {
-              await removeFolderRecursive(path);
-            } else {
-              try {
-                await artifactManager.remove_file({
-                  artifact_id: dataArtifactId,
-                  file_path: path,
-                  _rkwargs: true,
-                });
-              } catch {
-                // best-effort per-file removal
-              }
-            }
-          }
-        };
-        await removeFolderRecursive(folder);
-
-        // Label discovery reads only `label_*` folders (no manifest
-        // involvement) — removing the folder (and its metadata.json) is
-        // sufficient to make the label disappear.
+        // Label-only deletion: one broker RPC recursively removes the whole
+        // label_<name>/ folder server-side (broker v0.5.0), replacing the
+        // old client-side per-file recursive delete.
+        const result = await deleteLabel(server, dataArtifactId, currentLabel);
+        if (result.failed_files?.length) {
+          setError(
+            `Deleted with ${result.failed_files.length} file${result.failed_files.length !== 1 ? 's' : ''} that could not be removed. You can retry.`,
+          );
+          setIsDeleting(false);
+          return;
+        }
         onLabelDeleteSuccess?.(currentLabel);
         setShowDeleteModal(false);
       }
