@@ -14,7 +14,8 @@ import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
-import { DatasetIndex, classifyBrokerError } from '../components/colab/brokerApi';
+import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
+import { toArtifactId } from '../components/colab/datasetApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -61,13 +62,36 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}${labelParam}`;
   }, [sessionId, serviceConfig?.label]);
 
+  // Role-aware back navigation (colab-rework-plan.md §14 item 4): only an
+  // owner or manager can see the dataset overview, so the back button leads
+  // there for them and to the colab landing page for everyone else
+  // (annotator, public, or logged-out visitors).
+  const { server, user } = useHyphaStore();
+  const [callerRole, setCallerRole] = useState<BrokerRole | null>(null);
+
+  useEffect(() => {
+    if (!sessionId || !user?.email || !server) {
+      setCallerRole(null);
+      return;
+    }
+    let cancelled = false;
+    getDataset(server, toArtifactId(sessionId))
+      .then((dataset) => {
+        if (!cancelled) setCallerRole(dataset.role);
+      })
+      .catch(() => {
+        if (!cancelled) setCallerRole(null);
+      });
+    return () => { cancelled = true; };
+  }, [sessionId, user?.email, server]);
+
   const backTarget = useMemo(() => {
-    if (sessionId) {
+    if (sessionId && (callerRole === 'owner' || callerRole === 'manager')) {
       const labelParam = serviceConfig?.label ? `?label=${encodeURIComponent(serviceConfig.label)}` : '';
       return `/colab/${sessionId}${labelParam}`;
     }
     return backTo || '/colab';
-  }, [sessionId, serviceConfig?.label, backTo]);
+  }, [sessionId, callerRole, serviceConfig?.label, backTo]);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
@@ -306,7 +330,6 @@ print('CLAHE packages ready')
   // just staring at a dead end. `already_has_access` means a role was
   // granted moments ago and the page's stale permission check just needs
   // to re-run, so it reuses the same reconnect path as a manual retry.
-  const { user } = useHyphaStore();
   const [requestAccessState, setRequestAccessState] = useState<'idle' | 'requesting' | 'requested' | 'error'>('idle');
   const [requestAccessError, setRequestAccessError] = useState<string | null>(null);
 
