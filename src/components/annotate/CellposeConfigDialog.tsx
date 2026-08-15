@@ -36,7 +36,7 @@ export interface CellposeConfig {
 }
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
-  backend: 'cellpose',
+  backend: 'microsam',
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
@@ -256,7 +256,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               px: 1.25, py: 0.6, bgcolor: 'action.hover', borderRadius: 1.5,
             }}>
               <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                Backend:
+                Model:
               </Typography>
               <Select
                 size="small"
@@ -266,10 +266,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 onChange={(e) => update('backend', e.target.value as SegBackend)}
                 sx={{ fontSize: '0.8rem', fontWeight: 700, ml: 'auto', minWidth: 150 }}
               >
-                <MenuItem value="cellpose" sx={{ fontSize: '0.8rem' }}>Cellpose-SAM</MenuItem>
                 <MenuItem value="microsam" disabled={!microSamAvailable} sx={{ fontSize: '0.8rem' }}>
-                  {microSamAvailable ? 'micro-sam (μSAM)' : 'micro-sam (unavailable)'}
+                  {microSamAvailable ? 'μSAM' : 'μSAM (unavailable)'}
                 </MenuItem>
+                <MenuItem value="cellpose" sx={{ fontSize: '0.8rem' }}>Cellpose-SAM</MenuItem>
               </Select>
             </Box>
             {isMicroSam && (
@@ -295,16 +295,28 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 slotProps={{ input: { inputProps: { min: 0 } } }}
               />
+              {onRun && (
+                <Button
+                  onClick={() => { handleApply(); onRun(config); }}
+                  variant="contained"
+                  color="secondary"
+                  disabled={isRunning}
+                  fullWidth
+                  sx={{ mt: 2 }}
+                >
+                  Run Segmentation
+                </Button>
+              )}
             </Grid>
           )}
 
           {/* ── Cellpose: two collapsible sections ── */}
           {!isMicroSam && (
             <>
-              {/* Section 1: Run — collapses once flows come back from the server */}
+              {/* Section 1: Compute Flow Field — collapses once flows come back from the server */}
               <Grid item xs={12}>
                 <SectionHeader
-                  title="Run Segmentation"
+                  title="Compute Flow Field"
                   subtitle={livePreviewReady
                     ? 'Segmented. Adjust the sliders below to refine the result.'
                     : 'One server call computes the network output.'}
@@ -312,12 +324,23 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                   onToggle={() => setRunSectionOpen((v) => !v)}
                 />
                 <Collapse in={runSectionOpen}>
-                  <Box sx={{ px: 1.25, pt: 1, pb: 0.5 }}>
-                    <Typography variant="caption" color="text.secondary">
+                  <Box sx={{ px: 1.25, pt: 1, pb: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
                       {livePreviewReady
                         ? 'The image has already been segmented. Open Refine Results below to tune the mask output instantly, or click Re-run to segment again.'
-                        : 'Click Run Segmentation to send the image to the server. After that, the sliders below update the preview instantly with no extra server calls.'}
+                        : 'Click Compute Flow Field to send the image to the server. After that, the sliders below update the preview instantly with no extra server calls.'}
                     </Typography>
+                    {onRun && (
+                      <Button
+                        onClick={() => { handleApply(); onRun(config); }}
+                        variant="contained"
+                        color="secondary"
+                        disabled={isRunning}
+                        fullWidth
+                      >
+                        {livePreviewReady ? 'Re-run on Server' : 'Compute Flow Field'}
+                      </Button>
+                    )}
                   </Box>
                 </Collapse>
               </Grid>
@@ -328,7 +351,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                   title="Refine Results"
                   subtitle={livePreviewReady
                     ? 'Updates the preview instantly as you drag.'
-                    : 'Available after you click Run Segmentation.'}
+                    : 'Available after you click Compute Flow Field.'}
                   open={refineSectionOpen}
                   onToggle={() => setRefineSectionOpen((v) => !v)}
                 />
@@ -439,16 +462,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
         {onInstantConfigChange && livePreviewReady && (
           <Button onClick={handleApply} color="primary" variant="outlined">
             Done
-          </Button>
-        )}
-        {onRun && (
-          <Button
-            onClick={() => { handleApply(); onRun(config); }}
-            variant="contained"
-            color="secondary"
-            disabled={isRunning}
-          >
-            {livePreviewReady ? 'Re-run on Server' : 'Run Segmentation'}
           </Button>
         )}
       </DialogActions>

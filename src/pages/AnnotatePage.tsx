@@ -174,7 +174,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
       width: number,
       height: number,
     ): Promise<string> => {
-      if (!service) throw new Error('micro-sam service unavailable');
+      if (!service) throw new Error('μSAM service unavailable');
       const cache = ensuredEmbeddingRef.current;
       let stored = cache.get(imageStem);
       if (!stored) {
@@ -191,7 +191,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
       }
       await stored;
       const urls = await service.getEmbeddingUrls(imageStem);
-      if (!urls.exists) throw new Error('micro-sam embedding is unavailable after upload');
+      if (!urls.exists) throw new Error('μSAM embedding is unavailable after upload');
       return urls.read_url;
     },
     [service],
@@ -630,7 +630,7 @@ print('CLAHE packages ready')
     // Already computing/computed for this image: skip the banner flicker, but
     // still await the (already-memoized) promise so embeddingReadyStem catches up.
     const alreadyEnsured = ensuredEmbeddingRef.current.has(stem);
-    const bannerId = alreadyEnsured ? null : addBanner('Preparing micro-sam...', 'loading', 0);
+    const bannerId = alreadyEnsured ? null : addBanner('Preparing μSAM...', 'loading', 0);
     ensureStoredEmbedding(stem, sourceUrl, imageWidth, imageHeight)
       .then(() => setEmbeddingReadyStem(stem))
       .catch((e) => {
@@ -650,7 +650,7 @@ print('CLAHE packages ready')
     if (!service) return;
     setEmbeddingLoader(async (url, width, height) => {
       const stem = currentImageStemRef.current;
-      if (!stem) throw new Error('no active image for micro-sam');
+      if (!stem) throw new Error('no active image for μSAM');
       const npzUrl = await ensureStoredEmbedding(stem, url, width, height);
       return service.loadMicroSamEmbedding(npzUrl);
     });
@@ -666,7 +666,7 @@ print('CLAHE packages ready')
       if (samDecodeInFlightRef.current) return;
       samDecodeInFlightRef.current = true;
       const sourceUrl = originalImageUrl || imageUrl;
-      const bannerId = addBanner('Decoding box with micro-sam...', 'loading', 0);
+      const bannerId = addBanner('Decoding box with μSAM...', 'loading', 0);
       try {
         const polygons = await decodeSamBox(extent, imageWidth, imageHeight, sourceUrl);
         removeBanner(bannerId);
@@ -704,7 +704,7 @@ print('CLAHE packages ready')
           addBanner('That box only covered existing annotations, no new mask added', 'warning', 4000);
         } else {
           console.log('[AnnotatePage] micro-sam box added', added, 'masks');
-          addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from micro-sam`, 'success', 4000);
+          addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from μSAM`, 'success', 4000);
         }
       } catch (err: any) {
         removeBanner(bannerId);
@@ -814,7 +814,7 @@ print('CLAHE packages ready')
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
     setIsRunningCellpose(true);
     const bannerId = addBanner(
-      cfg.backend === 'microsam' ? 'Running micro-sam segmentation...' : 'Running Cellpose segmentation...',
+      cfg.backend === 'microsam' ? 'Running μSAM segmentation...' : 'Running Cellpose segmentation...',
       'loading',
       0,
     );
@@ -847,16 +847,16 @@ print('CLAHE packages ready')
           }
           removeBanner(bannerId);
           if (n === 0) {
-            addBanner('No masks detected by micro-sam', 'warning', 5000);
+            addBanner('No masks detected by μSAM', 'warning', 5000);
           } else {
             console.log('[AnnotatePage] micro-sam added', n, 'masks');
-            addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from micro-sam`, 'success', 5000);
+            addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from μSAM`, 'success', 5000);
           }
         } catch (msErr: any) {
           removeBanner(bannerId);
           const msg = msErr?.message || 'Unknown error';
           console.error('[AnnotatePage] micro-sam failed:', msg);
-          addBanner('micro-sam segmentation failed', 'error', 8000, msg);
+          addBanner('μSAM segmentation failed', 'error', 8000, msg);
         }
         return;
       }

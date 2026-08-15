@@ -52,7 +52,7 @@ const TOOLS: ToolDef[] = [
 
 // Shared, generalized description of the AI backend (not Cellpose-specific):
 // used for the Full Image Segmentation subtitle.
-const AI_BACKEND_DESCRIPTION = 'AI backend: Cellpose4 models (Cellpose-SAM now, Cellpose-DINO coming), or micro-sam AIS';
+const AI_BACKEND_DESCRIPTION = 'AI backend: Cellpose4 models (Cellpose-SAM now, Cellpose-DINO coming), or μSAM AIS';
 
 // Subtle shared tint for the AI tool pair (Full Image Segmentation button +
 // Interactive Segmentation tool row), less heavy than a solid fill.
@@ -158,7 +158,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <React.Fragment key={tool.id}>
                 <Tooltip
                   title={toolUnavailable
-                    ? `${tool.name} unavailable (micro-sam service is offline)`
+                    ? `${tool.name} unavailable (μSAM service is offline)`
                     : toolPending
                     ? `${tool.name} is warming up...`
                     : `${tool.name} (${tool.shortcut})`}
@@ -263,7 +263,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
-                  title={toolUnavailable ? 'micro-sam service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
+                  title={toolUnavailable ? 'μSAM service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
                   placement="right"
                   disableHoverListener={!toolDisabled}
                 >
