@@ -306,12 +306,9 @@ print('CLAHE packages ready')
   const lastIndexFetchAtRef = useRef<number>(0);
 
   // Image picker: lets a user jump to any image in the dataset (already
-  // annotated or not) and reloads their latest GeoJSON for it if one
-  // exists. The pending GeoJSON lands here first because the vector
-  // source ref may not be available until AnnotationViewer remounts with
-  // the new image.
+  // annotated or not). Every image opens with a clean slate; no prior
+  // annotation is auto-loaded.
   const [refinePickerOpen, setRefinePickerOpen] = useState(false);
-  const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
 
   // Set when the broker rejects get_dataset_index with a role-too-low
   // PermissionError (colab-rework-plan.md F5: private datasets require
@@ -444,12 +441,12 @@ print('CLAHE packages ready')
 
   // Load one image by stem: fetches a fresh presigned read url for just this
   // image (broker v0.5.0's `get_image_url`, public-min role) instead of
-  // looking it up in a full index fetch, then fetches this user's latest
-  // existing GeoJSON for that (label, stem) pair (if any) via
-  // `get_my_annotation_url` so it can be re-applied to the vector source
-  // once AnnotationViewer remounts. Neither call depends on `datasetIndex`,
-  // which is what lets an `&image=<stem>` deep link render before the index
-  // or the μSAM probe resolve.
+  // looking it up in a full index fetch. Every image opens with a clean
+  // slate — any prior annotation for this (label, stem) pair is never
+  // auto-loaded; `get_my_annotation_url` is reserved for explicit user
+  // actions. This call doesn't depend on `datasetIndex`, which is what lets
+  // an `&image=<stem>` deep link render before the index or the μSAM probe
+  // resolve.
   const loadImageByStem = useCallback(async (stem: string, showBanner = true) => {
     if (!service || !serviceConfig) return;
     setIsLoadingImage(true);
@@ -460,7 +457,6 @@ print('CLAHE packages ready')
     setIsLowContrast(false);
     setOriginalImageUrl(null);
     setClaheEnhancedUrl(null);
-    setPendingGeoJSON(null);
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
       const { read_url: url } = await service.getImageUrl(stem);
@@ -477,21 +473,6 @@ print('CLAHE packages ready')
       setIsLowContrast(detectLowContrast(img));
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
-
-      const existing = await service.getMyAnnotationUrl(stem);
-      if (existing.exists) {
-        try {
-          const res = await fetch(existing.geojson_read_url);
-          if (res.ok) {
-            const data = await res.json();
-            setPendingGeoJSON(data);
-          } else {
-            console.warn('[AnnotatePage] Could not fetch existing GeoJSON:', res.status);
-          }
-        } catch (err) {
-          console.warn('[AnnotatePage] Error fetching existing GeoJSON:', err);
-        }
-      }
     } catch (err: any) {
       console.error('[AnnotatePage] loadImageByStem failed:', err);
       setError(err.message || 'Failed to load image');
@@ -572,25 +553,6 @@ print('CLAHE packages ready')
       setError(err.message || 'Failed to load next image');
     }
   }, [service, serviceConfig, pickNextUnannotated, loadImageByStem, setError]);
-
-  // Apply pending GeoJSON once both the data and the vector source are ready.
-  useEffect(() => {
-    if (!pendingGeoJSON || !getVectorSource || imageHeight <= 0) return;
-    const vs = getVectorSource();
-    if (!vs) return;
-    try {
-      vs.clear();
-      useAnnotationStore.setState({ undoStack: [], canUndo: false });
-      importGeoJSON(vs, pendingGeoJSON, imageHeight, activeLabel);
-      const count = vs.getFeatures().length;
-      addBanner(`Loaded ${count} existing mask${count !== 1 ? 's' : ''} for refinement`, 'success', 5000);
-    } catch (err: any) {
-      console.warn('[AnnotatePage] Failed to apply pending GeoJSON:', err);
-      addBanner('Failed to load existing annotation: ' + (err.message || 'unknown error'), 'error', 8000);
-    } finally {
-      setPendingGeoJSON(null);
-    }
-  }, [pendingGeoJSON, getVectorSource, imageHeight, activeLabel, addBanner]);
 
   // Open the image picker. The dataset index is already loaded, so this is
   // just a visibility toggle.
