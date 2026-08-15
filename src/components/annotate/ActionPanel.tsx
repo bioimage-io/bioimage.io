@@ -125,6 +125,19 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
         }}>
+          <Tooltip title="Expand actions" placement={tooltipPlacement}>
+            <IconButton
+              size={btnSize}
+              onClick={toggleExpanded}
+              aria-label="Expand actions"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}
+            >
+              {isPortrait ? <ExpandLessIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+
+          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
+
           {/* View */}
           <Tooltip title="Fit to Image" placement={tooltipPlacement}>
             <IconButton size={btnSize} data-tool="fit" onClick={onResetView} aria-label="Fit to Image"
@@ -235,19 +248,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             <IconButton size={btnSize} data-tool="help" onClick={onHelp} aria-label="Help & Tutorial"
               sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
               <HelpOutlineIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-
-          <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
-
-          <Tooltip title="Expand actions" placement={tooltipPlacement}>
-            <IconButton
-              size={btnSize}
-              onClick={toggleExpanded}
-              aria-label="Expand actions"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}
-            >
-              {isPortrait ? <ExpandLessIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
         </Box>
