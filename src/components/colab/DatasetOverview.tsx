@@ -11,6 +11,7 @@ import {
   buildAnnotateQuery,
   deleteImageEverywhere,
   discoverLabels,
+  formatDatasetDescription,
   getAnnotatedStems,
   getLabelStats,
   getLabelTotals,
@@ -687,9 +688,7 @@ print("Service registered successfully", end='')
             <h1 className="text-2xl font-bold text-gray-900 truncate">
               {datasetMeta?.name ?? toAlias(artifactId)}
             </h1>
-            {datasetMeta?.description && (
-              <p className="text-sm text-gray-600 mt-0.5">{datasetMeta.description}</p>
-            )}
+            <p className="text-sm text-gray-600 mt-0.5">{formatDatasetDescription(datasetMeta?.description)}</p>
             <p className="text-xs text-gray-400 mt-0.5">{toAlias(artifactId)}</p>
           </div>
         </div>

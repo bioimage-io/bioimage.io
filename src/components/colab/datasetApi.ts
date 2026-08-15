@@ -38,6 +38,18 @@ export function buildAnnotateQuery(artifactId: string, label: string, cellposeMo
   return params.toString();
 }
 
+// Session creation appends "(Owner: <email>)" to every manifest description
+// (public/colab_service.py), which is internal bookkeeping, not something to
+// show collaborators. Strip it here rather than at creation time, since
+// existing artifacts already have it baked into stored data.
+const OWNER_SUFFIX_RE = /\s*\(Owner:\s*[^)]*\)\s*$/i;
+
+/** Strip the "(Owner: ...)" suffix and fall back to a placeholder when empty. */
+export function formatDatasetDescription(description?: string | null): string {
+  const stripped = (description ?? '').replace(OWNER_SUFFIX_RE, '').trim();
+  return stripped || 'No description available.';
+}
+
 // {stem}-{YYYYMMDD-HHMMSS}.{png|geojson} — mirrors broker_core.py's
 // ANNOTATION_FILENAME_RE. The timestamp itself contains a hyphen, so this
 // anchors on the fixed-width digit groups rather than a naive split.

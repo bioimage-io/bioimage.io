@@ -1,6 +1,7 @@
 import React from 'react';
 import { LABEL_PALETTE } from './ImagePreview';
 import { BrokerRole } from './brokerApi';
+import { formatDatasetDescription } from './datasetApi';
 
 export interface DatasetCardLabel {
   name: string;
@@ -51,7 +52,7 @@ const DatasetCard: React.FC<DatasetCardProps> = ({
         )}
       </div>
 
-      {description && <p className="text-sm text-gray-500 line-clamp-2">{description}</p>}
+      <p className="text-sm text-gray-500 line-clamp-2">{formatDatasetDescription(description)}</p>
 
       <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
         {labels.length === 0 ? (
