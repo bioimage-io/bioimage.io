@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { AccessRequest, BrokerRole, DatasetWithRole, dismissAccessRequest, setRole } from './brokerApi';
+import { AccessRequest, BrokerRole, BrokerUserRef, DatasetWithRole, dismissAccessRequest, updateSharing } from './brokerApi';
 import { buildAnnotateQuery } from './datasetApi';
-import SharingPanel from './SharingPanel';
+import SharingPanel, { PendingAdd, userKey } from './SharingPanel';
 
 interface ShareModalProps {
   server: any;
   artifactId: string;
   role: BrokerRole;
   dataset: DatasetWithRole;
-  initialLabel?: string | null;
+  selectedLabel: string;
+  onSelectLabel: (label: string) => void;
   cellposeModel?: string;
   onChanged: () => void;
   setShowShareModal: (show: boolean) => void;
@@ -116,45 +117,63 @@ const URLField: React.FC<{
 
 /**
  * One pending access request: pre-filled email, a role picker, and
- * Add/Dismiss actions. Add grants the role via `setRole`, which clears the
- * request server-side too, so a plain `onChanged()` after either action is
- * enough to make the row disappear.
+ * Add/Dismiss actions. Add now stages the grant into the shared
+ * `pendingAdds` batch (§14 item 2) instead of calling `setRole`
+ * immediately, so it lands in the same `update_sharing` call as any
+ * Sharing-box edits. Dismiss stays an immediate call: it only clears
+ * the request and isn't part of the ACL batch.
  */
 const AccessRequestRow: React.FC<{
   server: any;
   artifactId: string;
   request: AccessRequest;
   isOwner: boolean;
+  pendingAdds: PendingAdd[];
+  onStageAdd: (user: BrokerUserRef, role: 'manager' | 'annotator') => void;
+  onUndoAdd: (user: BrokerUserRef) => void;
   onChanged: () => void;
-}> = ({ server, artifactId, request, isOwner, onChanged }) => {
+}> = ({ server, artifactId, request, isOwner, pendingAdds, onStageAdd, onUndoAdd, onChanged }) => {
   const defaultRole = request.requested_role === 'manager' && isOwner ? 'manager' : 'annotator';
   const [selectedRole, setSelectedRole] = useState<'manager' | 'annotator'>(defaultRole);
-  const [busy, setBusy] = useState<'add' | 'dismiss' | null>(null);
+  const [dismissing, setDismissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleAdd = async () => {
-    setBusy('add');
-    setError(null);
-    try {
-      await setRole(server, artifactId, { email: request.email }, selectedRole);
-      onChanged();
-    } catch (err) {
-      setError((err as Error).message || 'Failed to grant access.');
-      setBusy(null);
-    }
+  const staged = pendingAdds.find((p) => userKey(p.user) === request.email.toLowerCase());
+
+  const handleAdd = () => {
+    onStageAdd({ email: request.email }, selectedRole);
+  };
+
+  const handleUndo = () => {
+    onUndoAdd({ email: request.email });
   };
 
   const handleDismiss = async () => {
-    setBusy('dismiss');
+    setDismissing(true);
     setError(null);
     try {
       await dismissAccessRequest(server, artifactId, { email: request.email });
       onChanged();
     } catch (err) {
       setError((err as Error).message || 'Failed to dismiss request.');
-      setBusy(null);
+      setDismissing(false);
     }
   };
+
+  if (staged) {
+    return (
+      <li className="py-2">
+        <div className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 truncate text-sm text-purple-700">
+            {request.email} will be added as {staged.role}
+          </span>
+          <button onClick={handleUndo} className="text-xs text-gray-400 hover:text-red-600 transition-colors shrink-0">
+            Undo
+          </button>
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li className="py-2">
@@ -163,7 +182,7 @@ const AccessRequestRow: React.FC<{
         <select
           value={selectedRole}
           onChange={(e) => setSelectedRole(e.target.value as 'manager' | 'annotator')}
-          disabled={!!busy}
+          disabled={dismissing}
           className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
         >
           <option value="annotator">Annotator</option>
@@ -171,17 +190,17 @@ const AccessRequestRow: React.FC<{
         </select>
         <button
           onClick={handleAdd}
-          disabled={!!busy}
+          disabled={dismissing}
           className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 text-sm font-medium transition-colors shrink-0"
         >
-          {busy === 'add' ? 'Adding...' : 'Add'}
+          Add
         </button>
         <button
           onClick={handleDismiss}
-          disabled={!!busy}
+          disabled={dismissing}
           className="text-xs text-gray-400 hover:text-red-600 transition-colors shrink-0"
         >
-          {busy === 'dismiss' ? 'Dismissing...' : 'Dismiss'}
+          {dismissing ? 'Dismissing...' : 'Dismiss'}
         </button>
       </div>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
@@ -194,15 +213,19 @@ const AccessRequestsSection: React.FC<{
   artifactId: string;
   role: BrokerRole;
   requests: AccessRequest[];
+  pendingAdds: PendingAdd[];
+  onStageAdd: (user: BrokerUserRef, role: 'manager' | 'annotator') => void;
+  onUndoAdd: (user: BrokerUserRef) => void;
   onChanged: () => void;
-}> = ({ server, artifactId, role, requests, onChanged }) => {
+}> = ({ server, artifactId, role, requests, pendingAdds, onStageAdd, onUndoAdd, onChanged }) => {
   if (requests.length === 0) return null;
   const isOwner = role === 'owner';
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4">
       <h3 className="text-sm font-semibold text-gray-900 mb-1">Pending access requests</h3>
       <p className="text-xs text-gray-500 mb-2">
-        Add grants the selected role and clears the request. Dismiss clears it without granting access.
+        Add stages the selected role for the next Apply. Dismiss clears the request immediately without granting
+        access.
       </p>
       <ul className="divide-y divide-gray-100">
         {requests.map((req) => (
@@ -212,6 +235,9 @@ const AccessRequestsSection: React.FC<{
             artifactId={artifactId}
             request={req}
             isOwner={isOwner}
+            pendingAdds={pendingAdds}
+            onStageAdd={onStageAdd}
+            onUndoAdd={onUndoAdd}
             onChanged={onChanged}
           />
         ))}
@@ -225,15 +251,63 @@ const ShareModal: React.FC<ShareModalProps> = ({
   artifactId,
   role,
   dataset,
-  initialLabel,
+  selectedLabel,
+  onSelectLabel,
   cellposeModel,
   onChanged,
   setShowShareModal,
 }) => {
   const labels = dataset.labels ?? [];
-  const [selectedLabel, setSelectedLabel] = useState<string>(
-    (initialLabel && labels.some((l) => l.name === initialLabel) ? initialLabel : labels[0]?.name) ?? '',
-  );
+
+  const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
+  const [pendingRemoves, setPendingRemoves] = useState<BrokerUserRef[]>([]);
+  const [pendingPublic, setPendingPublic] = useState<boolean | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  const handleStageAdd = (user: BrokerUserRef, addRole: 'manager' | 'annotator') => {
+    const key = userKey(user);
+    setPendingRemoves((prev) => prev.filter((r) => userKey(r) !== key));
+    setPendingAdds((prev) => [...prev.filter((p) => userKey(p.user) !== key), { user, role: addRole }]);
+  };
+
+  const handleUndoAdd = (user: BrokerUserRef) => {
+    const key = userKey(user);
+    setPendingAdds((prev) => prev.filter((p) => userKey(p.user) !== key));
+  };
+
+  const handleToggleRemove = (user: BrokerUserRef) => {
+    const key = userKey(user);
+    setPendingRemoves((prev) =>
+      prev.some((r) => userKey(r) === key) ? prev.filter((r) => userKey(r) !== key) : [...prev, user],
+    );
+  };
+
+  const handleSetPendingPublic = (value: boolean) => {
+    setPendingPublic(value === dataset.public ? null : value);
+  };
+
+  const handleApply = async () => {
+    const hasPendingChanges = pendingAdds.length > 0 || pendingRemoves.length > 0 || pendingPublic !== null;
+    if (!hasPendingChanges || applying) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await updateSharing(server, artifactId, {
+        add: pendingAdds.map(({ user, role: addRole }) => ({ user, role: addRole })),
+        remove: pendingRemoves,
+        set_public: pendingPublic ?? undefined,
+      });
+      setPendingAdds([]);
+      setPendingRemoves([]);
+      setPendingPublic(null);
+      onChanged();
+    } catch (err) {
+      setApplyError((err as Error).message || 'Failed to apply sharing changes.');
+    } finally {
+      setApplying(false);
+    }
+  };
 
   const annotationURL = useMemo(
     () =>
@@ -276,13 +350,29 @@ const ShareModal: React.FC<ShareModalProps> = ({
         {/* Scrollable Content */}
         <div className="overflow-y-auto flex-1">
           <div className="p-6 space-y-5">
-            <SharingPanel server={server} artifactId={artifactId} role={role} dataset={dataset} onChanged={onChanged} />
+            <SharingPanel
+              role={role}
+              dataset={dataset}
+              pendingAdds={pendingAdds}
+              pendingRemoves={pendingRemoves}
+              pendingPublic={pendingPublic}
+              applying={applying}
+              applyError={applyError}
+              onStageAdd={handleStageAdd}
+              onToggleRemove={handleToggleRemove}
+              onUndoAdd={handleUndoAdd}
+              onSetPendingPublic={handleSetPendingPublic}
+              onApply={handleApply}
+            />
 
             <AccessRequestsSection
               server={server}
               artifactId={artifactId}
               role={role}
               requests={dataset.access_requests ?? []}
+              pendingAdds={pendingAdds}
+              onStageAdd={handleStageAdd}
+              onUndoAdd={handleUndoAdd}
               onChanged={onChanged}
             />
 
@@ -291,7 +381,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
                 <select
                   value={selectedLabel}
-                  onChange={(e) => setSelectedLabel(e.target.value)}
+                  onChange={(e) => onSelectLabel(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 >
                   {labels.map((l) => (
@@ -323,14 +413,6 @@ const ShareModal: React.FC<ShareModalProps> = ({
           >
             Close
           </button>
-          {annotationURL && (
-            <a
-              href={annotationURL}
-              className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
-            >
-              Open Annotation UI
-            </a>
-          )}
         </div>
       </div>
     </div>
