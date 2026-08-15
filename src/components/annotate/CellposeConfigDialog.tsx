@@ -20,6 +20,8 @@ import { alpha } from '@mui/material/styles';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import StraightenIcon from '@mui/icons-material/Straighten';
+import InputAdornment from '@mui/material/InputAdornment';
 
 /** Which segmentation backend the Full Image Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
@@ -33,6 +35,10 @@ export interface CellposeConfig {
   cellprob_threshold: number;
   niter: number | null;
   min_mask_area: number;
+  /** Representative object diameter in display-space pixels. When set, the
+   *  image is rescaled client-side (Cellpose-SAM only) so objects match the
+   *  network's expected ~30 px working diameter. Null runs at original scale. */
+  diameter: number | null;
 }
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
@@ -41,6 +47,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   cellprob_threshold: -1.0,
   niter: null,
   min_mask_area: 30,
+  diameter: null,
 };
 
 const STORAGE_KEY = 'cellpose-config';
@@ -71,7 +78,8 @@ function configDiffersFromDefault(config: CellposeConfig): boolean {
     config.flow_threshold !== DEFAULT_CELLPOSE_CONFIG.flow_threshold ||
     config.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
     config.niter !== DEFAULT_CELLPOSE_CONFIG.niter ||
-    config.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area
+    config.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area ||
+    config.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter
   );
 }
 
@@ -100,6 +108,11 @@ interface CellposeConfigDialogProps {
   /** Whether the μSAM backend is reachable. Gates the μSAM option in the
    *  backend selector. */
   microSamAvailable?: boolean;
+  /** When provided, shows a "Measure in image" button next to the diameter
+   *  field. Called with the current config; the caller closes/hides the
+   *  dialog, lets the user click a representative object in the image, then
+   *  invokes ``onMeasured`` with the measured diameter in display px. */
+  onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
 }
 
 /** Collapsible section header: click to toggle, chevron shows current state. */
@@ -151,6 +164,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   livePreviewReady,
   onInstantConfigChange,
   microSamAvailable,
+  onMeasureDiameter,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
 
@@ -182,6 +196,12 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
   const handleApply = () => {
     onApply(config);
+  };
+
+  const handleMeasure = () => {
+    if (!onMeasureDiameter) return;
+    onApply(config);
+    onMeasureDiameter(config, () => {});
   };
 
   const isMicroSam = config.backend === 'microsam';
@@ -330,6 +350,45 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         ? 'The image has already been segmented. Open Refine Results below to tune the mask output instantly, or click Re-run to segment again.'
                         : 'Click Compute Flow Field to send the image to the server. After that, the sliders below update the preview instantly with no extra server calls.'}
                     </Typography>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                      <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
+                      <InfoTip text="Cellpose-SAM works best when objects are about 30 px across. Diameter rescales the image so objects match that size before segmentation. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
+                      {onMeasureDiameter && (
+                        <Tooltip title="Measure a representative object in the image to set the diameter automatically" placement="top" arrow>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<StraightenIcon fontSize="small" />}
+                            onClick={handleMeasure}
+                            sx={{ ml: 'auto', textTransform: 'none' }}
+                          >
+                            Measure in image
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </Box>
+                    <TextField
+                      fullWidth size="small" type="number" placeholder="No rescaling (original scale)"
+                      value={config.diameter === null ? '' : config.diameter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          update('diameter', null);
+                        } else {
+                          const num = parseFloat(val);
+                          if (!isNaN(num) && num >= 0) update('diameter', num === 0 ? null : num);
+                        }
+                      }}
+                      slotProps={{
+                        input: {
+                          inputProps: { min: 0 },
+                          endAdornment: <InputAdornment position="end">px</InputAdornment>,
+                        },
+                      }}
+                      sx={{ mb: 1.5 }}
+                    />
+
                     {onRun && (
                       <Button
                         onClick={() => { handleApply(); onRun(config); }}
@@ -481,6 +540,10 @@ export function useCellposeConfig(opts?: {
   livePreviewReady?: boolean;
   onInstantConfigChange?: (config: CellposeConfig) => void;
   microSamAvailable?: boolean;
+  /** When set, the dialog shows a "Measure in image" button. Called with the
+   *  config to apply and a callback the page invokes once the user has
+   *  clicked a representative object, with the measured diameter in px. */
+  onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -512,6 +575,13 @@ export function useCellposeConfig(opts?: {
     setDialogOpen(false);
   }, []);
 
+  const handleMeasureDiameter = useCallback((currentConfig: CellposeConfig, onMeasured: (px: number) => void) => {
+    setConfig(currentConfig);
+    saveConfig(currentConfig);
+    setDialogOpen(false);
+    opts?.onMeasureDiameter?.(currentConfig, onMeasured);
+  }, [opts]);
+
   const dialogElement = (
     <CellposeConfigDialog
       open={dialogOpen}
@@ -523,6 +593,7 @@ export function useCellposeConfig(opts?: {
       livePreviewReady={opts?.livePreviewReady}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
+      onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
     />
   );
 

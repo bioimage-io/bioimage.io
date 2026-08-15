@@ -52,6 +52,12 @@ export interface CellposeParams {
   cellprob_threshold?: number;
   niter?: number | null;
   min_mask_area?: number;
+  /** Representative object diameter in display-space pixels. When set, the
+   *  image is rescaled (frontend-only, before the network call) so objects
+   *  match Cellpose-SAM's expected ~30 px working diameter. cellpose4-runner
+   *  has no diameter parameter of its own; the server never sees this value,
+   *  only the already-rescaled pixels. Ignored by the μSAM path. */
+  diameter?: number | null;
 }
 
 /**
@@ -110,6 +116,8 @@ export interface AnnotationDataService {
    *  model type): either a GET url if it already exists, or a PUT url to
    *  upload a freshly computed one. */
   getEmbeddingUrls: (imageStem: string) => Promise<EmbeddingUrls>;
+  /** ``params.diameter``, if set, rescales the image client-side (Cellpose
+   *  convention: target ~30 px object diameter) before it is sent. */
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
@@ -228,13 +236,22 @@ function getImagePixelsCHW(
   width: number,
   height: number,
   maxDim: number = CELLPOSE_MAX_DIM,
+  diameter?: number | null,
 ): Promise<{ chw: Uint8Array; scaledW: number; scaledH: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Downsample if either dimension exceeds maxDim
-      const scale = Math.min(1, maxDim / Math.max(width, height));
+      // Cellpose convention: the network expects objects ~30 px across, so a
+      // known diameter drives the rescale (can upsample small-object images,
+      // unlike the plain downsample-only default below). Still capped by
+      // maxDim so a small diameter on a large image can't blow up inference
+      // time/memory; when uncapped this can undersize objects relative to
+      // the 30 px target, trading fidelity for a bounded round-trip.
+      const capScale = maxDim / Math.max(width, height);
+      const scale = diameter && diameter > 0
+        ? Math.min(30 / diameter, capScale)
+        : Math.min(1, capScale);
       const scaledW = Math.round(width * scale);
       const scaledH = Math.round(height * scale);
 
@@ -588,8 +605,9 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.log('[useHyphaService] Running cellpose4-runner inference with params:', p);
 
             // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format).
-            // Images are downsampled to CELLPOSE_MAX_DIM to keep inference fast.
-            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            // Images are rescaled to CELLPOSE_MAX_DIM (or by p.diameter, capped
+            // the same way) to keep inference fast.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height, CELLPOSE_MAX_DIM, p.diameter);
             console.log('[useHyphaService] Image pixels extracted: CHW shape [3, %d, %d] (display: %dx%d)', scaledH, scaledW, width, height);
 
             // Create ndarray-like object for hypha-rpc
@@ -838,7 +856,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             const p = params || {};
             console.log('[useHyphaService] Running cellpose4-runner flows-only inference:', p);
 
-            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height, CELLPOSE_MAX_DIM, p.diameter);
             const inputArray = {
               _rtype: 'ndarray',
               _rvalue: chw,

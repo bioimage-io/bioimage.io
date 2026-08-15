@@ -105,7 +105,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
 
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
+  const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
     // The flows + Pyodide path keeps the dialog open so the instant sliders
@@ -114,6 +114,18 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     livePreviewReady,
     microSamAvailable,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
+    onMeasureDiameter: (currentConfig, onMeasured) => {
+      setCellposeConfig(currentConfig);
+      measureCallbackRef.current = (px: number) => {
+        setCellposeConfig((prev: CellposeConfig) => ({ ...prev, diameter: Math.round(px) }));
+        openCellposeConfig();
+        onMeasured(px);
+      };
+      setMeasurePhase('first');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    },
   });
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
@@ -267,6 +279,14 @@ print('CLAHE packages ready')
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
   const [getOlMap, setGetOlMap] = useState<(() => OlMap | null) | undefined>(undefined);
+
+  // Diameter measurement state
+  type MeasurePhase = 'idle' | 'first' | 'second';
+  const [measurePhase, setMeasurePhase] = useState<MeasurePhase>('idle');
+  const [measurePt1, setMeasurePt1] = useState<[number, number] | null>(null);
+  const [measureScreenPt1, setMeasureScreenPt1] = useState<[number, number] | null>(null);
+  const [measureScreenMouse, setMeasureScreenMouse] = useState<[number, number] | null>(null);
+  const measureCallbackRef = useRef<((px: number) => void) | null>(null);
 
   const handleResetViewReady = useCallback((fn: () => void) => {
     setResetView(() => fn);
@@ -743,13 +763,15 @@ print('CLAHE packages ready')
       // Server-affecting params decide whether the cache is still valid.
       // `sourceUrl` already differs when the CLAHE-enhanced pixels are in
       // play (see handleRunCellpose), so no separate CLAHE flag is needed.
-      const cacheKey = sourceUrl;
+      // `diameter` drives the client-side rescale before the network call, so
+      // it also invalidates the cache.
+      const cacheKey = JSON.stringify({ u: sourceUrl, d: cfg.diameter ?? null });
 
       let cached = flowsCacheRef.current;
       if (!cached || cached.cacheKey !== cacheKey) {
         const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
         try {
-          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight);
+          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, { diameter: cfg.diameter });
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
         } finally {
@@ -884,6 +906,7 @@ print('CLAHE packages ready')
           cellprob_threshold: cfg.cellprob_threshold,
           niter: cfg.niter,
           min_mask_area: cfg.min_mask_area,
+          diameter: cfg.diameter,
         });
         if (masks && masks.length > 0) {
           const vs = getVectorSource?.();
@@ -1195,6 +1218,90 @@ print("CLAHE_RESULT:" + result_b64)
     }
   }, [getVectorSource, pushUndo]);
 
+  // Escape to cancel diameter measurement and reopen dialog
+  useEffect(() => {
+    if (measurePhase === 'idle') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMeasurePhase('idle');
+        setMeasurePt1(null);
+        setMeasureScreenPt1(null);
+        setMeasureScreenMouse(null);
+        measureCallbackRef.current = null;
+        openCellposeConfig();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [measurePhase, openCellposeConfig]);
+
+  const handleMeasureMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (measurePhase === 'idle') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMeasureScreenMouse([e.clientX - rect.left, e.clientY - rect.top]);
+  }, [measurePhase]);
+
+  const handleMeasureClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const map = getOlMap?.();
+    if (!map) return;
+    const coord = map.getEventCoordinate(e.nativeEvent);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const screenPos: [number, number] = [e.clientX - rect.left, e.clientY - rect.top];
+
+    if (measurePhase === 'first') {
+      setMeasurePt1([coord[0], coord[1]]);
+      setMeasureScreenPt1(screenPos);
+      setMeasurePhase('second');
+    } else if (measurePhase === 'second' && measurePt1) {
+      const dx = coord[0] - measurePt1[0];
+      const dy = coord[1] - measurePt1[1];
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      measureCallbackRef.current?.(dist);
+      measureCallbackRef.current = null;
+      setMeasurePhase('idle');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    }
+  }, [measurePhase, measurePt1, getOlMap]);
+
+  // Touch equivalents for the measurement overlay (mobile/tablet support)
+  const handleMeasureTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (measurePhase === 'idle') return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMeasureScreenMouse([touch.clientX - rect.left, touch.clientY - rect.top]);
+  }, [measurePhase]);
+
+  const handleMeasureTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const map = getOlMap?.();
+    if (!map) return;
+    // Use changedTouches (the finger that was lifted)
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pixel: [number, number] = [touch.clientX - rect.left, touch.clientY - rect.top];
+    const coord = map.getCoordinateFromPixel(pixel);
+    const screenPos: [number, number] = pixel;
+
+    if (measurePhase === 'first') {
+      setMeasurePt1([coord[0], coord[1]]);
+      setMeasureScreenPt1(screenPos);
+      setMeasurePhase('second');
+    } else if (measurePhase === 'second' && measurePt1) {
+      const dx = coord[0] - measurePt1[0];
+      const dy = coord[1] - measurePt1[1];
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      measureCallbackRef.current?.(dist);
+      measureCallbackRef.current = null;
+      setMeasurePhase('idle');
+      setMeasurePt1(null);
+      setMeasureScreenPt1(null);
+      setMeasureScreenMouse(null);
+    }
+  }, [measurePhase, measurePt1, getOlMap]);
+
   const handleUploadGeoJSON = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -1370,6 +1477,51 @@ print("CLAHE_RESULT:" + result_b64)
             onSamBox={handleSamBox}
             microSamAvailable={aiBoxReady}
           />
+        )}
+
+        {/* Diameter measurement overlay */}
+        {measurePhase !== 'idle' && (
+          <Box
+            sx={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'crosshair', touchAction: 'none' }}
+            onClick={handleMeasureClick}
+            onMouseMove={handleMeasureMouseMove}
+            onTouchMove={handleMeasureTouchMove}
+            onTouchEnd={handleMeasureTouchEnd}
+          >
+            {/* Instruction banner */}
+            <Box sx={{
+              position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+              bgcolor: 'rgba(0,0,0,0.78)', color: '#fff',
+              px: { xs: 2, sm: 3 }, py: 1.25, borderRadius: 2,
+              fontSize: { xs: '0.8rem', sm: '0.875rem' }, pointerEvents: 'none', zIndex: 10,
+              display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 },
+              whiteSpace: 'normal', textAlign: 'center',
+              maxWidth: { xs: 'calc(100% - 32px)', sm: 'none' },
+            }}>
+              {measurePhase === 'first'
+                ? 'Tap one edge of a representative object'
+                : 'Tap the opposite edge to complete measurement'}
+              <Box component="span" sx={{ fontSize: '0.75rem', opacity: 0.65, display: { xs: 'none', sm: 'inline' } }}>Esc to cancel</Box>
+            </Box>
+
+            {/* SVG ruler line */}
+            {measureScreenPt1 && measureScreenMouse && (
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                <line
+                  x1={measureScreenPt1[0]} y1={measureScreenPt1[1]}
+                  x2={measureScreenMouse[0]} y2={measureScreenMouse[1]}
+                  stroke="rgba(255,220,0,0.9)" strokeWidth={2} strokeDasharray="6,3"
+                />
+                <circle cx={measureScreenPt1[0]} cy={measureScreenPt1[1]} r={5} fill="rgba(255,220,0,0.9)" />
+                <circle cx={measureScreenMouse[0]} cy={measureScreenMouse[1]} r={4} fill="rgba(255,220,0,0.75)" />
+              </svg>
+            )}
+            {measureScreenPt1 && !measureScreenMouse && (
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                <circle cx={measureScreenPt1[0]} cy={measureScreenPt1[1]} r={5} fill="rgba(255,220,0,0.9)" />
+              </svg>
+            )}
+          </Box>
         )}
 
         {allAnnotatedInfo && (
