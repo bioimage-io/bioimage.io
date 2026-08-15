@@ -11,6 +11,7 @@ import {
   getDatasetIndex as brokerGetDatasetIndex,
   getSaveUrls as brokerGetSaveUrls,
   getEmbeddingUrls as brokerGetEmbeddingUrls,
+  requestAccess as brokerRequestAccess,
   withRetry,
 } from '../../colab/brokerApi';
 import { toArtifactId } from '../../colab/datasetApi';
@@ -127,6 +128,10 @@ export interface AnnotationDataService {
    *  network output; the mask-gen knobs are ignored and consumed by the
    *  client-side compute_masks_np instead. */
   runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeFlowsResult>;
+  /** Ask the broker for a role on this dataset (colab-rework-plan.md §13).
+   *  Only meaningful for a logged-in caller; the broker rejects anonymous
+   *  requests with a message asking the user to log in first. */
+  requestAccess: (role?: 'annotator' | 'manager') => Promise<{ status: 'requested' | 'already_has_access'; [key: string]: any }>;
 }
 
 /** Convert raw cellpose mask data into ``CellposeMask`` polygons, rescaled
@@ -977,6 +982,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               displayH: height,
             };
           },
+          requestAccess: async (role: 'annotator' | 'manager' = 'annotator') =>
+            withRetry(() => brokerRequestAccess(server, artifactId, role)),
         };
 
         if (!cancelled) {

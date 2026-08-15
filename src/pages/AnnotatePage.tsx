@@ -20,6 +20,7 @@ import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDeco
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
+import { useHyphaStore } from '../store/hyphaStore';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
 import OlMap from 'ol/Map';
@@ -300,11 +301,22 @@ print('CLAHE packages ready')
   // of the generic error banner).
   const [permissionDenied, setPermissionDenied] = useState(false);
 
+  // Request-access flow (colab-rework-plan.md §13 item 4): a logged-in,
+  // permission-denied visitor can ask the broker for a role instead of
+  // just staring at a dead end. `already_has_access` means a role was
+  // granted moments ago and the page's stale permission check just needs
+  // to re-run, so it reuses the same reconnect path as a manual retry.
+  const { user } = useHyphaStore();
+  const [requestAccessState, setRequestAccessState] = useState<'idle' | 'requesting' | 'requested' | 'error'>('idle');
+  const [requestAccessError, setRequestAccessError] = useState<string | null>(null);
+
   // Fetch the dataset index once the broker connection is up.
   useEffect(() => {
     if (!service) return;
     let cancelled = false;
     setPermissionDenied(false);
+    setRequestAccessState('idle');
+    setRequestAccessError(null);
     service.getDatasetIndex()
       .then((index) => {
         if (!cancelled) setDatasetIndex(index);
@@ -332,6 +344,23 @@ print('CLAHE packages ready')
     setPermissionDenied(false);
     retryService();
   }, [setError, retryService]);
+
+  const handleRequestAccess = useCallback(async () => {
+    if (!service) return;
+    setRequestAccessState('requesting');
+    setRequestAccessError(null);
+    try {
+      const result = await service.requestAccess('annotator');
+      if (result.status === 'already_has_access') {
+        handleRetryConnection();
+      } else {
+        setRequestAccessState('requested');
+      }
+    } catch (err: any) {
+      setRequestAccessState('error');
+      setRequestAccessError(err.message || 'Failed to request access.');
+    }
+  }, [service, handleRetryConnection]);
 
   // Pick a random stem from `index` that this user hasn't annotated yet
   // under `label`. Returns null when everything is annotated.
@@ -1552,15 +1581,49 @@ print("CLAHE_RESULT:" + result_b64)
                 boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
               }}
             >
-              <Typography variant="h5" fontWeight={600} gutterBottom>
-                Log in to continue
-              </Typography>
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                This dataset is private. Log in with an account that has access to view and annotate it.
-              </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <LoginButton />
-              </Box>
+              {user?.email ? (
+                <>
+                  <Typography variant="h5" fontWeight={600} gutterBottom>
+                    Access needed
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                    This dataset is private and {user.email} does not have access to it yet. Request access
+                    and an owner or manager can grant it.
+                  </Typography>
+                  {requestAccessState === 'requested' ? (
+                    <Typography variant="body2" color="success.main" sx={{ fontWeight: 500 }}>
+                      Access requested. An owner or manager will need to approve it.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <MuiButton
+                        variant="contained"
+                        onClick={handleRequestAccess}
+                        disabled={requestAccessState === 'requesting'}
+                      >
+                        {requestAccessState === 'requesting' ? 'Requesting...' : 'Request access'}
+                      </MuiButton>
+                      {requestAccessState === 'error' && (
+                        <Typography variant="body2" color="error.main">
+                          {requestAccessError}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Typography variant="h5" fontWeight={600} gutterBottom>
+                    Log in to continue
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                    This dataset is private. Log in with an account that has access to view and annotate it.
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <LoginButton />
+                  </Box>
+                </>
+              )}
             </Box>
           </Box>
         )}
