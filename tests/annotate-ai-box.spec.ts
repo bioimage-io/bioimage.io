@@ -131,3 +131,53 @@ test.describe('AI Box (micro-sam) tool', () => {
     // rather than a strict pass/fail gate.
   });
 });
+
+test.describe('Annotate deep link (§15 item 1)', () => {
+  test('&image=<stem> loads the requested image, not the default pick', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(240000);
+
+    await page.addInitScript(({ tok, expiry }) => {
+      localStorage.setItem('token', tok);
+      localStorage.setItem('tokenExpiry', expiry);
+      localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
+    }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+
+    // The action panel's image-info row (always rendered when expanded,
+    // which is the default at this viewport width) shows
+    // "<stem> (WxH px)" — the only place the currently-loaded stem is
+    // exposed as text, so it doubles as a discovery mechanism and as the
+    // assertion target below.
+    const infoText = page.getByText(/\(\d+×\d+ px\)/);
+
+    // First load without `&image=` to discover a real stem from this
+    // dataset via whatever image the default "next unannotated" pick lands
+    // on (AnnotatePage.tsx's index-dependent initial-load effect).
+    const baseUrl = `/#/colab/annotate?session_id=${encodeURIComponent(DATASET_ALIAS)}&label=${encodeURIComponent(LABEL)}`;
+    await page.goto(baseUrl);
+    const viewer = page.getByTestId('annotation-viewer');
+    await expect(viewer).toBeVisible({ timeout: 180000 });
+    await expect(infoText).toBeVisible({ timeout: 60000 });
+    const initialRaw = (await infoText.textContent()) ?? '';
+    const stem = initialRaw.replace(/\s*\(\d+×\d+ px\)\s*$/, '').trim();
+    expect(stem.length).toBeGreaterThan(0);
+
+    // Reload fresh with `&image=<stem>` and confirm that exact image is
+    // what renders. This checks the deep link resolves to the requested
+    // image rather than falling back to the default pick — the functional
+    // guarantee behind the loading-priority rework. It does not assert on
+    // timing/ordering relative to the dataset index or the μSAM probe,
+    // which isn't practical to observe from the DOM without mocking the
+    // broker RPCs (this suite runs against the live backend throughout).
+    const deepLinkUrl = `${baseUrl}&image=${encodeURIComponent(stem)}`;
+    await page.goto(deepLinkUrl);
+    await expect(viewer).toBeVisible({ timeout: 180000 });
+    await expect(infoText).toBeVisible({ timeout: 60000 });
+    const deepLinkRaw = (await infoText.textContent()) ?? '';
+    expect(deepLinkRaw.startsWith(stem)).toBe(true);
+  });
+});

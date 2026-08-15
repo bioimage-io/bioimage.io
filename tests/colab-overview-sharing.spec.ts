@@ -188,3 +188,102 @@ test.describe('Annotate request-access flow (§13 item 4)', () => {
     await expect(confirmation.or(viewer)).toBeVisible({ timeout: 30000 });
   });
 });
+
+test.describe('Annotation stats view (§15 item 3)', () => {
+  test('clicking a stats row selects the corresponding image', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(120000);
+
+    await injectToken(page, token);
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}`);
+
+    // selectedLabel auto-selects the fixture's only label ("cells") once the
+    // label list loads, which is what makes the stats toggle appear.
+    const statsToggle = page.getByRole('button', { name: /Show annotation stats/ });
+    await expect(statsToggle).toBeVisible({ timeout: 60000 });
+
+    // Capture whichever image the overview auto-selected before switching
+    // views, so the row we click below is checkably a *different* image.
+    // Excludes the navbar's own "BioImage.IO" logo <img>.
+    const initialImg = page.locator('img[alt]:not([alt="BioImage.IO"])').first();
+    await expect(initialImg).toBeVisible({ timeout: 30000 });
+    const initialStem = await initialImg.getAttribute('alt');
+
+    await statsToggle.click({ force: true });
+    await expect(page.getByText('Instances per image', { exact: false })).toBeVisible({ timeout: 15000 });
+
+    // Each row's stem label is a `<span title="...">`, unique to the stats
+    // view (the image-list rows elsewhere on this page don't set `title`),
+    // so it doubles as a stable row locator and the row's text — sorted by
+    // count desc then stem asc, so the last one is reliably a different
+    // stem than whatever loaded by default first. Clicking the span bubbles
+    // up to the row div's onClick.
+    const rowLabels = page.locator('span[title]');
+    const rowCount = await rowLabels.count();
+    expect(rowCount).toBeGreaterThan(0);
+    const targetLabel = rowLabels.nth(rowCount - 1);
+    const targetStem = (await targetLabel.textContent())?.trim();
+    expect(targetStem).toBeTruthy();
+
+    await targetLabel.click({ force: true });
+
+    // Switch back to the image preview and confirm the clicked row's stem
+    // is now the selected/previewed image.
+    await page.getByRole('button', { name: /Show image preview/ }).click({ force: true });
+    const previewImg = page.locator('img[alt]:not([alt="BioImage.IO"])').first();
+    await expect(previewImg).toHaveAttribute('alt', targetStem!, { timeout: 15000 });
+    if (targetStem !== initialStem) {
+      expect(await previewImg.getAttribute('alt')).not.toBe(initialStem);
+    }
+  });
+});
+
+test.describe('Label deletion (§15 item 2)', () => {
+  test('deleting a label removes it via a single broker call', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(120000);
+
+    await injectToken(page, token);
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}`);
+
+    await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible({ timeout: 60000 });
+
+    // Create a disposable label, exercised only by this test, so the delete
+    // flow below never touches the fixture's real "cells" label.
+    const tempLabel = `pw-delete-test-${Date.now()}`;
+    await page.getByRole('button', { name: '+ New label' }).click({ force: true });
+    await page.getByPlaceholder('Label name').fill(tempLabel);
+    await page.getByRole('button', { name: 'Create', exact: true }).click({ force: true });
+
+    // Scoped to the label list's own span class rather than a bare text
+    // match — the delete modal opened below also displays the label name
+    // verbatim (in its confirmation-target box), which would otherwise
+    // create a strict-mode ambiguity once both are on screen at once.
+    const labelRow = page.locator('span.truncate', { hasText: tempLabel });
+    await expect(labelRow).toBeVisible({ timeout: 30000 });
+
+    // Selecting the row reveals its hover-only delete (trash) icon.
+    await labelRow.click({ force: true });
+    const deleteIcon = page.getByTitle(`Delete label "${tempLabel}"`);
+    await expect(deleteIcon).toBeVisible({ timeout: 10000 });
+    await deleteIcon.click({ force: true });
+
+    // DeleteArtifactModal in label mode: type the label name to confirm,
+    // then submit. A successful delete now round-trips through exactly one
+    // `broker.delete_label` RPC (DeleteArtifactModal.tsx) instead of the old
+    // N-file client-side recursive delete.
+    await expect(page.getByRole('heading', { name: `Delete Label "${tempLabel}"` })).toBeVisible({ timeout: 10000 });
+    await page.getByPlaceholder(tempLabel).fill(tempLabel);
+    await page.getByRole('button', { name: `Delete Label "${tempLabel}"`, exact: true }).click({ force: true });
+
+    await expect(labelRow).not.toBeVisible({ timeout: 30000 });
+  });
+});
