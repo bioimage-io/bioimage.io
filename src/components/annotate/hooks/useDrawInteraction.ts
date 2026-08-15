@@ -234,9 +234,17 @@ function applyEraser(eraserGeom: OlPolygon, vectorSource: VectorSource) {
   featuresToAdd.forEach((f) => vectorSource.addFeature(f));
 }
 
-function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource) {
+function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource, imageWidth: number, imageHeight: number) {
   const expanderGeoJSON = geojsonFormat.writeGeometryObject(expanderGeom);
-  const turfExpander = turf.polygon((expanderGeoJSON as any).coordinates);
+  let turfExpander = turf.polygon((expanderGeoJSON as any).coordinates);
+
+  // Clamp the brush stroke to the image extent so it can never expand a mask
+  // past the image boundary.
+  if (imageWidth > 0 && imageHeight > 0) {
+    const clipped = clipToImageBounds(turfExpander, imageWidth, imageHeight);
+    if (!clipped) return;
+    turfExpander = clipped;
+  }
 
   // Find all features that intersect the drawn area
   const intersecting: { feature: Feature<Geometry>; turfPoly: turf.Feature<turf.Polygon> }[] = [];
@@ -627,7 +635,7 @@ export function useDrawInteraction(
         draw.on('drawend', (e) => {
           saveUndo();
           const expanderGeom = e.feature.getGeometry() as OlPolygon;
-          applyExpander(expanderGeom, vectorSource);
+          applyExpander(expanderGeom, vectorSource, imageWidth, imageHeight);
           console.log('[Expander] Applied expander');
         });
         map.addInteraction(draw);
