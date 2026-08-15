@@ -114,6 +114,21 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [refreshTick, setRefreshTick] = useState(0);
   const handleRefresh = () => setRefreshTick((t) => t + 1);
 
+  // Awaitable variant for ShareModal's Apply flow: fetches the dataset
+  // directly and resolves only once `dataset` state actually reflects the
+  // change, so the caller can hold off clearing its own pending-change state
+  // until the checkbox/list would render the correct value (otherwise there's
+  // a window where the stale dataset is still shown alongside a cleared
+  // pending value). Also bumps refreshTick so the other refreshTick-keyed
+  // effects (labels, images, stats) stay in sync.
+  const refreshDatasetNow = async () => {
+    const d = await getDataset(server, artifactId);
+    setDataset(d);
+    setGuardError(null);
+    setGuardErrorCode(null);
+    setRefreshTick((t) => t + 1);
+  };
+
   const [images, setImages] = useState<DatasetImage[] | null>(null);
   const [selectedStem, setSelectedStem] = useState<string | null>(null);
 
@@ -1088,7 +1103,7 @@ print("Service registered successfully", end='')
           selectedLabel={selectedLabel}
           onSelectLabel={setSelectedLabel}
           cellposeModel={cellposeModel}
-          onChanged={handleRefresh}
+          onChanged={refreshDatasetNow}
           setShowShareModal={setShowShareModal}
         />
       )}

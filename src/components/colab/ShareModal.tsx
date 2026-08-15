@@ -11,7 +11,7 @@ interface ShareModalProps {
   selectedLabel: string;
   onSelectLabel: (label: string) => void;
   cellposeModel?: string;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   setShowShareModal: (show: boolean) => void;
 }
 
@@ -298,10 +298,15 @@ const ShareModal: React.FC<ShareModalProps> = ({
         remove: pendingRemoves,
         set_public: pendingPublic ?? undefined,
       });
+      // Wait for the parent's dataset refetch to land before clearing the
+      // pending state: otherwise the checkbox briefly falls back to the
+      // stale pre-apply `dataset.public` value for the window between this
+      // resolving and the parent's async refresh completing.
+      await onChanged();
       setPendingAdds([]);
       setPendingRemoves([]);
       setPendingPublic(null);
-      onChanged();
+      setApplying(false);
     } catch (err) {
       setApplyError((err as Error).message || 'Failed to apply sharing changes.');
     } finally {

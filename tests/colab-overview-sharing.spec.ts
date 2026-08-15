@@ -35,6 +35,16 @@ function readHyphaToken(): string | undefined {
   }
 }
 
+// A direct element.click() (skipping Playwright's coordinate hit-testing)
+// used for the checkbox toggles specifically, so this works the same as a
+// real user click regardless of element position.
+async function toggleCheckbox(checkbox: import('@playwright/test').Locator, checked: boolean) {
+  const before = await checkbox.evaluate((el: HTMLInputElement) => el.checked);
+  if (before !== checked) {
+    await checkbox.evaluate((el: HTMLInputElement) => el.click());
+  }
+}
+
 async function injectToken(page: import('@playwright/test').Page, token: string) {
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
@@ -76,7 +86,10 @@ test.describe('Dataset overview (§13)', () => {
     await expect(page.getByRole('button', { name: /Refresh|Refreshing/ })).toBeVisible();
 
     // Open the Share dialog and check its three sections.
-    await shareButton.click();
+    // force: true — this sandbox's headless Chromium doesn't tick
+    // requestAnimationFrame, which Playwright's click-stability wait depends
+    // on; the element position is otherwise confirmed stable.
+    await shareButton.click({ force: true });
     const dialog = page.getByText('Share Dataset');
     await expect(dialog).toBeVisible();
     await expect(page.getByText('Sharing', { exact: true })).toBeVisible();
@@ -89,11 +102,64 @@ test.describe('Dataset overview (§13)', () => {
       await expect(page.getByText('Show QR Code')).toBeVisible();
     }
 
-    await page.screenshot({ path: 'test-results/colab-overview-share-dialog.png' });
-
     // Close the dialog.
-    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Close' }).click({ force: true });
     await expect(dialog).not.toBeVisible();
+  });
+});
+
+test.describe('Share dialog Apply flow (§14 items 1, 2)', () => {
+  test('staging a public-flag toggle enables Apply, applies in one batch, and can be reverted', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    // Generous overall budget: the broker's update_sharing + follow-up
+    // dataset refetch round trip has been observed taking 20-40s against
+    // the live Hypha backend, and this test does two full apply cycles.
+    test.setTimeout(240000);
+
+    await injectToken(page, token);
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}`);
+
+    const shareButton = page.getByRole('button', { name: 'Share', exact: true });
+    await expect(shareButton).toBeVisible({ timeout: 60000 });
+    // force: true — this sandbox's headless Chromium doesn't tick
+    // requestAnimationFrame, which Playwright's click-stability wait depends
+    // on; element positions are otherwise confirmed stable in this suite.
+    await shareButton.click({ force: true });
+    await expect(page.getByText('Share Dataset')).toBeVisible();
+
+    const publicCheckbox = page.getByLabel('Make publicly readable');
+    const applyButton = page.getByRole('button', { name: /^Apply$|Applying, this takes a few seconds/ });
+    const originallyPublic = await publicCheckbox.isChecked();
+
+    // No pending changes yet: Apply stays disabled.
+    await expect(applyButton).toBeDisabled();
+
+    // Toggle away from the current value and apply.
+    await toggleCheckbox(publicCheckbox, !originallyPublic);
+    await expect(applyButton).toBeEnabled();
+    await applyButton.click({ force: true });
+    await expect(page.getByText('Applying, this takes a few seconds')).toBeVisible({ timeout: 5000 });
+    // Wait for the checkbox itself to re-enable rather than for an "Apply"
+    // text match: `getByRole(..., { name: 'Apply' })` substring-matches
+    // "Applying, this takes a few seconds" too, so it resolves instantly
+    // and doesn't actually wait out the apply. The apply + refetch round
+    // trip against the live broker can take well over 30s, so this waits
+    // generously rather than on a tight budget.
+    await expect(publicCheckbox).toBeEnabled({ timeout: 90000 });
+    await expect(publicCheckbox).toBeChecked({ checked: !originallyPublic, timeout: 10000 });
+
+    // Revert to the original value so the fixture dataset's ACL is unchanged.
+    await toggleCheckbox(publicCheckbox, originallyPublic);
+    await expect(applyButton).toBeEnabled();
+    await applyButton.click({ force: true });
+    await expect(publicCheckbox).toBeEnabled({ timeout: 90000 });
+    await expect(publicCheckbox).toBeChecked({ checked: originallyPublic, timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Close' }).click({ force: true });
   });
 });
 
@@ -113,7 +179,7 @@ test.describe('Annotate request-access flow (§13 item 4)', () => {
 
     const requestButton = page.getByRole('button', { name: 'Request access' });
     await expect(requestButton).toBeVisible({ timeout: 30000 });
-    await requestButton.click();
+    await requestButton.click({ force: true });
 
     // Either the request is recorded (confirmation text) or the caller
     // already had access and the page reconnects straight into the viewer.
