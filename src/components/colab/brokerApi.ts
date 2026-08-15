@@ -229,12 +229,14 @@ export async function requestAccess(
 
 /**
  * Reject a pending access request (manager+ only). Unlike `setRole`, this
- * does not grant a role, it just clears the request.
+ * does not grant a role, it just clears the request. `user` identifies the
+ * requester the same way as `setRole`/`removeUser` (`{id}` or `{email}`),
+ * not the request's own `id` field.
  */
 export async function dismissAccessRequest(
   server: any,
   artifactId: string,
-  user: string,
+  user: BrokerUserRef,
 ): Promise<DatasetMetadata> {
   const broker = await resolveBrokerService(server);
   return broker.dismiss_access_request({ artifact_id: artifactId, user, _rkwargs: true });
