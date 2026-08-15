@@ -156,6 +156,12 @@ const Edit: React.FC = () => {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [isStaged, setIsStaged] = useState<boolean>(version === 'stage');
+  // Whether the artifact has a pending staged version on the server. `isStaged`
+  // only tracks the ROUTE (/edit/<id>/stage), so on the published route it is
+  // false even for an artifact that is in fact staged. `read()` without a
+  // version never returns the `staging` field, so this is probed separately
+  // with `read({ version: 'stage' })`. Used to label the stage button honestly.
+  const [hasStagedVersion, setHasStagedVersion] = useState(false);
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   // Weight-change safeguard: set when a user tries to add/overwrite/delete a
   // model weight file while editing an already-published version in place.
@@ -569,6 +575,26 @@ const Edit: React.FC = () => {
       }
 
       setArtifactInfo(artifact);
+
+      // On the published route, find out whether a staged version is already
+      // pending so the stage button can say "Continue" rather than "Stage".
+      // Returns staging: null (rather than throwing) when nothing is staged.
+      if (currentIsStaged) {
+        setHasStagedVersion(true);
+      } else {
+        try {
+          const staged = await artifactManager.read({
+            artifact_id: artifactId,
+            version: 'stage',
+            _rkwargs: true
+          });
+          setHasStagedVersion(!!staged?.staging);
+        } catch (error) {
+          // Non-fatal: fall back to the plain "Stage for Editing" label.
+          console.warn('Could not determine staging state:', error);
+          setHasStagedVersion(false);
+        }
+      }
 
       // List all files using the correct version
       const fileList = await artifactManager.list_files({
@@ -2396,7 +2422,7 @@ const Edit: React.FC = () => {
             that already has a committed version (user must click "Stage for Editing" first). */}
         {selectedFile && isTextFile(selectedFile.name) && (
           <HintTooltip
-            hint={!isStaged && hasPublishedVersion ? 'Click "Stage for Editing" before saving changes.' : undefined}
+            hint={!isStaged && hasPublishedVersion ? `Click "${hasStagedVersion ? 'Continue Editing Staged Version' : 'Stage for Editing'}" before saving changes.` : undefined}
             className="w-full sm:w-auto"
           >
             <button
@@ -2492,7 +2518,7 @@ const Edit: React.FC = () => {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
-                  Stage for Editing
+                  {hasStagedVersion ? 'Continue Editing Staged Version' : 'Stage for Editing'}
                 </button>
               );
             }
@@ -2677,6 +2703,10 @@ const Edit: React.FC = () => {
     setIsCreatingVersion(true);
     setCopyProgress(null);
 
+    // Files that could not be copied into the new version, reported to the user
+    // after the copy loop finishes.
+    const copyFailures: string[] = [];
+
     try {
       // Remember the current committed version before entering staging
       const previousVersion = artifactInfo?.versions?.[artifactInfo.versions.length - 1]?.version;
@@ -2710,8 +2740,15 @@ const Edit: React.FC = () => {
             _rkwargs: true
           });
 
-          // Filter out directories
-          const filesToCopy = (fileList || []).filter((file: any) => file.type !== 'directory');
+          // Filter out directories, then copy smallest-first. Large files (model
+          // weights, typically) are the ones that fail: each file is buffered as
+          // a Blob in memory before being re-uploaded, so a multi-GB weight file
+          // can exhaust the tab. Copying it last means every small file has
+          // already landed in the new version, and only the weights need to be
+          // uploaded manually afterwards.
+          const filesToCopy = (fileList || [])
+            .filter((file: any) => file.type !== 'directory')
+            .sort((a: any, b: any) => (a.size ?? 0) - (b.size ?? 0));
 
           if (filesToCopy.length > 0) {
             setUploadStatus({
@@ -2763,6 +2800,7 @@ const Edit: React.FC = () => {
                 console.log(`Copied ${file.name} (${i + 1}/${filesToCopy.length})`);
               } catch (fileError) {
                 console.error(`Error copying ${file.name}:`, fileError);
+                copyFailures.push(file.name);
                 setUploadStatus({
                   message: `Warning: Failed to copy ${file.name}. Continuing...`,
                   severity: 'error'
@@ -2782,10 +2820,25 @@ const Edit: React.FC = () => {
         }
       }
 
-      setUploadStatus({
-        message: 'New version created successfully. Redirecting to edit mode...',
-        severity: 'success'
-      });
+      // A file that failed to copy is not fatal (the version exists and holds
+      // the rest of the files), but the user has to know which files they still
+      // need to upload by hand. The status banner auto-dismisses after 3s and
+      // the redirect below overwrites it, so raise the shared error dialog,
+      // which persists until dismissed.
+      if (copyFailures.length > 0) {
+        showError(
+          'New version created, but some files were not copied',
+          new Error(
+            `These files could not be copied from the previous version and must be uploaded manually: ${copyFailures.join(', ')}.`
+          ),
+          artifactId
+        );
+      } else {
+        setUploadStatus({
+          message: 'New version created successfully. Redirecting to edit mode...',
+          severity: 'success'
+        });
+      }
 
       // Close the dialog
       setShowNewVersionDialog(false);
