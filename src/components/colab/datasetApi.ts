@@ -33,7 +33,7 @@ export function toAlias(artifactId: string): string {
  * shareable annotation link + QR code) so the two never drift.
  */
 export function buildAnnotateQuery(artifactId: string, label: string, cellposeModel?: string): string {
-  const params = new URLSearchParams({ session_id: artifactId, label });
+  const params = new URLSearchParams({ session_id: toAlias(artifactId), label });
   if (cellposeModel) params.set('cellpose_model', cellposeModel);
   return params.toString();
 }
