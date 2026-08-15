@@ -39,6 +39,11 @@ export interface DatasetOverviewProps {
   // anything, so if the user picked a folder there, we mount it lazily here
   // instead of asking them to pick it again.
   initialFolderHandle?: any;
+  // Rendered inline in the header row so the Guide button and kernel-status
+  // pill sit level with the back button and dataset name instead of a
+  // separate header row above (colab-rework-plan.md #14 item 7).
+  kernelStatus?: 'idle' | 'busy' | 'starting' | 'error';
+  onOpenGuide?: () => void;
 }
 
 interface ImageRow {
@@ -94,6 +99,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   user,
   artifactManager,
   initialFolderHandle,
+  kernelStatus,
+  onOpenGuide,
 }) => {
   const navigate = useNavigate();
   const { executeCode, mountDirectory, requestKernel } = useSharedKernel();
@@ -664,26 +671,69 @@ print("Service registered successfully", end='')
       )}
 
       {/* Header */}
-      <div className="flex items-start mb-5">
-        <button
-          onClick={() => navigate('/colab')}
-          className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4 mt-1 shrink-0"
-          title="Back to Colab"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          <span className="text-sm font-medium">Back</span>
-        </button>
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 truncate">
-            {datasetMeta?.name ?? toAlias(artifactId)}
-          </h1>
-          {datasetMeta?.description && (
-            <p className="text-sm text-gray-600 mt-0.5">{datasetMeta.description}</p>
-          )}
-          <p className="text-xs text-gray-400 mt-0.5">{toAlias(artifactId)}</p>
+      <div className="flex items-center justify-between mb-5 gap-4">
+        <div className="flex items-center min-w-0">
+          <button
+            onClick={() => navigate('/colab')}
+            className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4 shrink-0"
+            title="Back to Colab"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm font-medium">Back</span>
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 truncate">
+              {datasetMeta?.name ?? toAlias(artifactId)}
+            </h1>
+            {datasetMeta?.description && (
+              <p className="text-sm text-gray-600 mt-0.5">{datasetMeta.description}</p>
+            )}
+            <p className="text-xs text-gray-400 mt-0.5">{toAlias(artifactId)}</p>
+          </div>
         </div>
+        {(onOpenGuide || kernelStatus) && (
+          <div className="flex items-center gap-3 shrink-0">
+            {onOpenGuide && (
+              <button
+                onClick={onOpenGuide}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-purple-200 bg-white/80 text-purple-700 text-xs font-medium hover:bg-purple-50 transition-colors shadow-sm"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Guide
+              </button>
+            )}
+            {kernelStatus && (
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm transition-all ${
+                kernelStatus === 'idle' ? 'bg-emerald-50 border-emerald-200' :
+                kernelStatus === 'busy' ? 'bg-amber-50 border-amber-200' :
+                kernelStatus === 'starting' ? 'bg-blue-50 border-blue-200' :
+                'bg-red-50 border-red-200'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  kernelStatus === 'idle' ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm' :
+                  kernelStatus === 'busy' ? 'bg-amber-500 animate-pulse shadow-amber-500/50 shadow-sm' :
+                  kernelStatus === 'starting' ? 'bg-blue-500 animate-pulse shadow-blue-500/50 shadow-sm' :
+                  'bg-red-500 shadow-red-500/50 shadow-sm'
+                }`} />
+                <span className={`text-xs font-medium ${
+                  kernelStatus === 'idle' ? 'text-emerald-700' :
+                  kernelStatus === 'busy' ? 'text-amber-700' :
+                  kernelStatus === 'starting' ? 'text-blue-700' :
+                  'text-red-700'
+                }`}>
+                  {kernelStatus === 'idle' ? 'Ready' :
+                   kernelStatus === 'busy' ? 'Busy' :
+                   kernelStatus === 'starting' ? 'Starting...' :
+                   'Error'}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action bar */}
