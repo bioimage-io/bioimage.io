@@ -288,6 +288,11 @@ print('CLAHE packages ready')
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
   const [isLowContrast, setIsLowContrast] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  // Data URL of the CLAHE-enhanced pixels (set alongside isCLAHEActive).
+  // cellpose4-runner has no server-side enable_clahe knob, so when CLAHE is
+  // active this is sent as the Cellpose source image instead of imageUrl, to
+  // keep segmenting the enhanced pixels the user is looking at.
+  const [claheEnhancedUrl, setClaheEnhancedUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
@@ -492,6 +497,7 @@ print('CLAHE packages ready')
     setIsCLAHEActive(false);
     setIsLowContrast(false);
     setOriginalImageUrl(null);
+    setClaheEnhancedUrl(null);
     setPendingGeoJSON(null);
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
@@ -811,11 +817,12 @@ print('CLAHE packages ready')
       if (!service || !imageWidth || !imageHeight) return;
 
       // Server-affecting params decide whether the cache is still valid.
+      // `sourceUrl` already differs when the CLAHE-enhanced pixels are in
+      // play (see handleRunCellpose), so no separate CLAHE flag is needed.
       const cacheKey = JSON.stringify({
         u: sourceUrl,
         m: cfg.model || 'cpsam',
         d: cfg.diameter ?? null,
-        c: isCLAHEActive ? 1 : 0,
       });
 
       let cached = flowsCacheRef.current;
@@ -825,7 +832,6 @@ print('CLAHE packages ready')
           const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
             model: cfg.model,
             diameter: cfg.diameter,
-            enable_clahe: isCLAHEActive || undefined,
           });
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
@@ -876,7 +882,7 @@ print('CLAHE packages ready')
       return n;
     },
     [
-      service, imageWidth, imageHeight, isCLAHEActive,
+      service, imageWidth, imageHeight,
       addBanner, removeBanner, maskGen, getVectorSource,
       pushUndo, applyPolygonsAsPreview, livePreviewReady,
     ],
@@ -885,7 +891,9 @@ print('CLAHE packages ready')
   const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
     const cfg = cfgOverride || cellposeConfig;
     if (!service || !imageUrl) return;
-    const sourceUrl = originalImageUrl || imageUrl;
+    // cellpose4-runner has no server-side CLAHE knob, so when CLAHE is
+    // active send the enhanced pixels directly instead of the original ones.
+    const sourceUrl = (isCLAHEActive && claheEnhancedUrl) ? claheEnhancedUrl : imageUrl;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
     setIsRunningCellpose(true);
     const bannerId = addBanner(
@@ -961,7 +969,6 @@ print('CLAHE packages ready')
           cellprob_threshold: cfg.cellprob_threshold,
           niter: cfg.niter,
           min_mask_area: cfg.min_mask_area,
-          enable_clahe: isCLAHEActive || undefined,
         });
         if (masks && masks.length > 0) {
           const vs = getVectorSource?.();
@@ -1142,6 +1149,7 @@ print('CLAHE packages ready')
       }
       setIsCLAHEActive(false);
       setOriginalImageUrl(null);
+      setClaheEnhancedUrl(null);
       console.log('[AnnotatePage] Restored original image');
       addBanner('Original image restored', 'info', 3000);
     } else {
@@ -1251,6 +1259,7 @@ print("CLAHE_RESULT:" + result_b64)
         }
       }
       setIsCLAHEActive(true);
+      setClaheEnhancedUrl(dataUrl);
       removeBanner(bannerId);
       addBanner('CLAHE contrast enhancement applied', 'success', 3000);
     } catch (err: any) {
