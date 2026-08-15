@@ -7,7 +7,7 @@ import ToolBar from '../components/annotate/ToolBar';
 import ActionPanel from '../components/annotate/ActionPanel';
 import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
-import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
+import { useCellposeConfig, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
 import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
@@ -37,12 +37,6 @@ interface AnnotatePageProps {
 const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Read cellpose model from URL (set by the session owner in the Colab page)
-  const cellposeModelId = useMemo(() => {
-    const searchParams = new URLSearchParams(location.search);
-    return searchParams.get('cellpose_model') || undefined;
-  }, [location.search]);
 
   // Read session ID from URL for "View Session" link
   const sessionId = useMemo(() => {
@@ -111,9 +105,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
 
-  const [dynamicCellposeModel, setDynamicCellposeModel] = useState<string | undefined>(undefined);
-
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
+  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
     // The flows + Pyodide path keeps the dialog open so the instant sliders
@@ -123,16 +115,6 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     microSamAvailable,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
   });
-  
-  // Use either the dynamically loaded model or the one from the URL (for backward compatibility)
-  const activeCellposeModel = dynamicCellposeModel || cellposeModelId || DEFAULT_CELLPOSE_CONFIG.model;
-  
-  // Sync the loaded model to the config dialog if it changes
-  useEffect(() => {
-    if (activeCellposeModel && activeCellposeModel !== cellposeConfig.model) {
-      setCellposeConfig((prev: CellposeConfig) => ({ ...prev, model: activeCellposeModel }));
-    }
-  }, [activeCellposeModel, cellposeConfig.model, setCellposeConfig]);
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
   
@@ -789,9 +771,9 @@ print('CLAHE packages ready')
   }, []);
 
   // Cellpose can return a fresh (dP, cellprob) over the wire when the
-  // image/model/diameter/CLAHE flag changed, OR we can recompute locally
-  // from the cached flows when only the instant-group sliders moved. Both
-  // paths converge in the same polygon-replacement logic below.
+  // image/CLAHE flag changed, OR we can recompute locally from the cached
+  // flows when only the instant-group sliders moved. Both paths converge in
+  // the same polygon-replacement logic below.
   const runCellposeFlowsPipeline = useCallback(
     async (cfg: CellposeConfig, sourceUrl: string) => {
       if (!service || !imageWidth || !imageHeight) return;
@@ -799,20 +781,13 @@ print('CLAHE packages ready')
       // Server-affecting params decide whether the cache is still valid.
       // `sourceUrl` already differs when the CLAHE-enhanced pixels are in
       // play (see handleRunCellpose), so no separate CLAHE flag is needed.
-      const cacheKey = JSON.stringify({
-        u: sourceUrl,
-        m: cfg.model || 'cpsam',
-        d: cfg.diameter ?? null,
-      });
+      const cacheKey = sourceUrl;
 
       let cached = flowsCacheRef.current;
       if (!cached || cached.cacheKey !== cacheKey) {
         const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
         try {
-          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
-            model: cfg.model,
-            diameter: cfg.diameter,
-          });
+          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight);
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
         } finally {
@@ -943,8 +918,6 @@ print('CLAHE packages ready')
 
       if (!usedLocalPath) {
         const masks = await service.runCellpose(sourceUrl, imageWidth, imageHeight, {
-          model: cfg.model,
-          diameter: cfg.diameter,
           flow_threshold: cfg.flow_threshold,
           cellprob_threshold: cfg.cellprob_threshold,
           niter: cfg.niter,
@@ -1400,7 +1373,6 @@ print("CLAHE_RESULT:" + result_b64)
       <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
       <ToolBar
         onOpenCellposeConfig={openCellposeConfig}
-        cellposeModel={activeCellposeModel}
         cellposeAvailable={cellposeAvailable}
         microSamAvailable={microSamAvailable}
         aiBoxReady={aiBoxReady}

@@ -48,13 +48,10 @@ export interface MicroSamEmbedding {
 }
 
 export interface CellposeParams {
-  model?: string;
-  diameter?: number | null;
   flow_threshold?: number;
   cellprob_threshold?: number;
   niter?: number | null;
   min_mask_area?: number;
-  enable_clahe?: boolean;
 }
 
 /**
@@ -118,7 +115,7 @@ export interface AnnotationDataService {
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
    *  response), so it returns the same ``CellposeMask[]`` polygons. Only
    *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
-   *  Cellpose-specific knobs (diameter, flow/cellprob, niter). */
+   *  Cellpose-specific knobs (flow/cellprob, niter). */
   runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** Fetch the quantized μSAM ONNX prompt-decoder bytes for the in-browser box
    *  tool. One round-trip per page; the decoder hook caches the ort session. */
@@ -136,10 +133,10 @@ export interface AnnotationDataService {
   /** μSAM AIS pre-seg from a stored embedding link. Server reads the ``.npz``
    *  and returns the same ``[{output}]`` list; the browser never pulls it. */
   runMicroSamFromEmbedding: (npzUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
-  /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
-   *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
-   *  network output; the mask-gen knobs are ignored and consumed by the
-   *  client-side compute_masks_np instead. */
+  /** Fetch raw (dP, cellprob) for client-side mask-gen tuning. The network
+   *  output only depends on the image (always the published 'idealistic-eagle'
+   *  model via cellpose4-runner); ``params`` mask-gen knobs are ignored here
+   *  and consumed by the client-side compute_masks_np instead. */
   runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeFlowsResult>;
   /** Ask the broker for a role on this dataset (colab-rework-plan.md §13).
    *  Only meaningful for a logged-in caller; the broker rejects anonymous

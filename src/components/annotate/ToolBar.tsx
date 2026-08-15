@@ -63,7 +63,6 @@ const aiTintSx = (active: boolean, dim = false) => ({
 
 export interface ToolBarProps {
   onOpenCellposeConfig: () => void;
-  cellposeModel?: string;
   cellposeAvailable?: boolean;
   microSamAvailable?: boolean;
   /** True once the μSAM embedding + ONNX decoder are both warmed up and the
@@ -74,7 +73,7 @@ export interface ToolBarProps {
 
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig,
-  cellposeModel, cellposeAvailable = false, microSamAvailable = false,
+  cellposeAvailable = false, microSamAvailable = false,
   aiBoxReady = false,
   isRunningCellpose,
 }) => {

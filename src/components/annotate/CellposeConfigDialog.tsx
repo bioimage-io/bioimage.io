@@ -12,22 +12,19 @@ import {
   Tooltip,
   Grid,
   Box,
-  InputAdornment,
   Select,
   MenuItem,
 } from '@mui/material';
-import StraightenIcon from '@mui/icons-material/Straighten';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 /** Which segmentation backend the AI Pre-Segmentation dialog runs.
- *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path).
+ *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
+ *  the published 'idealistic-eagle' model via cellpose4-runner.
  *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs). */
 export type SegBackend = 'cellpose' | 'microsam';
 
 export interface CellposeConfig {
   backend: SegBackend;
-  model: string;
-  diameter: number | null;
   flow_threshold: number;
   cellprob_threshold: number;
   niter: number | null;
@@ -36,8 +33,6 @@ export interface CellposeConfig {
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   backend: 'cellpose',
-  model: 'cpsam',
-  diameter: null,
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
@@ -69,7 +64,6 @@ function saveConfig(config: CellposeConfig): void {
 
 function configDiffersFromDefault(config: CellposeConfig): boolean {
   return (
-    config.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter ||
     config.flow_threshold !== DEFAULT_CELLPOSE_CONFIG.flow_threshold ||
     config.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
     config.niter !== DEFAULT_CELLPOSE_CONFIG.niter ||
@@ -91,8 +85,6 @@ interface CellposeConfigDialogProps {
   onApply: (config: CellposeConfig) => void;
   onRun?: (config: CellposeConfig) => void;
   isRunning?: boolean;
-  /** Called when user wants to measure a cell diameter in the image. */
-  onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
   /** When true, the parent has already cached (dP, cellprob) for the current
    *  image and the instant-group sliders re-run mask gen locally in Pyodide.
    *  In that mode each instant slider drag debounce-fires
@@ -164,7 +156,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onApply,
   onRun,
   isRunning,
-  onMeasureDiameter,
   livePreviewReady,
   onInstantConfigChange,
   microSamAvailable,
@@ -194,20 +185,13 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const handleReset = () => {
-    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, model: prev.model }));
+    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, backend: prev.backend }));
   };
 
   const handleApply = () => {
     onApply(config);
   };
 
-  const handleMeasure = () => {
-    if (!onMeasureDiameter) return;
-    onApply(config);
-    onMeasureDiameter(config, (_px) => {});
-  };
-
-  const isBaseModel = !config.model || config.model === 'cpsam';
   const isMicroSam = config.backend === 'microsam';
   const showReset = configDiffersFromDefault(config);
 
@@ -273,71 +257,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                     : 'one server call caches the flows; then sliders are local'}
                 </Typography>
               </Box>
-            </Grid>
-          )}
-
-          {/* Model info */}
-          {!isMicroSam && (
-          <Grid item xs={12}>
-            <Box sx={{
-              display: 'flex', alignItems: 'center', gap: 1,
-              px: 1.25, py: 0.85, bgcolor: 'action.hover', borderRadius: 1.5,
-            }}>
-              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                Model:
-              </Typography>
-              <Typography variant="caption" fontWeight={700} noWrap>
-                {isBaseModel ? 'Base (Cellpose-SAM)' : config.model}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto', flexShrink: 0, fontStyle: 'italic' }}>
-                set from session
-              </Typography>
-            </Box>
-          </Grid>
-          )}
-
-          {/* ── Diameter (base model only) ── */}
-          {isBaseModel && !isMicroSam && (
-            <Grid item xs={12}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
-                  {onInstantConfigChange && <GroupChip kind="server" livePreviewReady={livePreviewReady} />}
-                  <InfoTip text="Cellpose-SAM was trained on cell diameters from 7.5 to 120 px. When set, the image is rescaled so cells appear ~30 px (scale = 30 ÷ diameter). Leave empty to run at original scale: safe when cells are roughly in the 7.5 to 120 px range. Set this if your cells are outside that range." />
-                </Box>
-                {onMeasureDiameter && (
-                  <Tooltip title="Measure a representative cell in the image to set the diameter automatically">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<StraightenIcon fontSize="small" />}
-                      onClick={handleMeasure}
-                      sx={{ textTransform: 'none', py: 0.25, px: 1, borderRadius: 1.5, fontSize: '0.72rem' }}
-                    >
-                      Measure in image
-                    </Button>
-                  </Tooltip>
-                )}
-              </Box>
-              <TextField
-                fullWidth
-                size="small"
-                type="number"
-                placeholder="No rescaling (original scale)"
-                value={config.diameter === null ? '' : config.diameter}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === '') {
-                    update('diameter', null);
-                  } else {
-                    const num = parseFloat(val);
-                    if (!isNaN(num) && num >= 0) {
-                      update('diameter', num === 0 ? null : num);
-                    }
-                  }
-                }}
-                slotProps={{ input: { inputProps: { min: 0 }, endAdornment: <InputAdornment position="end">px</InputAdornment> } }}
-              />
             </Grid>
           )}
 
@@ -465,7 +384,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 export function useCellposeConfig(opts?: {
   onRun?: (config: CellposeConfig) => void;
   isRunning?: boolean;
-  onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
   /** When true, the dialog keeps the (dP, cellprob) flows path active: the
    *  Apply / Run path does NOT close the dialog so the instant-group
    *  sliders can keep updating the preview. ``Done`` saves + closes;
@@ -506,13 +424,6 @@ export function useCellposeConfig(opts?: {
     setDialogOpen(false);
   }, []);
 
-  const handleMeasureDiameter = useCallback((currentConfig: CellposeConfig, onMeasured: (px: number) => void) => {
-    setConfig(currentConfig);
-    saveConfig(currentConfig);
-    setDialogOpen(false);
-    opts?.onMeasureDiameter?.(currentConfig, onMeasured);
-  }, [opts]);
-
   const dialogElement = (
     <CellposeConfigDialog
       open={dialogOpen}
@@ -521,7 +432,6 @@ export function useCellposeConfig(opts?: {
       onApply={handleApply}
       onRun={opts?.onRun}
       isRunning={opts?.isRunning}
-      onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
       livePreviewReady={opts?.livePreviewReady}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
