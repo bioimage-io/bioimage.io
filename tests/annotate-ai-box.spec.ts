@@ -181,3 +181,47 @@ test.describe('Annotate deep link (§15 item 1)', () => {
     expect(deepLinkRaw.startsWith(stem)).toBe(true);
   });
 });
+
+test.describe('First-visit tutorial (§16b)', () => {
+  test('auto-opens once the image is ready, not during the connecting overlay', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(240000);
+
+    // Deliberately do NOT seed 'bioimage-annotation-tutorial-seen' so the
+    // first-visit auto-open path in AnnotatePage.tsx fires.
+    await page.addInitScript(({ tok, expiry }) => {
+      localStorage.setItem('token', tok);
+      localStorage.setItem('tokenExpiry', expiry);
+      localStorage.removeItem('bioimage-annotation-tutorial-seen');
+    }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+
+    const url = `/#/colab/annotate?session_id=${encodeURIComponent(DATASET_ALIAS)}&label=${encodeURIComponent(LABEL)}`;
+    await page.goto(url);
+
+    const tutorialText = page.getByText(/Welcome to the BioImage Annotation Tool/);
+
+    // The tutorial must never render on top of the connecting/error overlay
+    // (AnnotatePage.tsx gates it with `helpOpen && !showStatusOverlay`).
+    // This check is best-effort: it only fires if the connecting overlay is
+    // still on screen at the moment we look, since a fast/cached connect can
+    // clear it before this line runs.
+    const connectingText = page.getByText(/Connecting to annotation service/);
+    if (await connectingText.isVisible().catch(() => false)) {
+      await expect(tutorialText).not.toBeVisible();
+    }
+
+    // Once the image is ready (status overlay clears), the queued tutorial
+    // should appear automatically.
+    const viewer = page.getByTestId('annotation-viewer');
+    await expect(viewer).toBeVisible({ timeout: 180000 });
+    await expect(tutorialText).toBeVisible({ timeout: 60000 });
+
+    // The flag should now be recorded so a later visit skips the auto-open.
+    const seen = await page.evaluate(() => localStorage.getItem('bioimage-annotation-tutorial-seen'));
+    expect(seen).toBe('1');
+  });
+});
