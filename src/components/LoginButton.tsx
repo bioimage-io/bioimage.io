@@ -130,13 +130,18 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
       localStorage.removeItem('tokenExpiry'); // Ensure expiry is also removed
       localStorage.removeItem('user'); // Keep if used elsewhere, otherwise remove
       sessionStorage.removeItem(REDIRECT_PATH_KEY); // Clear redirect path on logout
-      
+
       // Perform logout logic - this will clear all connection state
       await logout();
       setIsDropdownOpen(false);
-      
-      // Optionally redirect to home page
-      navigate('/');
+
+      // Stay put on BioEngine/Colab pages instead of bouncing to the models
+      // grid. Each of those pages already falls back to its own base route
+      // (/bioengine, /colab) on its own if what it's showing can no longer be
+      // resolved without auth (worker service gone, colab session gone).
+      if (!location.pathname.startsWith('/bioengine') && !location.pathname.startsWith('/colab')) {
+        navigate('/');
+      }
     } catch (error) {
       console.error('Error during logout:', error);
     }
@@ -284,8 +289,16 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // attempt without the auto-path's cooldown or logout-on-failure. reconnect()
   // leaves the status at 'reconnecting' if the connect throws, so reflect the
   // failure here.
+  //
+  // If the cached token is missing or expired, reconnect() has nothing to
+  // reconnect with and just logs the user out. Go straight to the interactive
+  // login flow instead, since that's the only way to obtain a fresh token.
   const handleReconnect = async () => {
     if (connectionStatus === 'reconnecting') return;
+    if (!getSavedToken()) {
+      await handleLogin();
+      return;
+    }
     try {
       await useHyphaStore.getState().reconnect();
     } catch (err) {

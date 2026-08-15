@@ -308,12 +308,13 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   // carry it on the command line, where it is only needed until the worker
   // connects and starts renewing its own token, so one hour is enough. The
   // Kubernetes manifest stores it in a long-lived Secret that has to survive pod
-  // restarts, so that one keeps the 30-day lifetime. The agent prompt is also
-  // short-lived: the agent only needs it while it walks through the setup.
+  // restarts, so that one keeps the 30-day lifetime. The agent prompt gets a
+  // little more slack (3 hours) since an AI agent walking through setup with the
+  // user can take longer than a human copy-pasting commands.
   const wantsLongLivedToken = audience === 'human' && mode === 'external-cluster';
-  const tokenLifetimeSeconds = wantsLongLivedToken ? 30 * 24 * 3600 : 3600;
-  const tokenLifetimeLabel = wantsLongLivedToken ? '30 days' : '1 hour';
-  const tokenLifetimeAdjective = wantsLongLivedToken ? '30-day' : '1-hour';
+  const tokenLifetimeSeconds = audience === 'agent' ? 3 * 3600 : wantsLongLivedToken ? 30 * 24 * 3600 : 3600;
+  const tokenLifetimeLabel = audience === 'agent' ? '3 hours' : wantsLongLivedToken ? '30 days' : '1 hour';
+  const tokenLifetimeAdjective = audience === 'agent' ? '3-hour' : wantsLongLivedToken ? '30-day' : '1-hour';
   const generatedTokenLifetime = useRef<number | null>(null);
 
   // Auto-generate token when user is logged in and no manual token is set
@@ -840,7 +841,7 @@ spec:
             const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
             const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
             const promptText = (includeAgentToken && token)
-              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace (valid for 1 hour, ask me to generate a new one if it has expired):\n${token}`
+              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace (valid for ${tokenLifetimeLabel}, ask me to generate a new one if it has expired):\n${token}`
               : basePrompt;
             return (
               <div className="space-y-4">
@@ -883,7 +884,7 @@ spec:
                       className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded"
                     />
                     <span className="ml-2 text-sm text-gray-700">
-                      Include an admin Hypha token for my workspace in the prompt (valid for 1 hour)
+                      Include an admin Hypha token for my workspace in the prompt (valid for {tokenLifetimeLabel})
                       {!isLoggedIn && <span className="text-gray-500"> (log in to enable)</span>}
                       {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
                     </span>
