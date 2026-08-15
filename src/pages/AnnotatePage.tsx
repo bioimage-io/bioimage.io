@@ -22,6 +22,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
 import { useHyphaStore } from '../store/hyphaStore';
+import { snapshotMaskPolygons, excludeAgainstMaskPolygons } from '../components/annotate/hooks/useDrawInteraction';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
 import OlMap from 'ol/Map';
@@ -647,19 +648,26 @@ print('CLAHE packages ready')
       }
       previewFeaturesRef.current = [];
 
+      // Exclude the AI preview against already-existing annotations so no
+      // pixel is claimed by both a saved mask and a preview mask.
+      const existingPolys = snapshotMaskPolygons(vs.getFeatures());
+
       const added: Feature[] = [];
       for (const m of polygons) {
-        const polygon = new OlPolygon(m.coordinates);
-        const feature = new Feature({ geometry: polygon });
-        feature.setProperties({
-          label: `cell_${m.label}`,
-          edge_color: '#0084ff',
-          face_color: '#0084ff',
-          edge_width: 2,
-          _cellpose_preview: true,
-        });
-        vs.addFeature(feature);
-        added.push(feature);
+        const rawPolygon = new OlPolygon(m.coordinates);
+        const pieces = excludeAgainstMaskPolygons(rawPolygon, existingPolys);
+        for (const polygon of pieces) {
+          const feature = new Feature({ geometry: polygon });
+          feature.setProperties({
+            label: `cell_${m.label}`,
+            edge_color: '#0084ff',
+            face_color: '#0084ff',
+            edge_width: 2,
+            _cellpose_preview: true,
+          });
+          vs.addFeature(feature);
+          added.push(feature);
+        }
       }
       previewFeaturesRef.current = added;
       return added.length;
@@ -742,22 +750,32 @@ print('CLAHE packages ready')
         const GeoJSON = (await import('ol/format/GeoJSON')).default;
         const fmt = new GeoJSON();
         pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+        // Exclude the AI-decoded mask against already-existing annotations
+        // so it never overwrites area a saved mask already claims.
+        const existingPolys = snapshotMaskPolygons(vs.getFeatures());
         const label = activeLabel;
         let added = 0;
         for (const m of polygons) {
-          const polygon = new OlPolygon(m.coordinates);
-          const feature = new Feature({ geometry: polygon });
-          feature.setProperties({
-            label: label.id,
-            edge_color: label.color,
-            face_color: label.color,
-            edge_width: 2,
-          });
-          vs.addFeature(feature);
-          added++;
+          const rawPolygon = new OlPolygon(m.coordinates);
+          const pieces = excludeAgainstMaskPolygons(rawPolygon, existingPolys);
+          for (const polygon of pieces) {
+            const feature = new Feature({ geometry: polygon });
+            feature.setProperties({
+              label: label.id,
+              edge_color: label.color,
+              face_color: label.color,
+              edge_width: 2,
+            });
+            vs.addFeature(feature);
+            added++;
+          }
         }
-        console.log('[AnnotatePage] micro-sam box added', added, 'masks');
-        addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from micro-sam`, 'success', 4000);
+        if (added === 0) {
+          addBanner('That box only covered existing annotations, no new mask added', 'warning', 4000);
+        } else {
+          console.log('[AnnotatePage] micro-sam box added', added, 'masks');
+          addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from micro-sam`, 'success', 4000);
+        }
       } catch (err: any) {
         removeBanner(bannerId);
         const msg = err?.message || 'Unknown error';

@@ -346,6 +346,59 @@ export function trimExistingMasks(newPoly: OlPolygon, vectorSource: VectorSource
   featuresToAdd.forEach((f) => vectorSource.addFeature(f));
 }
 
+/**
+ * Precompute turf polygons for a snapshot of vector-source features, so a
+ * batch of exclusion checks (e.g. one per AI-segmented instance) doesn't
+ * re-derive the same existing-mask geometry on every call.
+ */
+export function snapshotMaskPolygons(features: Feature<Geometry>[]): turf.Feature<turf.Polygon>[] {
+  const polys: turf.Feature<turf.Polygon>[] = [];
+  for (const f of features) {
+    const p = olFeatureToTurf(f);
+    if (p) polys.push(p);
+  }
+  return polys;
+}
+
+/**
+ * Subtract already-existing mask area from a newly proposed polygon, so an
+ * AI-produced mask is excluded against existing annotations rather than
+ * overwriting them (unlike the manual draw tools, where the new shape wins
+ * and existing masks get trimmed via trimExistingMasks above). Returns the
+ * remaining OL polygon pieces: none if fully covered, more than one if the
+ * subtraction splits the shape.
+ */
+export function excludeAgainstMaskPolygons(
+  newPoly: OlPolygon,
+  existingPolys: turf.Feature<turf.Polygon>[],
+): OlPolygon[] {
+  const newGeoJSON = geojsonFormat.writeGeometryObject(newPoly);
+  let remaining: turf.Feature<turf.Polygon | turf.MultiPolygon> | null = turf.polygon(
+    (newGeoJSON as any).coordinates,
+  );
+
+  for (const existing of existingPolys) {
+    if (!remaining) break;
+    try {
+      if (!turf.booleanIntersects(remaining, existing)) continue;
+      remaining = turf.difference(turf.featureCollection([remaining, existing]));
+    } catch (err) {
+      console.warn('Exclude-against-existing failed for a feature:', err);
+    }
+  }
+
+  if (!remaining) return [];
+  if (remaining.geometry.type === 'Polygon') {
+    return [geojsonFormat.readGeometry(remaining.geometry) as OlPolygon];
+  }
+  if (remaining.geometry.type === 'MultiPolygon') {
+    return remaining.geometry.coordinates.map(
+      (coords) => geojsonFormat.readGeometry({ type: 'Polygon', coordinates: coords }) as OlPolygon,
+    );
+  }
+  return [];
+}
+
 export interface DrawInteractionOptions {
   /** Invoked with an OL-space box extent [minX, minY, maxX, maxY] (display
    *  pixels) when the user finishes drawing an AI-box. The page owns the
