@@ -108,6 +108,16 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
           setIsDeleting(false);
           return;
         }
+        // NOTE: the broker only removes files from the staged overlay and
+        // never commits (broker.py's delete_label has no commit call), so
+        // the removal is invisible to the published artifact until some
+        // later commit lands. We can't close that gap from here: this
+        // dataset's real Hypha ACL is managed entirely by the broker's own
+        // elevated identity, and a direct `artifactManager.commit(...)` call
+        // with the current user's token 403s with "User does not have
+        // permission 'commit' on the artifact" even for a manager-role user
+        // (confirmed empirically). A real fix needs `delete_label` itself to
+        // commit using the broker's own credentials.
         onLabelDeleteSuccess?.(currentLabel);
         setShowDeleteModal(false);
       }

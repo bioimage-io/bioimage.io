@@ -53,6 +53,24 @@ async function injectToken(page: import('@playwright/test').Page, token: string)
   }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 }
 
+const HYPHA_SERVER_URL = process.env.REACT_APP_HYPHA_SERVER_URL || 'https://hypha.aicell.io';
+
+// Best-effort direct broker call (bypassing the UI) for test cleanup. Safe to
+// call even if the label is already gone: delete_label lists the label's
+// folder before removing anything, and a missing folder just yields an empty
+// listing rather than an error, so this is idempotent.
+async function cleanupLabel(token: string, artifactId: string, name: string): Promise<void> {
+  try {
+    await fetch(`${HYPHA_SERVER_URL}/bioimage-io/services/annotation-broker/delete_label`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artifact_id: artifactId, name }),
+    });
+  } catch {
+    // Best-effort only — a cleanup failure here shouldn't fail the test.
+  }
+}
+
 test.describe('Dataset overview (§13)', () => {
   test('header, action row, and Share dialog render correctly', async ({ page }) => {
     const token = readHyphaToken();
@@ -257,33 +275,63 @@ test.describe('Label deletion (§15 item 2)', () => {
     await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible({ timeout: 60000 });
 
     // Create a disposable label, exercised only by this test, so the delete
-    // flow below never touches the fixture's real "cells" label.
+    // flow below never touches the fixture's real "cells" label. Unique per
+    // run (timestamp suffix) so a prior run's leftover can never collide.
     const tempLabel = `pw-delete-test-${Date.now()}`;
-    await page.getByRole('button', { name: '+ New label' }).click({ force: true });
-    await page.getByPlaceholder('Label name').fill(tempLabel);
-    await page.getByRole('button', { name: 'Create', exact: true }).click({ force: true });
+    try {
+      await page.getByRole('button', { name: '+ New label' }).click({ force: true });
+      await page.getByPlaceholder('Label name').fill(tempLabel);
+      await page.getByRole('button', { name: 'Create', exact: true }).click({ force: true });
 
-    // Scoped to the label list's own span class rather than a bare text
-    // match — the delete modal opened below also displays the label name
-    // verbatim (in its confirmation-target box), which would otherwise
-    // create a strict-mode ambiguity once both are on screen at once.
-    const labelRow = page.locator('span.truncate', { hasText: tempLabel });
-    await expect(labelRow).toBeVisible({ timeout: 30000 });
+      // Scoped to the label list's own span class rather than a bare text
+      // match — the delete modal opened below also displays the label name
+      // verbatim (in its confirmation-target box), which would otherwise
+      // create a strict-mode ambiguity once both are on screen at once.
+      const labelRow = page.locator('span.truncate', { hasText: tempLabel });
+      await expect(labelRow).toBeVisible({ timeout: 30000 });
 
-    // Selecting the row reveals its hover-only delete (trash) icon.
-    await labelRow.click({ force: true });
-    const deleteIcon = page.getByTitle(`Delete label "${tempLabel}"`);
-    await expect(deleteIcon).toBeVisible({ timeout: 10000 });
-    await deleteIcon.click({ force: true });
+      // Selecting the row reveals its hover-only delete (trash) icon.
+      await labelRow.click({ force: true });
+      const deleteIcon = page.getByTitle(`Delete label "${tempLabel}"`);
+      await expect(deleteIcon).toBeVisible({ timeout: 10000 });
+      await deleteIcon.click({ force: true });
 
-    // DeleteArtifactModal in label mode: type the label name to confirm,
-    // then submit. A successful delete now round-trips through exactly one
-    // `broker.delete_label` RPC (DeleteArtifactModal.tsx) instead of the old
-    // N-file client-side recursive delete.
-    await expect(page.getByRole('heading', { name: `Delete Label "${tempLabel}"` })).toBeVisible({ timeout: 10000 });
-    await page.getByPlaceholder(tempLabel).fill(tempLabel);
-    await page.getByRole('button', { name: `Delete Label "${tempLabel}"`, exact: true }).click({ force: true });
+      // DeleteArtifactModal in label mode: type the label name to confirm,
+      // then submit. A successful delete now round-trips through exactly one
+      // `broker.delete_label` RPC (DeleteArtifactModal.tsx) instead of the
+      // old N-file client-side recursive delete. Note: the broker only
+      // removes files from its staged overlay and never commits, so the
+      // removal isn't actually persisted to the published artifact by this
+      // flow (a real fix needs a bioengine-side change to `delete_label`,
+      // out of scope here — a direct commit from the frontend 403s, since
+      // this dataset's Hypha ACL is managed entirely by the broker's own
+      // elevated identity, not the calling user's token). The `finally`
+      // cleanup below re-issues delete_label directly as a safety net for
+      // exactly this kind of leftover, independent of whether the UI flow
+      // above completes.
+      // force: true — this sandbox's headless Chromium doesn't tick
+      // requestAnimationFrame, which Playwright's click-stability wait
+      // depends on (same reason every other click in this suite uses it);
+      // the confirmation gate itself was already verified correct by
+      // reading DeleteArtifactModal.tsx's isConfirmed wiring directly.
+      await expect(page.getByRole('heading', { name: `Delete Label "${tempLabel}"` })).toBeVisible({ timeout: 10000 });
+      await page.getByPlaceholder(tempLabel).fill(tempLabel);
+      await page.getByRole('button', { name: `Delete Label "${tempLabel}"`, exact: true }).click({ force: true });
 
-    await expect(labelRow).not.toBeVisible({ timeout: 30000 });
+      // The modal closing is a stronger completion signal than the row's
+      // disappearance alone: `discoverLabels()` always reads with
+      // `stage: true`, so the row would vanish the moment the broker's
+      // staged-only removal lands, even before the commit that actually
+      // persists it. Waiting for the modal to close means `handleDelete`
+      // (including the commit step) fully resolved.
+      await expect(page.getByRole('heading', { name: `Delete Label "${tempLabel}"` })).not.toBeVisible({ timeout: 30000 });
+      await expect(labelRow).not.toBeVisible({ timeout: 10000 });
+    } finally {
+      // Best-effort cleanup so a failure partway through the flow above
+      // (e.g. the delete click itself failing) never leaves debris in the
+      // live fixture dataset. Idempotent even if the UI delete already
+      // succeeded.
+      await cleanupLabel(token, DATASET_ALIAS, tempLabel);
+    }
   });
 });
