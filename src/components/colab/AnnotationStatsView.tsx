@@ -1,21 +1,30 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { DatasetImage } from './datasetApi';
 
 export interface AnnotationStatsViewProps {
   images: DatasetImage[];
   stats: Record<string, number>;
   label: string;
+  highlightStem?: string | null;
 }
 
 // Per-image annotation-instance breakdown for the selected label: every
 // image gets a row (including zero-count ones), unlike LabelStatsChart's
 // capped-at-8 sorted summary. Axis max is the highest per-image count + 1,
 // so even the busiest image's bar stops short of the far edge.
-const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({ images, stats, label }) => {
+const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({ images, stats, label, highlightStem }) => {
   const rows = images
     .map((img) => ({ stem: img.stem, count: stats[img.stem] ?? 0 }))
     .sort((a, b) => b.count - a.count || a.stem.localeCompare(b.stem));
   const axisMax = rows.reduce((m, r) => Math.max(m, r.count), 0) + 1;
+
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (highlightStem) {
+      rowRefs.current[highlightStem]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [highlightStem]);
 
   if (rows.length === 0) {
     return <p className="text-sm text-gray-400 text-center py-8">No images to show stats for.</p>;
@@ -28,7 +37,13 @@ const AnnotationStatsView: React.FC<AnnotationStatsViewProps> = ({ images, stats
       </p>
       <div className="space-y-1.5">
         {rows.map(({ stem, count }) => (
-          <div key={stem} className="flex items-center gap-2">
+          <div
+            key={stem}
+            ref={(el) => { rowRefs.current[stem] = el; }}
+            className={`flex items-center gap-2 rounded ${
+              stem === highlightStem ? 'bg-purple-50 ring-1 ring-purple-300' : ''
+            }`}
+          >
             <span className="text-xs text-gray-500 w-28 truncate shrink-0" title={stem}>
               {stem}
             </span>

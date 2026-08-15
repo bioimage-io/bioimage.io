@@ -883,7 +883,12 @@ print("Service registered successfully", end='')
         <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col">
           <div className="flex-1 min-h-[360px] flex items-center justify-center bg-gray-50 rounded-xl overflow-hidden">
             {statsViewOpen && selectedLabel ? (
-              <AnnotationStatsView images={images ?? []} stats={labelStats} label={selectedLabel} />
+              <AnnotationStatsView
+                images={images ?? []}
+                stats={labelStats}
+                label={selectedLabel}
+                highlightStem={selectedStem}
+              />
             ) : selectedStem ? (
               imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
                 <ImagePreview
