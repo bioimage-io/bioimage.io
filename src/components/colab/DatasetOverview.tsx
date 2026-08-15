@@ -22,13 +22,21 @@ import {
   toAlias,
   withStageRetry,
 } from './datasetApi';
-import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDataset } from './brokerApi';
+import {
+  BrokerAccessError,
+  BrokerErrorCode,
+  BrokerRole,
+  DatasetWithRole,
+  getDataset,
+  resetBrokerServiceCache,
+} from './brokerApi';
 import LabelManager from './LabelManager';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
 import TrainingModal from './TrainingModal';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
+import LoginButton from '../LoginButton';
 
 export interface DatasetOverviewProps {
   artifactId: string;
@@ -113,6 +121,27 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [guardErrorCode, setGuardErrorCode] = useState<BrokerErrorCode | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const handleRefresh = () => setRefreshTick((t) => t + 1);
+
+  // "Try again" on the guard-error screen (colab-rework-plan.md §14b item 2):
+  // must not just re-await whatever's cached, since a stale cached service
+  // handle is exactly what caused the error in the first place. Drop the
+  // cache first so this always resolves a fresh handle before retrying.
+  const [retryingGuard, setRetryingGuard] = useState(false);
+  const retryGuardLoad = async () => {
+    setRetryingGuard(true);
+    resetBrokerServiceCache();
+    try {
+      const d = await getDataset(server, artifactId);
+      setDataset(d);
+      setGuardError(null);
+      setGuardErrorCode(null);
+    } catch (err) {
+      setGuardError((err as Error).message || 'Access denied.');
+      setGuardErrorCode(err instanceof BrokerAccessError ? err.code : 'unknown');
+    } finally {
+      setRetryingGuard(false);
+    }
+  };
 
   // Awaitable variant for ShareModal's Apply flow: fetches the dataset
   // directly and resolves only once `dataset` state actually reflects the
@@ -638,6 +667,31 @@ print("Service registered successfully", end='')
     // all, and telling a user "you don't have access" when the dataset just
     // failed to load is misleading (colab-rework-plan.md §11 item 6).
     const isRealDenial = !guardError || guardErrorCode === 'permission-denied';
+    // A stale connection whose reconnect failed because the token itself is
+    // expired/invalid reads differently again: retrying won't help, logging
+    // back in will (colab-rework-plan.md §14b item 3).
+    const isAuthExpired = !isRealDenial && guardErrorCode === 'auth-expired';
+    if (isAuthExpired) {
+      return (
+        <div className="max-w-lg mx-auto text-center py-16">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center">
+            <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
+              />
+            </svg>
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Your session has expired</h2>
+          <p className="text-sm text-gray-500 mb-6">Please log in again to continue.</p>
+          <div className="flex justify-center">
+            <LoginButton />
+          </div>
+        </div>
+      );
+    }
     const heading = isRealDenial
       ? 'You do not have access to this dataset overview'
       : guardErrorCode === 'not-registered'
@@ -647,7 +701,10 @@ print("Service registered successfully", end='')
       ? 'Only the dataset owner and its managers can open this page.'
       : guardErrorCode === 'not-registered'
         ? 'It may have been deleted, or the link is incorrect.'
-        : 'There was a problem connecting to the annotation service. Please try again.';
+        : 'There was a problem connecting to the annotation service.';
+    // A transport hiccup (not a real denial, not a missing dataset) is the
+    // one case retrying can actually fix.
+    const canRetry = !isRealDenial && guardErrorCode !== 'not-registered';
     return (
       <div className="max-w-lg mx-auto text-center py-16">
         <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center">
@@ -662,14 +719,25 @@ print("Service registered successfully", end='')
         </div>
         <h2 className="text-lg font-semibold text-gray-900 mb-1">{heading}</h2>
         <p className="text-sm text-gray-500 mb-6">{body}</p>
-        {canAnnotate && (
-          <button
-            onClick={() => setShowAnnotateDialog(true)}
-            className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 font-medium shadow-sm hover:shadow-md active:scale-[0.98] transition-all"
-          >
-            Annotate this dataset
-          </button>
-        )}
+        <div className="flex items-center justify-center gap-3">
+          {canRetry && (
+            <button
+              onClick={retryGuardLoad}
+              disabled={retryingGuard}
+              className="px-5 py-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-900 font-medium shadow-sm hover:shadow-md active:scale-[0.98] transition-all disabled:opacity-60 disabled:active:scale-100"
+            >
+              {retryingGuard ? 'Trying again...' : 'Try again'}
+            </button>
+          )}
+          {canAnnotate && (
+            <button
+              onClick={() => setShowAnnotateDialog(true)}
+              className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 font-medium shadow-sm hover:shadow-md active:scale-[0.98] transition-all"
+            >
+              Annotate this dataset
+            </button>
+          )}
+        </div>
         {showAnnotateDialog && (
           <LabelSelectDialog
             artifactManager={artifactManager}

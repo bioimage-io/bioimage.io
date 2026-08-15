@@ -9,6 +9,14 @@
 // the broker is a stateful singleton (min_replicas 1), so there is no
 // load-balancing benefit to re-resolving on every call. The cache is
 // cleared on resolution failure so a later call can retry.
+//
+// Stale-connection recovery (colab-rework-plan.md §14b): a resolved handle
+// can go stale mid-session (websocket drop, token expiry) without the
+// resolution itself ever failing, so every exported call routes through
+// `callBroker`, which detects connection-shaped errors, drops the cache,
+// reconnects the shared Hypha store, and retries once before giving up.
+
+import { useHyphaStore } from '../../store/hyphaStore';
 
 export const ANNOTATION_BROKER_SERVICE_ID = 'bioimage-io/annotation-broker';
 
@@ -138,14 +146,66 @@ export async function resolveBrokerService(server: any): Promise<any> {
   return brokerServicePromise;
 }
 
+/** Drop the cached service handle so the next call resolves fresh. Used by
+ * `callBroker`'s own retry path and by UI "Try again" actions that must not
+ * re-await a handle that's already known to be dead. */
+export function resetBrokerServiceCache(): void {
+  brokerServicePromise = null;
+}
+
+/**
+ * A failed RPC whose *shape* points at a dead transport (closed socket,
+ * timeout, "service not found" right after a reconnect) rather than at the
+ * call's own arguments or the callee's own logic. These are exactly the
+ * failures a reconnect+retry can plausibly fix; anything else (a real
+ * permission/validation error from the broker) should surface immediately.
+ */
+function isConnectionShapedError(err: unknown): boolean {
+  const message = String((err as Error)?.message ?? err ?? '');
+  return /connection is closed|websocket|not connected|timed?\s?out|timeout|service not found|not available/i.test(
+    message,
+  );
+}
+
+const AUTH_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.';
+
+/** Marks an error as "reconnect could not recover this", which callers
+ * distinguish from a generic connection failure by classifying the message
+ * against `AUTH_EXPIRED_MESSAGE` (see `classifyBrokerError`). */
+class BrokerReconnectFailedError extends Error {}
+
+/**
+ * Run *fn* against a resolved broker handle. On a connection-shaped
+ * failure, drop the cached handle, ask the shared Hypha store to reconnect
+ * (it dedupes/rate-limits/retries internally — see `hyphaStore.ts`), and
+ * retry the call exactly once against the refreshed server. Only surfaces
+ * the error to the caller if that retry also fails, or if the failure
+ * wasn't connection-shaped to begin with (colab-rework-plan.md §14b item 1).
+ */
+async function callBroker<T>(server: any, fn: (broker: any, server: any) => Promise<T>): Promise<T> {
+  try {
+    const broker = await resolveBrokerService(server);
+    return await fn(broker, server);
+  } catch (err) {
+    if (!isConnectionShapedError(err)) throw err;
+    resetBrokerServiceCache();
+    const reconnected = await useHyphaStore.getState().attemptReconnect();
+    if (!reconnected) {
+      const isLoggedIn = useHyphaStore.getState().isLoggedIn;
+      throw new BrokerReconnectFailedError(isLoggedIn ? (err as Error)?.message || String(err) : AUTH_EXPIRED_MESSAGE);
+    }
+    const freshServer = useHyphaStore.getState().server;
+    const broker = await resolveBrokerService(freshServer);
+    return await fn(broker, freshServer);
+  }
+}
+
 export async function registerDataset(server: any, artifactId: string): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.register_dataset({ artifact_id: artifactId, _rkwargs: true });
+  return callBroker(server, (broker) => broker.register_dataset({ artifact_id: artifactId, _rkwargs: true }));
 }
 
 export async function listMyDatasets(server: any): Promise<{ shared: SharedDatasetSummary[] }> {
-  const broker = await resolveBrokerService(server);
-  return broker.list_my_datasets({ _rkwargs: true });
+  return callBroker(server, (broker) => broker.list_my_datasets({ _rkwargs: true }));
 }
 
 /**
@@ -156,7 +216,12 @@ export async function listMyDatasets(server: any): Promise<{ shared: SharedDatas
  * wire, only `str(exception)`. Matches broker.py's `_metadata_or_raise` /
  * `_require_role` message shapes; update alongside those if they change.
  */
-export type BrokerErrorCode = 'not-registered' | 'permission-denied' | 'unavailable' | 'unknown';
+export type BrokerErrorCode =
+  | 'not-registered'
+  | 'permission-denied'
+  | 'unavailable'
+  | 'auth-expired'
+  | 'unknown';
 
 export class BrokerAccessError extends Error {
   code: BrokerErrorCode;
@@ -168,6 +233,9 @@ export class BrokerAccessError extends Error {
 }
 
 export function classifyBrokerError(err: unknown): BrokerErrorCode {
+  if (err instanceof BrokerReconnectFailedError) {
+    return err.message === AUTH_EXPIRED_MESSAGE ? 'auth-expired' : 'unavailable';
+  }
   const message = String((err as Error)?.message ?? err);
   if (/annotation-broker service is not available/.test(message)) return 'unavailable';
   if (/is not registered with the broker/.test(message)) return 'not-registered';
@@ -177,8 +245,7 @@ export function classifyBrokerError(err: unknown): BrokerErrorCode {
 
 export async function getDataset(server: any, artifactId: string): Promise<DatasetWithRole> {
   try {
-    const broker = await resolveBrokerService(server);
-    return await broker.get_dataset({ artifact_id: artifactId, _rkwargs: true });
+    return await callBroker(server, (broker) => broker.get_dataset({ artifact_id: artifactId, _rkwargs: true }));
   } catch (err) {
     throw new BrokerAccessError((err as Error)?.message || 'Failed to load dataset.', classifyBrokerError(err));
   }
@@ -190,8 +257,7 @@ export async function setRole(
   user: BrokerUserRef,
   role: 'manager' | 'annotator',
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.set_role({ artifact_id: artifactId, user, role, _rkwargs: true });
+  return callBroker(server, (broker) => broker.set_role({ artifact_id: artifactId, user, role, _rkwargs: true }));
 }
 
 export async function removeUser(
@@ -199,8 +265,7 @@ export async function removeUser(
   artifactId: string,
   user: BrokerUserRef,
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.remove_user({ artifact_id: artifactId, user, _rkwargs: true });
+  return callBroker(server, (broker) => broker.remove_user({ artifact_id: artifactId, user, _rkwargs: true }));
 }
 
 export async function setPublic(
@@ -208,8 +273,9 @@ export async function setPublic(
   artifactId: string,
   isPublic: boolean,
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.set_public({ artifact_id: artifactId, is_public: isPublic, _rkwargs: true });
+  return callBroker(server, (broker) =>
+    broker.set_public({ artifact_id: artifactId, is_public: isPublic, _rkwargs: true }),
+  );
 }
 
 /**
@@ -228,8 +294,9 @@ export async function updateSharing(
     set_public?: boolean;
   },
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.update_sharing({ artifact_id: artifactId, ...changes, _rkwargs: true });
+  return callBroker(server, (broker) =>
+    broker.update_sharing({ artifact_id: artifactId, ...changes, _rkwargs: true }),
+  );
 }
 
 /**
@@ -243,8 +310,7 @@ export async function requestAccess(
   artifactId: string,
   role: 'annotator' | 'manager' = 'annotator',
 ): Promise<{ status: 'requested' | 'already_has_access'; [key: string]: any }> {
-  const broker = await resolveBrokerService(server);
-  return broker.request_access({ artifact_id: artifactId, role, _rkwargs: true });
+  return callBroker(server, (broker) => broker.request_access({ artifact_id: artifactId, role, _rkwargs: true }));
 }
 
 /**
@@ -258,8 +324,7 @@ export async function dismissAccessRequest(
   artifactId: string,
   user: BrokerUserRef,
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.dismiss_access_request({ artifact_id: artifactId, user, _rkwargs: true });
+  return callBroker(server, (broker) => broker.dismiss_access_request({ artifact_id: artifactId, user, _rkwargs: true }));
 }
 
 export async function createLabel(
@@ -268,13 +333,13 @@ export async function createLabel(
   name: string,
   description = '',
 ): Promise<DatasetMetadata> {
-  const broker = await resolveBrokerService(server);
-  return broker.create_label({ artifact_id: artifactId, name, description, _rkwargs: true });
+  return callBroker(server, (broker) =>
+    broker.create_label({ artifact_id: artifactId, name, description, _rkwargs: true }),
+  );
 }
 
 export async function getDatasetIndex(server: any, artifactId: string): Promise<DatasetIndex> {
-  const broker = await resolveBrokerService(server);
-  return broker.get_dataset_index({ artifact_id: artifactId, _rkwargs: true });
+  return callBroker(server, (broker) => broker.get_dataset_index({ artifact_id: artifactId, _rkwargs: true }));
 }
 
 export async function getEmbeddingUrls(
@@ -283,13 +348,14 @@ export async function getEmbeddingUrls(
   imageStem: string,
   modelType: string,
 ): Promise<EmbeddingUrls> {
-  const broker = await resolveBrokerService(server);
-  return broker.get_embedding_urls({
-    artifact_id: artifactId,
-    image_stem: imageStem,
-    model_type: modelType,
-    _rkwargs: true,
-  });
+  return callBroker(server, (broker) =>
+    broker.get_embedding_urls({
+      artifact_id: artifactId,
+      image_stem: imageStem,
+      model_type: modelType,
+      _rkwargs: true,
+    }),
+  );
 }
 
 export async function getSaveUrls(
@@ -298,19 +364,19 @@ export async function getSaveUrls(
   label: string,
   imageStem: string,
 ): Promise<SaveUrls> {
-  const broker = await resolveBrokerService(server);
-  return broker.get_save_urls({
-    artifact_id: artifactId,
-    label,
-    image_stem: imageStem,
-    _rkwargs: true,
-  });
+  return callBroker(server, (broker) =>
+    broker.get_save_urls({
+      artifact_id: artifactId,
+      label,
+      image_stem: imageStem,
+      _rkwargs: true,
+    }),
+  );
 }
 
 export async function deleteDatasetRecord(
   server: any,
   artifactId: string,
 ): Promise<{ deleted: boolean }> {
-  const broker = await resolveBrokerService(server);
-  return broker.delete_dataset_record({ artifact_id: artifactId, _rkwargs: true });
+  return callBroker(server, (broker) => broker.delete_dataset_record({ artifact_id: artifactId, _rkwargs: true }));
 }
