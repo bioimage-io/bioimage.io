@@ -288,15 +288,17 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       <Box sx={{ ...iconSlotSx, color: active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.secondary', mt: 0.2 }}>
                         {toolPending ? <ToolSpinner size={18} /> : tool.icon}
                       </Box>
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
-                          <Typography variant="caption" fontWeight={600} color={active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.primary'}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.6 }}>
+                          <Typography variant="caption" fontWeight={600} color={active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.primary'}
+                            sx={{ minWidth: 0 }}>
                             {tool.name}
                           </Typography>
                           {!isCompact && (
                             <Typography component="span" sx={{
                               fontSize: '0.58rem', color: 'text.disabled', fontFamily: 'monospace',
                               bgcolor: 'rgba(0,0,0,0.06)', px: 0.5, borderRadius: 0.5, lineHeight: 1.6,
+                              flexShrink: 0, mt: 0.15,
                             }}>{tool.shortcut}</Typography>
                           )}
                         </Box>

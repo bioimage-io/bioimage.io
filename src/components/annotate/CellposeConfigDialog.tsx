@@ -21,7 +21,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
-/** Which segmentation backend the AI Pre-Segmentation dialog runs.
+/** Which segmentation backend the Full Image Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
  *  the published 'idealistic-eagle' model via cellpose4-runner.
  *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs). */
@@ -245,7 +245,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
         },
       }}
     >
-      <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>AI Pre-Segmentation Settings</DialogTitle>
+      <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Full Image Segmentation</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
 
