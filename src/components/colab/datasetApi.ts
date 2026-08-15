@@ -27,6 +27,17 @@ export function toAlias(artifactId: string): string {
   return artifactId.startsWith(`${ARTIFACT_WORKSPACE}/`) ? artifactId.slice(ARTIFACT_WORKSPACE.length + 1) : artifactId;
 }
 
+/**
+ * Build the query string for a `/colab/annotate` URL. Shared by
+ * `DatasetOverview.tsx` (in-app navigation) and `ShareModal.tsx` (the
+ * shareable annotation link + QR code) so the two never drift.
+ */
+export function buildAnnotateQuery(artifactId: string, label: string, cellposeModel?: string): string {
+  const params = new URLSearchParams({ session_id: artifactId, label });
+  if (cellposeModel) params.set('cellpose_model', cellposeModel);
+  return params.toString();
+}
+
 // {stem}-{YYYYMMDD-HHMMSS}.{png|geojson} — mirrors broker_core.py's
 // ANNOTATION_FILENAME_RE. The timestamp itself contains a hyphen, so this
 // anchors on the fixed-width digit groups rather than a naive split.

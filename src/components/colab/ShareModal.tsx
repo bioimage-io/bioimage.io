@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { AccessRequest, BrokerRole, DatasetWithRole, dismissAccessRequest, setRole } from './brokerApi';
+import { buildAnnotateQuery } from './datasetApi';
+import SharingPanel from './SharingPanel';
 
 interface ShareModalProps {
-  annotationURL: string;
-  label: string;
+  server: any;
+  artifactId: string;
+  role: BrokerRole;
+  dataset: DatasetWithRole;
+  initialLabel?: string | null;
+  cellposeModel?: string;
+  onChanged: () => void;
   setShowShareModal: (show: boolean) => void;
 }
 
@@ -106,11 +114,135 @@ const URLField: React.FC<{
   );
 };
 
+/**
+ * One pending access request: pre-filled email, a role picker, and
+ * Add/Dismiss actions. Add grants the role via `setRole`, which clears the
+ * request server-side too, so a plain `onChanged()` after either action is
+ * enough to make the row disappear.
+ */
+const AccessRequestRow: React.FC<{
+  server: any;
+  artifactId: string;
+  request: AccessRequest;
+  isOwner: boolean;
+  onChanged: () => void;
+}> = ({ server, artifactId, request, isOwner, onChanged }) => {
+  const defaultRole = request.requested_role === 'manager' && isOwner ? 'manager' : 'annotator';
+  const [selectedRole, setSelectedRole] = useState<'manager' | 'annotator'>(defaultRole);
+  const [busy, setBusy] = useState<'add' | 'dismiss' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    setBusy('add');
+    setError(null);
+    try {
+      await setRole(server, artifactId, { email: request.email }, selectedRole);
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message || 'Failed to grant access.');
+      setBusy(null);
+    }
+  };
+
+  const handleDismiss = async () => {
+    setBusy('dismiss');
+    setError(null);
+    try {
+      await dismissAccessRequest(server, artifactId, { email: request.email });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message || 'Failed to dismiss request.');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <li className="py-2">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 min-w-0 truncate text-sm text-gray-800">{request.email}</span>
+        <select
+          value={selectedRole}
+          onChange={(e) => setSelectedRole(e.target.value as 'manager' | 'annotator')}
+          disabled={!!busy}
+          className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+        >
+          <option value="annotator">Annotator</option>
+          {isOwner && <option value="manager">Manager</option>}
+        </select>
+        <button
+          onClick={handleAdd}
+          disabled={!!busy}
+          className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 text-sm font-medium transition-colors shrink-0"
+        >
+          {busy === 'add' ? 'Adding...' : 'Add'}
+        </button>
+        <button
+          onClick={handleDismiss}
+          disabled={!!busy}
+          className="text-xs text-gray-400 hover:text-red-600 transition-colors shrink-0"
+        >
+          {busy === 'dismiss' ? 'Dismissing...' : 'Dismiss'}
+        </button>
+      </div>
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </li>
+  );
+};
+
+const AccessRequestsSection: React.FC<{
+  server: any;
+  artifactId: string;
+  role: BrokerRole;
+  requests: AccessRequest[];
+  onChanged: () => void;
+}> = ({ server, artifactId, role, requests, onChanged }) => {
+  if (requests.length === 0) return null;
+  const isOwner = role === 'owner';
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4">
+      <h3 className="text-sm font-semibold text-gray-900 mb-1">Pending access requests</h3>
+      <p className="text-xs text-gray-500 mb-2">
+        Add grants the selected role and clears the request. Dismiss clears it without granting access.
+      </p>
+      <ul className="divide-y divide-gray-100">
+        {requests.map((req) => (
+          <AccessRequestRow
+            key={req.id || req.email}
+            server={server}
+            artifactId={artifactId}
+            request={req}
+            isOwner={isOwner}
+            onChanged={onChanged}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+};
+
 const ShareModal: React.FC<ShareModalProps> = ({
-  annotationURL,
-  label,
+  server,
+  artifactId,
+  role,
+  dataset,
+  initialLabel,
+  cellposeModel,
+  onChanged,
   setShowShareModal,
 }) => {
+  const labels = dataset.labels ?? [];
+  const [selectedLabel, setSelectedLabel] = useState<string>(
+    (initialLabel && labels.some((l) => l.name === initialLabel) ? initialLabel : labels[0]?.name) ?? '',
+  );
+
+  const annotationURL = useMemo(
+    () =>
+      selectedLabel
+        ? `${window.location.origin}/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel, cellposeModel)}`
+        : '',
+    [artifactId, selectedLabel, cellposeModel],
+  );
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
       <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg max-w-2xl w-full max-h-[90vh] border border-white/20 flex flex-col">
@@ -128,7 +260,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                   />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">Share Annotation Session</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Share Dataset</h3>
             </div>
             <button
               onClick={() => setShowShareModal(false)}
@@ -144,23 +276,42 @@ const ShareModal: React.FC<ShareModalProps> = ({
         {/* Scrollable Content */}
         <div className="overflow-y-auto flex-1">
           <div className="p-6 space-y-5">
-            {/* Annotation Label */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
-              <span className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                {label}
-              </span>
-            </div>
+            <SharingPanel server={server} artifactId={artifactId} role={role} dataset={dataset} onChanged={onChanged} />
 
-            {/* Annotation URL */}
-            <URLField
-              label="Annotation URL"
-              url={annotationURL}
-              qrLabel="Annotation URL"
+            <AccessRequestsSection
+              server={server}
+              artifactId={artifactId}
+              role={role}
+              requests={dataset.access_requests ?? []}
+              onChanged={onChanged}
             />
-            <p className="text-xs text-gray-500">
-              Share this link with collaborators to annotate together. Annotations are saved to the cloud automatically.
-            </p>
+
+            {labels.length > 0 ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
+                <select
+                  value={selectedLabel}
+                  onChange={(e) => setSelectedLabel(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  {labels.map((l) => (
+                    <option key={l.name} value={l.name}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="mt-3">
+                  <URLField label="Annotation URL" url={annotationURL} qrLabel={selectedLabel} />
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Share this link with collaborators to annotate together. Annotations are saved to the cloud
+                  automatically.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">Create a label first to get a shareable annotation link.</p>
+            )}
           </div>
         </div>
 
@@ -172,12 +323,14 @@ const ShareModal: React.FC<ShareModalProps> = ({
           >
             Close
           </button>
-          <a
-            href={annotationURL}
-            className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
-          >
-            Open Annotation UI
-          </a>
+          {annotationURL && (
+            <a
+              href={annotationURL}
+              className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
+            >
+              Open Annotation UI
+            </a>
+          )}
         </div>
       </div>
     </div>

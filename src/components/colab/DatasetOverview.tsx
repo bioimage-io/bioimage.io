@@ -7,6 +7,7 @@ import {
   DatasetImage,
   DatasetLabelRef,
   LabelUserRef,
+  buildAnnotateQuery,
   deleteImageEverywhere,
   discoverLabels,
   getAnnotatedStems,
@@ -22,7 +23,6 @@ import { BrokerAccessError, BrokerErrorCode, BrokerRole, DatasetWithRole, getDat
 import LabelManager from './LabelManager';
 import LabelStatsChart from './LabelStatsChart';
 import AnnotationStatsView from './AnnotationStatsView';
-import SharingPanel from './SharingPanel';
 import LabelSelectDialog from './LabelSelectDialog';
 import TrainingModal from './TrainingModal';
 import ShareModal from './ShareModal';
@@ -51,12 +51,6 @@ interface ImageRow {
 // per-row action (colab-rework-plan.md F4a's provisional owner/manager
 // entry point) so relocating where annotation starts stays a one-line
 // change, per the plan's explicit note that this entry point is provisional.
-const buildAnnotateQuery = (artifactId: string, label: string, cellposeModel?: string) => {
-  const params = new URLSearchParams({ session_id: artifactId, label });
-  if (cellposeModel) params.set('cellpose_model', cellposeModel);
-  return params.toString();
-};
-
 const navigateToAnnotate = (
   navigate: ReturnType<typeof useNavigate>,
   artifactId: string,
@@ -726,8 +720,7 @@ print("Service registered successfully", end='')
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setShowShareModal(true)}
-            disabled={!selectedLabel}
-            className="relative px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50"
+            className="relative px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all"
           >
             Share
             {!!dataset?.access_requests?.length && (
@@ -960,14 +953,6 @@ print("Service registered successfully", end='')
           {selectedLabel && (
             <LabelStatsChart totalImages={images?.length ?? 0} annotatedCount={annotatedStems.size} stats={labelStats} />
           )}
-
-          <SharingPanel
-            server={server}
-            artifactId={artifactId}
-            role={role as BrokerRole}
-            dataset={dataset}
-            onChanged={handleRefresh}
-          />
         </div>
       </div>
 
@@ -993,11 +978,16 @@ print("Service registered successfully", end='')
         />
       )}
 
-      {showShareModal && selectedLabel && (
+      {showShareModal && (
         <ShareModal
+          server={server}
+          artifactId={artifactId}
+          role={role as BrokerRole}
+          dataset={dataset}
+          initialLabel={selectedLabel}
+          cellposeModel={cellposeModel}
+          onChanged={handleRefresh}
           setShowShareModal={setShowShareModal}
-          label={selectedLabel}
-          annotationURL={`${window.location.origin}/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel, cellposeModel)}`}
         />
       )}
 
