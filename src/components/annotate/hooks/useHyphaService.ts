@@ -8,7 +8,11 @@ import {
   DatasetIndex,
   EmbeddingUrls,
   SaveUrls as BrokerSaveUrls,
+  ImageUrl as BrokerImageUrl,
+  MyAnnotationUrl as BrokerMyAnnotationUrl,
   getDatasetIndex as brokerGetDatasetIndex,
+  getImageUrl as brokerGetImageUrl,
+  getMyAnnotationUrl as brokerGetMyAnnotationUrl,
   getSaveUrls as brokerGetSaveUrls,
   getEmbeddingUrls as brokerGetEmbeddingUrls,
   requestAccess as brokerRequestAccess,
@@ -92,6 +96,15 @@ export interface AnnotationDataService {
    *  `withRetry` since the broker's read paths don't self-heal internally
    *  (colab-rework-plan.md F5). */
   getDatasetIndex: () => Promise<DatasetIndex>;
+  /** Fresh presigned read url for one image (broker v0.5.0). Public-min role,
+   *  safe to call before the caller's role on the dataset is known, which is
+   *  what lets an `&image=<stem>` deep link render before the index or the
+   *  role check resolves. */
+  getImageUrl: (imageStem: string) => Promise<BrokerImageUrl>;
+  /** The caller's own latest annotation for one image under this session's
+   *  label (broker v0.5.0), replacing the presigned urls `getDatasetIndex`
+   *  used to embed in `my_annotations`. */
+  getMyAnnotationUrl: (imageStem: string) => Promise<BrokerMyAnnotationUrl>;
   /** Presigned PUT urls (+ the timestamp the broker minted) to save one
    *  annotation pair for `imageStem` under this session's label. Every
    *  save is a new timestamped pair; nothing is overwritten. */
@@ -507,20 +520,31 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         const artifactId = toArtifactId(config.artifactId);
         console.log('[useHyphaService] Resolved artifact id:', artifactId);
 
-        // Cellpose service: probe once at connect time. The probe
-        // intentionally pins the replica id in sessionStorage so every
-        // subsequent call (here and from the colab Training UI) lands on
-        // the same worker. That matters because cellpose-finetuning
-        // persists training state to local disk — see
+        // Cellpose and micro-sam availability: probed at connect time, but
+        // fired as non-blocking promises rather than awaited. Neither probe
+        // gates anything `wrappedService`'s methods actually need at call
+        // time — `resolveCellposeService` below and the per-call
+        // `resolveMicroSamService` calls further down both re-resolve a
+        // fresh handle on every invocation regardless of whether this probe
+        // succeeded. Blocking `service`/`setLoading(false)` on these was
+        // pure added latency; running them in parallel with building
+        // `wrappedService` lets the index fetch and image load start as
+        // soon as the single `connectToServer` round-trip above completes.
+        //
+        // Cellpose service probe intentionally pins the replica id in
+        // sessionStorage so every subsequent call (here and from the colab
+        // Training UI) lands on the same worker. That matters because
+        // cellpose-finetuning persists training state to local disk — see
         // utils/cellposeServicePin.ts for the rationale.
-        try {
-          await resolvePinnedCellposeService(server);
-          console.log('[useHyphaService] cellpose-finetuning reachable');
-          if (!cancelled) setCellposeAvailable(true);
-        } catch (err) {
-          console.warn('[useHyphaService] cellpose-finetuning not reachable:', err);
-          if (!cancelled) setCellposeAvailable(false);
-        }
+        resolvePinnedCellposeService(server)
+          .then(() => {
+            console.log('[useHyphaService] cellpose-finetuning reachable');
+            if (!cancelled) setCellposeAvailable(true);
+          })
+          .catch((err) => {
+            console.warn('[useHyphaService] cellpose-finetuning not reachable:', err);
+            if (!cancelled) setCellposeAvailable(false);
+          });
 
         /** Resolve a fresh handle to the *pinned* cellpose-finetuning
          *  replica per call. Hypha service handles expire after a few
@@ -538,21 +562,26 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           }
         };
 
-        // micro-sam (μSAM) service: probe once at connect time. Unlike
-        // cellpose-finetuning there is nothing to pin (μSAM is stateless
-        // across replicas), so both the probe and the per-call resolver just
-        // re-resolve a fresh handle from the fully-qualified service id.
-        try {
-          await resolveMicroSamService(server);
-          console.log('[useHyphaService] micro-sam reachable');
-          if (!cancelled) setMicroSamAvailable(true);
-        } catch (err) {
-          console.warn('[useHyphaService] micro-sam not reachable:', err);
-          if (!cancelled) setMicroSamAvailable(false);
-        }
+        // micro-sam (μSAM) service probe. Unlike cellpose-finetuning there
+        // is nothing to pin (μSAM is stateless across replicas), so both
+        // the probe and the per-call resolver just re-resolve a fresh
+        // handle from the fully-qualified service id.
+        resolveMicroSamService(server)
+          .then(() => {
+            console.log('[useHyphaService] micro-sam reachable');
+            if (!cancelled) setMicroSamAvailable(true);
+          })
+          .catch((err) => {
+            console.warn('[useHyphaService] micro-sam not reachable:', err);
+            if (!cancelled) setMicroSamAvailable(false);
+          });
 
         const wrappedService: AnnotationDataService = {
           getDatasetIndex: async () => withRetry(() => brokerGetDatasetIndex(server, artifactId)),
+          getImageUrl: async (imageStem: string) =>
+            withRetry(() => brokerGetImageUrl(server, artifactId, imageStem)),
+          getMyAnnotationUrl: async (imageStem: string) =>
+            withRetry(() => brokerGetMyAnnotationUrl(server, artifactId, config.label, imageStem)),
           getSaveUrls: async (imageStem: string) =>
             withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
           getEmbeddingUrls: async (imageStem: string) =>
