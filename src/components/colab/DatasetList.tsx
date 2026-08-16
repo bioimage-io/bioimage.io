@@ -29,43 +29,50 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
 
   useEffect(() => {
     let active = true;
+    const limit = pLimit(4);
+    const collectLabelCounts = (artifactId: string, labels: Array<{ name: string }>) =>
+      Promise.all(
+        labels.map((label) =>
+          limit(async () => {
+            try {
+              const stems = await getAnnotatedStems(artifactManager, artifactId, label.name);
+              if (active) {
+                setLabelCounts((prev) => ({
+                  ...prev,
+                  [artifactId]: { ...prev[artifactId], [label.name]: stems.size },
+                }));
+              }
+            } catch {
+              // best-effort count
+            }
+          }),
+        ),
+      );
+
+    // Each column resolves independently so "Your datasets" and "Shared with
+    // you" each show their own spinner only while that column's own fetch is
+    // in flight, instead of a single joint spinner gating both
+    // (colab-rework-plan.md §21 item 3).
+    (async () => {
+      try {
+        const own = await listMyDatasets(artifactManager, user);
+        if (!active) return;
+        setOwnDatasets(own);
+        await Promise.all(own.map((d) => collectLabelCounts(d.artifact_id, d.labels)));
+      } catch (err) {
+        if (active) setError((err as Error).message || 'Failed to load your datasets.');
+      }
+    })();
 
     (async () => {
       try {
-        const [own, shared] = await Promise.all([
-          listMyDatasets(artifactManager, user),
-          server ? listSharedDatasets(server).catch(() => ({ shared: [] })) : Promise.resolve({ shared: [] }),
-        ]);
+        const shared = server ? await listSharedDatasets(server).catch(() => ({ shared: [] })) : { shared: [] };
         if (!active) return;
-        setOwnDatasets(own);
-        setSharedDatasets(shared.shared || []);
-
-        const limit = pLimit(4);
-        const jobs: Array<Promise<void>> = [];
-        const collect = (artifactId: string, labels: Array<{ name: string }>) => {
-          for (const label of labels) {
-            jobs.push(
-              limit(async () => {
-                try {
-                  const stems = await getAnnotatedStems(artifactManager, artifactId, label.name);
-                  if (active) {
-                    setLabelCounts((prev) => ({
-                      ...prev,
-                      [artifactId]: { ...prev[artifactId], [label.name]: stems.size },
-                    }));
-                  }
-                } catch {
-                  // best-effort count
-                }
-              }),
-            );
-          }
-        };
-        own.forEach((d) => collect(d.artifact_id, d.labels));
-        (shared.shared || []).forEach((d) => collect(d.artifact_id, d.labels));
-        await Promise.all(jobs);
+        const sharedList = shared.shared || [];
+        setSharedDatasets(sharedList);
+        await Promise.all(sharedList.map((d) => collectLabelCounts(d.artifact_id, d.labels)));
       } catch (err) {
-        if (active) setError((err as Error).message || 'Failed to load datasets.');
+        if (active) setError((err as Error).message || 'Failed to load shared datasets.');
       }
     })();
 
@@ -94,7 +101,8 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
     }
   };
 
-  const loading = ownDatasets === null && sharedDatasets === null;
+  const ownLoading = ownDatasets === null;
+  const sharedLoading = sharedDatasets === null;
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-10">
@@ -115,61 +123,66 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
         <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <section>
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Your datasets</h2>
-            {ownDatasets && ownDatasets.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4">
-                {ownDatasets.map((dataset) => (
-                  <DatasetCard
-                    key={dataset.artifact_id}
-                    name={dataset.name}
-                    description={dataset.description}
-                    role="owner"
-                    labels={dataset.labels}
-                    labelCounts={labelCounts[dataset.artifact_id]}
-                    onOpen={() => openOwnDataset(dataset.artifact_id)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-xl p-6 text-center">
-                No datasets yet. Create one to get started.
-              </div>
-            )}
-          </section>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Your datasets</h2>
+          {ownLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            </div>
+          ) : ownDatasets && ownDatasets.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4">
+              {ownDatasets.map((dataset) => (
+                <DatasetCard
+                  key={dataset.artifact_id}
+                  name={dataset.name}
+                  description={dataset.description}
+                  role="owner"
+                  labels={dataset.labels}
+                  labelCounts={labelCounts[dataset.artifact_id]}
+                  onOpen={() => openOwnDataset(dataset.artifact_id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-xl p-6 text-center">
+              No datasets yet. Create one to get started.
+            </div>
+          )}
+        </section>
 
-          <section>
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Shared with you</h2>
-            {sharedDatasets && sharedDatasets.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4">
-                {sharedDatasets.map((dataset) => (
-                  <DatasetCard
-                    key={dataset.artifact_id}
-                    name={dataset.name}
-                    role={dataset.role}
-                    labels={dataset.labels}
-                    labelCounts={labelCounts[dataset.artifact_id]}
-                    onOpen={() => openSharedDataset(dataset)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-xl p-6 text-center">
-                No datasets have been shared with you yet.
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Shared with you</h2>
+          {sharedLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            </div>
+          ) : sharedDatasets && sharedDatasets.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4">
+              {sharedDatasets.map((dataset) => (
+                <DatasetCard
+                  key={dataset.artifact_id}
+                  name={dataset.name}
+                  role={dataset.role}
+                  labels={dataset.labels}
+                  labelCounts={labelCounts[dataset.artifact_id]}
+                  onOpen={() => openSharedDataset(dataset)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-xl p-6 text-center">
+              No datasets have been shared with you yet.
+            </div>
+          )}
+        </section>
+      </div>
 
       {showCreateModal && (
         <CreateDatasetModal
