@@ -39,6 +39,11 @@ const getSavedToken = () => {
   return null;
 };
 
+// Exported so other components can tell "still auto-connecting from a saved
+// login" (spinner is appropriate) apart from "never logged in, will never
+// auto-connect" (show a login prompt immediately instead of spinning forever).
+export const hasSavedToken = () => getSavedToken() !== null;
+
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);

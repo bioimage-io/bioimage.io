@@ -1,17 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
-import { resolvePinnedCellposeService } from '../../../utils/cellposeServicePin';
+import { resolveCellpose4RunnerService, pollCellpose4Infer, CELLPOSE4_RUNNER_MODEL_ID } from '../../../utils/cellpose4RunnerService';
+import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
+import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
+import { HYPHA_SERVER_URL } from '../../../config/hypha';
+import {
+  DatasetIndex,
+  EmbeddingUrls,
+  SaveUrls as BrokerSaveUrls,
+  ImageUrl as BrokerImageUrl,
+  MyAnnotationUrl as BrokerMyAnnotationUrl,
+  getDatasetIndex as brokerGetDatasetIndex,
+  getImageUrl as brokerGetImageUrl,
+  getMyAnnotationUrl as brokerGetMyAnnotationUrl,
+  getSaveUrls as brokerGetSaveUrls,
+  getEmbeddingUrls as brokerGetEmbeddingUrls,
+  requestAccess as brokerRequestAccess,
+  withRetry,
+} from '../../colab/brokerApi';
+import { toArtifactId } from '../../colab/datasetApi';
 
 export interface AnnotationServiceConfig {
-  serverUrl: string;
-  imageProviderId: string;
-  label?: string;
-}
-
-export interface SaveUrls {
-  png_url: string;
-  geojson_url: string;
-  image_stem: string;
+  artifactId: string;
+  label: string;
+  /** Serve μSAM's automatic-segmentation and box-embedding calls from a
+   *  fine-tuned training session's checkpoint instead of the base model
+   *  (colab-rework-plan.md §20 item 2). ``modelType`` must be the base
+   *  model the session was trained from; only usable once the session's
+   *  ``checkpoint_available`` flag is true. The shared ONNX prompt decoder
+   *  (``getMicroSamOnnxModel``) still serves the base model_type only, the
+   *  micro-sam service has no per-session decoder export. */
+  microSamSession?: { sessionId: string; modelType: string };
 }
 
 export interface CellposeMask {
@@ -19,14 +38,38 @@ export interface CellposeMask {
   coordinates: number[][][]; // polygon rings
 }
 
+/** Raw pieces the in-browser ONNX box-decoder needs for one image. The
+ *  encoder features stay as the hypha-rpc ndarray wire-dict so the decoder
+ *  hook can build the ort tensor without a second copy here. */
+export interface MicroSamEmbedding {
+  /** hypha ndarray wire-dict: float32 (1, 256, 64, 64). */
+  features: any;
+  /** [scaledH, scaledW] the encoder ran at (== SAM orig_im_size). */
+  originalImageShape: number[];
+  /** 1024 / max(scaledH, scaledW); multiplies prompt point coords. */
+  samScale: number;
+  /** Logit threshold for the decoder output (service reports 0.0). */
+  maskThreshold: number;
+  /** Working resolution the CHW input was downsampled to. */
+  scaledW: number;
+  scaledH: number;
+}
+
 export interface CellposeParams {
-  model?: string;
-  diameter?: number | null;
   flow_threshold?: number;
   cellprob_threshold?: number;
   niter?: number | null;
   min_mask_area?: number;
-  enable_clahe?: boolean;
+  /** Representative object diameter in display-space pixels. When set, the
+   *  image is rescaled (frontend-only, before the network call) so objects
+   *  match Cellpose-SAM's expected ~30 px working diameter. cellpose4-runner
+   *  has no diameter parameter of its own; the server never sees this value,
+   *  only the already-rescaled pixels. Ignored by the μSAM path. */
+  diameter?: number | null;
+  /** Cellpose-SAM only. Forwarded to the runner's infer() call: runs the
+   *  model twice, feeding the first pass's raw flow field back in as input
+   *  to the second pass, whose output is what gets postprocessed. */
+  two_pass?: boolean;
 }
 
 /**
@@ -62,54 +105,66 @@ export interface NoImagesResult {
   message: string;
 }
 
-export interface ImageResult {
-  url: string;
-  name: string;
-  cellpose_model?: string;
-  existing_geojson_url?: string | null;
-  round?: number;
-}
-
-export interface CurrentRoundResult {
-  current_round: number;
-  max_existing_round: number;
-}
-
-export interface ImageInfo {
-  name: string;
-  stem: string;
-  source: 'local' | 'remote';
-  /** Whether the *current annotator* has saved both PNG + GeoJSON for this image. */
-  is_annotated: boolean;
-  /** Whether *any* annotator has saved this image (used for global progress). */
-  annotated_by_any?: boolean;
-}
-
-export interface ImageNotFoundResult {
-  status: 'not_found';
-  message: string;
-}
-
 export interface AnnotationDataService {
-  /** The annotator id resolved at connect time (Hypha workspace user id, or
-   *  a localStorage anon uuid for booth visitors). Surfaced for diagnostic
-   *  banners and as the key for round-state storage. */
-  userId: string;
-  /** Highest existing round number for this user when the connection was
-   *  established. Returned by the colab service's get_current_round. The
-   *  React component holds the live current round in its own state and
-   *  passes it to every call below. */
-  initialRound: number;
-  getImage: (round: number) => Promise<ImageResult | AllAnnotatedResult | NoImagesResult>;
-  getImageByStem: (stem: string, round: number) => Promise<ImageResult | ImageNotFoundResult>;
-  listImages: (round: number) => Promise<ImageInfo[]>;
-  getSaveUrls: (imageName: string, round: number) => Promise<SaveUrls>;
-  runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
-  /** Fetch raw (dP, cellprob) for client-side mask-gen tuning (>= 0.1.5).
-   *  Only ``model``, ``diameter`` and ``enable_clahe`` influence the
-   *  network output; the mask-gen knobs are ignored and consumed by the
-   *  client-side compute_masks_np instead. */
-  runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeFlowsResult>;
+  /** Full broker-index snapshot: every image in the dataset plus this
+   *  caller's own latest annotation per (label, stem). Wrapped in
+   *  `withRetry` since the broker's read paths don't self-heal internally
+   *  (colab-rework-plan.md F5). */
+  getDatasetIndex: () => Promise<DatasetIndex>;
+  /** Fresh presigned read url for one image (broker v0.5.0). Public-min role,
+   *  safe to call before the caller's role on the dataset is known, which is
+   *  what lets an `&image=<stem>` deep link render before the index or the
+   *  role check resolves. */
+  getImageUrl: (imageStem: string) => Promise<BrokerImageUrl>;
+  /** The caller's own latest annotation for one image under this session's
+   *  label (broker v0.5.0), replacing the presigned urls `getDatasetIndex`
+   *  used to embed in `my_annotations`. */
+  getMyAnnotationUrl: (imageStem: string) => Promise<BrokerMyAnnotationUrl>;
+  /** Presigned PUT urls (+ the timestamp the broker minted) to save one
+   *  annotation pair for `imageStem` under this session's label. Every
+   *  save is a new timestamped pair; nothing is overwritten. */
+  getSaveUrls: (imageStem: string) => Promise<BrokerSaveUrls>;
+  /** Presigned urls for the stored μSAM embedding of `imageStem` (pinned
+   *  model type): either a GET url if it already exists, or a PUT url to
+   *  upload a freshly computed one. */
+  getEmbeddingUrls: (imageStem: string) => Promise<EmbeddingUrls>;
+  /** ``params.diameter``, if set, rescales the image client-side (Cellpose
+   *  convention: target ~30 px object diameter) before it is sent. When
+   *  ``signal`` aborts while the request is queued/running, polling stops
+   *  and the promise rejects with an ``AbortError`` instead of resolving
+   *  with a late result. */
+  runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeMask[]>;
+  /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
+   *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
+   *  response), so it returns the same ``CellposeMask[]`` polygons. Only
+   *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
+   *  Cellpose-specific knobs (flow/cellprob, niter). */
+  runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+  /** Fetch the quantized μSAM ONNX prompt-decoder bytes for the in-browser box
+   *  tool. One round-trip per page; the decoder hook caches the ort session. */
+  getMicroSamOnnxModel: () => Promise<Uint8Array>;
+  /** Run the μSAM image encoder once for the interactive box tool. Returns the
+   *  encoder features plus the geometry the ONNX decoder needs. Cached per
+   *  image URL by the decoder hook. */
+  computeMicroSamEmbedding: (imageUrl: string, width: number, height: number) => Promise<MicroSamEmbedding>;
+  /** Run the μSAM encoder and have the service write the ``.npz`` straight into
+   *  the session artifact via ``embedding_upload_url``. No features returned. */
+  computeMicroSamEmbeddingToArtifact: (imageUrl: string, width: number, height: number, uploadUrl: string) => Promise<void>;
+  /** Download + unzip a stored ``.npz`` embedding into the decoder-ready shape
+   *  (reconstructs the same ``MicroSamEmbedding`` the inline encode returned). */
+  loadMicroSamEmbedding: (npzUrl: string) => Promise<MicroSamEmbedding>;
+  /** μSAM AIS pre-seg from a stored embedding link. Server reads the ``.npz``
+   *  and returns the same ``[{output}]`` list; the browser never pulls it. */
+  runMicroSamFromEmbedding: (npzUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+  /** Fetch raw (dP, cellprob) for client-side mask-gen tuning. The network
+   *  output only depends on the image (always the published 'idealistic-eagle'
+   *  model via cellpose4-runner); ``params`` mask-gen knobs are ignored here
+   *  and consumed by the client-side compute_masks_np instead. */
+  runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeFlowsResult>;
+  /** Ask the broker for a role on this dataset (colab-rework-plan.md §13).
+   *  Only meaningful for a logged-in caller; the broker rejects anonymous
+   *  requests with a message asking the user to log in first. */
+  requestAccess: (role?: 'annotator' | 'manager') => Promise<{ status: 'requested' | 'already_has_access'; [key: string]: any }>;
 }
 
 /** Convert raw cellpose mask data into ``CellposeMask`` polygons, rescaled
@@ -139,23 +194,79 @@ export function maskDataToPolygons(
   return polygons;
 }
 
+/** Decode a hypha-rpc label-mask ndarray (``{_rtype:'ndarray', _rvalue, _rshape:[H,W], _rdtype}``)
+ *  into a typed array plus its width/height. Shared by the Cellpose and μSAM
+ *  infer paths, whose ``result[0].output`` have the identical wire shape. */
+function decodeLabelMask(maskResult: any): {
+  maskData: Int32Array | Uint16Array | Uint32Array | Float32Array;
+  w: number;
+  h: number;
+} {
+  let buffer = maskResult._rvalue;
+  let shape = maskResult._rshape as number[];
+  const dtype = maskResult._rdtype as string;
+  // cellpose4-runner returns a leading batch axis, e.g. (1, 1, H, W) instead
+  // of the bare (H, W) this function used to assume. Drop leading singleton
+  // dims so w/h always read the real trailing spatial dims; without this,
+  // w and h silently read as 1 and every mask decodes to zero polygons with
+  // no thrown error.
+  while (shape.length > 2 && shape[0] === 1) {
+    shape = shape.slice(1);
+  }
+  const w = shape[1];
+  const h = shape[0];
+  // _rvalue may be a Uint8Array view; slice out its underlying ArrayBuffer.
+  if (buffer instanceof Uint8Array) {
+    buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  }
+  let maskData: Int32Array | Uint16Array | Uint32Array | Float32Array;
+  if (dtype === 'int32' || dtype === 'int') {
+    maskData = new Int32Array(buffer);
+  } else if (dtype === 'uint16') {
+    maskData = new Uint16Array(buffer);
+  } else if (dtype === 'float32') {
+    maskData = new Float32Array(buffer);
+  } else if (dtype === 'uint32') {
+    maskData = new Uint32Array(buffer);
+  } else {
+    maskData = new Int32Array(buffer);
+  }
+  return { maskData, w, h };
+}
+
 /** Extract image pixel data as a Uint8Array in CHW RGB format (3, H, W) for cellpose */
 /** Max pixel dimension sent to Cellpose-SAM. Larger images are downsampled to this size.
  *  256 gives ~30-60s inference on HPA fluorescence images with 10-20 cells detected.
  *  512 gives 5-15 min for the same images (too slow for interactive use). */
 const CELLPOSE_MAX_DIM = 256;
 
+/** Long-side pixel cap for the μSAM image encoder. SAM resizes its input to
+ *  1024 internally, so 1024 is the quality sweet spot (256 loses detail); the
+ *  box-decoder coordinate math is resolution-invariant, so this only affects
+ *  embedding quality, not correctness. */
+const MICRO_SAM_MAX_DIM = 1024;
+
 function getImagePixelsCHW(
   imageUrl: string,
   width: number,
   height: number,
+  maxDim: number = CELLPOSE_MAX_DIM,
+  diameter?: number | null,
 ): Promise<{ chw: Uint8Array; scaledW: number; scaledH: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Downsample if either dimension exceeds CELLPOSE_MAX_DIM
-      const scale = Math.min(1, CELLPOSE_MAX_DIM / Math.max(width, height));
+      // Cellpose convention: the network expects objects ~30 px across, so a
+      // known diameter drives the rescale (can upsample small-object images,
+      // unlike the plain downsample-only default below). Still capped by
+      // maxDim so a small diameter on a large image can't blow up inference
+      // time/memory; when uncapped this can undersize objects relative to
+      // the 30 px target, trading fidelity for a bounded round-trip.
+      const capScale = maxDim / Math.max(width, height);
+      const scale = diameter && diameter > 0
+        ? Math.min(30 / diameter, capScale)
+        : Math.min(1, capScale);
       const scaledW = Math.round(width * scale);
       const scaledH = Math.round(height * scale);
 
@@ -181,6 +292,50 @@ function getImagePixelsCHW(
   });
 }
 
+/** Zero out every pixel except those in the largest 8-connected component,
+ *  so a handful of stray noise pixels can't outweigh the real blob. */
+function largestConnectedComponent(binary: Uint8Array, width: number, height: number): Uint8Array {
+  const visited = new Uint8Array(width * height);
+  let bestIndices: number[] | null = null;
+  const stack: number[] = [];
+
+  for (let start = 0; start < binary.length; start++) {
+    if (binary[start] !== 1 || visited[start]) continue;
+    const componentIndices: number[] = [];
+    stack.length = 0;
+    stack.push(start);
+    visited[start] = 1;
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      componentIndices.push(idx);
+      const cx = idx % width;
+      const cy = (idx / width) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const nIdx = ny * width + nx;
+          if (binary[nIdx] === 1 && !visited[nIdx]) {
+            visited[nIdx] = 1;
+            stack.push(nIdx);
+          }
+        }
+      }
+    }
+    if (!bestIndices || componentIndices.length > bestIndices.length) {
+      bestIndices = componentIndices;
+    }
+  }
+
+  const result = new Uint8Array(width * height);
+  if (bestIndices) {
+    for (const idx of bestIndices) result[idx] = 1;
+  }
+  return result;
+}
+
 /** Convert cellpose mask (2D label array) to polygon contours using marching squares */
 function maskToPolygons(maskData: number[] | Uint16Array | Uint32Array | Float32Array, width: number, height: number): CellposeMask[] {
   // Find unique labels (skip 0 = background)
@@ -193,12 +348,24 @@ function maskToPolygons(maskData: number[] | Uint16Array | Uint32Array | Float32
 
   for (const label of Array.from(labelSet)) {
     // Create binary mask for this label
-    const binary = new Uint8Array(width * height);
+    let binary = new Uint8Array(width * height);
+    for (let i = 0; i < maskData.length; i++) {
+      if (maskData[i] === label) binary[i] = 1;
+    }
+
+    // Restrict to the largest connected component. traceContour always
+    // starts at the first fg pixel found by raster scan (top-left-most) and
+    // stops as soon as it loops back to that start point, so a single
+    // isolated above-threshold noise pixel elsewhere in the frame (common in
+    // the SAM box decoder's raw logit mask, which isn't guaranteed to be one
+    // clean blob) hijacks the trace into a degenerate few-point polygon
+    // instead of the real region.
+    binary = largestConnectedComponent(binary, width, height);
+
     let minX = width, maxX = 0, minY = height, maxY = 0;
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        if (maskData[y * width + x] === label) {
-          binary[y * width + x] = 1;
+        if (binary[y * width + x] === 1) {
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
           minY = Math.min(minY, y);
@@ -249,30 +416,54 @@ function traceContour(binary: Uint8Array, width: number, height: number, minX: n
   };
 
   let x = startX, y = startY;
-  let dir = 0; // start looking up
+  // The raster scan above always finds the start pixel by sweeping left-to-right,
+  // so treat it as if we'd arrived by moving East from its (guaranteed background)
+  // West neighbor - dir=2 (East), matching the dirs[] index below. Starting from
+  // dir=0 searched the wrong neighbor order and could spiral into a degenerate
+  // 2-3 point loop right at the start pixel whenever it was a single-pixel-wide
+  // tip (e.g. the top of a circular blob), instead of following the real boundary.
+  let dir = 2;
   const maxSteps = (maxX - minX + 3) * (maxY - minY + 3) * 2;
   let steps = 0;
+  // Jacob's stopping criterion: remember the first boundary pixel reached from
+  // start, and only stop once we're back at start about to take that exact same
+  // step again - just re-touching the start pixel's coordinates isn't enough,
+  // since a thin protrusion can touch it again mid-trace without having gone
+  // all the way around the shape.
+  let firstX = -1, firstY = -1;
 
   do {
     points.push([x, y]);
     // Find next boundary pixel
     let found = false;
     const searchStart = (dir + 5) % 8; // start searching from dir-3
+    let nx = -1, ny = -1, nd = -1;
     for (let i = 0; i < 8; i++) {
       const d = (searchStart + i) % 8;
-      const nx = x + dirs[d][0];
-      const ny = y + dirs[d][1];
-      if (getPixel(nx, ny) === 1) {
-        x = nx;
-        y = ny;
-        dir = d;
+      const cx = x + dirs[d][0];
+      const cy = y + dirs[d][1];
+      if (getPixel(cx, cy) === 1) {
+        nx = cx;
+        ny = cy;
+        nd = d;
         found = true;
         break;
       }
     }
     if (!found) break;
+
+    if (firstX === -1) {
+      firstX = nx;
+      firstY = ny;
+    } else if (x === startX && y === startY && nx === firstX && ny === firstY) {
+      break;
+    }
+
+    x = nx;
+    y = ny;
+    dir = nd;
     steps++;
-  } while ((x !== startX || y !== startY) && steps < maxSteps);
+  } while (steps < maxSteps);
 
   // Simplify: take every Nth point for large contours
   if (points.length > 200) {
@@ -307,11 +498,16 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   loading: boolean;
   error: string | null;
   cellposeAvailable: boolean;
+  microSamAvailable: boolean;
+  /** Tear down and re-run the connect flow from scratch (same config). */
+  retry: () => void;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cellposeAvailable, setCellposeAvailable] = useState(false);
+  const [microSamAvailable, setMicroSamAvailable] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const serverRef = useRef<any>(null);
 
   useEffect(() => {
@@ -329,10 +525,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
       try {
         // Pull the user's auth token from localStorage so logged-in users
-        // connect into their own Hypha workspace (ws-user-<id>). The
-        // workspace shape is what useHyphaService uses to resolve a stable
-        // per-annotator user_id below. Anonymous booth visitors fall back
-        // to a localStorage anon uuid.
+        // connect into their own Hypha workspace (ws-user-<id>). Anonymous
+        // visitors connect without a token; the broker only allows
+        // unauthenticated reads/writes on public datasets
+        // (colab-rework-plan.md §8).
         let storedToken: string | undefined;
         try {
           const t = window.localStorage.getItem('token');
@@ -342,7 +538,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         } catch {
           // localStorage may be unavailable in private modes; carry on anonymous.
         }
-        const connectCfg: any = { server_url: config.serverUrl };
+        const connectCfg: any = { server_url: HYPHA_SERVER_URL };
         if (storedToken) connectCfg.token = storedToken;
         const server = await hyphaWebsocketClient.connectToServer(connectCfg);
         if (cancelled) {
@@ -352,155 +548,96 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = server;
         console.log('[useHyphaService] Connected to workspace:', server.config.workspace);
 
-        // Derive a stable per-annotator id. Logged-in users get their Hypha
-        // user id (workspace shape ws-user-<id>). Anonymous booth visitors
-        // get a localStorage-backed uuid that persists across reloads on
-        // the same browser, so their per-user mask folder stays consistent.
-        const workspaceName: string = server.config?.workspace || '';
-        let resolvedUserId = '';
-        if (workspaceName.startsWith('ws-user-')) {
-          resolvedUserId = workspaceName.substring('ws-user-'.length);
-        } else {
-          try {
-            const stored = window.localStorage.getItem('bioimage_annot_anon_id');
-            if (stored) {
-              resolvedUserId = stored;
-            } else {
-              const fresh = 'anon-' + Math.random().toString(36).slice(2, 12);
-              window.localStorage.setItem('bioimage_annot_anon_id', fresh);
-              resolvedUserId = fresh;
-            }
-          } catch {
-            resolvedUserId = 'anon-' + Math.random().toString(36).slice(2, 12);
-          }
+        // The session_id in the URL may be a bare alias or a full
+        // workspace/alias; datasets always live in the fixed bioimage-io
+        // collection workspace, never the connected (annotating) user's own
+        // workspace, so this must NOT use server.config.workspace (that was
+        // the bug: an annotator's own workspace differs from bioimage-io,
+        // so a bare-alias URL resolved to an id that was never registered).
+        const artifactId = toArtifactId(config.artifactId);
+        console.log('[useHyphaService] Resolved artifact id:', artifactId);
+
+        // Fine-tuned model override (colab-rework-plan.md §20 item 2): when
+        // set, every μSAM compute_embedding/infer call below serves this
+        // training session's checkpoint instead of the base model. The
+        // stored-embedding cache key is namespaced by session id too, so a
+        // finetuned session's embeddings never collide with (or reuse) the
+        // base model's cache.
+        const microSamModelType = config.microSamSession?.modelType ?? MICRO_SAM_MODEL_TYPE;
+        const microSamSessionId = config.microSamSession?.sessionId;
+        const microSamEmbeddingCacheKey = microSamSessionId
+          ? `${microSamModelType}:session:${microSamSessionId}`
+          : microSamModelType;
+        if (microSamSessionId) {
+          console.log('[useHyphaService] Using fine-tuned micro-sam session:', microSamSessionId, microSamModelType);
         }
-        console.log('[useHyphaService] Resolved annotator user_id:', resolvedUserId);
 
-        const dataService = await server.getService(config.imageProviderId);
-        if (cancelled) return;
-        console.log('[useHyphaService] Got data service:', dataService);
-
-        // Ask the data service which round this user is on. New users get 1;
-        // returning users pick up where they left off.
-        let resolvedInitialRound = 1;
-        try {
-          const cr = await dataService.get_current_round({
-            user_id: resolvedUserId,
-            _rkwargs: true,
+        // Cellpose (cellpose4-runner) and micro-sam availability: probed at
+        // connect time, but fired as non-blocking promises rather than
+        // awaited. Neither probe gates anything `wrappedService`'s methods
+        // actually need at call time — `resolveCellposeService` below and
+        // the per-call `resolveMicroSamService` calls further down both
+        // re-resolve a fresh handle on every invocation regardless of
+        // whether this probe succeeded. Blocking `service`/`setLoading(false)`
+        // on these was pure added latency; running them in parallel with
+        // building `wrappedService` lets the index fetch and image load
+        // start as soon as the single `connectToServer` round-trip above
+        // completes.
+        //
+        // cellpose4-runner is stateless across replicas (its resident-model
+        // cache is a performance optimization, not per-session state), so
+        // unlike cellpose-finetuning there is nothing to pin — see
+        // utils/cellpose4RunnerService.ts.
+        resolveCellpose4RunnerService(server)
+          .then(() => {
+            console.log('[useHyphaService] cellpose4-runner reachable');
+            if (!cancelled) setCellposeAvailable(true);
+          })
+          .catch((err) => {
+            console.warn('[useHyphaService] cellpose4-runner not reachable:', err);
+            if (!cancelled) setCellposeAvailable(false);
           });
-          const n = cr && (cr.current_round as number);
-          if (typeof n === 'number' && n > 0) {
-            resolvedInitialRound = n;
-          }
-          console.log('[useHyphaService] Initial round:', resolvedInitialRound,
-            '(max existing:', cr?.max_existing_round, ')');
-        } catch (err) {
-          console.warn('[useHyphaService] get_current_round failed, defaulting to 1:', err);
-        }
 
-        // Cellpose service: probe once at connect time. The probe
-        // intentionally pins the replica id in sessionStorage so every
-        // subsequent call (here and from the colab Training UI) lands on
-        // the same worker. That matters because cellpose-finetuning
-        // persists training state to local disk — see
-        // utils/cellposeServicePin.ts for the rationale.
-        try {
-          await resolvePinnedCellposeService(server);
-          console.log('[useHyphaService] cellpose-finetuning reachable');
-          if (!cancelled) setCellposeAvailable(true);
-        } catch (err) {
-          console.warn('[useHyphaService] cellpose-finetuning not reachable:', err);
-          if (!cancelled) setCellposeAvailable(false);
-        }
+        /** Resolve a fresh handle to the cellpose4-runner service per call.
+         *  Hypha service handles expire after a few minutes of inactivity;
+         *  the symptom is ``Method expired or not found`` on the next
+         *  infer. Cheap to resolve (one websocket round-trip) so we
+         *  re-resolve unconditionally instead of caching + retrying. */
+        const resolveCellposeService = async () => resolveCellpose4RunnerService(server);
 
-        /** Resolve a fresh handle to the *pinned* cellpose-finetuning
-         *  replica per call. Hypha service handles expire after a few
-         *  minutes of inactivity; the symptom is ``Method expired or not
-         *  found`` on the next infer. Cheap to resolve (one websocket
-         *  round-trip) so we re-resolve unconditionally instead of
-         *  caching + retrying. */
-        const resolveCellposeService = async () => {
-          try {
-            return await resolvePinnedCellposeService(server);
-          } catch (err) {
-            throw new Error(
-              `Cellpose service is not available (${(err as Error)?.message || err})`,
-            );
-          }
-        };
+        // micro-sam (μSAM) service probe. Unlike cellpose-finetuning there
+        // is nothing to pin (μSAM is stateless across replicas), so both
+        // the probe and the per-call resolver just re-resolve a fresh
+        // handle from the fully-qualified service id.
+        resolveMicroSamService(server)
+          .then(() => {
+            console.log('[useHyphaService] micro-sam reachable');
+            if (!cancelled) setMicroSamAvailable(true);
+          })
+          .catch((err) => {
+            console.warn('[useHyphaService] micro-sam not reachable:', err);
+            if (!cancelled) setMicroSamAvailable(false);
+          });
 
         const wrappedService: AnnotationDataService = {
-          userId: resolvedUserId,
-          initialRound: resolvedInitialRound,
-          getImage: async (round: number) => {
-            const result = await dataService.get_image({
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            // Service returns a dict with status field for terminal states
-            if (result && typeof result === 'object') {
-              const status = (result as any).status;
-              if (status === 'all_annotated') {
-                console.log('[useHyphaService] All images annotated:', result);
-                return result as AllAnnotatedResult;
-              }
-              if (status === 'no_images') {
-                console.log('[useHyphaService] No images available:', result);
-                return result as NoImagesResult;
-              }
-            }
-            // Older versions or different implementations might still return a string
-            if (typeof result === 'string') {
-              console.log('[useHyphaService] Image URL:', result);
-              const name = result.split('/').pop()?.split('?')[0] || 'image.png';
-              return { url: result, name } as ImageResult;
-            }
-            console.log('[useHyphaService] Image Info:', result);
-            return result as ImageResult;
-          },
-          getImageByStem: async (stem: string, round: number) => {
-            console.log('[useHyphaService] Getting image by stem:', stem, 'label:', config.label, 'user:', resolvedUserId, 'round:', round);
-            const result = await dataService.get_image_by_stem({
-              image_stem: stem,
-              label: config.label,
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            if (result && typeof result === 'object' && (result as any).status === 'not_found') {
-              console.warn('[useHyphaService] Image not found:', result);
-              return result as ImageNotFoundResult;
-            }
-            return result as ImageResult;
-          },
-          listImages: async (round: number) => {
-            const result = await dataService.list_images({
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            return (result || []) as ImageInfo[];
-          },
-          getSaveUrls: async (imageName: string, round: number) => {
-            console.log('[useHyphaService] Getting save URLs for:', imageName, 'user:', resolvedUserId, 'round:', round);
-            const urls = await dataService.get_save_urls({
-              image_name: imageName,
-              label: config.label,
-              user_id: resolvedUserId,
-              round_n: round,
-              _rkwargs: true,
-            });
-            return urls as SaveUrls;
-          },
-          runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
+          getDatasetIndex: async () => withRetry(() => brokerGetDatasetIndex(server, artifactId)),
+          getImageUrl: async (imageStem: string) =>
+            withRetry(() => brokerGetImageUrl(server, artifactId, imageStem)),
+          getMyAnnotationUrl: async (imageStem: string) =>
+            withRetry(() => brokerGetMyAnnotationUrl(server, artifactId, config.label, imageStem)),
+          getSaveUrls: async (imageStem: string) =>
+            withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
+          getEmbeddingUrls: async (imageStem: string) =>
+            withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, microSamEmbeddingCacheKey)),
+          runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose inference with params:', p);
+            console.log('[useHyphaService] Running cellpose4-runner inference with params:', p);
 
             // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format).
-            // Images are downsampled to CELLPOSE_MAX_DIM to keep inference fast.
-            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            // Images are rescaled to CELLPOSE_MAX_DIM (or by p.diameter, capped
+            // the same way) to keep inference fast.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height, CELLPOSE_MAX_DIM, p.diameter);
             console.log('[useHyphaService] Image pixels extracted: CHW shape [3, %d, %d] (display: %dx%d)', scaledH, scaledW, width, height);
 
             // Create ndarray-like object for hypha-rpc
@@ -512,125 +649,44 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            // Build infer kwargs, only include non-default params
+            // cellpose4-runner always targets the published 'idealistic-eagle'
+            // model and takes a single `inputs` value (not a list). It has no
+            // model/diameter/niter knobs.
             const inferArgs: Record<string, any> = {
-              input_arrays: [inputArray],
+              model_id: CELLPOSE4_RUNNER_MODEL_ID,
+              inputs: inputArray,
               _rkwargs: true,
             };
-            if (p.model) inferArgs.model = p.model;
-            if (p.diameter != null && p.diameter > 0) {
-              // Diameter is measured in display-space pixels. Scale it to the
-              // downsampled image so Cellpose rescales the image correctly.
-              const diameterScale = scaledW / width;
-              inferArgs.diameter = p.diameter * diameterScale;
-            }
             if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
             if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
-            if (p.niter != null && p.niter > 0) inferArgs.niter = p.niter;
-            if (p.enable_clahe) inferArgs.enable_clahe = true;
+            if (p.two_pass) inferArgs.two_pass = true;
 
-            // Call cellpose infer
-            const result = await cellposeService.infer(inferArgs);
+            // infer() returns a request_id immediately; poll until the job
+            // completes.
+            const requestId = await cellposeService.infer(inferArgs);
+            console.log('[useHyphaService] cellpose4-runner request submitted:', requestId);
+            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
 
-            console.log('[useHyphaService] Cellpose raw result:', result);
-
-            // result is list[PredictionItemModel], each with { input_path, output }
-            // output is an ndarray (int32 label mask, shape [H, W])
-            if (!result || !Array.isArray(result) || result.length === 0) {
-              console.log('[useHyphaService] No results from cellpose');
+            const maskResult = result?.labels;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] No labels ndarray in cellpose4-runner result:', result);
               return [];
             }
 
-            const item = result[0];
-            console.log('[useHyphaService] First result item keys:', Object.keys(item));
-            const maskResult = item.output;
-
-            if (!maskResult) {
-              console.warn('[useHyphaService] No output field in result item:', item);
-              return [];
-            }
-
-            // maskResult should be an ndarray with shape [H, W]
-            let maskData: any;
-            if (maskResult._rtype === 'ndarray') {
-              // Decode the hypha-rpc ndarray
-              let buffer = maskResult._rvalue;
-              const shape = maskResult._rshape;
-              const dtype = maskResult._rdtype;
-              const w = shape[1];
-              const h = shape[0];
-              console.log('[useHyphaService] Mask ndarray: dtype=%s, shape=%s', dtype, JSON.stringify(shape));
-
-              // _rvalue may be Uint8Array; get underlying ArrayBuffer
-              if (buffer instanceof Uint8Array) {
-                buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-              }
-
-              if (dtype === 'int32' || dtype === 'int') {
-                maskData = new Int32Array(buffer);
-              } else if (dtype === 'uint16') {
-                maskData = new Uint16Array(buffer);
-              } else if (dtype === 'float32') {
-                maskData = new Float32Array(buffer);
-              } else if (dtype === 'uint32') {
-                maskData = new Uint32Array(buffer);
-              } else {
-                maskData = new Int32Array(buffer);
-              }
-
-              let polygons = maskToPolygons(maskData, w, h);
-              // Scale min_mask_area to mask space (area shrinks by scale²) so threshold
-              // is applied consistently regardless of downsampling factor.
-              const areaScale = (scaledW / width) * (scaledH / height);
-              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
-              // Scale polygon coordinates back to original image dimensions if downsampled
-              const scaleX = width / scaledW;
-              const scaleY = height / scaledH;
-              if (scaleX !== 1 || scaleY !== 1) {
-                polygons = polygons.map((poly) => ({
-                  ...poly,
-                  coordinates: poly.coordinates.map((ring) =>
-                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
-                  ),
-                }));
-              }
-              console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
-              return polygons;
-            }
-
-            // If it's already an array
-            if (Array.isArray(maskResult)) {
-              const flat = maskResult.flat();
-              let polygons = maskToPolygons(flat, scaledW, scaledH);
-              const areaScale = (scaledW / width) * (scaledH / height);
-              polygons = filterByArea(polygons, (p.min_mask_area ?? 0) * areaScale);
-              const scaleX = width / scaledW;
-              const scaleY = height / scaledH;
-              if (scaleX !== 1 || scaleY !== 1) {
-                polygons = polygons.map((poly) => ({
-                  ...poly,
-                  coordinates: poly.coordinates.map((ring) =>
-                    ring.map(([px, py]) => [px * scaleX, py * scaleY])
-                  ),
-                }));
-              }
-              console.log('[useHyphaService] Converted flat array mask to', polygons.length, 'polygons');
-              return polygons;
-            }
-
-            console.warn('[useHyphaService] Unknown mask format:', typeof maskResult, maskResult);
-            return [];
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            console.log('[useHyphaService] Cellpose mask ndarray: dtype=%s, [%d, %d]', maskResult._rdtype, h, w);
+            // maskDataToPolygons handles min-area filtering and rescaling back
+            // to display-space coordinates.
+            const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+            console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
+            return polygons;
           },
-          runCellposeFlows: async (
-            imageUrl: string,
-            width: number,
-            height: number,
-            params?: CellposeParams,
-          ): Promise<CellposeFlowsResult> => {
-            const cellposeService = await resolveCellposeService();
+          runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
+            const microSamService = await resolveMicroSamService(server);
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose flows-only inference:', p);
+            console.log('[useHyphaService] Running micro-sam AIS inference');
 
+            // Same CHW RGB uint8 input as Cellpose; μSAM is a drop-in.
             const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
             const inputArray = {
               _rtype: 'ndarray',
@@ -639,89 +695,284 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            const inferArgs: Record<string, any> = {
+            // μSAM AIS takes no Cellpose-style knobs; just the image. Pin
+            // model_type to the same value the box path uses so auto pre-seg
+            // and the interactive decoder never diverge from each other.
+            const result = await microSamService.infer({
               input_arrays: [inputArray],
-              return_flows_only: true,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
-            };
-            if (p.model) inferArgs.model = p.model;
-            if (p.diameter != null && p.diameter > 0) {
-              const diameterScale = scaledW / width;
-              inferArgs.diameter = p.diameter * diameterScale;
-            }
-            if (p.enable_clahe) inferArgs.enable_clahe = true;
+            });
+            console.log('[useHyphaService] micro-sam raw result:', result);
 
-            const result = await cellposeService.infer(inferArgs);
+            // Response mirrors Cellpose: a bare list, result[0].output is an
+            // int32 label mask ndarray of shape [H, W].
             if (!result || !Array.isArray(result) || result.length === 0) {
-              throw new Error('Cellpose service returned no items');
+              console.log('[useHyphaService] No results from micro-sam');
+              return [];
             }
-            const item = result[0];
-            const output = item?.output;
-            if (!output || typeof output !== 'object') {
-              throw new Error(
-                'Cellpose service did not return a flows payload (expected output={dP, cellprob}). '
-                  + 'Is the deployed version >= 0.1.5?',
-              );
+            const maskResult = result[0]?.output;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] micro-sam output is not an ndarray:', maskResult);
+              return [];
             }
 
-            const decodeFloat32 = (nd: any, fieldName: string): { data: Float32Array; shape: number[] } => {
-              if (!nd || nd._rtype !== 'ndarray') {
-                throw new Error(`${fieldName} is not an ndarray (got ${typeof nd})`);
-              }
-              let buffer = nd._rvalue;
-              const shape = nd._rshape as number[];
-              if (buffer instanceof Uint8Array) {
-                buffer = buffer.buffer.slice(
-                  buffer.byteOffset,
-                  buffer.byteOffset + buffer.byteLength,
-                );
-              }
-              // float16 wire option is not part of v1; the server sends float32.
-              if (nd._rdtype !== 'float32') {
-                console.warn(
-                  `[useHyphaService] ${fieldName} dtype is ${nd._rdtype}, converting`,
-                );
-              }
-              const data = new Float32Array(buffer);
-              return { data, shape };
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            console.log('[useHyphaService] micro-sam mask ndarray: dtype=%s, [%d, %d]', maskResult._rdtype, h, w);
+            // maskDataToPolygons handles area filtering + rescale back to display space.
+            const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+            console.log('[useHyphaService] micro-sam converted to', polygons.length, 'polygons');
+            return polygons;
+          },
+          getMicroSamOnnxModel: async (): Promise<Uint8Array> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Fetching micro-sam ONNX decoder');
+            // No session_id here: the micro-sam service exports the ONNX
+            // prompt decoder per base model_type only, fine-tuning does not
+            // produce a per-session decoder. Still uses microSamModelType so
+            // the decoder always matches the family of whatever encoder
+            // produced the embedding (base or fine-tuned).
+            const bytes = await microSamService.get_onnx_model({
+              model_type: microSamModelType,
+              quantize: true,
+              _rkwargs: true,
+            });
+            // hypha-rpc delivers bytes as a Uint8Array (msgpack bin); normalize
+            // ArrayBuffer just in case a transport hands one back.
+            if (bytes instanceof Uint8Array) return bytes;
+            if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+            return new Uint8Array(bytes);
+          },
+          computeMicroSamEmbedding: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+          ): Promise<MicroSamEmbedding> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Computing micro-sam image embedding');
+
+            // Same CHW RGB uint8 input as infer; the encoder downsamples the
+            // same way, so scaledW/scaledH define the working resolution the
+            // box tool maps its prompt coordinates into.
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
             };
 
-            const dPDecoded = decodeFloat32(output.dP, 'dP');
-            const cellprobDecoded = decodeFloat32(output.cellprob, 'cellprob');
-
-            // Sanity-check shapes match what the network was asked to produce.
-            if (dPDecoded.shape.length !== 3 || dPDecoded.shape[0] !== 2) {
-              throw new Error(
-                `dP shape ${JSON.stringify(dPDecoded.shape)} not (2, H, W)`,
-              );
+            const emb = await microSamService.compute_embedding({
+              inputs: inputArray,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              _rkwargs: true,
+            });
+            if (!emb || !emb.features || emb.features._rtype !== 'ndarray') {
+              throw new Error('micro-sam embedding response missing features ndarray');
             }
-            if (
-              cellprobDecoded.shape.length !== 2
-              || cellprobDecoded.shape[0] !== dPDecoded.shape[1]
-              || cellprobDecoded.shape[1] !== dPDecoded.shape[2]
-            ) {
-              throw new Error(
-                `cellprob shape ${JSON.stringify(cellprobDecoded.shape)} disagrees with dP ${JSON.stringify(dPDecoded.shape)}`,
-              );
-            }
-
-            const outH = dPDecoded.shape[1];
-            const outW = dPDecoded.shape[2];
             console.log(
-              '[useHyphaService] Got flows: dP (2,%d,%d) cellprob (%d,%d), %d KB',
-              outH, outW, outH, outW,
-              Math.round((dPDecoded.data.byteLength + cellprobDecoded.data.byteLength) / 1024),
+              '[useHyphaService] micro-sam embedding: shape=%s scale=%s',
+              JSON.stringify(emb.original_image_shape),
+              emb.sam_scale,
             );
 
             return {
-              dP: dPDecoded.data,
-              cellprob: cellprobDecoded.data,
+              features: emb.features,
+              originalImageShape: emb.original_image_shape,
+              samScale: emb.sam_scale,
+              maskThreshold: emb.mask_threshold ?? 0,
+              scaledW,
+              scaledH,
+            };
+          },
+          computeMicroSamEmbeddingToArtifact: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+            uploadUrl: string,
+          ): Promise<void> => {
+            const microSamService = await resolveMicroSamService(server);
+            console.log('[useHyphaService] Computing micro-sam embedding -> session artifact');
+
+            // Encode at the μSAM working resolution; the service writes the
+            // self-contained .npz straight to our presigned PUT url, so no
+            // features come back inline (nothing to decode here).
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(
+              imageUrl,
+              width,
+              height,
+              MICRO_SAM_MAX_DIM,
+            );
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+            await microSamService.compute_embedding({
+              inputs: inputArray,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              embedding_upload_url: uploadUrl,
+              _rkwargs: true,
+            });
+          },
+          loadMicroSamEmbedding: async (npzUrl: string): Promise<MicroSamEmbedding> => {
+            console.log('[useHyphaService] Downloading stored micro-sam embedding .npz');
+            const res = await fetch(npzUrl);
+            if (!res.ok) {
+              throw new Error(`Failed to download embedding (${res.status})`);
+            }
+            const buf = await res.arrayBuffer();
+            const parsed = await parseEmbeddingNpz(buf);
+
+            const maxIn = Math.max(...parsed.inputSize);
+            const maxOrig = Math.max(...parsed.originalSize);
+            // sam_scale maps original-image coords into the SAM-resized frame.
+            // mask_threshold is 0.0 for the pinned *_lm model (not in the .npz).
+            const samScale = maxOrig > 0 ? maxIn / maxOrig : 1;
+            const [origH, origW] = parsed.originalSize;
+
+            return {
+              // Rebuild the same hypha-style ndarray wire-dict the decoder reads:
+              // decodeBox slices _rvalue (Uint8Array) -> Float32Array by _rshape.
+              features: {
+                _rtype: 'ndarray',
+                _rvalue: parsed.features,
+                _rshape: parsed.featuresShape,
+                _rdtype: 'float32',
+              },
+              originalImageShape: parsed.originalSize,
+              samScale,
+              maskThreshold: 0,
+              scaledW: origW,
+              scaledH: origH,
+            };
+          },
+          runMicroSamFromEmbedding: async (
+            npzUrl: string,
+            width: number,
+            height: number,
+            params?: CellposeParams,
+          ): Promise<CellposeMask[]> => {
+            const microSamService = await resolveMicroSamService(server);
+            const p = params || {};
+            console.log('[useHyphaService] Running micro-sam AIS from stored embedding link');
+
+            // Server-side AIS reads the stored .npz directly; the browser never
+            // downloads the ~4 MB embedding for this path.
+            // min_mask_area is a display-space area, so it is applied
+            // client-side by maskDataToPolygons (as the pixel path does), not
+            // passed as the server's embedding-resolution min_size.
+            const result = await microSamService.infer({
+              embeddings: [npzUrl],
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              _rkwargs: true,
+            });
+
+            // Same bare-list response as the pixel path: result[0].output.
+            if (!result || !Array.isArray(result) || result.length === 0) {
+              console.log('[useHyphaService] No results from micro-sam (embedding link)');
+              return [];
+            }
+            const maskResult = result[0]?.output;
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] micro-sam output is not an ndarray:', maskResult);
+              return [];
+            }
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            return maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+          },
+          runCellposeFlows: async (
+            imageUrl: string,
+            width: number,
+            height: number,
+            params?: CellposeParams,
+            signal?: AbortSignal,
+          ): Promise<CellposeFlowsResult> => {
+            const cellposeService = await resolveCellposeService();
+            const p = params || {};
+            console.log('[useHyphaService] Running cellpose4-runner flows-only inference:', p);
+
+            const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height, CELLPOSE_MAX_DIM, p.diameter);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: chw,
+              _rshape: [3, scaledH, scaledW],
+              _rdtype: 'uint8',
+            };
+
+            const inferArgs: Record<string, any> = {
+              model_id: CELLPOSE4_RUNNER_MODEL_ID,
+              inputs: inputArray,
+              return_flows: true,
+              _rkwargs: true,
+            };
+            if (p.two_pass) inferArgs.two_pass = true;
+
+            const requestId = await cellposeService.infer(inferArgs);
+            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
+
+            // return_flows=True collapses the 2 flow components + cell
+            // probability into a single 3-channel ndarray, member "flows".
+            const flows = result?.flows;
+            if (!flows || flows._rtype !== 'ndarray') {
+              throw new Error(
+                'cellpose4-runner did not return a flows payload (expected result.flows).',
+              );
+            }
+
+            let buffer = flows._rvalue;
+            let shape = flows._rshape as number[];
+            if (buffer instanceof Uint8Array) {
+              buffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+            }
+            if (flows._rdtype !== 'float32') {
+              console.warn(`[useHyphaService] flows dtype is ${flows._rdtype}, converting`);
+            }
+            const data = new Float32Array(buffer);
+
+            // cellpose4-runner returns a leading batch axis, e.g. (1, 3, H, W)
+            // instead of the bare (3, H, W) this guard used to require, which
+            // made it throw on every real response and always fall back to
+            // the all-server masks path.
+            while (shape.length > 3 && shape[0] === 1) {
+              shape = shape.slice(1);
+            }
+            if (shape.length !== 3 || shape[0] !== 3) {
+              throw new Error(`flows shape ${JSON.stringify(shape)} not (3, H, W)`);
+            }
+            const outH = shape[1];
+            const outW = shape[2];
+            const plane = outH * outW;
+
+            // First two channels are the flow components (dy, dx); the third
+            // is the cell-probability plane. Slicing keeps the existing
+            // CellposeFlowsResult shape the client-side Pyodide mask-gen
+            // (public/cellpose_mask_gen.py) already consumes.
+            const dP = data.subarray(0, 2 * plane);
+            const cellprob = data.subarray(2 * plane, 3 * plane);
+
+            console.log(
+              '[useHyphaService] Got flows: dP (2,%d,%d) cellprob (%d,%d), %d KB',
+              outH, outW, outH, outW,
+              Math.round(data.byteLength / 1024),
+            );
+
+            return {
+              dP,
+              cellprob,
               scaledH: outH,
               scaledW: outW,
               displayW: width,
               displayH: height,
             };
           },
+          requestAccess: async (role: 'annotator' | 'manager' = 'annotator') =>
+            withRetry(() => brokerRequestAccess(server, artifactId, role)),
         };
 
         if (!cancelled) {
@@ -746,7 +997,9 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = null;
       }
     };
-  }, [config?.serverUrl, config?.imageProviderId]);
+  }, [config?.artifactId, config?.label, config?.microSamSession?.sessionId, config?.microSamSession?.modelType, retryNonce]);
 
-  return { service, loading, error, cellposeAvailable };
+  const retry = () => setRetryNonce((n) => n + 1);
+
+  return { service, loading, error, cellposeAvailable, microSamAvailable, retry };
 }

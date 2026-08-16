@@ -1,22 +1,29 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip, useMediaQuery, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText, ListItemIcon } from '@mui/material';
+import { Box, CircularProgress, Typography, Alert, Button as MuiButton, IconButton as MuiIconButton, Tooltip, useMediaQuery, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText, ListItemIcon } from '@mui/material';
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
+import ActionPanel from '../components/annotate/ActionPanel';
 import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
-import { useCellposeConfig, DEFAULT_CELLPOSE_CONFIG, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
+import { useCellposeConfig, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
 import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
-import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, ImageInfo, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
+import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
+import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
+import { toArtifactId } from '../components/colab/datasetApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
+import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
+import { useHyphaStore } from '../store/hyphaStore';
+import { snapshotMaskPolygons, excludeAgainstMaskPolygons } from '../components/annotate/hooks/useDrawInteraction';
 import VectorSource from 'ol/source/Vector';
 import ImageLayer from 'ol/layer/Image';
 import OlMap from 'ol/Map';
@@ -32,25 +39,33 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const serviceConfig = useMemo<AnnotationServiceConfig | null>(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const serverUrl = searchParams.get('server_url') || searchParams.get('serverUrl');
-    const imageProviderId = searchParams.get('image_provider_id') || searchParams.get('imageProviderId');
-    const label = searchParams.get('label') || undefined;
-    if (!serverUrl || !imageProviderId) return null;
-    return { serverUrl, imageProviderId, label };
-  }, [location.search]);
-
-  // Read cellpose model from URL (set by the session owner in the Colab page)
-  const cellposeModelId = useMemo(() => {
-    const searchParams = new URLSearchParams(location.search);
-    return searchParams.get('cellpose_model') || undefined;
-  }, [location.search]);
-
   // Read session ID from URL for "View Session" link
   const sessionId = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     return searchParams.get('session_id') || undefined;
+  }, [location.search]);
+
+  const serviceConfig = useMemo<AnnotationServiceConfig | null>(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const label = searchParams.get('label');
+    if (!sessionId || !label) return null;
+    // Fine-tuned micro-sam session override (colab-rework-plan.md §20 item
+    // 2), set by the Finetune page's "Use for annotation" action. Both
+    // params must be present, a session id without its base model_type is
+    // unusable server-side.
+    const usmSessionId = searchParams.get('usm_session');
+    const usmModelType = searchParams.get('usm_model');
+    const microSamSession = usmSessionId && usmModelType
+      ? { sessionId: usmSessionId, modelType: usmModelType }
+      : undefined;
+    return { artifactId: sessionId, label, microSamSession };
+  }, [sessionId, location.search]);
+
+  // Deep link from the overview's Labels box (colab-rework-plan.md §14 item
+  // 10): open exactly this image instead of the next-unannotated pick.
+  const initialImageStem = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('image') || undefined;
   }, [location.search]);
 
   const sessionUrl = useMemo(() => {
@@ -59,34 +74,79 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     return `${window.location.origin}${window.location.pathname}#/colab/${sessionId}${labelParam}`;
   }, [sessionId, serviceConfig?.label]);
 
+  // Role-aware back navigation (colab-rework-plan.md §14 item 4): only an
+  // owner or manager can see the dataset overview, so the back button leads
+  // there for them and to the colab landing page for everyone else
+  // (annotator, public, or logged-out visitors).
+  const { server, user } = useHyphaStore();
+  const [callerRole, setCallerRole] = useState<BrokerRole | null>(null);
+
+  useEffect(() => {
+    if (!sessionId || !user?.email || !server) {
+      setCallerRole(null);
+      return;
+    }
+    let cancelled = false;
+    getDataset(server, toArtifactId(sessionId))
+      .then((dataset) => {
+        if (!cancelled) setCallerRole(dataset.role);
+      })
+      .catch(() => {
+        if (!cancelled) setCallerRole(null);
+      });
+    return () => { cancelled = true; };
+  }, [sessionId, user?.email, server]);
+
   const backTarget = useMemo(() => {
-    if (sessionId) {
+    if (sessionId && (callerRole === 'owner' || callerRole === 'manager')) {
       const labelParam = serviceConfig?.label ? `?label=${encodeURIComponent(serviceConfig.label)}` : '';
       return `/colab/${sessionId}${labelParam}`;
     }
     return backTo || '/colab';
-  }, [sessionId, serviceConfig?.label, backTo]);
+  }, [sessionId, callerRole, serviceConfig?.label, backTo]);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
 
-  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable } = useHyphaService(serviceConfig);
+  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
+  // True after ANY successful Cellpose run, local Pyodide flows path or full
+  // server fallback alike — unlike livePreviewReady (which only means
+  // "instant slider recompute is available"), this just drives the config
+  // dialog's Compute Flow Field -> Refine Results auto-collapse.
+  const [hasCellposeResult, setHasCellposeResult] = useState(false);
+  // Bumped once per completed Cellpose run (success, even with zero masks) —
+  // drives the dialog's Compute Flow Field -> Refine Results auto-collapse
+  // on every run, not just the first, so a re-run after the user manually
+  // reopens the section still collapses it back.
+  const [cellposeCompletedRunId, setCellposeCompletedRunId] = useState(0);
+  // Declared ahead of its usual position (alongside the other CLAHE state
+  // below) so it can be passed into useCellposeConfig's opts here.
+  const [isCLAHEActive, setIsCLAHEActive] = useState(false);
 
-  const [dynamicCellposeModel, setDynamicCellposeModel] = useState<string | undefined>(undefined);
+  // Aborts the in-flight cellpose4-runner request (flows path or plain
+  // server fallback) when the user cancels out of the dialog mid-run. Null
+  // whenever no Cellpose run is in flight, so calling .abort() unconditionally
+  // from the dialog's Cancel button is always safe.
+  const cellposeAbortRef = useRef<AbortController | null>(null);
 
-  const { config: cellposeConfig, openDialog: openCellposeConfig, dialogElement: cellposeDialogElement, setConfig: setCellposeConfig } = useCellposeConfig({
+  const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
     // The flows + Pyodide path keeps the dialog open so the instant sliders
     // can keep tweaking the preview without forcing the user to re-open it.
     keepOpenAfterApply: true,
     livePreviewReady,
+    resultReady: hasCellposeResult,
+    completedRunId: cellposeCompletedRunId,
+    microSamAvailable,
+    claheActive: isCLAHEActive,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
+    onCancelRun: () => cellposeAbortRef.current?.abort(),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
       measureCallbackRef.current = (px: number) => {
@@ -100,16 +160,6 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
       setMeasureScreenMouse(null);
     },
   });
-  
-  // Use either the dynamically loaded model or the one from the URL (for backward compatibility)
-  const activeCellposeModel = dynamicCellposeModel || cellposeModelId || DEFAULT_CELLPOSE_CONFIG.model;
-  
-  // Sync the loaded model to the config dialog if it changes
-  useEffect(() => {
-    if (activeCellposeModel && activeCellposeModel !== cellposeConfig.model) {
-      setCellposeConfig((prev: CellposeConfig) => ({ ...prev, model: activeCellposeModel }));
-    }
-  }, [activeCellposeModel, cellposeConfig.model, setCellposeConfig]);
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
   
@@ -127,6 +177,70 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // first compute. While the kernel boots silently, the AI tool stays on the
   // existing server path (runCellpose) automatically — see handleRunCellpose.
   const maskGen = useCellposeMaskGen(executeCode, kernelReady);
+
+  // Declared ahead of its usual position (alongside the other
+  // useAnnotationStore selectors below) so useMicroSamDecoder can gate its
+  // ONNX decoder download on "an image has actually rendered" rather than
+  // firing as soon as the service connects (see the hook's own comment).
+  const imageUrl = useAnnotationStore((s) => s.imageUrl);
+
+  // In-browser μSAM box decoder: fetches the ONNX decoder once the current
+  // image has rendered, embeds each image once, decodes each drawn box
+  // locally. See handleSamBox below.
+  const {
+    decodeBox: decodeSamBox,
+    reset: resetSamDecoder,
+    setEmbeddingLoader,
+    decoderReady,
+  } = useMicroSamDecoder(service, !!imageUrl);
+  // Guards against overlapping box decodes (dev-rule #10).
+  const samDecodeInFlightRef = useRef(false);
+  // Mirror of currentImageStem for use inside stable callbacks/effects.
+  const currentImageStemRef = useRef<string | null>(null);
+  // Per-image memoization of the compute+upload step (the expensive part) so
+  // eager-load, AIS, and the box loader all dedupe to a single encode. Presigned
+  // GET urls expire, so only the "is it stored" promise is cached here; a fresh
+  // download url is fetched on each use.
+  const ensuredEmbeddingRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Set to the image stem once its embedding is confirmed stored (12A: drives
+  // the AI Box tool's "ready" state, distinct from the service being reachable).
+  const [embeddingReadyStem, setEmbeddingReadyStem] = useState<string | null>(null);
+
+  // Ensure the μSAM embedding for `imageName` is computed and stored in the
+  // session artifact (once per image, keyed by stem + model server-side), then
+  // return a fresh presigned GET url for the stored `.npz`. The expensive
+  // encode+upload is memoized; the GET url is re-fetched each call because
+  // presigned urls expire. Both the box decoder and AIS pre-seg read the same
+  // `.npz` this produces.
+  const ensureStoredEmbedding = useCallback(
+    async (
+      imageStem: string,
+      sourceUrl: string,
+      width: number,
+      height: number,
+    ): Promise<string> => {
+      if (!service) throw new Error('μSAM service unavailable');
+      const cache = ensuredEmbeddingRef.current;
+      let stored = cache.get(imageStem);
+      if (!stored) {
+        stored = (async () => {
+          const urls = await service.getEmbeddingUrls(imageStem);
+          if (urls.exists) return;
+          await service.computeMicroSamEmbeddingToArtifact(sourceUrl, width, height, urls.embedding_put_url);
+        })().catch((e) => {
+          // Drop the entry so a later box/AIS request retries the encode+upload.
+          cache.delete(imageStem);
+          throw e;
+        });
+        cache.set(imageStem, stored);
+      }
+      await stored;
+      const urls = await service.getEmbeddingUrls(imageStem);
+      if (!urls.exists) throw new Error('μSAM embedding is unavailable after upload');
+      return urls.read_url;
+    },
+    [service],
+  );
 
   // Cache for the network's raw (dP, cellprob). One entry per unique
   // (image, model, diameter, clahe) combination — any change there needs a
@@ -159,7 +273,6 @@ print('CLAHE packages ready')
     install();
   }, [kernelReady, executeCode, kernelPackagesInstalled]);
 
-  const imageUrl = useAnnotationStore((s) => s.imageUrl);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
   const imageHeight = useAnnotationStore((s) => s.imageHeight);
   const setImageInfo = useAnnotationStore((s) => s.setImageInfo);
@@ -172,7 +285,7 @@ print('CLAHE packages ready')
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [currentImageName, setCurrentImageName] = useState<string | null>(null);
+  const [currentImageStem, setCurrentImageStem] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -187,9 +300,13 @@ print('CLAHE packages ready')
       }
     } catch { /* ignore */ }
   }, []);
-  const [isCLAHEActive, setIsCLAHEActive] = useState(false);
   const [isLowContrast, setIsLowContrast] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  // Data URL of the CLAHE-enhanced pixels (set alongside isCLAHEActive).
+  // Segmentation defaults to the raw image; this is only sent to either
+  // backend when the "Use contrast enhanced image" checkbox in the Full
+  // Image Segmentation dialog is checked (see handleRunCellpose).
+  const [claheEnhancedUrl, setClaheEnhancedUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
@@ -219,30 +336,154 @@ print('CLAHE packages ready')
     setGetOlMap(() => fn);
   }, []);
 
+  const handleZoomIn = useCallback(() => {
+    const view = getOlMap?.()?.getView();
+    if (view) view.animate({ zoom: (view.getZoom() ?? 0) + 1, duration: 200 });
+  }, [getOlMap]);
+
+  const handleZoomOut = useCallback(() => {
+    const view = getOlMap?.()?.getView();
+    if (view) view.animate({ zoom: (view.getZoom() ?? 0) - 1, duration: 200 });
+  }, [getOlMap]);
+
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
-  // Current annotation round for this user. Initialised from
-  // service.initialRound once the connection is up (see effect below).
-  // The "Start Round N+1" CTA in the empty state bumps this; every
-  // subsequent save targets the new round folder.
-  const [currentRound, setCurrentRound] = useState<number>(1);
+  // Full broker-index snapshot for this dataset: every image plus this
+  // user's own latest annotation per (label, stem). Drives image picking
+  // and the always-available image browser (colab-rework-plan.md F5).
+  const [datasetIndex, setDatasetIndex] = useState<DatasetIndex | null>(null);
+  // Timestamp of the last successful index fetch, used to decide whether a
+  // tab refocus should silently refetch (colab-rework-plan.md §14b item 4).
+  const lastIndexFetchAtRef = useRef<number>(0);
 
-  // Refine flow: when a user picks a previously-annotated image to refine,
-  // we load that image and any existing GeoJSON into the vector source. The
-  // pending GeoJSON lands here first because the vector source ref may not
-  // be available until AnnotationViewer remounts with the new image.
+  // Image picker: lets a user jump to any image in the dataset (already
+  // annotated or not). Every image opens with a clean slate; no prior
+  // annotation is auto-loaded.
   const [refinePickerOpen, setRefinePickerOpen] = useState(false);
-  const [refineImageList, setRefineImageList] = useState<ImageInfo[]>([]);
-  const [refineLoadingList, setRefineLoadingList] = useState(false);
-  const [pendingGeoJSON, setPendingGeoJSON] = useState<any | null>(null);
 
-  // Keep currentRound in sync with the latest service connection.
+  // Set when the broker rejects get_dataset_index with a role-too-low
+  // PermissionError (colab-rework-plan.md F5: private datasets require
+  // login; anonymous/under-privileged callers get a login prompt instead
+  // of the generic error banner).
+  const [permissionDenied, setPermissionDenied] = useState(false);
+
+  // Request-access flow (colab-rework-plan.md §13 item 4): a logged-in,
+  // permission-denied visitor can ask the broker for a role instead of
+  // just staring at a dead end. `already_has_access` means a role was
+  // granted moments ago and the page's stale permission check just needs
+  // to re-run, so it reuses the same reconnect path as a manual retry.
+  const [requestAccessState, setRequestAccessState] = useState<'idle' | 'requesting' | 'requested' | 'error'>('idle');
+  const [requestAccessError, setRequestAccessError] = useState<string | null>(null);
+
+  // Fetch the dataset index once the broker connection is up.
   useEffect(() => {
-    if (service?.initialRound && service.initialRound > 0) {
-      setCurrentRound(service.initialRound);
-    }
+    if (!service) return;
+    let cancelled = false;
+    setPermissionDenied(false);
+    setRequestAccessState('idle');
+    setRequestAccessError(null);
+    service.getDatasetIndex()
+      .then((index) => {
+        if (!cancelled) {
+          setDatasetIndex(index);
+          lastIndexFetchAtRef.current = Date.now();
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          console.error('[AnnotatePage] Failed to load dataset index:', err);
+          const message = err.message || 'Failed to load dataset index';
+          if (/PermissionError/i.test(message) || /or higher is required/i.test(message)) {
+            setPermissionDenied(true);
+          } else {
+            setError(message);
+          }
+        }
+      });
+    return () => { cancelled = true; };
+  }, [service, setError]);
+
+  // Presigned read URLs (image, embedding, geojson) expire after about an
+  // hour; a long-idle tab can sit well past that. On tab refocus, silently
+  // refetch the index if it is more than ~20 minutes old so the URLs are
+  // fresh again (colab-rework-plan.md §14b item 4). No user-facing error on
+  // failure: this is a best-effort background refresh, not a load path.
+  useEffect(() => {
+    const STALE_MS = 20 * 60 * 1000;
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!service) return;
+      if (Date.now() - lastIndexFetchAtRef.current < STALE_MS) return;
+      service.getDatasetIndex()
+        .then((index) => {
+          setDatasetIndex(index);
+          lastIndexFetchAtRef.current = Date.now();
+        })
+        .catch((err: any) => {
+          console.warn('[AnnotatePage] Silent index refetch on visibilitychange failed:', err);
+        });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [service]);
+
+  // Retry after a connect or dataset-index failure: clear the stale error
+  // and tear the Hypha connection down so useHyphaService reconnects from
+  // scratch, which in turn re-triggers the dataset-index fetch above once
+  // the new `service` lands.
+  const handleRetryConnection = useCallback(() => {
+    setError(null);
+    setPermissionDenied(false);
+    retryService();
+  }, [setError, retryService]);
+
+  // Auto-recheck access while the "Access needed" dialog is shown (§22 item
+  // 6): an owner approving a pending request should make the dialog vanish
+  // and unblock the page on its own, without a manual reload. Reuses the
+  // same getDatasetIndex() call as the initial load, since success both
+  // confirms the new role and supplies the index needed to proceed.
+  useEffect(() => {
+    if (!permissionDenied || !service) return;
+    const poll = async () => {
+      try {
+        const index = await service.getDatasetIndex();
+        setDatasetIndex(index);
+        lastIndexFetchAtRef.current = Date.now();
+        setPermissionDenied(false);
+      } catch {
+        // still denied, wait for the next tick
+      }
+    };
+    const id = setInterval(poll, 12_000);
+    return () => clearInterval(id);
+  }, [permissionDenied, service]);
+
+  const handleRequestAccess = useCallback(async () => {
+    if (!service) return;
+    setRequestAccessState('requesting');
+    setRequestAccessError(null);
+    try {
+      const result = await service.requestAccess('annotator');
+      if (result.status === 'already_has_access') {
+        handleRetryConnection();
+      } else {
+        setRequestAccessState('requested');
+      }
+    } catch (err: any) {
+      setRequestAccessState('error');
+      setRequestAccessError(err.message || 'Failed to request access.');
+    }
+  }, [service, handleRetryConnection]);
+
+  // Pick a random stem from `index` that this user hasn't annotated yet
+  // under `label`. Returns null when everything is annotated.
+  const pickNextUnannotated = useCallback((index: DatasetIndex, label: string): string | null => {
+    const annotated = index.my_annotations[label] || {};
+    const remaining = index.images.filter((img) => !annotated[img.stem]);
+    if (remaining.length === 0) return null;
+    return remaining[Math.floor(Math.random() * remaining.length)].stem;
+  }, []);
 
   // Detect low contrast by sampling luminance values from the loaded image.
   // Returns true when the 5th–95th percentile luminance range is below 60/255.
@@ -271,8 +512,16 @@ print('CLAHE packages ready')
     }
   }, []);
 
-  const loadNewImage = useCallback(async (showBanner = true) => {
-    if (!service) return;
+  // Load one image by stem: fetches a fresh presigned read url for just this
+  // image (broker v0.5.0's `get_image_url`, public-min role) instead of
+  // looking it up in a full index fetch. Every image opens with a clean
+  // slate — any prior annotation for this (label, stem) pair is never
+  // auto-loaded; `get_my_annotation_url` is reserved for explicit user
+  // actions. This call doesn't depend on `datasetIndex`, which is what lets
+  // an `&image=<stem>` deep link render before the index or the μSAM probe
+  // resolve.
+  const loadImageByStem = useCallback(async (stem: string, showBanner = true) => {
+    if (!service || !serviceConfig) return;
     setIsLoadingImage(true);
     setError(null);
     setAllAnnotatedInfo(null);
@@ -280,37 +529,11 @@ print('CLAHE packages ready')
     setIsCLAHEActive(false);
     setIsLowContrast(false);
     setOriginalImageUrl(null);
-    console.log('[AnnotatePage] Loading new image for round', currentRound);
-    const bannerId = showBanner ? addBanner('Loading new image...', 'loading', 0) : 0;
+    setClaheEnhancedUrl(null);
+    const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
-      const result = await service.getImage(currentRound);
-
-      // Check for terminal status responses
-      if (result && typeof result === 'object' && 'status' in result) {
-        if (result.status === 'all_annotated') {
-          console.log('[AnnotatePage] All images annotated:', result);
-          setAllAnnotatedInfo(result as AllAnnotatedResult);
-          setHasLoadedOnce(true);
-          return;
-        }
-        if (result.status === 'no_images') {
-          console.log('[AnnotatePage] No images available:', result);
-          setNoImagesInfo(result as NoImagesResult);
-          setHasLoadedOnce(true);
-          return;
-        }
-      }
-
-      const imageResult = result as { url: string; name: string; cellpose_model?: string };
-      const url = imageResult.url;
-      const imageName = imageResult.name || url.split('/').pop()?.split('?')[0] || 'image.png';
-
-      if (imageResult.cellpose_model) {
-        setDynamicCellposeModel(imageResult.cellpose_model);
-      }
-
-      console.log('[AnnotatePage] Got image URL for:', imageName);
-      setCurrentImageName(imageName);
+      const { read_url: url } = await service.getImageUrl(stem);
+      setCurrentImageStem(stem);
 
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -324,125 +547,96 @@ print('CLAHE packages ready')
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
     } catch (err: any) {
-      console.error('[AnnotatePage] Image load failed:', err);
+      console.error('[AnnotatePage] loadImageByStem failed:', err);
       setError(err.message || 'Failed to load image');
     } finally {
       setIsLoadingImage(false);
       if (bannerId) removeBanner(bannerId);
     }
-  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+  }, [service, serviceConfig, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
 
-  // Load the first image once the service is ready
+  // Deep-link fast path: as soon as the service is ready, render the
+  // `&image=<stem>` image immediately, independent of the dataset index or
+  // the μSAM probe (both now run in parallel with this instead of gating
+  // it — broker v0.5.0 / colab-rework-plan.md §15 item 1).
   useEffect(() => {
-    if (!service || hasLoadedOnce) return;
+    if (hasLoadedOnce || !serviceConfig || !service || !initialImageStem) return;
     setIsLoading(true);
-    loadNewImage(false).finally(() => setIsLoading(false));
-  }, [service, hasLoadedOnce, loadNewImage, setIsLoading]);
+    setHasLoadedOnce(true);
+    loadImageByStem(initialImageStem, false).finally(() => setIsLoading(false));
+  }, [service, hasLoadedOnce, serviceConfig, initialImageStem, loadImageByStem, setIsLoading]);
 
-  // Load a specific image (by stem) for refinement. Replaces the current
-  // image and stages any existing GeoJSON so it can be re-applied to the
-  // vector source once AnnotationViewer remounts.
-  const loadSpecificImage = useCallback(async (stem: string) => {
-    if (!service) return;
-    setIsLoadingImage(true);
-    setError(null);
-    setAllAnnotatedInfo(null);
-    setNoImagesInfo(null);
-    setIsCLAHEActive(false);
-    setIsLowContrast(false);
-    setOriginalImageUrl(null);
-    setPendingGeoJSON(null);
-    const bannerId = addBanner('Loading image for refinement...', 'loading', 0);
+  // No-deep-link path: once the dataset index is in, pick an unannotated
+  // image (or show a terminal state) and load it. Guarded off whenever
+  // `initialImageStem` is set so this doesn't race the fast path above.
+  useEffect(() => {
+    if (!datasetIndex || hasLoadedOnce || !serviceConfig || initialImageStem) return;
+    if (datasetIndex.images.length === 0) {
+      setNoImagesInfo({ status: 'no_images', message: 'This dataset has no images yet.' });
+      setHasLoadedOnce(true);
+      return;
+    }
+    const stem = pickNextUnannotated(datasetIndex, serviceConfig.label);
+    if (!stem) {
+      const annotatedCount = Object.keys(datasetIndex.my_annotations[serviceConfig.label] || {}).length;
+      setAllAnnotatedInfo({
+        status: 'all_annotated',
+        total: datasetIndex.images.length,
+        annotated: annotatedCount,
+        label: serviceConfig.label,
+        message: `You have annotated all ${datasetIndex.images.length} image${datasetIndex.images.length !== 1 ? 's' : ''} for "${serviceConfig.label}".`,
+      });
+      setHasLoadedOnce(true);
+      return;
+    }
+    setIsLoading(true);
+    loadImageByStem(stem, false).finally(() => setIsLoading(false));
+  }, [datasetIndex, hasLoadedOnce, serviceConfig, initialImageStem, pickNextUnannotated, loadImageByStem, setIsLoading]);
+
+  // Refetch the dataset index and load the next unannotated image (or show
+  // a terminal state). Called after a save and from the "Retry"/"Check for
+  // new images" actions, so newly added images or teammates' progress are
+  // picked up without a full page reload.
+  const advanceToNextImage = useCallback(async () => {
+    if (!service || !serviceConfig) return;
     try {
-      const result = await service.getImageByStem(stem, currentRound);
-      if ('status' in result && result.status === 'not_found') {
-        addBanner(result.message, 'warning', 5000);
+      const index = await service.getDatasetIndex();
+      setDatasetIndex(index);
+      if (index.images.length === 0) {
+        setNoImagesInfo({ status: 'no_images', message: 'This dataset has no images yet.' });
         return;
       }
-      const imageResult = result as { url: string; name: string; existing_geojson_url?: string | null; cellpose_model?: string };
-      const url = imageResult.url;
-      const imageName = imageResult.name || stem;
-
-      if (imageResult.cellpose_model) {
-        setDynamicCellposeModel(imageResult.cellpose_model);
+      const stem = pickNextUnannotated(index, serviceConfig.label);
+      if (!stem) {
+        const annotatedCount = Object.keys(index.my_annotations[serviceConfig.label] || {}).length;
+        setAllAnnotatedInfo({
+          status: 'all_annotated',
+          total: index.images.length,
+          annotated: annotatedCount,
+          label: serviceConfig.label,
+          message: `You have annotated all ${index.images.length} image${index.images.length !== 1 ? 's' : ''} for "${serviceConfig.label}".`,
+        });
+        return;
       }
-
-      setCurrentImageName(imageName);
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Failed to load image'));
-      });
-      setIsLowContrast(detectLowContrast(img));
-      setImageInfo(url, img.naturalWidth, img.naturalHeight);
-      setHasLoadedOnce(true);
-
-      // Pre-fetch existing GeoJSON so it can be applied once the vector
-      // source is ready (see effect below).
-      if (imageResult.existing_geojson_url) {
-        try {
-          const res = await fetch(imageResult.existing_geojson_url);
-          if (res.ok) {
-            const data = await res.json();
-            setPendingGeoJSON(data);
-          } else {
-            console.warn('[AnnotatePage] Could not fetch existing GeoJSON:', res.status);
-          }
-        } catch (err) {
-          console.warn('[AnnotatePage] Error fetching existing GeoJSON:', err);
-        }
-      }
+      setAllAnnotatedInfo(null);
+      setNoImagesInfo(null);
+      await loadImageByStem(stem);
     } catch (err: any) {
-      console.error('[AnnotatePage] loadSpecificImage failed:', err);
-      setError(err.message || 'Failed to load image');
-    } finally {
-      setIsLoadingImage(false);
-      removeBanner(bannerId);
+      console.error('[AnnotatePage] Failed to advance to next image:', err);
+      setError(err.message || 'Failed to load next image');
     }
-  }, [service, currentRound, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+  }, [service, serviceConfig, pickNextUnannotated, loadImageByStem, setError]);
 
-  // Apply pending GeoJSON once both the data and the vector source are ready.
-  useEffect(() => {
-    if (!pendingGeoJSON || !getVectorSource || imageHeight <= 0) return;
-    const vs = getVectorSource();
-    if (!vs) return;
-    try {
-      vs.clear();
-      useAnnotationStore.setState({ undoStack: [], canUndo: false });
-      importGeoJSON(vs, pendingGeoJSON, imageHeight, activeLabel);
-      const count = vs.getFeatures().length;
-      addBanner(`Loaded ${count} existing mask${count !== 1 ? 's' : ''} for refinement`, 'success', 5000);
-    } catch (err: any) {
-      console.warn('[AnnotatePage] Failed to apply pending GeoJSON:', err);
-      addBanner('Failed to load existing annotation: ' + (err.message || 'unknown error'), 'error', 8000);
-    } finally {
-      setPendingGeoJSON(null);
-    }
-  }, [pendingGeoJSON, getVectorSource, imageHeight, activeLabel, addBanner]);
-
-  // Open the refine picker and fetch the image list.
-  const handleOpenRefinePicker = useCallback(async () => {
-    if (!service) return;
+  // Open the image picker. The dataset index is already loaded, so this is
+  // just a visibility toggle.
+  const handleOpenRefinePicker = useCallback(() => {
     setRefinePickerOpen(true);
-    setRefineLoadingList(true);
-    try {
-      const list = await service.listImages(currentRound);
-      setRefineImageList(list);
-    } catch (err: any) {
-      console.error('[AnnotatePage] Failed to list images:', err);
-      addBanner('Failed to load image list: ' + (err.message || 'unknown error'), 'error', 8000);
-    } finally {
-      setRefineLoadingList(false);
-    }
-  }, [service, currentRound, addBanner]);
+  }, []);
 
   const handlePickRefineImage = useCallback((stem: string) => {
     setRefinePickerOpen(false);
-    loadSpecificImage(stem);
-  }, [loadSpecificImage]);
+    loadImageByStem(stem);
+  }, [loadImageByStem]);
 
   // Cellpose feature-replacement helper: removes everything we added on the
   // previous run/preview and stamps in the new polygons. Non-Cellpose
@@ -457,24 +651,147 @@ print('CLAHE packages ready')
       }
       previewFeaturesRef.current = [];
 
+      // Exclude the AI preview against already-existing annotations so no
+      // pixel is claimed by both a saved mask and a preview mask.
+      const existingPolys = snapshotMaskPolygons(vs.getFeatures());
+
       const added: Feature[] = [];
       for (const m of polygons) {
-        const polygon = new OlPolygon(m.coordinates);
-        const feature = new Feature({ geometry: polygon });
-        feature.setProperties({
-          label: `cell_${m.label}`,
-          edge_color: '#0084ff',
-          face_color: '#0084ff',
-          edge_width: 2,
-          _cellpose_preview: true,
-        });
-        vs.addFeature(feature);
-        added.push(feature);
+        const rawPolygon = new OlPolygon(m.coordinates);
+        const pieces = excludeAgainstMaskPolygons(rawPolygon, existingPolys);
+        for (const polygon of pieces) {
+          const feature = new Feature({ geometry: polygon });
+          feature.setProperties({
+            label: `cell_${m.label}`,
+            edge_color: '#0084ff',
+            face_color: '#0084ff',
+            edge_width: 2,
+            _cellpose_preview: true,
+          });
+          vs.addFeature(feature);
+          added.push(feature);
+        }
       }
       previewFeaturesRef.current = added;
       return added.length;
     },
     [],
+  );
+
+  // Drop the cached μSAM embedding whenever the source image changes so a new
+  // image never decodes against a stale embedding.
+  useEffect(() => {
+    resetSamDecoder();
+  }, [imageUrl, originalImageUrl, resetSamDecoder]);
+
+  // Keep the ref in sync so the stable box embedding loader can read the current
+  // image stem without being torn down and re-registered on every image switch.
+  useEffect(() => {
+    currentImageStemRef.current = currentImageStem;
+  }, [currentImageStem]);
+
+  // Eagerly compute + store the μSAM embedding as soon as an image is ready so
+  // the first box draw and the first AIS run reuse it instead of each encoding
+  // from scratch. Memoization (ensuredEmbeddingRef) makes CLAHE toggles and
+  // reloads of the same image a no-op, so this only fires once per image.
+  useEffect(() => {
+    if (!microSamAvailable || !service) return;
+    if (!currentImageStem || imageWidth <= 0 || imageHeight <= 0) return;
+    const sourceUrl = originalImageUrl || imageUrl;
+    if (!sourceUrl) return;
+    const stem = currentImageStem;
+    // Already computing/computed for this image: skip the banner flicker, but
+    // still await the (already-memoized) promise so embeddingReadyStem catches up.
+    const alreadyEnsured = ensuredEmbeddingRef.current.has(stem);
+    const bannerId = alreadyEnsured ? null : addBanner('Preparing μSAM...', 'loading', 0);
+    ensureStoredEmbedding(stem, sourceUrl, imageWidth, imageHeight)
+      .then(() => setEmbeddingReadyStem(stem))
+      .catch((e) => {
+        // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
+        console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
+      })
+      .finally(() => { if (bannerId) removeBanner(bannerId); });
+    return () => { if (bannerId) removeBanner(bannerId); };
+  }, [
+    microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
+    imageUrl, originalImageUrl, ensureStoredEmbedding, addBanner, removeBanner,
+  ]);
+
+  // Feed the in-browser box decoder from the shared stored embedding instead of
+  // letting it encode inline, so the box tool and AIS pre-seg reuse one encode.
+  useEffect(() => {
+    if (!service) return;
+    setEmbeddingLoader(async (url, width, height) => {
+      const stem = currentImageStemRef.current;
+      if (!stem) throw new Error('no active image for μSAM');
+      const npzUrl = await ensureStoredEmbedding(stem, url, width, height);
+      return service.loadMicroSamEmbedding(npzUrl);
+    });
+    return () => setEmbeddingLoader(null);
+  }, [service, setEmbeddingLoader, ensureStoredEmbedding]);
+
+  // AI-box tool: decode the drawn box into one mask locally and commit it as a
+  // feature styled with the active label. Undo-snapshotted before mutation.
+  const handleSamBox = useCallback(
+    async (extent: number[]) => {
+      if (!service || !imageUrl || imageWidth <= 0 || imageHeight <= 0) return;
+      // One decode at a time (dev-rule #10); ignore boxes drawn mid-decode.
+      if (samDecodeInFlightRef.current) return;
+      samDecodeInFlightRef.current = true;
+      const sourceUrl = originalImageUrl || imageUrl;
+      const bannerId = addBanner('Decoding box with μSAM...', 'loading', 0);
+      try {
+        const polygons = await decodeSamBox(extent, imageWidth, imageHeight, sourceUrl);
+        removeBanner(bannerId);
+        if (!polygons || polygons.length === 0) {
+          addBanner('No mask found in that box', 'warning', 4000);
+          return;
+        }
+        const vs = getVectorSource?.();
+        if (!vs) return;
+        // dev-rule #7: snapshot before mutating the vector source.
+        const GeoJSON = (await import('ol/format/GeoJSON')).default;
+        const fmt = new GeoJSON();
+        pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+        // Exclude the AI-decoded mask against already-existing annotations
+        // so it never overwrites area a saved mask already claims.
+        const existingPolys = snapshotMaskPolygons(vs.getFeatures());
+        const label = activeLabel;
+        let added = 0;
+        for (const m of polygons) {
+          const rawPolygon = new OlPolygon(m.coordinates);
+          const pieces = excludeAgainstMaskPolygons(rawPolygon, existingPolys);
+          for (const polygon of pieces) {
+            const feature = new Feature({ geometry: polygon });
+            feature.setProperties({
+              label: label.id,
+              edge_color: label.color,
+              face_color: label.color,
+              edge_width: 2,
+            });
+            vs.addFeature(feature);
+            added++;
+          }
+        }
+        if (added === 0) {
+          addBanner('That box only covered existing annotations, no new mask added', 'warning', 4000);
+        } else {
+          console.log('[AnnotatePage] micro-sam box added', added, 'masks');
+          addBanner(`Added ${added} mask${added !== 1 ? 's' : ''} from μSAM`, 'success', 4000);
+        }
+      } catch (err: any) {
+        removeBanner(bannerId);
+        const msg = err?.message || 'Unknown error';
+        console.error('[AnnotatePage] micro-sam box decode failed:', msg);
+        addBanner('micro-sam box decode failed', 'error', 8000, msg);
+      } finally {
+        samDecodeInFlightRef.current = false;
+      }
+    },
+    [
+      service, imageUrl, originalImageUrl, imageWidth, imageHeight,
+      decodeSamBox, getVectorSource, pushUndo, activeLabel, addBanner, removeBanner,
+    ],
   );
 
   // Drop any cached flows: every server-affecting param change must trigger a
@@ -486,22 +803,45 @@ print('CLAHE packages ready')
     }
     flowsCacheRef.current = null;
     setLivePreviewReady(false);
+    setHasCellposeResult(false);
   }, []);
 
+  // Single source of truth for which pixels a Cellpose run sees: the raw
+  // image by default, or the CLAHE-enhanced pixels when the "Use contrast
+  // enhanced image" checkbox is on. Both handleRunCellpose and the instant-
+  // config live recompute derive their source URL from this one function, so
+  // they can never disagree on what a cached flows result was computed
+  // against.
+  const deriveCellposeSource = useCallback(
+    (cfg: CellposeConfig): { url: string | null; useEnhanced: boolean } => {
+      const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
+      const url = useEnhanced ? (claheEnhancedUrl as string) : (originalImageUrl || imageUrl);
+      return { url, useEnhanced };
+    },
+    [isCLAHEActive, claheEnhancedUrl, originalImageUrl, imageUrl],
+  );
+
   // Cellpose can return a fresh (dP, cellprob) over the wire when the
-  // image/model/diameter/CLAHE flag changed, OR we can recompute locally
-  // from the cached flows when only the instant-group sliders moved. Both
-  // paths converge in the same polygon-replacement logic below.
+  // image/CLAHE flag changed, OR we can recompute locally from the cached
+  // flows when only the instant-group sliders moved. Both paths converge in
+  // the same polygon-replacement logic below.
   const runCellposeFlowsPipeline = useCallback(
-    async (cfg: CellposeConfig, sourceUrl: string) => {
+    async (cfg: CellposeConfig, signal?: AbortSignal) => {
       if (!service || !imageWidth || !imageHeight) return;
 
-      // Server-affecting params decide whether the cache is still valid.
+      const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
+      if (!sourceUrl) return;
+
+      // Keyed on image identity, not the raw URL: a rotated presigned URL
+      // for the same pixels must not miss the cache. `diameter` drives the
+      // client-side rescale before the network call, so it also invalidates
+      // the cache. `two_pass` changes which forward pass's flow field the
+      // server returns, so it invalidates the cache too.
       const cacheKey = JSON.stringify({
-        u: sourceUrl,
-        m: cfg.model || 'cpsam',
+        stem: currentImageStem,
+        enh: useEnhanced,
         d: cfg.diameter ?? null,
-        c: isCLAHEActive ? 1 : 0,
+        tp: !!cfg.two_pass,
       });
 
       let cached = flowsCacheRef.current;
@@ -509,16 +849,16 @@ print('CLAHE packages ready')
         const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
         try {
           const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
-            model: cfg.model,
             diameter: cfg.diameter,
-            enable_clahe: isCLAHEActive || undefined,
-          });
+            two_pass: cfg.two_pass,
+          }, signal);
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
         } finally {
           removeBanner(fetchBanner);
         }
       }
+      if (signal?.aborted) return;
 
       // Local mask gen via Pyodide.
       const mask = await maskGen.compute(
@@ -538,6 +878,7 @@ print('CLAHE packages ready')
           max_size_fraction: 0.4,
         },
       );
+      if (signal?.aborted) return;
 
       const polygons = maskDataToPolygons(
         mask.data,
@@ -562,7 +903,7 @@ print('CLAHE packages ready')
       return n;
     },
     [
-      service, imageWidth, imageHeight, isCLAHEActive,
+      service, imageWidth, imageHeight, currentImageStem, deriveCellposeSource,
       addBanner, removeBanner, maskGen, getVectorSource,
       pushUndo, applyPolygonsAsPreview, livePreviewReady,
     ],
@@ -571,11 +912,84 @@ print('CLAHE packages ready')
   const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
     const cfg = cfgOverride || cellposeConfig;
     if (!service || !imageUrl) return;
-    const sourceUrl = originalImageUrl || imageUrl;
+    // Segmentation uses the raw image by default. The "Use contrast enhanced
+    // image" checkbox (only shown while CLAHE is active) opts a run into
+    // sending the enhanced pixels instead. `deriveCellposeSource` is the one
+    // place this decision is made, so the instant-config live recompute
+    // always agrees on which pixels (and cache key) a run corresponds to.
+    const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
+    if (!sourceUrl) return;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
+
+    // A fresh controller per run. The Cancel button on the config dialog
+    // calls .abort() unconditionally (it's a no-op once cellposeAbortRef is
+    // cleared below), so cancelling mid-run stops polling and discards any
+    // late cellpose4-runner result instead of applying it.
+    const abortController = new AbortController();
+    cellposeAbortRef.current = abortController;
+    const { signal } = abortController;
+
     setIsRunningCellpose(true);
-    const bannerId = addBanner('Running Cellpose segmentation...', 'loading', 0);
+    const bannerId = addBanner(
+      cfg.backend === 'microsam' ? 'Running μSAM segmentation...' : 'Running Cellpose segmentation...',
+      'loading',
+      0,
+    );
     try {
+      // μSAM automatic segmentation is a server-side infer drop-in: no flows,
+      // no Pyodide mask-gen, no tuning knobs. Handle it in its own branch and
+      // route the masks through the same preview + undo machinery Cellpose uses.
+      if (cfg.backend === 'microsam') {
+        try {
+          let masks;
+          if (useEnhanced) {
+            // Bypass the stored (raw) embedding entirely: infer directly on
+            // the enhanced pixels so the shared raw embedding is never
+            // overwritten with enhanced data.
+            masks = await service.runMicroSam(claheEnhancedUrl as string, imageWidth, imageHeight, {
+              min_mask_area: cfg.min_mask_area,
+            });
+          } else {
+            // Reuse the precomputed embedding: AIS runs fully server-side from
+            // the stored `.npz` link (the browser never pulls the ~4 MB
+            // features). Always anchored to the raw imageUrl, never enhanced
+            // pixels, since this embedding is memoized for the whole session.
+            const npzUrl = await ensureStoredEmbedding(
+              currentImageStem ?? imageUrl,
+              imageUrl,
+              imageWidth,
+              imageHeight,
+            );
+            masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
+              min_mask_area: cfg.min_mask_area,
+            });
+          }
+          let n = 0;
+          if (masks && masks.length > 0) {
+            const vs = getVectorSource?.();
+            if (vs) {
+              const GeoJSON = (await import('ol/format/GeoJSON')).default;
+              const fmt = new GeoJSON();
+              pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+              n = applyPolygonsAsPreview(vs, masks);
+            }
+          }
+          removeBanner(bannerId);
+          if (n === 0) {
+            addBanner('No masks detected by μSAM', 'warning', 5000);
+          } else {
+            console.log('[AnnotatePage] micro-sam added', n, 'masks');
+            addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from μSAM`, 'success', 5000);
+          }
+        } catch (msErr: any) {
+          removeBanner(bannerId);
+          const msg = msErr?.message || 'Unknown error';
+          console.error('[AnnotatePage] micro-sam failed:', msg);
+          addBanner('μSAM segmentation failed', 'error', 8000, msg);
+        }
+        return;
+      }
+
       // Prefer the flows + Pyodide path when the kernel is healthy. If
       // anything throws, fall back to the all-server path so the user
       // always gets a result.
@@ -583,9 +997,10 @@ print('CLAHE packages ready')
       let usedLocalPath = false;
       if (kernelReady) {
         try {
-          n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+          n = await runCellposeFlowsPipeline(cfg, signal);
           usedLocalPath = true;
         } catch (flowsErr: any) {
+          if (flowsErr?.name === 'AbortError') throw flowsErr;
           console.warn(
             '[AnnotatePage] Flows-path failed, falling back to server mask-gen:',
             flowsErr,
@@ -595,14 +1010,13 @@ print('CLAHE packages ready')
 
       if (!usedLocalPath) {
         const masks = await service.runCellpose(sourceUrl, imageWidth, imageHeight, {
-          model: cfg.model,
-          diameter: cfg.diameter,
           flow_threshold: cfg.flow_threshold,
           cellprob_threshold: cfg.cellprob_threshold,
           niter: cfg.niter,
           min_mask_area: cfg.min_mask_area,
-          enable_clahe: isCLAHEActive || undefined,
-        });
+          diameter: cfg.diameter,
+          two_pass: cfg.two_pass,
+        }, signal);
         if (masks && masks.length > 0) {
           const vs = getVectorSource?.();
           if (vs) {
@@ -616,7 +1030,16 @@ print('CLAHE packages ready')
         }
       }
 
+      if (signal.aborted) {
+        removeBanner(bannerId);
+        return;
+      }
+
       removeBanner(bannerId);
+      // The flow field has arrived (even a zero-mask run is a completed run) —
+      // bump the counter that drives the dialog's Compute Flow Field -> Refine
+      // Results auto-collapse and its Cancel -> Done button flip.
+      setCellposeCompletedRunId((v) => v + 1);
 
       if (n === undefined || n === 0) {
         addBanner('No masks detected by Cellpose', 'warning', 5000);
@@ -624,20 +1047,26 @@ print('CLAHE packages ready')
       }
       console.log('[AnnotatePage] Cellpose added', n, 'masks (local=' + usedLocalPath + ')');
       if (usedLocalPath) setLivePreviewReady(true);
+      setHasCellposeResult(true);
       addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from Cellpose`, 'success', 5000);
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        removeBanner(bannerId);
+        return;
+      }
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Cellpose failed:', fullError);
       removeBanner(bannerId);
       addBanner('Cellpose segmentation failed', 'error', 8000, fullError);
     } finally {
       setIsRunningCellpose(false);
+      if (cellposeAbortRef.current === abortController) cellposeAbortRef.current = null;
     }
   }, [
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
-    cellposeConfig, isCLAHEActive, kernelReady,
-    runCellposeFlowsPipeline, applyPolygonsAsPreview,
-    getVectorSource, pushUndo, addBanner, removeBanner,
+    cellposeConfig, isCLAHEActive, claheEnhancedUrl, kernelReady, currentImageStem,
+    ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
+    getVectorSource, pushUndo, addBanner, removeBanner, deriveCellposeSource,
   ]);
 
   // Re-run mask gen using the cached flows on every instant-config drag.
@@ -647,17 +1076,15 @@ print('CLAHE packages ready')
     if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
     instantRecomputeTimerRef.current = setTimeout(async () => {
       try {
-        const sourceUrl = originalImageUrl || imageUrl;
-        if (!sourceUrl) return;
-        const n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+        const n = await runCellposeFlowsPipeline(cfg);
         if (n !== undefined) {
           console.log('[AnnotatePage] Live preview: %d masks', n);
         }
       } catch (err: any) {
         console.warn('[AnnotatePage] Live preview failed:', err);
       }
-    }, 150);
-  }, [imageUrl, originalImageUrl, runCellposeFlowsPipeline]);
+    }, 200);
+  }, [runCellposeFlowsPipeline]);
 
   // Keep refs in sync so the config dialog's Run button + instant-config
   // callback can trigger the latest closures without a re-render of the dialog.
@@ -689,29 +1116,27 @@ print('CLAHE packages ready')
     if (features.length === 0) {
       console.log('[AnnotatePage] No annotations to save, skipping');
       addBanner('No annotations to save, skipping', 'warning', 5000);
-      await loadNewImage();
+      await advanceToNextImage();
       return;
     }
+
+    if (!service || !currentImageStem) return;
 
     console.log('[AnnotatePage] Saving', features.length, 'annotations...');
     setIsSaving(true);
     const saveBannerId = addBanner('Saving annotation...', 'loading', 0);
     try {
-      const imageName = currentImageName || imageUrl?.split('/').pop()?.split('?')[0] || 'annotation.png';
+      const saveUrls = await service.getSaveUrls(currentImageStem);
+      console.log('[AnnotatePage] Got save URLs, timestamp:', saveUrls.timestamp);
 
-      if (service) {
-        const saveUrls = await service.getSaveUrls(imageName, currentRound);
-        console.log('[AnnotatePage] Got save URLs for:', saveUrls.image_stem);
+      const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
+      const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+      await fetch(saveUrls.geojson_put_url, { method: 'PUT', body: geojsonBlob });
+      console.log('[AnnotatePage] Uploaded GeoJSON');
 
-        const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
-        const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
-        await fetch(saveUrls.geojson_url, { method: 'PUT', body: geojsonBlob });
-        console.log('[AnnotatePage] Uploaded GeoJSON');
-
-        const pngBlob = renderInstanceSegmentationPNG(vs, imageWidth, imageHeight);
-        await fetch(saveUrls.png_url, { method: 'PUT', body: pngBlob });
-        console.log('[AnnotatePage] Uploaded PNG mask');
-      }
+      const pngBlob = renderInstanceSegmentationPNG(vs, imageWidth, imageHeight);
+      await fetch(saveUrls.png_put_url, { method: 'PUT', body: pngBlob });
+      console.log('[AnnotatePage] Uploaded PNG mask');
 
       removeBanner(saveBannerId);
       addBanner('Annotation saved successfully', 'success', 5000);
@@ -719,17 +1144,24 @@ print('CLAHE packages ready')
 
       vs.clear();
       useAnnotationStore.setState({ undoStack: [], canUndo: false });
-      await loadNewImage();
+      await advanceToNextImage();
     } catch (err: any) {
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Save failed:', fullError);
       removeBanner(saveBannerId);
-      addBanner('Failed to save annotation', 'error', 8000, fullError);
-      setError(fullError);
+      if (/PermissionError/i.test(fullError) || /or higher is required/i.test(fullError)) {
+        // Public datasets allow anonymous viewing but saving always
+        // requires a Hypha login (colab-rework-plan.md F5, revised).
+        addBanner('Log in to save annotations', 'warning', 8000);
+        setPermissionDenied(true);
+      } else {
+        addBanner('Failed to save annotation', 'error', 8000, fullError);
+        setError(fullError);
+      }
     } finally {
       setIsSaving(false);
     }
-  }, [service, currentRound, imageUrl, originalImageUrl, imageWidth, imageHeight, currentImageName, setError, getVectorSource, loadNewImage, addBanner, removeBanner]);
+  }, [service, currentImageStem, imageWidth, imageHeight, setError, getVectorSource, advanceToNextImage, addBanner, removeBanner]);
 
   const handleUndo = useCallback(() => {
     console.log('[AnnotatePage] Undo triggered');
@@ -777,12 +1209,17 @@ print('CLAHE packages ready')
       }
       setIsCLAHEActive(false);
       setOriginalImageUrl(null);
+      setClaheEnhancedUrl(null);
       console.log('[AnnotatePage] Restored original image');
       addBanner('Original image restored', 'info', 3000);
     } else {
+      // The shared kernel (from ColabPage's KernelProvider) stays idle until
+      // something asks for it. CLAHE is the only feature on this page that
+      // needs Python, so request it here instead of on every page load.
+      sharedKernel?.requestKernel?.();
       openCLAHEDialog();
     }
-  }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner]);
+  }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner, sharedKernel]);
 
   const [isApplyingCLAHE, setIsApplyingCLAHE] = useState(false);
 
@@ -886,6 +1323,7 @@ print("CLAHE_RESULT:" + result_b64)
         }
       }
       setIsCLAHEActive(true);
+      setClaheEnhancedUrl(dataUrl);
       removeBanner(bannerId);
       addBanner('CLAHE contrast enhancement applied', 'success', 3000);
     } catch (err: any) {
@@ -896,17 +1334,6 @@ print("CLAHE_RESULT:" + result_b64)
       setIsApplyingCLAHE(false);
     }
   }, [imageUrl, originalImageUrl, getImageLayer, executeCode, kernelPackagesInstalled, claheConfig, closeCLAHEDialog, addBanner, removeBanner]);
-
-  const hasCustomCellposeConfig = useMemo(() => {
-    return (
-      cellposeConfig.model !== DEFAULT_CELLPOSE_CONFIG.model ||
-      cellposeConfig.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter ||
-      cellposeConfig.flow_threshold !== DEFAULT_CELLPOSE_CONFIG.flow_threshold ||
-      cellposeConfig.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
-      cellposeConfig.niter !== DEFAULT_CELLPOSE_CONFIG.niter ||
-      cellposeConfig.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area
-    );
-  }, [cellposeConfig]);
 
   const handleSaveUndo = useCallback(() => {
     const vs = getVectorSource?.();
@@ -1025,34 +1452,62 @@ print("CLAHE_RESULT:" + result_b64)
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', p: 4 }}>
         <Alert severity="warning">
-          Missing service configuration. URL must include <code>server_url</code> and <code>image_provider_id</code> parameters.
+          Missing service configuration. URL must include <code>session_id</code> and <code>label</code> parameters.
         </Alert>
       </Box>
     );
   }
 
+  // AI Box readiness (12A): the service being reachable (microSamAvailable) is
+  // not enough to draw a useful box — the ONNX decoder and this image's stored
+  // embedding both need to finish warming up first. ToolBar shows a spinner
+  // for the gap between "available" and "ready"; AnnotationViewer only installs
+  // the box-draw interaction once actually ready.
+  const embeddingReady = embeddingReadyStem !== null && embeddingReadyStem === currentImageStem;
+  const aiBoxReady = microSamAvailable && embeddingReady && decoderReady;
+
   // Determine the status message for the overlay
-  const showStatusOverlay = serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce);
+  const showStatusOverlay = !permissionDenied && (
+    serviceLoading || serviceError || (!hasLoadedOnce && !error) || (error && !hasLoadedOnce)
+  );
   let statusMessage = '';
   let statusSeverity: 'info' | 'error' = 'info';
+  let statusHeading = '';
+  let statusBody = '';
   if (serviceLoading) {
     statusMessage = 'Connecting to annotation service...';
-  } else if (serviceError) {
-    statusMessage = `Service connection failed: ${serviceError}`;
+  } else if (serviceError || (error && !hasLoadedOnce)) {
+    // The raw message can be a full Ray traceback (broker/service errors
+    // cross the wire as plain str(exception), not a typed error) — log it
+    // for debugging but show a short, classified message to the user.
     statusSeverity = 'error';
-  } else if (error && !hasLoadedOnce) {
-    statusMessage = error;
-    statusSeverity = 'error';
+    const rawMessage = serviceError || error || '';
+    console.error('[AnnotatePage] Connection error:', rawMessage);
+    const errorCode = classifyBrokerError(rawMessage);
+    statusHeading = errorCode === 'not-registered'
+      ? 'This dataset could not be found'
+      : errorCode === 'unavailable'
+        ? 'Annotation service is unavailable'
+        : 'Something went wrong';
+    statusBody = errorCode === 'not-registered'
+      ? 'It may have been deleted, or the link is incorrect.'
+      : errorCode === 'unavailable'
+        ? 'The annotation service is temporarily down. Try again in a moment.'
+        : 'There was a problem connecting to the annotation service.';
   } else if (!hasLoadedOnce && !error) {
     statusMessage = 'Loading image...';
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* Compact header with logo and user button */}
+    <Box
+      sx={{ position: 'relative', height: '100vh', overflow: 'hidden' }}
+      style={{ '--annotate-header-h': isMobile ? '48px' : '40px' } as React.CSSProperties}
+    >
+      {/* Floating header bar (Google-Maps-like: spans full width, overlays the
+          fullscreen viewer rather than pushing it down) */}
       <div
-        className="flex items-center justify-between px-3 flex-shrink-0 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
-        style={{ position: 'relative', zIndex: 1000, height: isMobile ? 48 : 40 }}
+        className="flex items-center justify-between px-3 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1200, height: isMobile ? 48 : 40 }}
       >
         <div className="flex items-center gap-2 z-10 flex-shrink-0">
           {sessionUrl && (
@@ -1100,41 +1555,69 @@ print("CLAHE_RESULT:" + result_b64)
               {serviceConfig.label}
             </span>
           )}
-          <Tooltip title="Annotation round. Each round saves to its own subfolder so multiple passes never overwrite each other.">
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300 tracking-wide">
-              Round {currentRound}
-            </span>
-          </Tooltip>
+          {serviceConfig?.microSamSession && (
+            <Tooltip title={`Using the fine-tuned model from session ${serviceConfig.microSamSession.sessionId}`}>
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 tracking-wide">
+                Fine-tuned model
+              </span>
+            </Tooltip>
+          )}
         </div>
 
-        <div className="z-10 flex-shrink-0">
+        <div className="z-10 flex-shrink-0 flex items-center gap-1.5">
+          <Tooltip title="Guide">
+            <span>
+              <MuiIconButton
+                size="small"
+                onClick={() => setHelpOpen(true)}
+                aria-label="Open the Guide"
+                sx={{
+                  color: '#1976d2',
+                  transition: 'transform 160ms ease-out',
+                  '&:active': { transform: 'scale(0.93)' },
+                }}
+              >
+                <HelpOutlineIcon fontSize="small" />
+              </MuiIconButton>
+            </span>
+          </Tooltip>
           <LoginButton />
         </div>
       </div>
 
-      {/* Main annotation area */}
-      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
+      {/* Fullscreen annotation area — the viewer fills the entire route;
+          tools and actions float on top as separate edge-anchored panels
+          (left/right in landscape, top/bottom in portrait). */}
+      <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
       <ToolBar
-        onRunCellpose={handleRunCellpose}
         onOpenCellposeConfig={openCellposeConfig}
+        cellposeConfigOpen={cellposeConfigOpen}
+        cellposeAvailable={cellposeAvailable}
+        microSamAvailable={microSamAvailable}
+        aiBoxReady={aiBoxReady}
+        isRunningCellpose={isRunningCellpose}
+        disabled={!!permissionDenied}
+      />
+      <ActionPanel
         onSave={handleSave}
         onUndo={handleUndo}
         onResetView={() => resetView?.()}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
         onClearAll={handleClearAll}
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
-        onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
-        imageName={currentImageName || undefined}
-        cellposeModel={activeCellposeModel}
-        cellposeAvailable={cellposeAvailable}
+        imageName={currentImageStem || undefined}
         isSaving={isSaving}
-        isRunningCellpose={isRunningCellpose}
         isCLAHEActive={isCLAHEActive}
         isLowContrast={isLowContrast}
-        hasCustomCellposeConfig={hasCustomCellposeConfig}
+        disabled={!!permissionDenied}
       />
-      <Box sx={{ flex: 1, position: 'relative' }}>
+      {/* Bounded to the area below the floating header bar (not the full page
+          height), so the map's own fit-to-image centering matches what is
+          actually visible instead of centering behind the header. */}
+      <Box sx={{ position: 'absolute', top: 'var(--annotate-header-h)', left: 0, right: 0, bottom: 0 }}>
         {imageUrl && !allAnnotatedInfo && !noImagesInfo && (
           <AnnotationViewer
             imageUrl={imageUrl}
@@ -1144,6 +1627,8 @@ print("CLAHE_RESULT:" + result_b64)
             onVectorSourceReady={handleVectorSourceReady}
             onImageLayerReady={handleImageLayerReady}
             onMapReady={handleMapReady}
+            onSamBox={handleSamBox}
+            microSamAvailable={aiBoxReady}
           />
         )}
 
@@ -1167,7 +1652,7 @@ print("CLAHE_RESULT:" + result_b64)
               maxWidth: { xs: 'calc(100% - 32px)', sm: 'none' },
             }}>
               {measurePhase === 'first'
-                ? 'Tap one edge of a representative cell'
+                ? 'Tap one edge of a representative object'
                 : 'Tap the opposite edge to complete measurement'}
               <Box component="span" sx={{ fontSize: '0.75rem', opacity: 0.65, display: { xs: 'none', sm: 'inline' } }}>Esc to cancel</Box>
             </Box>
@@ -1216,7 +1701,7 @@ print("CLAHE_RESULT:" + result_b64)
             >
               <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={600} gutterBottom>
-                All Images Annotated for Round {currentRound}
+                All Images Annotated
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {allAnnotatedInfo.message}
@@ -1225,16 +1710,10 @@ print("CLAHE_RESULT:" + result_b64)
                 <MuiButton
                   variant="contained"
                   color="primary"
-                  onClick={() => {
-                    const nextRound = currentRound + 1;
-                    setCurrentRound(nextRound);
-                    setAllAnnotatedInfo(null);
-                    addBanner(`Starting round ${nextRound}`, 'info', 4000);
-                    loadNewImage(false);
-                  }}
+                  onClick={() => advanceToNextImage()}
                   sx={{ textTransform: 'none' }}
                 >
-                  Start Round {currentRound + 1}
+                  Check for new images
                 </MuiButton>
                 <MuiButton
                   variant="outlined"
@@ -1242,7 +1721,7 @@ print("CLAHE_RESULT:" + result_b64)
                   onClick={handleOpenRefinePicker}
                   sx={{ textTransform: 'none' }}
                 >
-                  Refine round {currentRound}
+                  Browse images
                 </MuiButton>
               </Box>
             </Box>
@@ -1277,9 +1756,78 @@ print("CLAHE_RESULT:" + result_b64)
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {noImagesInfo.message}
               </Typography>
-              <MuiButton variant="outlined" onClick={() => loadNewImage()}>
+              <MuiButton variant="outlined" onClick={() => advanceToNextImage()}>
                 Retry
               </MuiButton>
+            </Box>
+          </Box>
+        )}
+
+        {permissionDenied && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(0,0,0,0.03)',
+              zIndex: 1100,
+            }}
+          >
+            <Box
+              sx={{
+                textAlign: 'center',
+                p: 5,
+                maxWidth: 480,
+                bgcolor: 'white',
+                borderRadius: 3,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+              }}
+            >
+              {user?.email ? (
+                <>
+                  <Typography variant="h5" fontWeight={600} gutterBottom>
+                    Access needed
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                    This dataset is private and {user.email} does not have access to it yet. Request access
+                    and an owner or manager can grant it.
+                  </Typography>
+                  {requestAccessState === 'requested' ? (
+                    <Typography variant="body2" color="success.main" sx={{ fontWeight: 500 }}>
+                      Access requested. An owner or manager will need to approve it.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <MuiButton
+                        variant="contained"
+                        onClick={handleRequestAccess}
+                        disabled={requestAccessState === 'requesting'}
+                      >
+                        {requestAccessState === 'requesting' ? 'Requesting...' : 'Request access'}
+                      </MuiButton>
+                      {requestAccessState === 'error' && (
+                        <Typography variant="body2" color="error.main">
+                          {requestAccessError}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Typography variant="h5" fontWeight={600} gutterBottom>
+                    Log in to continue
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                    This dataset is private. Log in with an account that has access to view and annotate it.
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <LoginButton />
+                  </Box>
+                </>
+              )}
             </Box>
           </Box>
         )}
@@ -1300,7 +1848,26 @@ print("CLAHE_RESULT:" + result_b64)
             }}
           >
             {statusSeverity === 'error' ? (
-              <Alert severity="error">{statusMessage}</Alert>
+              <Box
+                sx={{
+                  bgcolor: '#fff',
+                  borderRadius: 3,
+                  p: 3,
+                  maxWidth: 360,
+                  textAlign: 'center',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+                }}
+              >
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  {statusHeading}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+                  {statusBody}
+                </Typography>
+                <MuiButton variant="contained" onClick={handleRetryConnection}>
+                  Try again
+                </MuiButton>
+              </Box>
             ) : (
               <>
                 <CircularProgress size={48} sx={{ color: '#fff' }} />
@@ -1345,7 +1912,10 @@ print("CLAHE_RESULT:" + result_b64)
         onBanner={addBanner}
       />
 
-      <HelpTutorial open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {/* Never show the first-visit tutorial on top of the connecting/error
+          overlay (bug reported by keen-puma) — it stays queued in `helpOpen`
+          and appears once the overlay clears. */}
+      <HelpTutorial open={helpOpen && !showStatusOverlay} onClose={() => setHelpOpen(false)} />
 
       <Dialog
         open={refinePickerOpen}
@@ -1354,40 +1924,44 @@ print("CLAHE_RESULT:" + result_b64)
         fullWidth
       >
         <DialogTitle>
-          Pick an annotated image to refine
+          Browse images
         </DialogTitle>
         <DialogContent dividers sx={{ p: 0 }}>
-          {refineLoadingList ? (
+          {!datasetIndex ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
               <CircularProgress size={28} />
             </Box>
-          ) : refineImageList.length === 0 ? (
+          ) : datasetIndex.images.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                No images in this session.
+                No images in this dataset.
               </Typography>
             </Box>
           ) : (
             <List dense sx={{ maxHeight: 360, overflowY: 'auto' }}>
-              {refineImageList.map((img) => (
-                <ListItemButton
-                  key={img.stem}
-                  onClick={() => handlePickRefineImage(img.stem)}
-                  disabled={!img.is_annotated}
-                >
-                  <ListItemIcon sx={{ minWidth: 36 }}>
-                    {img.is_annotated ? (
-                      <CheckCircleOutlineIcon sx={{ color: 'success.main', fontSize: 20 }} />
-                    ) : (
-                      <Box sx={{ width: 20, height: 20 }} />
-                    )}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={img.name}
-                    secondary={img.is_annotated ? 'Annotated' : 'Not annotated'}
-                  />
-                </ListItemButton>
-              ))}
+              {datasetIndex.images.map((img) => {
+                const isAnnotated = Boolean(
+                  serviceConfig && datasetIndex.my_annotations[serviceConfig.label]?.[img.stem],
+                );
+                return (
+                  <ListItemButton
+                    key={img.stem}
+                    onClick={() => handlePickRefineImage(img.stem)}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>
+                      {isAnnotated ? (
+                        <CheckCircleOutlineIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                      ) : (
+                        <Box sx={{ width: 20, height: 20 }} />
+                      )}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={img.stem}
+                      secondary={isAnnotated ? 'Annotated' : 'Not annotated'}
+                    />
+                  </ListItemButton>
+                );
+              })}
             </List>
           )}
         </DialogContent>

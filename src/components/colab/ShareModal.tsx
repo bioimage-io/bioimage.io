@@ -1,51 +1,122 @@
-import React, { useState, useEffect } from 'react';
-import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
+import { AccessRequest, BrokerRole, BrokerUserRef, DatasetWithRole, getDataset, updateSharing } from './brokerApi';
+import { buildAnnotateQuery } from './datasetApi';
+import SharingPanel, { PendingAdd, userKey } from './SharingPanel';
 
 interface ShareModalProps {
-  annotationURL: string;
-  label: string;
-  dataArtifactId: string | null;
+  server: any;
+  artifactId: string;
+  role: BrokerRole;
+  dataset: DatasetWithRole;
+  datasetName: string;
+  selectedLabel: string;
+  onSelectLabel: (label: string) => void;
+  onChanged: () => void | Promise<void>;
   setShowShareModal: (show: boolean) => void;
-  cellposeModel?: string;
-  onCellposeModelChange?: (model: string) => void;
-  server?: any;
-  artifactManager?: any;
 }
 
-const QR_SIZE = 200;
+// 80% of the previous 200px (colab-rework-plan.md §21 item 4).
+const QR_SIZE = 160;
+const QR_ENLARGED_SIZE = 320;
+// Higher-resolution render used only for the copy/download outputs, independent
+// of what's shown on screen.
+const QR_EXPORT_SIZE = 512;
 
-/** Collapsible QR code section */
-const QRCodeSection: React.FC<{ url: string; label: string }> = ({ url, label }) => {
-  const [expanded, setExpanded] = useState(false);
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(url)}`;
+// How often the Access requests list is re-polled while the dialog is open
+// (colab-rework-plan.md §22 item 3).
+const ACCESS_REQUESTS_POLL_MS = 20_000;
+
+const slugify = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '-');
+
+/** Renders a QR code for `url` onto a canvas at `size`, client-side (no external
+ * image request), so the copy/download buttons never hit a cross-origin canvas. */
+const QRCodeCanvas: React.FC<{ url: string; size: number }> = ({ url, size }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !url) return;
+    QRCode.toCanvas(canvasRef.current, url, { width: size, margin: 1 }).catch(() => {});
+  }, [url, size]);
+
+  return <canvas ref={canvasRef} width={size} height={size} />;
+};
+
+const renderQrBlob = (url: string): Promise<Blob | null> =>
+  new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    QRCode.toCanvas(canvas, url, { width: QR_EXPORT_SIZE, margin: 1 })
+      .then(() => canvas.toBlob((blob) => resolve(blob), 'image/png'))
+      .catch(reject);
+  });
+
+/** QR code section: click to enlarge for scanning, plus copy-image and download. */
+const QRCodeSection: React.FC<{ url: string; label: string; datasetName: string }> = ({ url, label, datasetName }) => {
+  const [enlarged, setEnlarged] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState('Copy image');
+
+  const handleCopyImage = async () => {
+    try {
+      const blob = await renderQrBlob(url);
+      if (!blob) throw new Error('Failed to render QR code');
+      const ClipboardItemCtor = (window as any).ClipboardItem;
+      if (!ClipboardItemCtor) throw new Error('Clipboard image copy is not supported in this browser');
+      await navigator.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })]);
+      setCopyFeedback('Copied!');
+    } catch {
+      setCopyFeedback('Failed');
+    } finally {
+      setTimeout(() => setCopyFeedback('Copy image'), 2000);
+    }
+  };
+
+  const handleDownload = async () => {
+    const blob = await renderQrBlob(url);
+    if (!blob) return;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const namePart = slugify(datasetName) || 'dataset';
+    const labelPart = slugify(label) || 'annotation';
+    link.download = `${namePart}-${labelPart}.png`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   return (
-    <div className="mt-2">
+    <div className="mt-3 flex flex-col items-center">
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-sm text-purple-600 hover:text-purple-800 transition-colors flex items-center gap-1"
+        type="button"
+        onClick={() => setEnlarged(true)}
+        className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow cursor-zoom-in"
+        title="Click to enlarge for scanning"
       >
-        <svg
-          className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-        {expanded ? 'Hide' : 'Show'} QR Code
+        <QRCodeCanvas url={url} size={QR_SIZE} />
       </button>
-      {expanded && (
-        <div className="flex justify-center mt-2">
-          <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-            <img
-              src={qrUrl}
-              alt={`QR Code for ${label}`}
-              className="w-48 h-48"
-              onError={(e) => {
-                (e.target as HTMLImageElement).alt = 'QR code could not be generated';
-              }}
-            />
+      <div className="mt-2 flex items-center gap-4">
+        <button
+          onClick={handleCopyImage}
+          className="text-xs text-gray-500 hover:text-purple-600 transition-colors"
+        >
+          {copyFeedback}
+        </button>
+        <button
+          onClick={handleDownload}
+          className="text-xs text-gray-500 hover:text-purple-600 transition-colors"
+        >
+          Download
+        </button>
+      </div>
+
+      {enlarged && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          onClick={() => setEnlarged(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-xl shadow-lg cursor-zoom-out"
+            onClick={() => setEnlarged(false)}
+          >
+            <QRCodeCanvas url={url} size={QR_ENLARGED_SIZE} />
           </div>
         </div>
       )}
@@ -74,8 +145,8 @@ const CopyIcon: React.FC<{ copied: boolean }> = ({ copied }) =>
 const URLField: React.FC<{
   label: string;
   url: string;
-  qrLabel: string;
-}> = ({ label, url, qrLabel }) => {
+  inputId: string;
+}> = ({ label, url, inputId }) => {
   const [feedback, setFeedback] = useState('Copy');
 
   const handleCopy = async () => {
@@ -91,9 +162,12 @@ const URLField: React.FC<{
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1.5">
+        {label}
+      </label>
       <div className="relative">
         <input
+          id={inputId}
           type="text"
           value={url}
           readOnly
@@ -107,141 +181,114 @@ const URLField: React.FC<{
           <CopyIcon copied={feedback === 'Copied!'} />
         </button>
       </div>
-      <QRCodeSection url={url} label={qrLabel} />
     </div>
   );
 };
 
 const ShareModal: React.FC<ShareModalProps> = ({
-  annotationURL,
-  label,
-  dataArtifactId,
-  setShowShareModal,
-  cellposeModel = 'cpsam',
-  onCellposeModelChange,
   server,
-  artifactManager,
+  artifactId,
+  role,
+  dataset,
+  datasetName,
+  selectedLabel,
+  onSelectLabel,
+  onChanged,
+  setShowShareModal,
 }) => {
-  const baseModel = { id: 'cpsam', name: 'Base (Cellpose-SAM)', group: 'Default' };
-  const [showInstructions, setShowInstructions] = useState(false);
-  const [availableModels, setAvailableModels] = useState<{ id: string; name: string; group: string }[]>([baseModel]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const labels = dataset.labels ?? [];
 
-  const sessionURL = dataArtifactId
-    ? `${window.location.origin}${window.location.pathname}#/colab/${dataArtifactId}?label=${encodeURIComponent(label)}`
-    : null;
+  const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
+  const [pendingRemoves, setPendingRemoves] = useState<BrokerUserRef[]>([]);
+  const [pendingPublic, setPendingPublic] = useState<boolean | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>(dataset.access_requests ?? []);
 
+  // Keep the locally-polled access requests in sync whenever the parent's
+  // dataset refetches (e.g. after Apply), without waiting for the next poll
+  // tick.
   useEffect(() => {
-    let mounted = true;
-    
-    async function fetchModels() {
-      setIsLoadingModels(true);
-      const fetchedModels: { id: string; name: string; group: string }[] = [];
-      
+    setAccessRequests(dataset.access_requests ?? []);
+  }, [dataset.access_requests]);
+
+  // Auto-refresh pending access requests while the dialog is open
+  // (colab-rework-plan.md §22 item 3), so a new request shows up without
+  // closing and reopening the dialog. Scoped to a direct broker call rather
+  // than the parent's full onChanged refresh, so it doesn't also trigger the
+  // dataset overview's image/label/stats refetches every tick. Owners and
+  // managers only: the broker omits access_requests for lower roles.
+  useEffect(() => {
+    if (role !== 'owner' && role !== 'manager') return;
+    const poll = async () => {
       try {
-        // 1. Fetch dataset-specific training sessions.
-        if (server && dataArtifactId) {
-          try {
-            const cellposeService = await resolvePinnedCellposeService(server);
-            const sessionsDict = await cellposeService.list_training_sessions({
-              dataset_artifact_ids: [dataArtifactId],
-              labels: label ? [label] : undefined,
-              _rkwargs: true
-            });
-
-            if (mounted && sessionsDict) {
-              Object.entries(sessionsDict).forEach(([sessionId, m]: [string, any]) => {
-                const statusText = String(m?.status_type || '').toLowerCase();
-                const isInProgress =
-                  statusText.includes('running') ||
-                  statusText.includes('preparing') ||
-                  statusText.includes('queued');
-
-                fetchedModels.push({
-                  id: sessionId,
-                  name: m?.model_name || sessionId,
-                  group: isInProgress ? 'In-Progress Training Sessions' : 'Models for this Dataset'
-                });
-              });
-            }
-          } catch (e) {
-            console.warn('Skipping dataset model listing, service unavailable:', e);
-          }
-        }
-
-        // Fetch all published fine-tuned model artifacts from colab-annotations.
-        if (artifactManager) {
-          try {
-            const artifacts = await artifactManager.list({
-              parent_id: "bioimage-io/colab-annotations",
-              filters: { type: 'model' },
-              _rkwargs: true
-            });
-            if (mounted && artifacts) {
-              artifacts.forEach((a: any) => {
-                // Avoid duplicating dataset models if they exist here
-                if (!fetchedModels.some(m => m.id === a.id)) {
-                  fetchedModels.push({
-                    id: a.id,
-                    name: a.manifest?.name || a.id,
-                    group: 'Colab Annotations Models'
-                  });
-                }
-              });
-            }
-          } catch (e) {
-            console.error('Error fetching artifact models:', e);
-          }
-        }
-      } catch (e) {
-        console.error('Error in fetchModels:', e);
-      } finally {
-        if (mounted) {
-          const uniqueById = new Map<string, { id: string; name: string; group: string }>();
-          [baseModel, ...fetchedModels].forEach((model) => {
-            uniqueById.set(model.id, model);
-          });
-          setAvailableModels(Array.from(uniqueById.values()));
-          setIsLoadingModels(false);
-        }
+        const d = await getDataset(server, artifactId);
+        setAccessRequests(d.access_requests ?? []);
+      } catch {
+        // transient poll failure, just wait for the next tick
       }
-    }
-
-    fetchModels();
-
-    return () => {
-      mounted = false;
     };
-  }, [server, dataArtifactId, label, artifactManager]);
+    const id = setInterval(poll, ACCESS_REQUESTS_POLL_MS);
+    return () => clearInterval(id);
+  }, [server, artifactId, role]);
 
-  // Group models for select and order groups/models for better discoverability.
-  const groupedModels = availableModels.reduce((acc, m) => {
-    if (!acc[m.group]) acc[m.group] = [];
-    acc[m.group].push(m);
-    return acc;
-  }, {} as Record<string, typeof availableModels>);
+  const handleStageAdd = (user: BrokerUserRef, addRole: 'manager' | 'annotator') => {
+    const key = userKey(user);
+    setPendingRemoves((prev) => prev.filter((r) => userKey(r) !== key));
+    setPendingAdds((prev) => [...prev.filter((p) => userKey(p.user) !== key), { user, role: addRole }]);
+  };
 
-  const preferredGroupOrder = [
-    'In-Progress Training Sessions',
-    'Models for this Dataset',
-    'Colab Annotations Models',
-    'Default',
-  ];
+  const handleUndoAdd = (user: BrokerUserRef) => {
+    const key = userKey(user);
+    setPendingAdds((prev) => prev.filter((p) => userKey(p.user) !== key));
+  };
 
-  const orderedGroupEntries = [
-    ...preferredGroupOrder
-      .filter((group) => groupedModels[group]?.length)
-      .map((group) => [group, groupedModels[group]] as const),
-    ...Object.entries(groupedModels)
-      .filter(([group]) => !preferredGroupOrder.includes(group))
-      .sort(([a], [b]) => a.localeCompare(b)),
-  ].map(([group, models]) => {
-    const selected = models.filter((m) => m.id === cellposeModel);
-    const rest = models
-      .filter((m) => m.id !== cellposeModel)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return [group, [...selected, ...rest]] as const;
-  });
+  const handleToggleRemove = (user: BrokerUserRef) => {
+    const key = userKey(user);
+    setPendingRemoves((prev) =>
+      prev.some((r) => userKey(r) === key) ? prev.filter((r) => userKey(r) !== key) : [...prev, user],
+    );
+  };
+
+  const handleSetPendingPublic = (value: boolean) => {
+    setPendingPublic(value === dataset.public ? null : value);
+  };
+
+  const hasPendingChanges = pendingAdds.length > 0 || pendingRemoves.length > 0 || pendingPublic !== null;
+
+  const handleApply = async () => {
+    if (!hasPendingChanges || applying) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await updateSharing(server, artifactId, {
+        add: pendingAdds.map(({ user, role: addRole }) => ({ user, role: addRole })),
+        remove: pendingRemoves,
+        set_public: pendingPublic ?? undefined,
+      });
+      // Wait for the parent's dataset refetch to land before clearing the
+      // pending state: otherwise the checkbox briefly falls back to the
+      // stale pre-apply `dataset.public` value for the window between this
+      // resolving and the parent's async refresh completing.
+      await onChanged();
+      setPendingAdds([]);
+      setPendingRemoves([]);
+      setPendingPublic(null);
+      setApplying(false);
+    } catch (err) {
+      setApplyError((err as Error).message || 'Failed to apply sharing changes.');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const annotationURL = useMemo(
+    () =>
+      selectedLabel
+        ? `${window.location.origin}${window.location.pathname}#/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel)}`
+        : '',
+    [artifactId, selectedLabel],
+  );
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
@@ -260,7 +307,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                   />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">Share Annotation Session</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Share Dataset</h3>
             </div>
             <button
               onClick={() => setShowShareModal(false)}
@@ -276,114 +323,88 @@ const ShareModal: React.FC<ShareModalProps> = ({
         {/* Scrollable Content */}
         <div className="overflow-y-auto flex-1">
           <div className="p-6 space-y-5">
-            {/* Annotation Label */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
-              <span className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                {label}
-              </span>
-            </div>
+            {labels.length > 0 ? (
+              <div>
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
+                    <select
+                      value={selectedLabel}
+                      onChange={(e) => onSelectLabel(e.target.value)}
+                      className="px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    >
+                      {labels.map((l) => (
+                        <option key={l.name} value={l.name}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <URLField label="Annotation URL" url={annotationURL} inputId="annotation-url-input" />
+                  </div>
+                </div>
 
-            {/* Cellpose Model Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                Cellpose Model for Pre-segmentation
-                {isLoadingModels && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-normal text-gray-500">
-                    <svg className="animate-spin h-3.5 w-3.5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Loading models...
-                  </span>
-                )}
-              </label>
-              <select
-                value={cellposeModel}
-                onChange={(e) => onCellposeModelChange?.(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                disabled={isLoadingModels}
-              >
-                {orderedGroupEntries.map(([group, models]) => (
-                  <optgroup key={group} label={group}>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                The model used for AI-assisted segmentation in the annotation interface.
-              </p>
-            </div>
+                <QRCodeSection url={annotationURL} label={selectedLabel} datasetName={datasetName} />
 
-            {/* Annotation URL */}
-            <URLField
-              label="Annotation URL"
-              url={annotationURL}
-              qrLabel="Annotation URL"
-            />
-
-            {/* Session Resume URL */}
-            {sessionURL && (
-              <URLField
-                label="Session Resume URL"
-                url={sessionURL}
-                qrLabel="Session URL"
-              />
+                <p className="mt-2 text-xs text-gray-500 text-center">
+                  Share this link with collaborators to annotate together. Annotations are saved to the cloud
+                  automatically.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">Create a label first to get a shareable annotation link.</p>
             )}
 
-            {/* Instructions - Collapsible */}
-            <div className="border border-blue-200 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setShowInstructions(!showInstructions)}
-                className="w-full p-3 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center justify-between"
-              >
-                <div className="flex items-center">
-                  <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm font-semibold text-blue-800">How to use</p>
-                </div>
-                <svg
-                  className={`w-4 h-4 text-blue-600 transition-transform ${showInstructions ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {showInstructions && (
-                <div className="p-4 bg-blue-50 border-t border-blue-200">
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• <strong>Annotation URL:</strong> Share with collaborators to annotate together in real-time</li>
-                    {sessionURL && <li>• <strong>Session Resume URL:</strong> Use to resume this session later</li>}
-                    <li>• Annotations are saved to the cloud automatically</li>
-                    <li>• <strong>Important:</strong> Keep this browser tab open while collaborators use the Annotation URL</li>
-                  </ul>
-                </div>
-              )}
-            </div>
+            <SharingPanel
+              server={server}
+              artifactId={artifactId}
+              role={role}
+              dataset={dataset}
+              accessRequests={accessRequests}
+              pendingAdds={pendingAdds}
+              pendingRemoves={pendingRemoves}
+              pendingPublic={pendingPublic}
+              applying={applying}
+              onStageAdd={handleStageAdd}
+              onToggleRemove={handleToggleRemove}
+              onUndoAdd={handleUndoAdd}
+              onSetPendingPublic={handleSetPendingPublic}
+              onAccessRequestDismissed={onChanged}
+            />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3 flex-shrink-0">
-          <button
-            onClick={() => setShowShareModal(false)}
-            className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all duration-200 font-medium"
-          >
-            Close
-          </button>
-          <a
-            href={annotationURL}
-            className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
-          >
-            Open Annotation UI
-          </a>
+        <div className="p-6 pt-0 border-t border-gray-200/50 flex-shrink-0">
+          {applyError && (
+            <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">{applyError}</div>
+          )}
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => setShowShareModal(false)}
+              className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all duration-200 font-medium"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleApply}
+              disabled={applying || !hasPendingChanges}
+              className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:bg-gray-300 transition-all duration-200 font-medium flex items-center gap-2"
+            >
+              {applying && (
+                <svg className="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              {applying ? 'Applying, this takes a few seconds' : 'Apply'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

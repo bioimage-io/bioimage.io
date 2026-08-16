@@ -2,7 +2,7 @@ import { useEffect, useRef, MutableRefObject } from 'react';
 import Map from 'ol/Map';
 import MapBrowserEvent from 'ol/MapBrowserEvent';
 import VectorSource from 'ol/source/Vector';
-import Draw from 'ol/interaction/Draw';
+import Draw, { createBox } from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import { Style, Fill, Stroke } from 'ol/style';
 import Feature from 'ol/Feature';
@@ -29,6 +29,11 @@ const EXPANDER_STYLE = new Style({
 
 const CUTTER_STYLE = new Style({
   stroke: new Stroke({ color: '#ff9800', width: 2, lineDash: [8, 4] }),
+});
+
+const SAMBOX_STYLE = new Style({
+  fill: new Fill({ color: 'rgba(0, 132, 255, 0.12)' }),
+  stroke: new Stroke({ color: '#0084ff', width: 2, lineDash: [6, 4] }),
 });
 
 const geojsonFormat = new GeoJSON();
@@ -229,9 +234,17 @@ function applyEraser(eraserGeom: OlPolygon, vectorSource: VectorSource) {
   featuresToAdd.forEach((f) => vectorSource.addFeature(f));
 }
 
-function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource) {
+function applyExpander(expanderGeom: OlPolygon, vectorSource: VectorSource, imageWidth: number, imageHeight: number) {
   const expanderGeoJSON = geojsonFormat.writeGeometryObject(expanderGeom);
-  const turfExpander = turf.polygon((expanderGeoJSON as any).coordinates);
+  let turfExpander = turf.polygon((expanderGeoJSON as any).coordinates);
+
+  // Clamp the brush stroke to the image extent so it can never expand a mask
+  // past the image boundary.
+  if (imageWidth > 0 && imageHeight > 0) {
+    const clipped = clipToImageBounds(turfExpander, imageWidth, imageHeight);
+    if (!clipped) return;
+    turfExpander = clipped;
+  }
 
   // Find all features that intersect the drawn area
   const intersecting: { feature: Feature<Geometry>; turfPoly: turf.Feature<turf.Polygon> }[] = [];
@@ -333,14 +346,85 @@ export function trimExistingMasks(newPoly: OlPolygon, vectorSource: VectorSource
   featuresToAdd.forEach((f) => vectorSource.addFeature(f));
 }
 
+/**
+ * Precompute turf polygons for a snapshot of vector-source features, so a
+ * batch of exclusion checks (e.g. one per AI-segmented instance) doesn't
+ * re-derive the same existing-mask geometry on every call.
+ */
+export function snapshotMaskPolygons(features: Feature<Geometry>[]): turf.Feature<turf.Polygon>[] {
+  const polys: turf.Feature<turf.Polygon>[] = [];
+  for (const f of features) {
+    const p = olFeatureToTurf(f);
+    if (p) polys.push(p);
+  }
+  return polys;
+}
+
+/**
+ * Subtract already-existing mask area from a newly proposed polygon, so an
+ * AI-produced mask is excluded against existing annotations rather than
+ * overwriting them (unlike the manual draw tools, where the new shape wins
+ * and existing masks get trimmed via trimExistingMasks above). Returns the
+ * remaining OL polygon pieces: none if fully covered, more than one if the
+ * subtraction splits the shape.
+ */
+export function excludeAgainstMaskPolygons(
+  newPoly: OlPolygon,
+  existingPolys: turf.Feature<turf.Polygon>[],
+): OlPolygon[] {
+  const newGeoJSON = geojsonFormat.writeGeometryObject(newPoly);
+  let remaining: turf.Feature<turf.Polygon | turf.MultiPolygon> | null = turf.polygon(
+    (newGeoJSON as any).coordinates,
+  );
+
+  for (const existing of existingPolys) {
+    if (!remaining) break;
+    try {
+      if (!turf.booleanIntersects(remaining, existing)) continue;
+      remaining = turf.difference(turf.featureCollection([remaining, existing]));
+    } catch (err) {
+      console.warn('Exclude-against-existing failed for a feature:', err);
+    }
+  }
+
+  if (!remaining) return [];
+  if (remaining.geometry.type === 'Polygon') {
+    return [geojsonFormat.readGeometry(remaining.geometry) as OlPolygon];
+  }
+  if (remaining.geometry.type === 'MultiPolygon') {
+    return remaining.geometry.coordinates.map(
+      (coords) => geojsonFormat.readGeometry({ type: 'Polygon', coordinates: coords }) as OlPolygon,
+    );
+  }
+  return [];
+}
+
+export interface DrawInteractionOptions {
+  /** Invoked with an OL-space box extent [minX, minY, maxX, maxY] (display
+   *  pixels) when the user finishes drawing an AI-box. The page owns the
+   *  μSAM decode, undo snapshot, and committed feature. */
+  onSamBox?: (extent: number[]) => void;
+  /** Whether the μSAM box tool is usable. Gates its keyboard shortcut and
+   *  the box interaction so a disabled tool cannot be activated. */
+  microSamAvailable?: boolean;
+}
+
 export function useDrawInteraction(
   mapRef: MutableRefObject<Map | null>,
   vectorSourceRef: MutableRefObject<VectorSource | null>,
+  options?: DrawInteractionOptions,
 ) {
   const interactionRefs = useRef<{
     draw: Draw | null;
     modify: Modify | null;
   }>({ draw: null, modify: null });
+
+  // Keep the box callback + availability in refs so the interaction effect does
+  // not re-run (and tear down the active Draw) when the page re-renders.
+  const onSamBoxRef = useRef<DrawInteractionOptions['onSamBox']>(options?.onSamBox);
+  onSamBoxRef.current = options?.onSamBox;
+  const microSamAvailableRef = useRef<boolean>(!!options?.microSamAvailable);
+  microSamAvailableRef.current = !!options?.microSamAvailable;
 
   const selectedFeaturesRef = useRef<Collection<Feature<Geometry>>>(new Collection());
 
@@ -386,12 +470,15 @@ export function useDrawInteraction(
         m: 'move',
         s: 'select',
         d: 'polygon',
+        b: 'sambox',
         c: 'cutter',
         e: 'eraser',
         a: 'expander',
       };
       const tool = shortcutMap[key];
       if (tool) {
+        // The AI-box tool is unusable when μSAM is offline; do not activate it.
+        if (tool === 'sambox' && !microSamAvailableRef.current) return;
         e.preventDefault();
         setActiveTool(tool);
       }
@@ -535,6 +622,29 @@ export function useDrawInteraction(
         break;
       }
 
+      case 'sambox': {
+        // Box-prompt tool: draw a rectangle, hand its extent to the page for a
+        // local μSAM ONNX decode. No `source` so the box itself is transient
+        // (the page adds the resulting mask feature). Gated on availability.
+        if (!microSamAvailableRef.current) break;
+        const draw = new Draw({
+          type: 'Circle',
+          geometryFunction: createBox(),
+          freehand: true,
+          style: SAMBOX_STYLE,
+        });
+        draw.on('drawend', (e) => {
+          const geom = e.feature.getGeometry();
+          if (!geom) return;
+          const extent = geom.getExtent();
+          onSamBoxRef.current?.(extent);
+          console.log('[SamBox] Box drawn, extent:', extent);
+        });
+        map.addInteraction(draw);
+        refs.draw = draw;
+        break;
+      }
+
       case 'cutter': {
         const draw = new Draw({
           type: 'LineString',
@@ -578,7 +688,7 @@ export function useDrawInteraction(
         draw.on('drawend', (e) => {
           saveUndo();
           const expanderGeom = e.feature.getGeometry() as OlPolygon;
-          applyExpander(expanderGeom, vectorSource);
+          applyExpander(expanderGeom, vectorSource, imageWidth, imageHeight);
           console.log('[Expander] Applied expander');
         });
         map.addInteraction(draw);

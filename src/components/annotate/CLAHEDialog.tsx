@@ -86,6 +86,10 @@ const CLAHEDialog: React.FC<CLAHEDialogProps> = ({
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ fontWeight: 600 }}>Contrast Enhancement (CLAHE)</DialogTitle>
       <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          This is a viewing aid. Segmentation runs on the raw image unless you turn on
+          "Use contrast enhanced image" in the Full Image Segmentation dialog.
+        </Typography>
         {!kernelReady && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
             <span style={{ display: 'inline-block', width: 16, height: 16 }}>

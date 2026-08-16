@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { discoverLabels, getAnnotatedStems, listImages } from './datasetApi';
+import { deleteDatasetRecord, deleteLabel } from './brokerApi';
 
 type DeleteMode = 'label' | 'artifact';
 
@@ -7,8 +9,10 @@ interface DeleteArtifactModalProps {
   dataArtifactId: string;
   currentLabel: string;
   artifactManager: any;
+  server: any;
   onDeleteSuccess: () => void;
   onLabelDeleteSuccess?: (deletedLabel: string) => void;
+  initialMode?: DeleteMode;
 }
 
 const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
@@ -16,10 +20,12 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
   dataArtifactId,
   currentLabel,
   artifactManager,
+  server,
   onDeleteSuccess,
   onLabelDeleteSuccess,
+  initialMode,
 }) => {
-  const [mode, setMode] = useState<DeleteMode>('label');
+  const [mode, setMode] = useState<DeleteMode>(initialMode ?? 'label');
   const [confirmationText, setConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,37 +37,24 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
       if (!artifactManager || !dataArtifactId) return;
       setIsLoadingStats(true);
       try {
-        let images = [];
-        try {
-          images = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: 'train_images',
-            _rkwargs: true,
-          });
-        } catch {
-          // folder may not exist
-        }
+        const [images, labels] = await Promise.all([
+          listImages(artifactManager, dataArtifactId),
+          discoverLabels(artifactManager, dataArtifactId),
+        ]);
 
-        const artifact = await artifactManager.read({
-          artifact_id: dataArtifactId,
-          _rkwargs: true,
-        });
-
-        const labels: string[] = artifact.manifest?.labels || (currentLabel ? [currentLabel] : []);
+        const labelNames = labels.length > 0 ? labels.map((l) => l.name) : (currentLabel ? [currentLabel] : []);
         const maskCounts: Record<string, number> = {};
 
-        for (const lbl of labels) {
-          try {
-            const masks = await artifactManager.list_files({
-              artifact_id: dataArtifactId,
-              dir_path: `masks_${lbl}`,
-              _rkwargs: true,
-            });
-            maskCounts[lbl] = masks.length;
-          } catch {
-            maskCounts[lbl] = 0;
-          }
-        }
+        await Promise.all(
+          labelNames.map(async (lbl) => {
+            try {
+              const stems = await getAnnotatedStems(artifactManager, dataArtifactId, lbl);
+              maskCounts[lbl] = stems.size;
+            } catch {
+              maskCounts[lbl] = 0;
+            }
+          }),
+        );
 
         setFileStats({ images: images.length, masks: maskCounts });
       } catch (e) {
@@ -81,7 +74,14 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
   }, [mode]);
 
   const expectedConfirmation = mode === 'label' ? currentLabel : dataArtifactId;
-  const isConfirmed = confirmationText === expectedConfirmation;
+  const labelMaskCount = fileStats?.masks[currentLabel] ?? 0;
+  // Typed-name confirmation is a safeguard against losing real annotation
+  // work. An empty label has nothing to lose, so skip the gate for it, but
+  // only once stats have actually loaded (default to requiring it while
+  // still unknown) and never relax it for a full artifact delete, which
+  // also removes the images themselves.
+  const requiresConfirmation = mode === 'artifact' || fileStats === null || labelMaskCount > 0;
+  const isConfirmed = requiresConfirmation ? confirmationText === expectedConfirmation : true;
 
   const handleDelete = async () => {
     if (!isConfirmed) return;
@@ -96,49 +96,35 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
           delete_files: true,
           _rkwargs: true,
         });
+        try {
+          await deleteDatasetRecord(server, dataArtifactId);
+        } catch (e) {
+          console.error('Failed to remove broker dataset record after artifact delete:', e);
+        }
         onDeleteSuccess();
         setShowDeleteModal(false);
       } else {
-        // Label-only deletion: remove mask files and update manifest
-        let maskFiles: any[] = [];
-        try {
-          maskFiles = await artifactManager.list_files({
-            artifact_id: dataArtifactId,
-            dir_path: `masks_${currentLabel}`,
-            stage: true,
-            _rkwargs: true,
-          });
-        } catch {
-          // folder may not exist — that's fine
+        // Label-only deletion: one broker RPC recursively removes the whole
+        // label_<name>/ folder server-side (broker v0.5.0), replacing the
+        // old client-side per-file recursive delete.
+        const result = await deleteLabel(server, dataArtifactId, currentLabel);
+        if (result.failed_files?.length) {
+          setError(
+            `Deleted with ${result.failed_files.length} file${result.failed_files.length !== 1 ? 's' : ''} that could not be removed. You can retry.`,
+          );
+          setIsDeleting(false);
+          return;
         }
-
-        for (const f of maskFiles) {
-          const filePath = f.name || f.path || f;
-          try {
-            await artifactManager.remove_file({
-              artifact_id: dataArtifactId,
-              file_path: typeof filePath === 'string' ? filePath : `masks_${currentLabel}/${filePath}`,
-              _rkwargs: true,
-            });
-          } catch {
-            // best-effort per-file removal
-          }
-        }
-
-        // Update manifest to remove this label
-        const artifact = await artifactManager.read({
-          artifact_id: dataArtifactId,
-          stage: true,
-          _rkwargs: true,
-        });
-        const updatedLabels = (artifact.manifest?.labels || []).filter((l: string) => l !== currentLabel);
-        await artifactManager.edit({
-          artifact_id: dataArtifactId,
-          manifest: { ...artifact.manifest, labels: updatedLabels },
-          stage: true,
-          _rkwargs: true,
-        });
-
+        // NOTE: the broker only removes files from the staged overlay and
+        // never commits (broker.py's delete_label has no commit call), so
+        // the removal is invisible to the published artifact until some
+        // later commit lands. We can't close that gap from here: this
+        // dataset's real Hypha ACL is managed entirely by the broker's own
+        // elevated identity, and a direct `artifactManager.commit(...)` call
+        // with the current user's token 403s with "User does not have
+        // permission 'commit' on the artifact" even for a manager-role user
+        // (confirmed empirically). A real fix needs `delete_label` itself to
+        // commit using the broker's own credentials.
         onLabelDeleteSuccess?.(currentLabel);
         setShowDeleteModal(false);
       }
@@ -149,8 +135,6 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
       setIsDeleting(false);
     }
   };
-
-  const labelMaskCount = fileStats?.masks[currentLabel] ?? 0;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
@@ -172,31 +156,33 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
 
         <div className="p-6 space-y-4">
 
-          {/* Mode toggle */}
-          <div className="flex rounded-xl overflow-hidden border border-gray-200 text-sm font-medium">
-            <button
-              type="button"
-              onClick={() => setMode('label')}
-              className={`flex-1 py-2.5 transition-colors ${
-                mode === 'label'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Delete Label Only
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('artifact')}
-              className={`flex-1 py-2.5 border-l border-gray-200 transition-colors ${
-                mode === 'artifact'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Delete Entire Artifact
-            </button>
-          </div>
+          {/* Mode toggle (hidden when the caller pins a specific mode) */}
+          {!initialMode && (
+            <div className="flex rounded-xl overflow-hidden border border-gray-200 text-sm font-medium">
+              <button
+                type="button"
+                onClick={() => setMode('label')}
+                className={`flex-1 py-2.5 transition-colors ${
+                  mode === 'label'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Delete Label Only
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('artifact')}
+                className={`flex-1 py-2.5 border-l border-gray-200 transition-colors ${
+                  mode === 'artifact'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Delete Entire Artifact
+              </button>
+            </div>
+          )}
 
           {/* Warning */}
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -228,23 +214,31 @@ const DeleteArtifactModal: React.FC<DeleteArtifactModalProps> = ({
             </div>
           ) : null}
 
-          {/* Confirmation input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {mode === 'label' ? 'Type the label name to confirm' : 'Type the Artifact ID to confirm'}
-            </label>
-            <div className="mb-2 p-2 bg-gray-100 rounded text-xs font-mono select-all break-all">
-              {expectedConfirmation}
+          {/* Confirmation input: only required when there is real annotation
+              work at stake (a label with masks, or any artifact delete). An
+              empty label can be removed without typing its name. */}
+          {requiresConfirmation ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {mode === 'label' ? 'Type the label name to confirm' : 'Type the Artifact ID to confirm'}
+              </label>
+              <div className="mb-2 p-2 bg-gray-100 rounded text-xs font-mono select-all break-all">
+                {expectedConfirmation}
+              </div>
+              <input
+                type="text"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                value={confirmationText}
+                onChange={(e) => setConfirmationText(e.target.value)}
+                placeholder={expectedConfirmation}
+                disabled={isDeleting}
+              />
             </div>
-            <input
-              type="text"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              value={confirmationText}
-              onChange={(e) => setConfirmationText(e.target.value)}
-              placeholder={expectedConfirmation}
-              disabled={isDeleting}
-            />
-          </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Label "{currentLabel}" has no masks yet, so it can be deleted without typing its name.
+            </p>
+          )}
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg">

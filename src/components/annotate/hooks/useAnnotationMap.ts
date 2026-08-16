@@ -1,6 +1,7 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
 import Map from 'ol/Map';
 import View from 'ol/View';
+import { defaults as defaultControls } from 'ol/control';
 import ImageLayer from 'ol/layer/Image';
 import VectorLayer from 'ol/layer/Vector';
 import Static from 'ol/source/ImageStatic';
@@ -78,6 +79,7 @@ export function useAnnotationMap(
     const map = new Map({
       target: containerRef.current,
       layers: [imageLayer, vectorLayer],
+      controls: defaultControls({ zoom: false }),
       view: new View({
         projection,
         center: getCenter(extent),

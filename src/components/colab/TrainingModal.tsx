@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { resolvePinnedCellposeService } from '../../utils/cellposeServicePin';
+import { getTrainingPairs } from './datasetApi';
 
 interface TrainingModalProps {
   setShowTrainingModal: (show: boolean) => void;
@@ -10,7 +11,6 @@ interface TrainingModalProps {
   artifactManager?: any;
   cellposeModel?: string;
   onCellposeModelChange?: (model: string) => void;
-  splitInfo?: { applied: boolean; trainImages: string[]; testImages: string[] } | null;
 }
 
 interface ExistingModel {
@@ -26,9 +26,9 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   dataArtifactId,
   label,
   server,
+  artifactManager,
   cellposeModel = 'Base',
   onCellposeModelChange,
-  splitInfo,
 }) => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'choose' | 'new' | 'existing'>('choose');
@@ -47,11 +47,6 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
   const [epochs, setEpochs] = useState(10);
   const [learningRate, setLearningRate] = useState(0.000001);
   const [weightDecay, setWeightDecay] = useState(0.0001);
-
-  // Validation & advanced settings
-  const [validationInterval, setValidationInterval] = useState<number>(1);
-  const [testImages, setTestImages] = useState<string>('');
-  const [testAnnotations, setTestAnnotations] = useState<string>('');
 
   const [availableModels, setAvailableModels] = useState<{ value: string; label: string; description: string }[]>([
     { value: 'cpsam', label: 'Cellpose-SAM', description: 'Transformer-based cell segmentation' },
@@ -131,52 +126,68 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
       return;
     }
 
+    if (!artifactManager) {
+      setError('Artifact manager not available. Please reload the page.');
+      return;
+    }
+
     setIsStarting(true);
     setError(null);
 
     try {
-      console.log('Getting cellpose-finetuning service...');
-      const cellposeService = await resolvePinnedCellposeService(server);
+      console.log('Computing explicit training pairs...');
+      // The latest saved (image, annotation) pair per (user, stem), not a
+      // glob: under the timestamped never-overwrite annotation layout, a
+      // glob over label_<label>/*/*.geojson matches every historical save
+      // for a stem, not just the current one, which would feed stale or
+      // duplicate masks into training. See datasetApi.ts's getTrainingPairs
+      // and colab-rework-plan.md F6.
+      const pairs = await getTrainingPairs(artifactManager, String(dataArtifactId), label);
+      if (pairs.length === 0) {
+        throw new Error(`No annotations found for label "${label}" yet. Annotate at least one image before training.`);
+      }
+
+      const manifest = pairs.map(({ image, annotation }) => ({ image, annotation }));
+      const metadataDir = `training_metadata/${label}-${Date.now()}`;
+      const manifestPath = `${metadataDir}/pairs.json`;
+
+      console.log(`Uploading training metadata manifest (${manifest.length} pairs)...`);
+      const uploadUrl = await artifactManager.put_file({
+        artifact_id: String(dataArtifactId),
+        file_path: manifestPath,
+        _rkwargs: true,
+      });
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: JSON.stringify(manifest),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload training metadata (HTTP ${uploadResponse.status}).`);
+      }
 
       console.log('Committing data artifact before training...');
-      const artifactManager = await server.getService('public/artifact-manager');
-      
       await artifactManager.commit({
         artifact_id: String(dataArtifactId),
-        comment: "Committing dataset before training",
-        _rkwargs: true
+        comment: 'Committing dataset before training',
+        _rkwargs: true,
       });
 
       console.log('Resetting dataset artifact to edit mode...');
       await artifactManager.edit({
         artifact_id: String(dataArtifactId),
         stage: true,
-        _rkwargs: true
+        _rkwargs: true,
       });
 
+      console.log('Getting cellpose-finetuning service...');
+      const cellposeService = await resolvePinnedCellposeService(server);
+
       console.log('Starting training with artifact:', dataArtifactId);
-
-      const maskFolder = label ? `masks_${label}` : 'annotations';
-      // Match every layout variant we have written over time. cellpose-
-      // finetuning >= 0.1.0 accepts comma-separated patterns and walks
-      // recursively, so we list all three depths explicitly to keep the
-      // pattern self-documenting:
-      //   - flat:           masks_{label}/{stem}.{png,geojson}
-      //   - per-user:       masks_{label}/user-X/{stem}.{png,geojson}
-      //   - per-user-round: masks_{label}/user-X/rN/{stem}.{png,geojson}
-      const trainPattern = [
-        `${maskFolder}/*.png`,           `${maskFolder}/*.geojson`,
-        `${maskFolder}/*/*.png`,         `${maskFolder}/*/*.geojson`,
-        `${maskFolder}/*/*/*.png`,       `${maskFolder}/*/*/*.geojson`,
-      ].join(',');
-
-      const hasTestSplit = splitInfo?.applied && splitInfo.testImages.length > 0;
-
       const trainingParams: any = {
         artifact: String(dataArtifactId),
         model: String(selectedModel),
-        train_images: 'train_images/*.png',
-        train_annotations: trainPattern,
+        metadata_dir: metadataDir,
         n_epochs: Number(epochs),
         learning_rate: Number(learningRate),
         weight_decay: Number(weightDecay),
@@ -185,21 +196,6 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
         label: label || null,
         _rkwargs: true,
       };
-
-      // Auto-set test data from split info; fall back to manual input
-      const resolvedTestImages = hasTestSplit ? 'test_images/*.png' : testImages.trim();
-      const resolvedTestAnnotations = hasTestSplit
-        ? trainPattern
-        : (testAnnotations.trim() || trainPattern);
-
-      if (resolvedTestImages) {
-        trainingParams.test_images = resolvedTestImages;
-        trainingParams.test_annotations = resolvedTestAnnotations;
-      }
-
-      if (validationInterval > 0) {
-        trainingParams.validation_interval = validationInterval;
-      }
 
       const sessionStatus = await cellposeService.start_training(trainingParams);
 
@@ -493,29 +489,10 @@ const TrainingModal: React.FC<TrainingModalProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Validation Interval (epochs)
-                </label>
-                <input
-                  type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  value={validationInterval}
-                  onChange={(e) => setValidationInterval(parseInt(e.target.value) || 1)}
-                  min="1"
-                  max="1000"
-                  disabled={isStarting}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Run validation every N epochs.{splitInfo?.applied && splitInfo.testImages.length > 0
-                    ? ' Test images from the data split will be used automatically.'
-                    : ' Requires a test/train data split.'}
-                </p>
-              </div>
-
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-amber-700 text-sm">
-                  <strong>Note:</strong> Training will use annotations from{' '}
+                  <strong>Note:</strong> Training will use the latest saved annotation for label{' '}
+                  <span className="font-mono text-xs">{label}</span> from{' '}
                   <span className="font-mono text-xs">{dataArtifactId?.split('/').pop()}</span>
                 </p>
               </div>

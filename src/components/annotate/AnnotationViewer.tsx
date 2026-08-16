@@ -15,6 +15,10 @@ interface AnnotationViewerProps {
   onVectorSourceReady?: (getVectorSource: () => VectorSource | null) => void;
   onImageLayerReady?: (getImageLayer: () => ImageLayer | null) => void;
   onMapReady?: (getMap: () => Map | null) => void;
+  /** Fired with an OL-space box extent when the AI-box tool finishes a draw. */
+  onSamBox?: (extent: number[]) => void;
+  /** Whether the μSAM box tool is usable (gates its shortcut + interaction). */
+  microSamAvailable?: boolean;
 }
 
 const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
@@ -25,6 +29,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   onVectorSourceReady,
   onImageLayerReady,
   onMapReady,
+  onSamBox,
+  microSamAvailable,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { map, vectorSource, imageLayerRef } = useAnnotationMap(
@@ -33,7 +39,7 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
     imageWidth,
     imageHeight,
   );
-  useDrawInteraction(map, vectorSource);
+  useDrawInteraction(map, vectorSource, { onSamBox, microSamAvailable });
 
   // Expose map getter to parent (for coordinate conversion, e.g. diameter measurement)
   useEffect(() => {
@@ -77,6 +83,7 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   return (
     <Box
       ref={containerRef}
+      data-testid="annotation-viewer"
       sx={{
         flex: 1,
         width: '100%',
