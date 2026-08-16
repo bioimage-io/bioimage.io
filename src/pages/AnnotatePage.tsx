@@ -1111,9 +1111,13 @@ print('CLAHE packages ready')
       console.log('[AnnotatePage] Restored original image');
       addBanner('Original image restored', 'info', 3000);
     } else {
+      // The shared kernel (from ColabPage's KernelProvider) stays idle until
+      // something asks for it. CLAHE is the only feature on this page that
+      // needs Python, so request it here instead of on every page load.
+      sharedKernel?.requestKernel?.();
       openCLAHEDialog();
     }
-  }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner]);
+  }, [isCLAHEActive, getImageLayer, originalImageUrl, openCLAHEDialog, addBanner, sharedKernel]);
 
   const [isApplyingCLAHE, setIsApplyingCLAHE] = useState(false);
 
@@ -1486,7 +1490,10 @@ print("CLAHE_RESULT:" + result_b64)
         isLowContrast={isLowContrast}
         disabled={!!permissionDenied}
       />
-      <Box sx={{ position: 'absolute', inset: 0 }}>
+      {/* Bounded to the area below the floating header bar (not the full page
+          height), so the map's own fit-to-image centering matches what is
+          actually visible instead of centering behind the header. */}
+      <Box sx={{ position: 'absolute', top: 'var(--annotate-header-h)', left: 0, right: 0, bottom: 0 }}>
         {imageUrl && !allAnnotatedInfo && !noImagesInfo && (
           <AnnotationViewer
             imageUrl={imageUrl}

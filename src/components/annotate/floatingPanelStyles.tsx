@@ -27,15 +27,6 @@ export const iconSlotSx = {
   flexShrink: 0,
 };
 
-// Edge-fade mask hinting that a collapsed icon strip scrolls further in that
-// direction (narrow phones can't fit every tool/action in one screen-width).
-export const scrollFadeSx = (direction: 'horizontal' | 'vertical') => {
-  const gradient = direction === 'horizontal'
-    ? 'linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%)'
-    : 'linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 14px), transparent 100%)';
-  return { maskImage: gradient, WebkitMaskImage: gradient };
-};
-
 // Shared reduced-motion override: honor the OS-level setting by dropping
 // transitions/press-scale entirely rather than just shortening them.
 export const reducedMotionSx = {

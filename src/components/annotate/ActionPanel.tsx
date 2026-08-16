@@ -25,7 +25,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
-import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
+import { floatingPanelSx, floatingBtnSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
 
 export interface ActionPanelProps {
   onSave: () => void;
@@ -131,7 +131,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           p: isCompact ? 0.75 : 0.5, gap: isCompact ? 0.75 : 0.5,
           height: 'fit-content',
           ...(isPortrait ? { maxWidth: '100%', overflowX: 'auto' } : { maxHeight: '100%', overflowY: 'auto' }),
-          ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
         }}>
           <Tooltip title="Expand actions" placement={tooltipPlacement}>

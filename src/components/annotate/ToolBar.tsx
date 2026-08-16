@@ -22,7 +22,7 @@ import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import { useAnnotationStore, AnnotationTool } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
-import { floatingPanelSx, floatingBtnSx, scrollFadeSx, reducedMotionSx, ToolSpinner, iconSlotSx } from './floatingPanelStyles';
+import { floatingPanelSx, floatingBtnSx, reducedMotionSx, ToolSpinner, iconSlotSx } from './floatingPanelStyles';
 
 interface ToolDef {
   id: AnnotationTool;
@@ -144,7 +144,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
           p: isCompact ? 0.75 : 0.5, gap: isCompact ? 0.75 : 0.5,
           height: 'fit-content',
           ...(isPortrait ? { maxWidth: '100%', overflowX: 'auto' } : { maxHeight: '100%', overflowY: 'auto' }),
-          ...scrollFadeSx(isPortrait ? 'horizontal' : 'vertical'),
           ...floatingPanelSx,
         }}>
           <Tooltip title="Expand toolbar" placement={tooltipPlacement}>
