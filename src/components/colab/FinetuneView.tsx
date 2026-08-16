@@ -322,6 +322,11 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
               </p>
             )}
 
+            <p className="mb-2 text-xs text-gray-500">
+              {nEpochs} epoch{nEpochs === 1 ? '' : 's'} x {Math.max(trainCount, 100)} crops ={' '}
+              {nEpochs * Math.max(trainCount, 100)} training steps
+            </p>
+
             <button
               onClick={onStartTraining}
               disabled={isStartingTraining || isNewSplit || activeSplitLoading || trainPoolEmpty}
