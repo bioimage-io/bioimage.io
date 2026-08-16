@@ -444,7 +444,7 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
         <button
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
-          className="text-sm text-purple-700 hover:text-purple-900 font-medium mb-3"
+          className="block text-sm text-purple-700 hover:text-purple-900 font-medium mb-4"
         >
           {showAdvanced ? 'Hide advanced parameters' : 'Show advanced parameters'}
         </button>
