@@ -792,21 +792,43 @@ print('CLAHE packages ready')
     setHasCellposeResult(false);
   }, []);
 
+  // Single source of truth for which pixels a Cellpose run sees: the raw
+  // image by default, or the CLAHE-enhanced pixels when the "Use contrast
+  // enhanced image" checkbox is on. Both handleRunCellpose and the instant-
+  // config live recompute derive their source URL from this one function, so
+  // they can never disagree on what a cached flows result was computed
+  // against.
+  const deriveCellposeSource = useCallback(
+    (cfg: CellposeConfig): { url: string | null; useEnhanced: boolean } => {
+      const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
+      const url = useEnhanced ? (claheEnhancedUrl as string) : (originalImageUrl || imageUrl);
+      return { url, useEnhanced };
+    },
+    [isCLAHEActive, claheEnhancedUrl, originalImageUrl, imageUrl],
+  );
+
   // Cellpose can return a fresh (dP, cellprob) over the wire when the
   // image/CLAHE flag changed, OR we can recompute locally from the cached
   // flows when only the instant-group sliders moved. Both paths converge in
   // the same polygon-replacement logic below.
   const runCellposeFlowsPipeline = useCallback(
-    async (cfg: CellposeConfig, sourceUrl: string) => {
+    async (cfg: CellposeConfig) => {
       if (!service || !imageWidth || !imageHeight) return;
 
-      // Server-affecting params decide whether the cache is still valid.
-      // `sourceUrl` already differs when the CLAHE-enhanced pixels are in
-      // play (see handleRunCellpose), so no separate CLAHE flag is needed.
-      // `diameter` drives the client-side rescale before the network call, so
-      // it also invalidates the cache. `two_pass` changes which forward
-      // pass's flow field the server returns, so it invalidates the cache too.
-      const cacheKey = JSON.stringify({ u: sourceUrl, d: cfg.diameter ?? null, tp: !!cfg.two_pass });
+      const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
+      if (!sourceUrl) return;
+
+      // Keyed on image identity, not the raw URL: a rotated presigned URL
+      // for the same pixels must not miss the cache. `diameter` drives the
+      // client-side rescale before the network call, so it also invalidates
+      // the cache. `two_pass` changes which forward pass's flow field the
+      // server returns, so it invalidates the cache too.
+      const cacheKey = JSON.stringify({
+        stem: currentImageStem,
+        enh: useEnhanced,
+        d: cfg.diameter ?? null,
+        tp: !!cfg.two_pass,
+      });
 
       let cached = flowsCacheRef.current;
       if (!cached || cached.cacheKey !== cacheKey) {
@@ -865,7 +887,7 @@ print('CLAHE packages ready')
       return n;
     },
     [
-      service, imageWidth, imageHeight,
+      service, imageWidth, imageHeight, currentImageStem, deriveCellposeSource,
       addBanner, removeBanner, maskGen, getVectorSource,
       pushUndo, applyPolygonsAsPreview, livePreviewReady,
     ],
@@ -876,9 +898,11 @@ print('CLAHE packages ready')
     if (!service || !imageUrl) return;
     // Segmentation uses the raw image by default. The "Use contrast enhanced
     // image" checkbox (only shown while CLAHE is active) opts a run into
-    // sending the enhanced pixels instead.
-    const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
-    const sourceUrl = useEnhanced ? (claheEnhancedUrl as string) : imageUrl;
+    // sending the enhanced pixels instead. `deriveCellposeSource` is the one
+    // place this decision is made, so the instant-config live recompute
+    // always agrees on which pixels (and cache key) a run corresponds to.
+    const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
+    if (!sourceUrl) return;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
     setIsRunningCellpose(true);
     const bannerId = addBanner(
@@ -948,7 +972,7 @@ print('CLAHE packages ready')
       let usedLocalPath = false;
       if (kernelReady) {
         try {
-          n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+          n = await runCellposeFlowsPipeline(cfg);
           usedLocalPath = true;
         } catch (flowsErr: any) {
           console.warn(
@@ -1002,7 +1026,7 @@ print('CLAHE packages ready')
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
     cellposeConfig, isCLAHEActive, claheEnhancedUrl, kernelReady, currentImageStem,
     ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
-    getVectorSource, pushUndo, addBanner, removeBanner,
+    getVectorSource, pushUndo, addBanner, removeBanner, deriveCellposeSource,
   ]);
 
   // Re-run mask gen using the cached flows on every instant-config drag.
@@ -1012,12 +1036,7 @@ print('CLAHE packages ready')
     if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
     instantRecomputeTimerRef.current = setTimeout(async () => {
       try {
-        // Match handleRunCellpose's sourceUrl choice so the cache key here
-        // agrees with the one the last full run computed against.
-        const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
-        const sourceUrl = useEnhanced ? claheEnhancedUrl : (originalImageUrl || imageUrl);
-        if (!sourceUrl) return;
-        const n = await runCellposeFlowsPipeline(cfg, sourceUrl);
+        const n = await runCellposeFlowsPipeline(cfg);
         if (n !== undefined) {
           console.log('[AnnotatePage] Live preview: %d masks', n);
         }
@@ -1025,7 +1044,7 @@ print('CLAHE packages ready')
         console.warn('[AnnotatePage] Live preview failed:', err);
       }
     }, 500);
-  }, [imageUrl, originalImageUrl, isCLAHEActive, claheEnhancedUrl, runCellposeFlowsPipeline]);
+  }, [runCellposeFlowsPipeline]);
 
   // Keep refs in sync so the config dialog's Run button + instant-config
   // callback can trigger the latest closures without a re-render of the dialog.
