@@ -23,24 +23,24 @@ interface TutorialStep {
 }
 
 const STEPS: TutorialStep[] = [
-  { text: 'Welcome to the BioImage Annotation Tool! This tutorial walks through the interface. Click Next to continue, or Skip to jump straight in.' },
-  { text: 'Move Tool (M): pan and zoom the image. Scroll to zoom in and out, click and drag to pan.', highlightSelector: '[data-tool="move"]' },
-  { text: 'Select Tool (S): click a mask to select it. Hold Shift to select multiple, press Delete to remove the selected masks.', highlightSelector: '[data-tool="select"]' },
-  { text: 'Draw Mask (D): click to place polygon vertices, double-click to close and finish the mask.', highlightSelector: '[data-tool="polygon"]' },
-  { text: 'Cut Mask (C): draw a line across a mask to split it into two separate masks.', highlightSelector: '[data-tool="cutter"]' },
-  { text: 'Eraser (E): paint a freehand area to remove it from an existing mask.', highlightSelector: '[data-tool="eraser"]' },
-  { text: 'Expand Mask (A): paint a freehand area to add it to the nearest intersecting mask. The added area is clipped to the image edges.', highlightSelector: '[data-tool="expander"]' },
-  { text: 'Full Image Segmentation: run AI segmentation across the whole image. It sits with Interactive Segmentation at the bottom of the tools list, separated from the manual tools. Settings open first so you can tune parameters before running, and a spinner shows while the model warms up. Any AI mask that overlaps an existing annotation is trimmed so masks never overlap.', highlightSelector: '[data-tool="cellpose"]' },
-  { text: 'Interactive Segmentation (B): draw a box around one cell for a one-click AI mask. It warms up the first time you open an image, so watch for the spinner, and it never overlaps an existing annotation.', highlightSelector: '[data-tool="sambox"]' },
-  { text: 'Fit to Image: reset the view to fit the entire image in the viewport.', highlightSelector: '[data-tool="fit"]' },
+  { text: 'Welcome to the BioImage.IO Annotation Tool. This guide covers what each tool does, when to reach for it, and a few gotchas that are easy to miss. Click Next to go through it, or Skip Guide to jump straight in.' },
+  { text: 'Move Tool (M): pan and zoom around the image. Scroll to zoom in and out, click and drag to pan. Reach for this whenever you need to reposition the view without risking an accidental edit.', highlightSelector: '[data-tool="move"]' },
+  { text: "Select Tool (S): click a mask to select it, hold Shift to add more to the selection, then press Delete to remove them. Use this to clean up mistakes or AI masks you don't want to keep.", highlightSelector: '[data-tool="select"]' },
+  { text: 'Draw Mask (D): click to place polygon vertices, double-click to close the shape. Use this for cells the AI tools miss or get wrong, since you have full control over the exact boundary.', highlightSelector: '[data-tool="polygon"]' },
+  { text: 'Cut Mask (C): draw a line across a mask to split it into two. Useful when Cellpose-SAM or Interactive Segmentation merges two touching cells into a single mask.', highlightSelector: '[data-tool="cutter"]' },
+  { text: "Eraser (E): paint a freehand area to remove it from an existing mask. Good for trimming a mask's edge without redrawing the whole boundary.", highlightSelector: '[data-tool="eraser"]' },
+  { text: 'Expand Mask (A): paint a freehand area to add it to the nearest mask it touches. The added area is clipped at the image edges automatically, so you can paint loosely without checking the border yourself.', highlightSelector: '[data-tool="expander"]' },
+  { text: 'Full Image Segmentation: runs Cellpose-SAM across the entire image in one pass. Settings open first so you can tune parameters like diameter and thresholds before anything runs, then a spinner shows while the model works. Any AI mask that overlaps a mask you already have is trimmed automatically, so accepted results never overlap your existing work. Reach for this on a fresh image with many similar cells.', highlightSelector: '[data-tool="cellpose"]' },
+  { text: 'Interactive Segmentation (B): draw a box around one cell for a single AI-generated mask. Before it can respond it computes an embedding for the current image plus a decoder pass, so expect a short warm-up (watch for the spinner) the first time you use it on each new image. Like Full Image Segmentation, it never overlaps a mask you already placed. Reach for this to pick off cells one at a time or clean up after a full-image run.', highlightSelector: '[data-tool="sambox"]' },
+  { text: 'Fit to Image: reset the view to fit the whole image in the viewport. Use this to reorient after zooming in on a detail.', highlightSelector: '[data-tool="fit"]' },
   { text: 'Zoom In / Zoom Out: step the magnification up or down around the current view.', highlightSelector: '[data-tool="zoom-in"]' },
-  { text: 'Enhance Contrast: apply CLAHE contrast enhancement to help visualize dim features. Click again to restore the original image.', highlightSelector: '[data-tool="clahe"]' },
-  { text: 'Undo (Ctrl+Z): undo the last annotation action. Supports up to 10 undo steps.', highlightSelector: '[data-tool="undo"]' },
-  { text: 'Clear All: remove every annotation from the current image. This can be undone with Ctrl+Z.', highlightSelector: '[data-tool="clear"]' },
-  { text: 'Filter Masks: remove masks below a minimum area, useful for eliminating small spurious detections.', highlightSelector: '[data-tool="filter"]' },
-  { text: 'Save Annotation: upload your masks to cloud storage and load the next image. If there are no annotations yet, the image is skipped.', highlightSelector: '[data-tool="save"]' },
-  { text: 'Import Annotation: upload a GeoJSON file to load annotations for the current image.', highlightSelector: '[data-tool="upload"]' },
-  { text: "You're all set! Use the Help button anytime to revisit this tutorial. Happy annotating!" },
+  { text: 'Enhance Contrast: applies CLAHE contrast enhancement so dim or low-contrast features become easier to see. Click the same button (now labeled Restore Original) to switch back. This only changes what you see: segmentation still runs on the raw image unless you separately check Use contrast enhanced image in the Cellpose-SAM or Interactive Segmentation settings, so turning contrast on here does not by itself change what the AI tools analyze.', highlightSelector: '[data-tool="clahe"]' },
+  { text: "Undo (Ctrl+Z): undo the last annotation action. The undo history holds the last 10 steps, so it's worth saving periodically rather than relying on it to recover a long editing session.", highlightSelector: '[data-tool="undo"]' },
+  { text: 'Clear All: remove every annotation from the current image at once. This is undoable with Ctrl+Z, but only for the most recent 10 steps, so use it deliberately rather than as a routine reset.', highlightSelector: '[data-tool="clear"]' },
+  { text: 'Filter Masks: remove every mask below a minimum area in one step. Use this after a full-image AI run to clear out small spurious detections without deleting them one by one.', highlightSelector: '[data-tool="filter"]' },
+  { text: "Save Annotation: uploads your masks to cloud storage and advances to the next image. If the current image has no annotations yet, saving is skipped: nothing is uploaded and the tool just moves on. Saving requires being logged in, and the app will prompt you instead of uploading if you're not.", highlightSelector: '[data-tool="save"]' },
+  { text: 'Import Annotation: upload a GeoJSON file to load annotations for the current image, for example to restore a backup or bring in masks produced outside this tool.', highlightSelector: '[data-tool="upload"]' },
+  { text: "You're all set. Reopen this Guide anytime from the button in the top right of the page, right next to your account icon." },
 ];
 
 const HIGHLIGHT_STYLE = '0 0 0 3px #1976d2, 0 0 12px rgba(25, 118, 210, 0.5)';
@@ -151,8 +151,8 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
             <IconButton
               size="small"
               onClick={handleClose}
-              title="Skip tutorial"
-              aria-label="Skip tutorial"
+              title="Skip Guide"
+              aria-label="Skip Guide"
               sx={{ mr: -1, mt: -1 }}
             >
               <CloseIcon fontSize="small" />
@@ -180,7 +180,7 @@ const HelpTutorial: React.FC<HelpTutorialProps> = ({ open, onClose }) => {
                   color="inherit"
                   sx={{ textTransform: 'none' }}
                 >
-                  Skip tutorial
+                  Skip Guide
                 </Button>
               )}
               <Button onClick={handleNext} variant="contained" size="small">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Box, CircularProgress, Typography, Alert, Button as MuiButton, Tooltip, useMediaQuery, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText, ListItemIcon } from '@mui/material';
+import { Box, CircularProgress, Typography, Alert, Button as MuiButton, IconButton as MuiIconButton, Tooltip, useMediaQuery, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText, ListItemIcon } from '@mui/material';
 import LoginButton from '../components/LoginButton';
 import AnnotationViewer from '../components/annotate/AnnotationViewer';
 import ToolBar from '../components/annotate/ToolBar';
@@ -19,6 +19,7 @@ import { toArtifactId } from '../components/colab/datasetApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
 import { useAnnotationStore } from '../store/annotationStore';
 import { useHyphaStore } from '../store/hyphaStore';
@@ -1563,7 +1564,23 @@ print("CLAHE_RESULT:" + result_b64)
           )}
         </div>
 
-        <div className="z-10 flex-shrink-0">
+        <div className="z-10 flex-shrink-0 flex items-center gap-1.5">
+          <Tooltip title="Guide">
+            <span>
+              <MuiIconButton
+                size="small"
+                onClick={() => setHelpOpen(true)}
+                aria-label="Open the Guide"
+                sx={{
+                  color: '#1976d2',
+                  transition: 'transform 160ms ease-out',
+                  '&:active': { transform: 'scale(0.93)' },
+                }}
+              >
+                <HelpOutlineIcon fontSize="small" />
+              </MuiIconButton>
+            </span>
+          </Tooltip>
           <LoginButton />
         </div>
       </div>
@@ -1590,7 +1607,6 @@ print("CLAHE_RESULT:" + result_b64)
         onClearAll={handleClearAll}
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
-        onHelp={() => setHelpOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
         imageName={currentImageStem || undefined}
         isSaving={isSaving}

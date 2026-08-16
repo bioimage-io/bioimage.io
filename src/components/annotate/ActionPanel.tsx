@@ -19,7 +19,6 @@ import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ContrastIcon from '@mui/icons-material/Contrast';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import InfoIcon from '@mui/icons-material/Info';
 import { useAnnotationStore } from '../../store/annotationStore';
@@ -36,7 +35,6 @@ export interface ActionPanelProps {
   onClearAll: () => void;
   onToggleCLAHE: () => void;
   onOpenMaskFilter: () => void;
-  onHelp: () => void;
   onUploadGeoJSON: (file: File) => void;
   imageName?: string;
   isSaving: boolean;
@@ -50,7 +48,7 @@ export interface ActionPanelProps {
 }
 
 const ActionPanel: React.FC<ActionPanelProps> = ({
-  onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
+  onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onUploadGeoJSON,
   imageName, isSaving, isCLAHEActive, isLowContrast = false, disabled = false,
 }) => {
   const canUndo = useAnnotationStore((s) => s.canUndo);
@@ -249,13 +247,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             <IconButton size={btnSize} data-tool="info" aria-label="Image info"
               sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
               <InfoIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-
-          <Tooltip title="Help & Tutorial" placement={tooltipPlacement}>
-            <IconButton size={btnSize} data-tool="help" onClick={onHelp} aria-label="Help & Tutorial"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
-              <HelpOutlineIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         </Box>
@@ -492,24 +483,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               </Typography>
             </Box>
           )}
-
-          <ButtonBase onClick={onHelp} data-tool="help" aria-label="Help & Tutorial"
-            sx={{
-              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
-              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
-              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
-            }}>
-            <Box sx={{ ...iconSlotSx, color: 'text.secondary', mt: 0.2 }}>
-              <HelpOutlineIcon fontSize="small" />
-            </Box>
-            <Box>
-              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Help & Tutorial</Typography>
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                Open the annotation walkthrough
-              </Typography>
-            </Box>
-          </ButtonBase>
         </Box>
       )}
     </Box>

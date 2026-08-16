@@ -202,7 +202,7 @@ test.describe('First-visit tutorial (§16b)', () => {
     const url = `/#/colab/annotate?session_id=${encodeURIComponent(DATASET_ALIAS)}&label=${encodeURIComponent(LABEL)}`;
     await page.goto(url);
 
-    const tutorialText = page.getByText(/Welcome to the BioImage Annotation Tool/);
+    const tutorialText = page.getByText(/Welcome to the BioImage\.IO Annotation Tool/);
 
     // The tutorial must never render on top of the connecting/error overlay
     // (AnnotatePage.tsx gates it with `helpOpen && !showStatusOverlay`).
