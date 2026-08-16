@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { AccessRequest, BrokerRole, BrokerUserRef, DatasetWithRole, dismissAccessRequest, updateSharing } from './brokerApi';
 import { buildAnnotateQuery } from './datasetApi';
 import SharingPanel, { PendingAdd, userKey } from './SharingPanel';
@@ -14,24 +15,102 @@ interface ShareModalProps {
   setShowShareModal: (show: boolean) => void;
 }
 
-const QR_SIZE = 200;
+// 80% of the previous 200px (colab-rework-plan.md §21 item 4).
+const QR_SIZE = 160;
+const QR_ENLARGED_SIZE = 320;
+// Higher-resolution render used only for the copy/download outputs, independent
+// of what's shown on screen.
+const QR_EXPORT_SIZE = 512;
 
-/** QR code section, always visible alongside the annotation URL */
+/** Renders a QR code for `url` onto a canvas at `size`, client-side (no external
+ * image request), so the copy/download buttons never hit a cross-origin canvas. */
+const QRCodeCanvas: React.FC<{ url: string; size: number }> = ({ url, size }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !url) return;
+    QRCode.toCanvas(canvasRef.current, url, { width: size, margin: 1 }).catch(() => {});
+  }, [url, size]);
+
+  return <canvas ref={canvasRef} width={size} height={size} />;
+};
+
+const renderQrBlob = (url: string): Promise<Blob | null> =>
+  new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    QRCode.toCanvas(canvas, url, { width: QR_EXPORT_SIZE, margin: 1 })
+      .then(() => canvas.toBlob((blob) => resolve(blob), 'image/png'))
+      .catch(reject);
+  });
+
+/** QR code section: click to enlarge for scanning, plus copy-image and download. */
 const QRCodeSection: React.FC<{ url: string; label: string }> = ({ url, label }) => {
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(url)}`;
+  const [enlarged, setEnlarged] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState('Copy image');
+
+  const handleCopyImage = async () => {
+    try {
+      const blob = await renderQrBlob(url);
+      if (!blob) throw new Error('Failed to render QR code');
+      const ClipboardItemCtor = (window as any).ClipboardItem;
+      if (!ClipboardItemCtor) throw new Error('Clipboard image copy is not supported in this browser');
+      await navigator.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })]);
+      setCopyFeedback('Copied!');
+    } catch {
+      setCopyFeedback('Failed');
+    } finally {
+      setTimeout(() => setCopyFeedback('Copy image'), 2000);
+    }
+  };
+
+  const handleDownload = async () => {
+    const blob = await renderQrBlob(url);
+    if (!blob) return;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${label || 'annotation'}-qr.png`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   return (
-    <div className="mt-3 flex justify-center">
-      <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-        <img
-          src={qrUrl}
-          alt={`QR Code for ${label}`}
-          className="w-48 h-48"
-          onError={(e) => {
-            (e.target as HTMLImageElement).alt = 'QR code could not be generated';
-          }}
-        />
+    <div className="mt-3 flex flex-col items-center">
+      <button
+        type="button"
+        onClick={() => setEnlarged(true)}
+        className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow cursor-zoom-in"
+        title="Click to enlarge for scanning"
+      >
+        <QRCodeCanvas url={url} size={QR_SIZE} />
+      </button>
+      <div className="mt-2 flex items-center gap-4">
+        <button
+          onClick={handleCopyImage}
+          className="text-xs text-gray-500 hover:text-purple-600 transition-colors"
+        >
+          {copyFeedback}
+        </button>
+        <button
+          onClick={handleDownload}
+          className="text-xs text-gray-500 hover:text-purple-600 transition-colors"
+        >
+          Download
+        </button>
       </div>
+
+      {enlarged && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          onClick={() => setEnlarged(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-xl shadow-lg cursor-zoom-out"
+            onClick={() => setEnlarged(false)}
+          >
+            <QRCodeCanvas url={url} size={QR_ENLARGED_SIZE} />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -57,9 +136,8 @@ const CopyIcon: React.FC<{ copied: boolean }> = ({ copied }) =>
 const URLField: React.FC<{
   label: string;
   url: string;
-  qrLabel: string;
   inputId: string;
-}> = ({ label, url, qrLabel, inputId }) => {
+}> = ({ label, url, inputId }) => {
   const [feedback, setFeedback] = useState('Copy');
 
   const handleCopy = async () => {
@@ -94,7 +172,6 @@ const URLField: React.FC<{
           <CopyIcon copied={feedback === 'Copied!'} />
         </button>
       </div>
-      <QRCodeSection url={url} label={qrLabel} />
     </div>
   );
 };
@@ -338,6 +415,39 @@ const ShareModal: React.FC<ShareModalProps> = ({
         {/* Scrollable Content */}
         <div className="overflow-y-auto flex-1">
           <div className="p-6 space-y-5">
+            {labels.length > 0 ? (
+              <div>
+                <div className="flex items-end gap-3">
+                  <div className="shrink-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
+                    <select
+                      value={selectedLabel}
+                      onChange={(e) => onSelectLabel(e.target.value)}
+                      className="px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    >
+                      {labels.map((l) => (
+                        <option key={l.name} value={l.name}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <URLField label="Annotation URL" url={annotationURL} inputId="annotation-url-input" />
+                  </div>
+                </div>
+
+                <QRCodeSection url={annotationURL} label={selectedLabel} />
+
+                <p className="mt-2 text-xs text-gray-500 text-center">
+                  Share this link with collaborators to annotate together. Annotations are saved to the cloud
+                  automatically.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">Create a label first to get a shareable annotation link.</p>
+            )}
+
             <SharingPanel
               role={role}
               dataset={dataset}
@@ -363,38 +473,6 @@ const ShareModal: React.FC<ShareModalProps> = ({
               onUndoAdd={handleUndoAdd}
               onChanged={onChanged}
             />
-
-            {labels.length > 0 ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
-                <select
-                  value={selectedLabel}
-                  onChange={(e) => onSelectLabel(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                >
-                  {labels.map((l) => (
-                    <option key={l.name} value={l.name}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="mt-3">
-                  <URLField
-                    label="Annotation URL"
-                    url={annotationURL}
-                    qrLabel={selectedLabel}
-                    inputId="annotation-url-input"
-                  />
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Share this link with collaborators to annotate together. Annotations are saved to the cloud
-                  automatically.
-                </p>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-500">Create a label first to get a shareable annotation link.</p>
-            )}
           </div>
         </div>
 

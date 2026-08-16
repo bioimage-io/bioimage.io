@@ -205,9 +205,11 @@ test.describe('Dataset overview (§13)', () => {
     // QR/label section: only present once the dataset has at least one
     // label, which this fixture dataset does ("cells"). The QR renders
     // unconditionally now (round 20 item 3 — no expand/collapse toggle).
+    // It's a client-side <canvas> (round 21 item 4), not an <img>, so check
+    // for its enlarge trigger instead of alt text.
     const annotationLabelHeading = page.getByText('Annotation Label', { exact: false });
     if (await annotationLabelHeading.isVisible().catch(() => false)) {
-      await expect(page.getByAltText(/QR Code for/)).toBeVisible();
+      await expect(page.getByTitle('Click to enlarge for scanning')).toBeVisible();
     }
 
     // Close the dialog.
