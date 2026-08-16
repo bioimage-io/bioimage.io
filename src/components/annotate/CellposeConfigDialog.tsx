@@ -15,6 +15,8 @@ import {
   Select,
   MenuItem,
   Collapse,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -39,6 +41,10 @@ export interface CellposeConfig {
    *  image is rescaled client-side (Cellpose-SAM only) so objects match the
    *  network's expected ~30 px working diameter. Null runs at original scale. */
   diameter: number | null;
+  /** When true and CLAHE is active, both backends segment the contrast
+   *  enhanced pixels instead of the raw image. Never persisted across
+   *  sessions (stripped in saveConfig) so it always starts unchecked. */
+  useEnhancedImage: boolean;
 }
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
@@ -48,6 +54,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   niter: null,
   min_mask_area: 30,
   diameter: null,
+  useEnhancedImage: false,
 };
 
 const STORAGE_KEY = 'cellpose-config';
@@ -67,7 +74,10 @@ function loadConfig(): CellposeConfig {
 
 function saveConfig(config: CellposeConfig): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    // useEnhancedImage is intentionally excluded so it always starts
+    // unchecked next session, even if it was left checked here.
+    const { useEnhancedImage, ...persisted } = config;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch {
     // ignore storage errors
   }
@@ -108,6 +118,9 @@ interface CellposeConfigDialogProps {
   /** Whether the μSAM backend is reachable. Gates the μSAM option in the
    *  backend selector. */
   microSamAvailable?: boolean;
+  /** Whether CLAHE is currently active on the image. Gates the "Use
+   *  contrast enhanced image" checkbox, shown for both backends. */
+  claheActive?: boolean;
   /** When provided, shows a "Measure in image" button next to the diameter
    *  field. Called with the current config; the caller closes/hides the
    *  dialog, lets the user click a representative object in the image, then
@@ -164,6 +177,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   livePreviewReady,
   onInstantConfigChange,
   microSamAvailable,
+  claheActive,
   onMeasureDiameter,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
@@ -298,6 +312,30 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               </Typography>
             )}
           </Grid>
+
+          {/* Contrast toggle — shown for both backends, only while CLAHE is active */}
+          {claheActive && (
+            <Grid item xs={12}>
+              <FormControlLabel
+                sx={{ alignItems: 'flex-start', ml: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={!!config.useEnhancedImage}
+                    onChange={(e) => update('useEnhancedImage', e.target.checked)}
+                  />
+                }
+                label={
+                  <Box sx={{ mt: 0.25 }}>
+                    <Typography variant="body2" fontWeight={500}>Use contrast enhanced image</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      Segments the enhanced pixels instead of the raw image. Off by default.
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Grid>
+          )}
 
           {/* ── μSAM: single field, no sections (nothing here is tunable after a run) ── */}
           {isMicroSam && (
@@ -540,6 +578,9 @@ export function useCellposeConfig(opts?: {
   livePreviewReady?: boolean;
   onInstantConfigChange?: (config: CellposeConfig) => void;
   microSamAvailable?: boolean;
+  /** Whether CLAHE is currently active. Gates the "Use contrast enhanced
+   *  image" checkbox, shown for both backends. */
+  claheActive?: boolean;
   /** When set, the dialog shows a "Measure in image" button. Called with the
    *  config to apply and a callback the page invokes once the user has
    *  clicked a representative object, with the measured diameter in px. */
@@ -593,6 +634,7 @@ export function useCellposeConfig(opts?: {
       livePreviewReady={opts?.livePreviewReady}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
+      claheActive={opts?.claheActive}
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
     />
   );

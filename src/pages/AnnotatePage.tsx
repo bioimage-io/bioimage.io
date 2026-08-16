@@ -104,6 +104,9 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
+  // Declared ahead of its usual position (alongside the other CLAHE state
+  // below) so it can be passed into useCellposeConfig's opts here.
+  const [isCLAHEActive, setIsCLAHEActive] = useState(false);
 
   const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
@@ -113,6 +116,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     keepOpenAfterApply: true,
     livePreviewReady,
     microSamAvailable,
+    claheActive: isCLAHEActive,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
@@ -267,13 +271,12 @@ print('CLAHE packages ready')
       }
     } catch { /* ignore */ }
   }, []);
-  const [isCLAHEActive, setIsCLAHEActive] = useState(false);
   const [isLowContrast, setIsLowContrast] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   // Data URL of the CLAHE-enhanced pixels (set alongside isCLAHEActive).
-  // cellpose4-runner has no server-side enable_clahe knob, so when CLAHE is
-  // active this is sent as the Cellpose source image instead of imageUrl, to
-  // keep segmenting the enhanced pixels the user is looking at.
+  // Segmentation defaults to the raw image; this is only sent to either
+  // backend when the "Use contrast enhanced image" checkbox in the Full
+  // Image Segmentation dialog is checked (see handleRunCellpose).
   const [claheEnhancedUrl, setClaheEnhancedUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
@@ -830,9 +833,11 @@ print('CLAHE packages ready')
   const handleRunCellpose = useCallback(async (cfgOverride?: CellposeConfig) => {
     const cfg = cfgOverride || cellposeConfig;
     if (!service || !imageUrl) return;
-    // cellpose4-runner has no server-side CLAHE knob, so when CLAHE is
-    // active send the enhanced pixels directly instead of the original ones.
-    const sourceUrl = (isCLAHEActive && claheEnhancedUrl) ? claheEnhancedUrl : imageUrl;
+    // Segmentation uses the raw image by default. The "Use contrast enhanced
+    // image" checkbox (only shown while CLAHE is active) opts a run into
+    // sending the enhanced pixels instead.
+    const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
+    const sourceUrl = useEnhanced ? (claheEnhancedUrl as string) : imageUrl;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
     setIsRunningCellpose(true);
     const bannerId = addBanner(
@@ -846,17 +851,29 @@ print('CLAHE packages ready')
       // route the masks through the same preview + undo machinery Cellpose uses.
       if (cfg.backend === 'microsam') {
         try {
-          // Reuse the precomputed embedding: AIS runs fully server-side from the
-          // stored `.npz` link (the browser never pulls the ~4 MB features).
-          const npzUrl = await ensureStoredEmbedding(
-            currentImageStem ?? sourceUrl,
-            sourceUrl,
-            imageWidth,
-            imageHeight,
-          );
-          const masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
-            min_mask_area: cfg.min_mask_area,
-          });
+          let masks;
+          if (useEnhanced) {
+            // Bypass the stored (raw) embedding entirely: infer directly on
+            // the enhanced pixels so the shared raw embedding is never
+            // overwritten with enhanced data.
+            masks = await service.runMicroSam(claheEnhancedUrl as string, imageWidth, imageHeight, {
+              min_mask_area: cfg.min_mask_area,
+            });
+          } else {
+            // Reuse the precomputed embedding: AIS runs fully server-side from
+            // the stored `.npz` link (the browser never pulls the ~4 MB
+            // features). Always anchored to the raw imageUrl, never enhanced
+            // pixels, since this embedding is memoized for the whole session.
+            const npzUrl = await ensureStoredEmbedding(
+              currentImageStem ?? imageUrl,
+              imageUrl,
+              imageWidth,
+              imageHeight,
+            );
+            masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
+              min_mask_area: cfg.min_mask_area,
+            });
+          }
           let n = 0;
           if (masks && masks.length > 0) {
             const vs = getVectorSource?.();
@@ -940,7 +957,7 @@ print('CLAHE packages ready')
     }
   }, [
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
-    cellposeConfig, isCLAHEActive, kernelReady, currentImageStem,
+    cellposeConfig, isCLAHEActive, claheEnhancedUrl, kernelReady, currentImageStem,
     ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
     getVectorSource, pushUndo, addBanner, removeBanner,
   ]);
@@ -952,7 +969,10 @@ print('CLAHE packages ready')
     if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
     instantRecomputeTimerRef.current = setTimeout(async () => {
       try {
-        const sourceUrl = originalImageUrl || imageUrl;
+        // Match handleRunCellpose's sourceUrl choice so the cache key here
+        // agrees with the one the last full run computed against.
+        const useEnhanced = !!(cfg.useEnhancedImage && isCLAHEActive && claheEnhancedUrl);
+        const sourceUrl = useEnhanced ? claheEnhancedUrl : (originalImageUrl || imageUrl);
         if (!sourceUrl) return;
         const n = await runCellposeFlowsPipeline(cfg, sourceUrl);
         if (n !== undefined) {
@@ -962,7 +982,7 @@ print('CLAHE packages ready')
         console.warn('[AnnotatePage] Live preview failed:', err);
       }
     }, 150);
-  }, [imageUrl, originalImageUrl, runCellposeFlowsPipeline]);
+  }, [imageUrl, originalImageUrl, isCLAHEActive, claheEnhancedUrl, runCellposeFlowsPipeline]);
 
   // Keep refs in sync so the config dialog's Run button + instant-config
   // callback can trigger the latest closures without a re-render of the dialog.
