@@ -6,6 +6,7 @@ import ColabGuide from './ColabGuide';
 import DatasetList from './DatasetList';
 import DatasetOverview from './DatasetOverview';
 import TrainingPage from '../../pages/TrainingPage';
+import FinetunePage from '../../pages/FinetunePage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton from '../LoginButton';
 import { SUPPORTED_IMAGE_EXTENSIONS } from './imageFormats';
@@ -192,6 +193,7 @@ const ColabPage: React.FC = () => {
   const location = useLocation();
   const isTrainingRoute = location.pathname.startsWith('/colab/training');
   const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
+  const isFinetuneRoute = /^\/colab\/[^/]+\/finetune(\/.*)?$/.test(location.pathname);
 
   // Keep one shared kernel provider mounted for all /colab routes so
   // navigating to training and back preserves the running kernel.
@@ -204,6 +206,10 @@ const ColabPage: React.FC = () => {
         </Routes>
       ) : isAnnotateRoute ? (
         <AnnotatePage backTo="/colab" />
+      ) : isFinetuneRoute ? (
+        <Routes>
+          <Route path=":alias/finetune" element={<FinetunePage />} />
+        </Routes>
       ) : (
         <ColabPageContent />
       )}

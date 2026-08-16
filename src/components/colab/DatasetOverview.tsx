@@ -1274,7 +1274,7 @@ print("Service registered successfully", end='')
             )}
           </button>
           <button
-            onClick={() => navigate(`/colab/${toAlias(artifactId)}/finetune`)}
+            onClick={() => navigate(`/colab/${toAlias(artifactId)}/finetune`, { state: { label: selectedLabel } })}
             disabled={!selectedLabel}
             className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
           >
