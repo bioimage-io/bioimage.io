@@ -107,17 +107,29 @@ export interface SaveUrls {
 }
 
 /**
- * Train/test partition for a dataset (broker v0.6.0, colab-rework-plan.md
- * §20). Stored as `train/split.json`; a missing file reads back as
- * `{train: [], test: []}`, which the frontend treats as "no split applied
- * yet, everything trains."
+ * Per-label, named, add-only data split snapshot (broker v0.7.0,
+ * colab-rework-plan.md §23.1). `checkpoint` is set once a training session
+ * has been started against this split, after which the split can still be
+ * extended (add-only) but the backend has no way to resume training from a
+ * checkpoint, so the frontend must not offer to start a new run against a
+ * checkpointed split.
  */
-export interface DatasetSplit {
+export interface SplitDoc {
+  name: string;
+  label: string;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+  ratio: number;
   train: string[];
   test: string[];
+  annotation_counts: Record<string, number>;
+  history: any[];
+  checkpoint: { session_id: string; model_type: string; [key: string]: any } | null;
 }
 
-/** One image+annotation pair url resolved for fine-tuning (broker v0.6.0). */
+/** One image+annotation pair url resolved for fine-tuning (broker v0.7.0). */
 export interface TrainingUrlEntry {
   stem: string;
   user: string;
@@ -128,6 +140,7 @@ export interface TrainingUrlEntry {
 export interface TrainingUrls {
   train: TrainingUrlEntry[];
   test: TrainingUrlEntry[];
+  split: SplitDoc;
 }
 
 /**
@@ -449,43 +462,94 @@ export async function getSaveUrls(
 }
 
 /**
- * Read the current train/test split (broker v0.6.0, colab-rework-plan.md
- * §20 item 1). Annotator-min role. A dataset with no split yet resolves as
- * `{train: [], test: []}`, meaning every stem still trains.
+ * Create a new named split for one label (broker v0.7.0, colab-rework-plan.md
+ * §23.1). Manager-min role. `ratio` is the intended train fraction (0..1),
+ * used later to guide auto-distribution when the split is extended; omit it
+ * to let the server default to the actual train/(train+test) at creation.
  */
-export async function getSplit(server: any, artifactId: string): Promise<DatasetSplit> {
-  return callBroker(server, (broker) => broker.get_split({ artifact_id: artifactId, _rkwargs: true }));
+export async function createSplit(
+  server: any,
+  artifactId: string,
+  label: string,
+  name: string,
+  train: string[],
+  test: string[],
+  ratio?: number,
+): Promise<SplitDoc> {
+  return callBroker(server, (broker) =>
+    broker.create_split({ artifact_id: artifactId, label, name, train, test, ratio, _rkwargs: true }),
+  );
 }
 
 /**
- * Overwrite the train/test split in one call (broker v0.6.0). Manager-min
- * role. Callers pass the full desired membership of each list, not a delta.
+ * Extend an existing split (broker v0.7.0). Add-only: `addTrain`/`addTest`
+ * are appended to the split's existing membership. The server enforces the
+ * ever-trained-to-test guard (a stem once in `train` can never move to
+ * `test`) and raises a plain, user-readable `ValueError` on violation.
  */
-export async function setSplit(
+export async function updateSplit(
   server: any,
   artifactId: string,
-  train: string[],
-  test: string[],
-): Promise<DatasetSplit> {
+  label: string,
+  name: string,
+  addTrain: string[],
+  addTest: string[],
+): Promise<SplitDoc> {
   return callBroker(server, (broker) =>
-    broker.set_split({ artifact_id: artifactId, train, test, _rkwargs: true }),
+    broker.update_split({ artifact_id: artifactId, label, name, add_train: addTrain, add_test: addTest, _rkwargs: true }),
+  );
+}
+
+/** Read one named split for one label (broker v0.7.0). Annotator-min role. */
+export async function getSplit(server: any, artifactId: string, label: string, name: string): Promise<SplitDoc> {
+  return callBroker(server, (broker) => broker.get_split({ artifact_id: artifactId, label, name, _rkwargs: true }));
+}
+
+/**
+ * List splits for one label, or across all labels when `label` is omitted
+ * (broker v0.7.0). The all-labels form powers the image-delete guard: a stem
+ * that's a member of any split, for any label, cannot be deleted.
+ */
+export async function listSplits(server: any, artifactId: string, label?: string): Promise<SplitDoc[]> {
+  return callBroker(server, (broker) => broker.list_splits({ artifact_id: artifactId, label, _rkwargs: true }));
+}
+
+/** Delete a named split (broker v0.7.0). Only allowed while `checkpoint` is null. */
+export async function deleteSplit(server: any, artifactId: string, label: string, name: string): Promise<{ deleted: boolean }> {
+  return callBroker(server, (broker) => broker.delete_split({ artifact_id: artifactId, label, name, _rkwargs: true }));
+}
+
+/**
+ * Record that a training session was started against this split (broker
+ * v0.7.0). Called once `start_training` returns a session id, so the split
+ * can no longer be picked to start a fresh run (the backend can't resume
+ * from a checkpoint), while still allowing add-only extension.
+ */
+export async function setSplitCheckpoint(
+  server: any,
+  artifactId: string,
+  label: string,
+  name: string,
+  checkpoint: { session_id: string; model_type: string; [key: string]: any },
+): Promise<SplitDoc> {
+  return callBroker(server, (broker) =>
+    broker.set_split_checkpoint({ artifact_id: artifactId, label, name, checkpoint, _rkwargs: true }),
   );
 }
 
 /**
  * Resolve the latest-pair-per-(user,stem) presigned image+geojson URLs for
- * one label, partitioned by the current split (broker v0.6.0). Manager-min
- * role. Stems with no split entry fall into `train`. Feeds the finetune
- * page's `start_training` call once that contract lands (colab-rework-plan.md
- * §20 item 2).
+ * one label, partitioned by the given split (broker v0.7.0). Manager-min
+ * role. The response echoes the resolved split doc under `split`.
  */
 export async function getTrainingUrls(
   server: any,
   artifactId: string,
   label: string,
+  splitName: string,
 ): Promise<TrainingUrls> {
   return callBroker(server, (broker) =>
-    broker.get_training_urls({ artifact_id: artifactId, label, _rkwargs: true }),
+    broker.get_training_urls({ artifact_id: artifactId, label, split_name: splitName, _rkwargs: true }),
   );
 }
 
