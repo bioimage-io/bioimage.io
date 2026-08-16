@@ -184,13 +184,16 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
 
   const [imageUrl, setImageUrl] = useState('');
   const [pairs, setPairs] = useState<AnnotationPair[]>([]);
-  const [browserOpen, setBrowserOpen] = useState(false);
   // Which image the center preview shows while browsing annotations
-  // (colab-rework-plan.md §19 item 7): decoupled from browserOpen so
+  // (colab-rework-plan.md §19 item 7): decoupled from browserIndex so
   // clicking the displayed image can flip it back and forth for an A/B
-  // comparison without leaving browse mode.
+  // comparison without changing position.
   const [previewMode, setPreviewMode] = useState<'raw' | 'annotated'>('raw');
   const [statsViewOpen, setStatsViewOpen] = useState(false);
+  // Position 0 is always the raw image; 1..pairs.length step through
+  // annotation files newest-first (colab-rework-plan.md §23.3). Reset to 0
+  // whenever the selected image or label changes, both handled by the
+  // pairs-loading effect below.
   const [browserIndex, setBrowserIndex] = useState(0);
   const [labelUsers, setLabelUsers] = useState<Record<string, LabelUserRef>>({});
   const [annotationUrl, setAnnotationUrl] = useState('');
@@ -527,8 +530,18 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     };
   }, [artifactManager, artifactId, selectedStem, images, canManage]);
 
-  // --- Mask URL for the currently browsed annotation pair (newest by default) ---
-  const currentPair = pairs[browserIndex] ?? null;
+  // --- Mask URL for the currently browsed annotation pair ---
+  // browserIndex 0 has no pair (it's the raw image); 1..pairs.length map to
+  // pairs[0..pairs.length-1] (colab-rework-plan.md §23.3).
+  const currentPair = browserIndex > 0 ? pairs[browserIndex - 1] ?? null : null;
+
+  // The preview follows position: raw at 0, the annotation overlay
+  // elsewhere. Hold-to-compare (onHoldChange below) can still flip it
+  // momentarily without moving position.
+  useEffect(() => {
+    setPreviewMode(browserIndex === 0 ? 'raw' : 'annotated');
+  }, [browserIndex]);
+
   useEffect(() => {
     if (!currentPair) {
       setAnnotationUrl('');
@@ -722,17 +735,6 @@ print("Service registered successfully", end='')
     if (!row.isCloud && !uploadingStems.has(row.stem)) {
       uploadSingleImage({ stem: row.stem, format: row.format! });
     }
-  };
-
-  // Opening browse mode defaults the preview to the annotation overlay
-  // (matching the prior fixed behavior); closing it reverts to raw (§19
-  // items 7-8).
-  const handleToggleBrowse = () => {
-    setBrowserOpen((v) => {
-      const next = !v;
-      setPreviewMode(next ? 'annotated' : 'raw');
-      return next;
-    });
   };
 
   const performDeleteCloudImage = async (stem: string) => {
@@ -1189,15 +1191,6 @@ print("Service registered successfully", end='')
             ? 'Unmount folder'
             : 'Mount local folder'}
         </button>
-        {selectedStem && selectedLabel && !statsViewOpen && (
-          <button
-            onClick={handleToggleBrowse}
-            disabled={!browserOpen && pairs.length === 0}
-            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {browserOpen ? 'Hide annotations' : `Browse annotations${pairs.length ? ` (${pairs.length})` : ''}`}
-          </button>
-        )}
         {localImages.length > 0 && (
           <button
             onClick={handleUploadAll}
@@ -1422,15 +1415,13 @@ print("Service registered successfully", end='')
             ) : selectedStem ? (
               imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
                 <ImagePreview
-                  viewMode={browserOpen ? previewMode : 'raw'}
+                  viewMode={previewMode}
                   imageUrl={imageUrl}
                   annotationUrl={annotationUrl}
                   hasAnnotation={!!currentPair}
                   alt={selectedStem}
                   onHoldChange={
-                    browserOpen && currentPair
-                      ? (holding) => setPreviewMode(holding ? 'raw' : 'annotated')
-                      : undefined
+                    currentPair ? (holding) => setPreviewMode(holding ? 'raw' : 'annotated') : undefined
                   }
                 />
               ) : (
@@ -1450,17 +1441,13 @@ print("Service registered successfully", end='')
             )}
           </div>
 
-          {/* Prev/next + annotator/timestamp strip: always rendered (space
-              reserved) whenever an image+label are selected, so entering or
-              leaving browse mode never shifts the preview above it (§19
-              item 9). Only its opacity/interactivity toggles. */}
+          {/* Annotation browser strip (colab-rework-plan.md §23.3): always
+              visible whenever an image+label are selected. Position 0 is
+              the raw image; the right arrow steps forward through
+              annotation files, the left arrow steps back toward 0. */}
           {selectedStem && selectedLabel && !statsViewOpen && (
             <div className="mt-3 border-t border-gray-100 pt-3">
-              <div
-                className={`flex items-center justify-between gap-3 transition-opacity duration-150 ${
-                  browserOpen && currentPair ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
-              >
+              <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setBrowserIndex((i) => Math.max(0, i - 1))}
                   disabled={browserIndex === 0}
@@ -1472,19 +1459,30 @@ print("Service registered successfully", end='')
                 </button>
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-800">
-                    {currentPair ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder : ' '}
+                    {browserIndex === 0
+                      ? 'Raw image'
+                      : currentPair
+                        ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder
+                        : ' '}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {currentPair
-                      ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex + 1} of ${pairs.length}`
-                      : ' '}
+                    {browserIndex === 0
+                      ? pairs.length
+                        ? `${pairs.length} annotation${pairs.length === 1 ? '' : 's'} available`
+                        : 'No annotations yet'
+                      : currentPair
+                        ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex} of ${pairs.length}`
+                        : ' '}
                   </p>
                 </div>
                 <button
-                  onClick={() => setBrowserIndex((i) => Math.min(pairs.length - 1, i + 1))}
-                  disabled={browserIndex === pairs.length - 1}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                  onClick={() => setBrowserIndex((i) => Math.min(pairs.length, i + 1))}
+                  disabled={browserIndex >= pairs.length}
+                  className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
                 >
+                  {browserIndex === 0 && (
+                    <span className="text-sm font-medium text-gray-700">Browse annotations</span>
+                  )}
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
