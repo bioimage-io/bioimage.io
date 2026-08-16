@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { hyphaWebsocketClient } from 'hypha-rpc';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 
@@ -15,10 +14,13 @@ export interface UseCellpose4RunnerResult {
 }
 
 const RETRY_INTERVAL_MS = 30000;
-// connectToServer hangs rather than rejecting when the websocket cannot be
-// established, so without a deadline a probe started while the network is
-// down would never settle and never schedule a retry.
 const PROBE_TIMEOUT_MS = 15000;
+
+// Hypha exposes every service method over plain HTTP as well, so the list can
+// be read with a single unauthenticated GET instead of opening an RPC
+// websocket. That is both faster and independent of the login state.
+const SUPPORTED_MODELS_URL =
+  `${HYPHA_SERVER_URL}/${BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID.replace('/', '/services/')}/list_supported_models`;
 
 // In-memory only, deliberately: the list lives for the life of the tab and a
 // reload re-fetches it, so a newly supported model shows up without anyone
@@ -41,35 +43,22 @@ const scheduleRetry = () => {
   }, RETRY_INTERVAL_MS);
 };
 
-async function fetchSupportedModels(): Promise<string[]> {
-  // Anonymous on purpose. The supported-model list is public, and not waiting
-  // for login means the answer is usually in hand before the model detail page
-  // has finished rendering, so the Test Run button never has to show a wrong
-  // status first.
-  const server = await hyphaWebsocketClient.connectToServer({ server_url: HYPHA_SERVER_URL });
-  try {
-    const svc = await server.getService(BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID, {
-      mode: 'select:min:get_load',
-    });
-    const models = await svc.list_supported_models();
-    return Array.isArray(models) ? models : [];
-  } finally {
-    try {
-      await server.disconnect();
-    } catch {
-      // Best effort; the probe result is already in hand either way.
-    }
-  }
+async function fetchSupportedModels(signal: AbortSignal): Promise<string[]> {
+  // Unauthenticated on purpose. The supported-model list is public, and not
+  // waiting for login means the answer is usually in hand before the model
+  // detail page has finished rendering, so the Test Run button never has to
+  // show a wrong status first.
+  const res = await fetch(SUPPORTED_MODELS_URL, { signal });
+  if (!res.ok) throw new Error(`cellpose4-runner responded ${res.status}`);
+  const models = await res.json();
+  return Array.isArray(models) ? models : [];
 }
 
 async function runProbe(): Promise<void> {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    supportedModels = await Promise.race([
-      fetchSupportedModels(),
-      new Promise<string[]>((_, reject) =>
-        setTimeout(() => reject(new Error('cellpose4-runner probe timed out')), PROBE_TIMEOUT_MS)
-      ),
-    ]);
+    supportedModels = await fetchSupportedModels(controller.signal);
   } catch (err) {
     // Worker down, still starting, or offline. Keep retrying in the
     // background so a page opened before the cluster is reachable picks the
@@ -77,6 +66,7 @@ async function runProbe(): Promise<void> {
     console.warn(`[cellpose4-runner] probe failed, retrying in ${RETRY_INTERVAL_MS / 1000}s:`, err);
     scheduleRetry();
   } finally {
+    clearTimeout(deadline);
     firstAttemptSettled = true;
     notify();
   }
