@@ -33,6 +33,7 @@ import {
   setSplit as setBrokerSplit,
 } from './brokerApi';
 import LabelManager from './LabelManager';
+import FinetuneView from './FinetuneView';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
 import ShareModal from './ShareModal';
@@ -226,6 +227,13 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // A cloud image whose stem is already in the split, pending confirmation
   // of "remove from split and delete" (§20 item 4).
   const [pendingDeleteStem, setPendingDeleteStem] = useState<string | null>(null);
+
+  // --- Finetune view (colab-rework-plan.md §23.2) ---
+  // Reuses `selectedLabel` as the finetune view's active label, so the
+  // existing annotatedStems effect (keyed on selectedLabel) doubles as the
+  // "images with annotations for this label" filter with no new fetching.
+  const [showFinetuneLabelDialog, setShowFinetuneLabelDialog] = useState(false);
+  const [finetuneViewOpen, setFinetuneViewOpen] = useState(false);
 
   // --- Role guard ---
   useEffect(() => {
@@ -807,6 +815,23 @@ print("Service registered successfully", end='')
     [cloudImageRows, activeTestSet],
   );
 
+  // Finetune view (colab-rework-plan.md §23.2): the image list is filtered
+  // to cloud images with >0 annotation files for the selected label,
+  // reusing the annotatedStems set already fetched for the Labels box.
+  const displayedImageRows = useMemo(
+    () => (finetuneViewOpen ? cloudImageRows.filter((r) => annotatedStems.has(r.stem)) : imageRows),
+    [finetuneViewOpen, cloudImageRows, annotatedStems, imageRows],
+  );
+
+  // Drop the selection if it falls outside the finetune-filtered list, e.g.
+  // right after entering the view with an unannotated image selected.
+  useEffect(() => {
+    if (!finetuneViewOpen) return;
+    if (selectedStem && !displayedImageRows.some((r) => r.stem === selectedStem)) {
+      setSelectedStem(null);
+    }
+  }, [finetuneViewOpen, displayedImageRows, selectedStem]);
+
   const handleEnterSplitMode = () => {
     setPendingTestSet(new Set(split.test));
     setSplitApplyError(null);
@@ -1116,9 +1141,9 @@ print("Service registered successfully", end='')
       <div className="flex items-center justify-between mb-5 gap-4">
         <div className="flex items-center min-w-0">
           <button
-            onClick={() => navigate('/colab')}
+            onClick={() => (finetuneViewOpen ? setFinetuneViewOpen(false) : navigate('/colab'))}
             className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4 shrink-0"
-            title="Back to Colab"
+            title={finetuneViewOpen ? 'Back to dataset overview' : 'Back to Colab'}
           >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1127,9 +1152,13 @@ print("Service registered successfully", end='')
           </button>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900 truncate">
-              {datasetMeta?.name ?? toAlias(artifactId)}
+              {finetuneViewOpen ? `Finetune: ${selectedLabel}` : (datasetMeta?.name ?? toAlias(artifactId))}
             </h1>
-            <p className="text-sm text-gray-600 mt-0.5">{formatDatasetDescription(datasetMeta?.description)}</p>
+            <p className="text-sm text-gray-600 mt-0.5">
+              {finetuneViewOpen
+                ? (datasetMeta?.name ?? toAlias(artifactId))
+                : formatDatasetDescription(datasetMeta?.description)}
+            </p>
             <p className="text-xs text-gray-400 mt-0.5">{toAlias(artifactId)}</p>
           </div>
         </div>
@@ -1178,20 +1207,22 @@ print("Service registered successfully", end='')
 
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button
-          onClick={folderMounted ? handleUnmount : handleUploadClick}
-          disabled={mounting || waitingForKernel}
-          className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
-        >
-          {waitingForKernel
-            ? 'Waiting for kernel...'
-            : mounting
-            ? 'Mounting...'
-            : folderMounted
-            ? 'Unmount folder'
-            : 'Mount local folder'}
-        </button>
-        {localImages.length > 0 && (
+        {!finetuneViewOpen && (
+          <button
+            onClick={folderMounted ? handleUnmount : handleUploadClick}
+            disabled={mounting || waitingForKernel}
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
+          >
+            {waitingForKernel
+              ? 'Waiting for kernel...'
+              : mounting
+              ? 'Mounting...'
+              : folderMounted
+              ? 'Unmount folder'
+              : 'Mount local folder'}
+          </button>
+        )}
+        {!finetuneViewOpen && localImages.length > 0 && (
           <button
             onClick={handleUploadAll}
             disabled={!!uploadProgress}
@@ -1231,7 +1262,7 @@ print("Service registered successfully", end='')
             {statsViewOpen ? 'Show image preview' : 'Show annotation progress'}
           </button>
         )}
-        {cloudImageRows.length > 0 && (
+        {!finetuneViewOpen && cloudImageRows.length > 0 && (
           <>
             {splitMode ? (
               <>
@@ -1279,13 +1310,15 @@ print("Service registered successfully", end='')
               </span>
             )}
           </button>
-          <button
-            onClick={() => navigate(`/colab/${toAlias(artifactId)}/finetune`, { state: { label: selectedLabel } })}
-            disabled={!selectedLabel}
-            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
-          >
-            Finetune
-          </button>
+          {!finetuneViewOpen && (
+            <button
+              onClick={() => setShowFinetuneLabelDialog(true)}
+              disabled={!labels || labels.length === 0}
+              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
+            >
+              Finetune
+            </button>
+          )}
           <a
             href={downloadZipUrl}
             className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
@@ -1310,7 +1343,9 @@ print("Service registered successfully", end='')
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Images</h3>
               <p className="text-xs text-gray-400">
-                {imageRows.length} total{localImages.length > 0 ? ` · ${localImages.length} pending upload` : ''}
+                {finetuneViewOpen
+                  ? `${displayedImageRows.length} annotated`
+                  : `${imageRows.length} total${localImages.length > 0 ? ` · ${localImages.length} pending upload` : ''}`}
               </p>
             </div>
             <button
@@ -1343,6 +1378,16 @@ print("Service registered successfully", end='')
               <div className="flex items-center justify-center py-8">
                 <Spinner className="w-6 h-6 text-purple-600" />
               </div>
+            ) : finetuneViewOpen ? (
+              displayedImageRows.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8 px-4">
+                  No annotated images yet for this label.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {displayedImageRows.map((row) => renderImageRow(row, false))}
+                </div>
+              )
             ) : imageRows.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
             ) : showSplitSections ? (
@@ -1495,24 +1540,31 @@ print("Service registered successfully", end='')
         {/* Right: labels, stats */}
         <div className="flex flex-col gap-4 max-h-[70vh]">
           <div className="flex-1 min-h-0">
-            <LabelManager
-              server={server}
-              artifactId={artifactId}
-              role={role as 'owner' | 'manager'}
-              labels={sortedLabels}
-              labelTotals={labelTotals}
-              totalImages={totalImages}
-              selectedLabel={selectedLabel}
-              onSelectLabel={setSelectedLabel}
-              onLabelsChanged={reloadLabels}
-              onAnnotateLabel={(l) => navigateToAnnotate(
-                navigate,
-                artifactId,
-                l,
-                selectedStem && imageRows.find((r) => r.stem === selectedStem)?.isCloud ? selectedStem : undefined,
-              )}
-              onDeleteLabel={(l) => setDeleteLabelTarget(l)}
-            />
+            {finetuneViewOpen ? (
+              <FinetuneView
+                label={selectedLabel}
+                rows={displayedImageRows.map((r) => ({ stem: r.stem, annotationCount: labelStats[r.stem] ?? 0 }))}
+              />
+            ) : (
+              <LabelManager
+                server={server}
+                artifactId={artifactId}
+                role={role as 'owner' | 'manager'}
+                labels={sortedLabels}
+                labelTotals={labelTotals}
+                totalImages={totalImages}
+                selectedLabel={selectedLabel}
+                onSelectLabel={setSelectedLabel}
+                onLabelsChanged={reloadLabels}
+                onAnnotateLabel={(l) => navigateToAnnotate(
+                  navigate,
+                  artifactId,
+                  l,
+                  selectedStem && imageRows.find((r) => r.stem === selectedStem)?.isCloud ? selectedStem : undefined,
+                )}
+                onDeleteLabel={(l) => setDeleteLabelTarget(l)}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -1524,6 +1576,21 @@ print("Service registered successfully", end='')
           role={role}
           onClose={() => setShowAnnotateDialog(false)}
           onSelect={(l) => navigateToAnnotate(navigate, artifactId, l)}
+        />
+      )}
+
+      {showFinetuneLabelDialog && (
+        <LabelSelectDialog
+          artifactManager={artifactManager}
+          artifactId={artifactId}
+          role={role}
+          onClose={() => setShowFinetuneLabelDialog(false)}
+          onSelect={(l) => {
+            if (splitMode) handleCancelSplitMode();
+            setSelectedLabel(l);
+            setShowFinetuneLabelDialog(false);
+            setFinetuneViewOpen(true);
+          }}
         />
       )}
 

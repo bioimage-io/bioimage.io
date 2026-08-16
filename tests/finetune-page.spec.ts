@@ -4,13 +4,21 @@ import fs from 'fs';
 // Requires: HYPHA_TOKEN env var (falls back to /data/nmechtel/bioengine/.env).
 // Requires: dev server at http://localhost:3012.
 //
-// What this tests (colab-rework-plan.md §20 item 2): the new Finetune page
-// at /colab/<alias>/finetune — routing resolves, the manager-role guard
-// passes for a dataset the test token owns, the base-model selector is
-// restricted to vit_t_lm/vit_b_lm (vit_l_lm is inference-only, it OOMs
-// during training on the deNBI T4 runtime), and the advanced-parameters
-// form defaults match the bioengine `start_training` contract. Reuses the
-// same "HPA Demo Dataset" fixture (bioimage-io/annotation-mst3ebzz-o5px,
+// What this tests:
+// - §23.2 (colab-rework-plan.md): the dataset overview's Finetune button now
+//   opens a label-select dialog and switches the SAME page into an in-page
+//   finetune view (no route change) showing the split builder for the
+//   chosen label.
+// - §20 item 2: the standalone /colab/<alias>/finetune training-sessions
+//   page is still reachable by direct URL (it's what §23.2 links to as
+//   "the existing training sessions page", not yet wired this round) —
+//   routing resolves, the manager-role guard passes for a dataset the test
+//   token owns, the base-model selector is restricted to vit_t_lm/vit_b_lm
+//   (vit_l_lm is inference-only, it OOMs during training on the deNBI T4
+//   runtime), and the advanced-parameters form defaults match the bioengine
+//   `start_training` contract.
+//
+// Reuses the same "HPA Demo Dataset" fixture (bioimage-io/annotation-mst3ebzz-o5px,
 // label "cells") as colab-overview-sharing.spec.ts, since the test token
 // already has an owner/manager role on it.
 //
@@ -41,8 +49,8 @@ async function injectToken(page: import('@playwright/test').Page, token: string)
   }, { tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 }
 
-test.describe('Finetune page (§20 item 2)', () => {
-  test('routes correctly and renders the start form for a manager', async ({ page }) => {
+test.describe('Finetune button opens an in-page view (§23.2)', () => {
+  test('Finetune button opens a label dialog, then the in-page split-builder view', async ({ page }) => {
     const token = readHyphaToken();
     if (!token) {
       test.skip();
@@ -52,26 +60,59 @@ test.describe('Finetune page (§20 item 2)', () => {
 
     await injectToken(page, token);
 
-    // Navigate via the dataset overview's Finetune button rather than a
-    // direct deep link, to also cover ColabPage.tsx's isFinetuneRoute branch
-    // and the navigate() call carrying the selected label as prefill state.
     await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}`);
     const finetuneButton = page.getByRole('button', { name: 'Finetune' });
     await expect(finetuneButton).toBeVisible({ timeout: 60000 });
     await expect(finetuneButton).toBeEnabled();
     await finetuneButton.click({ force: true });
 
-    await expect(page).toHaveURL(new RegExp(`/colab/${DATASET_ALIAS}/finetune`));
+    // Label-select dialog (§23.2 bullet 1): no route change yet.
+    await expect(page.getByRole('heading', { name: 'Choose a label' })).toBeVisible({ timeout: 30000 });
+    await expect(page).toHaveURL(new RegExp(`/colab/${DATASET_ALIAS}$`));
+
+    // Anchored to the start: the page also has a "Delete label \"cells\""
+    // button (in the Labels box, behind the dialog), whose accessible name
+    // also contains "cells" but doesn't start with it.
+    await page.getByRole('button', { name: /^cells\b/ }).click();
+
+    // Still the same route, now showing the in-page finetune view: the
+    // Labels box is replaced by the split builder, and the header/back
+    // button switch into their finetune-view state.
+    await expect(page).toHaveURL(new RegExp(`/colab/${DATASET_ALIAS}$`));
+    await expect(page.getByRole('heading', { name: 'Finetune: cells' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Split builder' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Finetune' })).not.toBeVisible();
+
+    // Back button (same style as the overview's) returns to the normal
+    // dataset overview, same route, Labels box restored.
+    await page.getByRole('button', { name: 'Back' }).click({ force: true });
+    await expect(page.getByRole('heading', { name: 'Split builder' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Finetune' })).toBeVisible();
+  });
+});
+
+test.describe('Finetune training-sessions page (§20 item 2, direct URL only)', () => {
+  test('renders the start form for a manager at a direct /finetune URL', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(90000);
+
+    await injectToken(page, token);
+
+    // §23.2's Finetune button no longer navigates here (it opens the
+    // in-page view instead, see the describe block above); this page is
+    // still reached by direct URL, e.g. via the "training sessions" link
+    // §23.2 plans to add from the in-page finetune view (not wired yet).
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}/finetune`);
     await expect(page.getByRole('heading', { name: 'Fine-tune μSAM' })).toBeVisible({ timeout: 30000 });
 
     // Guard passed (manager role) -> the start form is visible, not an
     // access-denied card.
     await expect(page.getByRole('heading', { name: 'Start a new session' })).toBeVisible();
     await expect(page.getByText('You do not have access to fine-tuning')).not.toBeVisible();
-
-    // Label prefilled from the overview's selected label.
-    const labelSelect = page.locator('select').first();
-    await expect(labelSelect).toHaveValue('cells');
 
     // Model selector restricted to vit_t_lm / vit_b_lm only (vit_l_lm is
     // deliberately excluded — inference-only, OOMs during training).
