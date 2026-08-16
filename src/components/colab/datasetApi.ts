@@ -44,13 +44,14 @@ export function buildAnnotateQuery(
   return params.toString();
 }
 
-// Session creation appends "(Owner: <email>)" to every manifest description
-// (public/colab_service.py), which is internal bookkeeping, not something to
-// show collaborators. Strip it here rather than at creation time, since
-// existing artifacts already have it baked into stored data.
+// Session creation used to append "(Owner: <email>)" to every manifest
+// description (public/colab_service.py), which was internal bookkeeping, not
+// something to show collaborators. New artifacts no longer get the suffix
+// (the owner is already stored structured in manifest.owner), but legacy
+// artifacts still have it baked into stored data, so keep stripping it here.
 const OWNER_SUFFIX_RE = /\s*\(Owner:\s*[^)]*\)\s*$/i;
 
-/** Strip the "(Owner: ...)" suffix and fall back to a placeholder when empty. */
+/** Strip the legacy "(Owner: ...)" suffix and fall back to a placeholder when empty. */
 export function formatDatasetDescription(description?: string | null): string {
   const stripped = (description ?? '').replace(OWNER_SUFFIX_RE, '').trim();
   return stripped || 'No description available.';

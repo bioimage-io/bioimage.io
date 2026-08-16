@@ -278,8 +278,6 @@ class ImageImportSession:
             console.log(f"_ensure_artifact_exists: creating {self.artifact_id}")
             try:
                 description = self.session_description
-                if self.user_email:
-                    description = f"{description} (Owner: {self.user_email})"
                 manifest: dict = {
                     "name": self.session_name,
                     "description": description,
