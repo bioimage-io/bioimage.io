@@ -118,9 +118,20 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // "instant slider recompute is available"), this just drives the config
   // dialog's Compute Flow Field -> Refine Results auto-collapse.
   const [hasCellposeResult, setHasCellposeResult] = useState(false);
+  // Bumped once per completed Cellpose run (success, even with zero masks) —
+  // drives the dialog's Compute Flow Field -> Refine Results auto-collapse
+  // on every run, not just the first, so a re-run after the user manually
+  // reopens the section still collapses it back.
+  const [cellposeCompletedRunId, setCellposeCompletedRunId] = useState(0);
   // Declared ahead of its usual position (alongside the other CLAHE state
   // below) so it can be passed into useCellposeConfig's opts here.
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
+
+  // Aborts the in-flight cellpose4-runner request (flows path or plain
+  // server fallback) when the user cancels out of the dialog mid-run. Null
+  // whenever no Cellpose run is in flight, so calling .abort() unconditionally
+  // from the dialog's Cancel button is always safe.
+  const cellposeAbortRef = useRef<AbortController | null>(null);
 
   const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
@@ -130,9 +141,11 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     keepOpenAfterApply: true,
     livePreviewReady,
     resultReady: hasCellposeResult,
+    completedRunId: cellposeCompletedRunId,
     microSamAvailable,
     claheActive: isCLAHEActive,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
+    onCancelRun: () => cellposeAbortRef.current?.abort(),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
       measureCallbackRef.current = (px: number) => {
@@ -812,7 +825,7 @@ print('CLAHE packages ready')
   // flows when only the instant-group sliders moved. Both paths converge in
   // the same polygon-replacement logic below.
   const runCellposeFlowsPipeline = useCallback(
-    async (cfg: CellposeConfig) => {
+    async (cfg: CellposeConfig, signal?: AbortSignal) => {
       if (!service || !imageWidth || !imageHeight) return;
 
       const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
@@ -837,13 +850,14 @@ print('CLAHE packages ready')
           const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
             diameter: cfg.diameter,
             two_pass: cfg.two_pass,
-          });
+          }, signal);
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
         } finally {
           removeBanner(fetchBanner);
         }
       }
+      if (signal?.aborted) return;
 
       // Local mask gen via Pyodide.
       const mask = await maskGen.compute(
@@ -863,6 +877,7 @@ print('CLAHE packages ready')
           max_size_fraction: 0.4,
         },
       );
+      if (signal?.aborted) return;
 
       const polygons = maskDataToPolygons(
         mask.data,
@@ -904,6 +919,15 @@ print('CLAHE packages ready')
     const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
     if (!sourceUrl) return;
     console.log('[AnnotatePage] Running Cellpose on image:', sourceUrl, `(${imageWidth}x${imageHeight})`);
+
+    // A fresh controller per run. The Cancel button on the config dialog
+    // calls .abort() unconditionally (it's a no-op once cellposeAbortRef is
+    // cleared below), so cancelling mid-run stops polling and discards any
+    // late cellpose4-runner result instead of applying it.
+    const abortController = new AbortController();
+    cellposeAbortRef.current = abortController;
+    const { signal } = abortController;
+
     setIsRunningCellpose(true);
     const bannerId = addBanner(
       cfg.backend === 'microsam' ? 'Running μSAM segmentation...' : 'Running Cellpose segmentation...',
@@ -972,9 +996,10 @@ print('CLAHE packages ready')
       let usedLocalPath = false;
       if (kernelReady) {
         try {
-          n = await runCellposeFlowsPipeline(cfg);
+          n = await runCellposeFlowsPipeline(cfg, signal);
           usedLocalPath = true;
         } catch (flowsErr: any) {
+          if (flowsErr?.name === 'AbortError') throw flowsErr;
           console.warn(
             '[AnnotatePage] Flows-path failed, falling back to server mask-gen:',
             flowsErr,
@@ -990,7 +1015,7 @@ print('CLAHE packages ready')
           min_mask_area: cfg.min_mask_area,
           diameter: cfg.diameter,
           two_pass: cfg.two_pass,
-        });
+        }, signal);
         if (masks && masks.length > 0) {
           const vs = getVectorSource?.();
           if (vs) {
@@ -1004,7 +1029,16 @@ print('CLAHE packages ready')
         }
       }
 
+      if (signal.aborted) {
+        removeBanner(bannerId);
+        return;
+      }
+
       removeBanner(bannerId);
+      // The flow field has arrived (even a zero-mask run is a completed run) —
+      // bump the counter that drives the dialog's Compute Flow Field -> Refine
+      // Results auto-collapse and its Cancel -> Done button flip.
+      setCellposeCompletedRunId((v) => v + 1);
 
       if (n === undefined || n === 0) {
         addBanner('No masks detected by Cellpose', 'warning', 5000);
@@ -1015,12 +1049,17 @@ print('CLAHE packages ready')
       setHasCellposeResult(true);
       addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from Cellpose`, 'success', 5000);
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        removeBanner(bannerId);
+        return;
+      }
       const fullError = err.message || 'Unknown error';
       console.error('[AnnotatePage] Cellpose failed:', fullError);
       removeBanner(bannerId);
       addBanner('Cellpose segmentation failed', 'error', 8000, fullError);
     } finally {
       setIsRunningCellpose(false);
+      if (cellposeAbortRef.current === abortController) cellposeAbortRef.current = null;
     }
   }, [
     service, imageUrl, originalImageUrl, imageWidth, imageHeight,
@@ -1043,7 +1082,7 @@ print('CLAHE packages ready')
       } catch (err: any) {
         console.warn('[AnnotatePage] Live preview failed:', err);
       }
-    }, 500);
+    }, 200);
   }, [runCellposeFlowsPipeline]);
 
   // Keep refs in sync so the config dialog's Run button + instant-config

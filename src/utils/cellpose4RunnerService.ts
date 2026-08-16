@@ -51,6 +51,25 @@ export async function resolveCellpose4RunnerService(server: any): Promise<any> {
   }
 }
 
+function abortError(): Error {
+  const err = new Error('cellpose4-runner inference cancelled.');
+  err.name = 'AbortError';
+  return err;
+}
+
+// Interruptible sleep — resolves early (without waiting out the full
+// interval) the moment `signal` aborts, so a mid-poll cancel takes effect
+// in milliseconds rather than up to POLL_INTERVAL_MS later.
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
 /**
  * Poll `get_infer_status(request_id)` until the job's `result` is populated,
  * then return it. Throws if the job fails (`result.error`) or the poll
@@ -58,18 +77,28 @@ export async function resolveCellpose4RunnerService(server: any): Promise<any> {
  *
  * @param service The cellpose4-runner service proxy (from resolveCellpose4RunnerService).
  * @param requestId The `request_id` string returned by `infer(...)`.
+ * @param signal When aborted, best-effort cancels the request server-side
+ *   (`cancel_request` only actually cancels jobs still queued — a running or
+ *   finished job is a harmless no-op) and throws an `AbortError` immediately
+ *   instead of returning a late result.
  * @returns The job's `result` dict (member key `"labels"` or `"flows"`).
  */
-export async function pollCellpose4Infer(service: any, requestId: string): Promise<any> {
+export async function pollCellpose4Infer(service: any, requestId: string, signal?: AbortSignal): Promise<any> {
   for (let i = 0; i < MAX_POLLS; i++) {
+    if (signal?.aborted) break;
     const status = await service.get_infer_status({ request_id: requestId, _rkwargs: true });
+    if (signal?.aborted) break;
     if (status?.result != null) {
       if ('error' in status.result) {
         throw new Error(status.result.error);
       }
       return status.result;
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await delay(POLL_INTERVAL_MS, signal);
+  }
+  if (signal?.aborted) {
+    service.cancel_request({ request_id: requestId, _rkwargs: true }).catch(() => {});
+    throw abortError();
   }
   throw new Error('cellpose4-runner inference timed out after 6 minutes.');
 }

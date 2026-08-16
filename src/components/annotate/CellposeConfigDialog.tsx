@@ -132,6 +132,15 @@ interface CellposeConfigDialogProps {
    *  run went through the server-only fallback (e.g. Pyodide still
    *  booting) and instant slider recompute isn't available. */
   resultReady?: boolean;
+  /** Monotonically increasing id bumped by the caller every time a Cellpose
+   *  run actually completes (the flow field arrived, mask count may be
+   *  zero) — including re-runs where ``resultReady``/``livePreviewReady``
+   *  were already true beforehand. Drives the Compute Flow Field -> Refine
+   *  Results auto-collapse. Unlike watching ``resultReady`` for a
+   *  false -> true edge, this fires on every completed run, not just the
+   *  first one, so re-running after manually reopening the Run section
+   *  still collapses it. */
+  completedRunId?: number;
   /** Fires on every instant-group slider change while ``livePreviewReady``;
    *  callers are expected to debounce + run compute_masks_np locally. */
   onInstantConfigChange?: (config: CellposeConfig) => void;
@@ -146,6 +155,12 @@ interface CellposeConfigDialogProps {
    *  dialog, lets the user click a representative object in the image, then
    *  invokes ``onMeasured`` with the measured diameter in display px. */
   onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
+  /** Fires when the user clicks the single bottom button while it reads
+   *  "Cancel" and a run is in flight — the caller is expected to abort the
+   *  in-flight infer call. A no-op call while nothing is running is
+   *  harmless, so this is invoked unconditionally whenever the button
+   *  reads "Cancel", not just while ``isRunning``. */
+  onCancelRun?: () => void;
 }
 
 /** Collapsible section header: click to toggle, chevron shows current state. */
@@ -196,10 +211,12 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   isRunning,
   livePreviewReady,
   resultReady,
+  completedRunId,
   onInstantConfigChange,
   microSamAvailable,
   claheActive,
   onMeasureDiameter,
+  onCancelRun,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
 
@@ -263,14 +280,28 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Force the collapse on every completed run, not just the first
+  // false -> true transition of isResultReady. A re-run after the user has
+  // manually reopened Compute Flow Field (e.g. Re-run on Server while
+  // livePreviewReady was already true) never flips isResultReady, so
+  // watching it alone misses that case. completedRunId is bumped by the
+  // caller on every run completion (success, even with zero masks), so
+  // keying off it here catches re-runs too. Fall back to the old
+  // edge-detection behavior if a caller doesn't pass completedRunId.
+  const prevCompletedRunId = useRef(completedRunId);
   const prevResultReady = useRef(isResultReady);
   useEffect(() => {
-    if (isResultReady && !prevResultReady.current) {
+    const runJustCompleted =
+      completedRunId !== undefined
+        ? completedRunId !== prevCompletedRunId.current
+        : isResultReady && !prevResultReady.current;
+    if (runJustCompleted) {
       setRunSectionOpen(false);
       setRefineSectionOpen(true);
     }
+    prevCompletedRunId.current = completedRunId;
     prevResultReady.current = isResultReady;
-  }, [isResultReady]);
+  }, [completedRunId, isResultReady]);
 
   // Flow Threshold and Cell Probability Threshold repaint the mask overlay
   // live, so while either is being dragged the dialog fades out to reveal
@@ -339,30 +370,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             )}
           </Grid>
 
-          {/* Contrast toggle — shown for both backends, only while CLAHE is active */}
-          {claheActive && (
-            <Grid item xs={12}>
-              <FormControlLabel
-                sx={{ alignItems: 'flex-start', ml: 0 }}
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={!!config.useEnhancedImage}
-                    onChange={(e) => update('useEnhancedImage', e.target.checked)}
-                  />
-                }
-                label={
-                  <Box sx={{ mt: 0.25 }}>
-                    <Typography variant="body2" fontWeight={500}>Use contrast enhanced image</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      Segments the enhanced pixels instead of the raw image. Off by default.
-                    </Typography>
-                  </Box>
-                }
-              />
-            </Grid>
-          )}
-
           {/* ── μSAM: single field, no sections (nothing here is tunable after a run) ── */}
           {isMicroSam && (
             <Grid item xs={12}>
@@ -414,6 +421,27 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         ? 'The image has already been segmented. Open Refine Results below to tune the mask output instantly, or click Re-run to segment again.'
                         : 'Click Compute Flow Field to send the image to the server. After that, the sliders below update the preview instantly with no extra server calls.'}
                     </Typography>
+
+                    {claheActive && (
+                      <FormControlLabel
+                        sx={{ alignItems: 'flex-start', ml: 0, mb: 1.5 }}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={!!config.useEnhancedImage}
+                            onChange={(e) => update('useEnhancedImage', e.target.checked)}
+                          />
+                        }
+                        label={
+                          <Box sx={{ mt: 0.25 }}>
+                            <Typography variant="body2" fontWeight={500}>Use contrast enhanced image</Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              Segments the enhanced pixels instead of the raw image. Off by default.
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    )}
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                       <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
@@ -604,12 +632,20 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             Reset to Default
           </Button>
         )}
-        <Button onClick={onClose} color="inherit">Cancel</Button>
-        {onInstantConfigChange && livePreviewReady && (
-          <Button onClick={handleApply} color="primary" variant="outlined">
-            Done
-          </Button>
-        )}
+        <Button
+          onClick={() => {
+            if (isResultReady) {
+              handleApply();
+            } else {
+              onCancelRun?.();
+              onClose();
+            }
+          }}
+          color={isResultReady ? 'primary' : 'inherit'}
+          variant={isResultReady ? 'outlined' : 'text'}
+        >
+          {isResultReady ? 'Done' : 'Cancel'}
+        </Button>
       </DialogActions>
     </Dialog>
   );
@@ -626,6 +662,9 @@ export function useCellposeConfig(opts?: {
   keepOpenAfterApply?: boolean;
   livePreviewReady?: boolean;
   resultReady?: boolean;
+  /** Monotonically increasing id bumped on every completed run — see the
+   *  matching prop doc on ``CellposeConfigDialogProps``. */
+  completedRunId?: number;
   onInstantConfigChange?: (config: CellposeConfig) => void;
   microSamAvailable?: boolean;
   /** Whether CLAHE is currently active. Gates the "Use contrast enhanced
@@ -635,6 +674,9 @@ export function useCellposeConfig(opts?: {
    *  config to apply and a callback the page invokes once the user has
    *  clicked a representative object, with the measured diameter in px. */
   onMeasureDiameter?: (currentConfig: CellposeConfig, onMeasured: (px: number) => void) => void;
+  /** Fires when the user cancels while a run may be in flight — see the
+   *  matching prop doc on ``CellposeConfigDialogProps``. */
+  onCancelRun?: () => void;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -683,10 +725,12 @@ export function useCellposeConfig(opts?: {
       isRunning={opts?.isRunning}
       livePreviewReady={opts?.livePreviewReady}
       resultReady={opts?.resultReady}
+      completedRunId={opts?.completedRunId}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
       claheActive={opts?.claheActive}
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
+      onCancelRun={opts?.onCancelRun}
     />
   );
 

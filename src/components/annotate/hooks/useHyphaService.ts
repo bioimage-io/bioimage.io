@@ -129,8 +129,11 @@ export interface AnnotationDataService {
    *  upload a freshly computed one. */
   getEmbeddingUrls: (imageStem: string) => Promise<EmbeddingUrls>;
   /** ``params.diameter``, if set, rescales the image client-side (Cellpose
-   *  convention: target ~30 px object diameter) before it is sent. */
-  runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+   *  convention: target ~30 px object diameter) before it is sent. When
+   *  ``signal`` aborts while the request is queued/running, polling stops
+   *  and the promise rejects with an ``AbortError`` instead of resolving
+   *  with a late result. */
+  runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeMask[]>;
   /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
    *  response), so it returns the same ``CellposeMask[]`` polygons. Only
@@ -157,7 +160,7 @@ export interface AnnotationDataService {
    *  output only depends on the image (always the published 'idealistic-eagle'
    *  model via cellpose4-runner); ``params`` mask-gen knobs are ignored here
    *  and consumed by the client-side compute_masks_np instead. */
-  runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeFlowsResult>;
+  runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeFlowsResult>;
   /** Ask the broker for a role on this dataset (colab-rework-plan.md §13).
    *  Only meaningful for a logged-in caller; the broker rejects anonymous
    *  requests with a message asking the user to log in first. */
@@ -626,7 +629,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
           getEmbeddingUrls: async (imageStem: string) =>
             withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, microSamEmbeddingCacheKey)),
-          runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
+          runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
             console.log('[useHyphaService] Running cellpose4-runner inference with params:', p);
@@ -662,7 +665,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             // completes.
             const requestId = await cellposeService.infer(inferArgs);
             console.log('[useHyphaService] cellpose4-runner request submitted:', requestId);
-            const result = await pollCellpose4Infer(cellposeService, requestId);
+            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
 
             const maskResult = result?.labels;
             if (!maskResult || maskResult._rtype !== 'ndarray') {
@@ -888,6 +891,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             width: number,
             height: number,
             params?: CellposeParams,
+            signal?: AbortSignal,
           ): Promise<CellposeFlowsResult> => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
@@ -910,7 +914,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             if (p.two_pass) inferArgs.two_pass = true;
 
             const requestId = await cellposeService.infer(inferArgs);
-            const result = await pollCellpose4Infer(cellposeService, requestId);
+            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
 
             // return_flows=True collapses the 2 flow components + cell
             // probability into a single 3-channel ndarray, member "flows".
