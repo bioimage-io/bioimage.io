@@ -17,41 +17,22 @@ interface ShareModalProps {
 
 const QR_SIZE = 200;
 
-/** Collapsible QR code section */
+/** QR code section, always visible alongside the annotation URL */
 const QRCodeSection: React.FC<{ url: string; label: string }> = ({ url, label }) => {
-  const [expanded, setExpanded] = useState(false);
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(url)}`;
 
   return (
-    <div className="mt-2">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-sm text-purple-600 hover:text-purple-800 transition-colors flex items-center gap-1"
-      >
-        <svg
-          className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-        {expanded ? 'Hide' : 'Show'} QR Code
-      </button>
-      {expanded && (
-        <div className="flex justify-center mt-2">
-          <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-            <img
-              src={qrUrl}
-              alt={`QR Code for ${label}`}
-              className="w-48 h-48"
-              onError={(e) => {
-                (e.target as HTMLImageElement).alt = 'QR code could not be generated';
-              }}
-            />
-          </div>
-        </div>
-      )}
+    <div className="mt-3 flex justify-center">
+      <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+        <img
+          src={qrUrl}
+          alt={`QR Code for ${label}`}
+          className="w-48 h-48"
+          onError={(e) => {
+            (e.target as HTMLImageElement).alt = 'QR code could not be generated';
+          }}
+        />
+      </div>
     </div>
   );
 };
