@@ -181,14 +181,24 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [labelTotals, setLabelTotals] = useState<Record<string, LabelTotals>>({});
   const [annotatedStems, setAnnotatedStems] = useState<Set<string>>(new Set());
   const [labelStats, setLabelStats] = useState<Record<string, number>>({});
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const [imageUrl, setImageUrl] = useState('');
   const [pairs, setPairs] = useState<AnnotationPair[]>([]);
   const [browserOpen, setBrowserOpen] = useState(false);
+  // Which image the center preview shows while browsing annotations
+  // (colab-rework-plan.md §19 item 7): decoupled from browserOpen so
+  // clicking the displayed image can flip it back and forth for an A/B
+  // comparison without leaving browse mode.
+  const [previewMode, setPreviewMode] = useState<'raw' | 'annotated'>('raw');
   const [statsViewOpen, setStatsViewOpen] = useState(false);
   const [browserIndex, setBrowserIndex] = useState(0);
   const [labelUsers, setLabelUsers] = useState<Record<string, LabelUserRef>>({});
   const [annotationUrl, setAnnotationUrl] = useState('');
+  // Scroll targets for the left image-file list, so a progress-view row
+  // click can scroll the file list to the matching image (§19 item 6,
+  // mirroring AnnotationStatsView's own highlightStem scroll-into-view).
+  const imageRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [showAnnotateDialog, setShowAnnotateDialog] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
@@ -344,6 +354,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       return;
     }
     let active = true;
+    setStatsLoading(true);
     (async () => {
       try {
         const [stems, totals] = await Promise.all([
@@ -356,12 +367,31 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         }
       } catch {
         // best-effort
+      } finally {
+        if (active) setStatsLoading(false);
       }
     })();
     return () => {
       active = false;
     };
   }, [artifactManager, artifactId, selectedLabel, canManage, refreshTick]);
+
+  // On label switch, the preview reverts to the raw image rather than
+  // staying on the previous label's annotation overlay (§19 item 5).
+  useEffect(() => {
+    setPreviewMode('raw');
+  }, [selectedLabel]);
+
+  // Bidirectional scroll sync with the annotation-progress view (§19 item
+  // 6): AnnotationStatsView already scrolls to `highlightStem` on its own
+  // rows; this mirrors that behavior for the file list, so a progress-row
+  // click (which calls setSelectedStem) scrolls the file list too, not just
+  // the other way around.
+  useEffect(() => {
+    if (selectedStem) {
+      imageRowRefs.current[selectedStem]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [selectedStem]);
 
   // --- Local folder re-enumeration on Refresh (colab-rework-plan.md §15
   // item 4): mountLocalFolder only lists local files once at mount time, so
@@ -678,6 +708,17 @@ print("Service registered successfully", end='')
     }
   };
 
+  // Opening browse mode defaults the preview to the annotation overlay
+  // (matching the prior fixed behavior); closing it reverts to raw (§19
+  // items 7-8).
+  const handleToggleBrowse = () => {
+    setBrowserOpen((v) => {
+      const next = !v;
+      setPreviewMode(next ? 'annotated' : 'raw');
+      return next;
+    });
+  };
+
   const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
@@ -909,6 +950,15 @@ print("Service registered successfully", end='')
             ? 'Unmount folder'
             : 'Mount local folder'}
         </button>
+        {selectedStem && selectedLabel && !statsViewOpen && (
+          <button
+            onClick={handleToggleBrowse}
+            disabled={pairs.length === 0}
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {browserOpen ? 'Hide annotations' : `Browse annotations${pairs.length ? ` (${pairs.length})` : ''}`}
+          </button>
+        )}
         {localImages.length > 0 && (
           <button
             onClick={handleUploadAll}
@@ -946,7 +996,7 @@ print("Service registered successfully", end='')
             onClick={() => setStatsViewOpen((v) => !v)}
             className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
           >
-            {statsViewOpen ? 'Show image preview' : 'Show annotation stats'}
+            {statsViewOpen ? 'Show image preview' : 'Show annotation progress'}
           </button>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -1029,7 +1079,11 @@ print("Service registered successfully", end='')
               <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
             ) : (
               imageRows.map((row) => (
-                <div key={row.stem} className="group relative">
+                <div
+                  key={row.stem}
+                  ref={(el) => { imageRowRefs.current[row.stem] = el; }}
+                  className="group relative"
+                >
                   <button
                     onClick={() => handleSelectImage(row)}
                     className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
@@ -1102,15 +1156,21 @@ print("Service registered successfully", end='')
                 label={selectedLabel}
                 highlightStem={selectedStem}
                 onSelectStem={setSelectedStem}
+                loading={statsLoading}
               />
             ) : selectedStem ? (
               imageRows.find((r) => r.stem === selectedStem)?.isCloud ? (
                 <ImagePreview
-                  viewMode={browserOpen ? 'annotated' : 'raw'}
+                  viewMode={browserOpen ? previewMode : 'raw'}
                   imageUrl={imageUrl}
                   annotationUrl={annotationUrl}
                   hasAnnotation={!!currentPair}
                   alt={selectedStem}
+                  onToggleView={
+                    browserOpen && currentPair
+                      ? () => setPreviewMode((m) => (m === 'raw' ? 'annotated' : 'raw'))
+                      : undefined
+                  }
                 />
               ) : (
                 <div className="text-center text-sm text-gray-400">
@@ -1129,46 +1189,46 @@ print("Service registered successfully", end='')
             )}
           </div>
 
+          {/* Prev/next + annotator/timestamp strip: always rendered (space
+              reserved) whenever an image+label are selected, so entering or
+              leaving browse mode never shifts the preview above it (§19
+              item 9). Only its opacity/interactivity toggles. */}
           {selectedStem && selectedLabel && !statsViewOpen && (
             <div className="mt-3 border-t border-gray-100 pt-3">
-              <button
-                onClick={() => setBrowserOpen((v) => !v)}
-                disabled={pairs.length === 0}
-                className="text-sm font-medium text-purple-600 hover:text-purple-700 disabled:text-gray-300 transition-colors"
+              <div
+                className={`flex items-center justify-between gap-3 transition-opacity duration-150 ${
+                  browserOpen && currentPair ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
               >
-                {browserOpen ? 'Hide annotations' : `Browse annotations${pairs.length ? ` (${pairs.length})` : ''}`}
-              </button>
-
-              {browserOpen && currentPair && (
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <button
-                    onClick={() => setBrowserIndex((i) => Math.max(0, i - 1))}
-                    disabled={browserIndex === 0}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-gray-800">
-                      {labelUsers[currentPair.userFolder]?.email || currentPair.userFolder}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {formatTimestamp(currentPair.timestamp)} &middot; {browserIndex + 1} of {pairs.length}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setBrowserIndex((i) => Math.min(pairs.length - 1, i + 1))}
-                    disabled={browserIndex === pairs.length - 1}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
+                <button
+                  onClick={() => setBrowserIndex((i) => Math.max(0, i - 1))}
+                  disabled={browserIndex === 0}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-800">
+                    {currentPair ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder : ' '}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {currentPair
+                      ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex + 1} of ${pairs.length}`
+                      : ' '}
+                  </p>
                 </div>
-              )}
+                <button
+                  onClick={() => setBrowserIndex((i) => Math.min(pairs.length - 1, i + 1))}
+                  disabled={browserIndex === pairs.length - 1}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
         </div>

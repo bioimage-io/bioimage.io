@@ -123,6 +123,11 @@ export interface ImagePreviewProps {
   annotationUrl: string;
   hasAnnotation: boolean;
   alt: string;
+  // When set, the displayed image is clickable to flip between the raw
+  // image and the annotation mask for a quick A/B comparison
+  // (colab-rework-plan.md §19 item 7). Omit to render a plain, non-clickable
+  // image (e.g. outside browse mode).
+  onToggleView?: () => void;
 }
 
 // The center preview pane shared by ImageViewer (session dashboard) and, once
@@ -135,6 +140,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   annotationUrl,
   hasAnnotation,
   alt,
+  onToggleView,
 }) => {
   if (viewMode === 'annotated' && !hasAnnotation) {
     return (
@@ -147,32 +153,51 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
     );
   }
 
+  const clickableClass = onToggleView
+    ? 'cursor-pointer active:scale-[0.99] transition-transform duration-150'
+    : '';
+  const hint = viewMode === 'raw' ? 'Show annotation' : 'Show original image';
+
   if (viewMode === 'raw' && imageUrl) {
     return (
-      <img
-        src={imageUrl}
-        alt={alt}
-        className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = IMAGE_FALLBACK_SVG;
-        }}
-      />
+      <div className="group relative max-w-full max-h-full" onClick={onToggleView}>
+        <img
+          src={imageUrl}
+          alt={alt}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${clickableClass}`}
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = IMAGE_FALLBACK_SVG;
+          }}
+        />
+        {onToggleView && (
+          <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+            {hint}
+          </span>
+        )}
+      </div>
     );
   }
 
   if (viewMode === 'annotated' && annotationUrl) {
     return (
-      <ColorizedMask
-        src={annotationUrl}
-        alt={`${alt} (annotated)`}
-        className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-        onError={(e) => {
-          const target = e.target || e;
-          if (target && typeof target === 'object' && 'src' in target) {
-            (target as HTMLImageElement).src = ANNOTATION_FALLBACK_SVG;
-          }
-        }}
-      />
+      <div className="group relative max-w-full max-h-full" onClick={onToggleView}>
+        <ColorizedMask
+          src={annotationUrl}
+          alt={`${alt} (annotated)`}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${clickableClass}`}
+          onError={(e) => {
+            const target = e.target || e;
+            if (target && typeof target === 'object' && 'src' in target) {
+              (target as HTMLImageElement).src = ANNOTATION_FALLBACK_SVG;
+            }
+          }}
+        />
+        {onToggleView && (
+          <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+            {hint}
+          </span>
+        )}
+      </div>
     );
   }
 
