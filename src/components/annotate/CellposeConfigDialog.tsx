@@ -373,6 +373,26 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           {/* ── μSAM: single field, no sections (nothing here is tunable after a run) ── */}
           {isMicroSam && (
             <Grid item xs={12}>
+              {claheActive && (
+                <FormControlLabel
+                  sx={{ alignItems: 'flex-start', ml: 0, mb: 1.5 }}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={!!config.useEnhancedImage}
+                      onChange={(e) => update('useEnhancedImage', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ mt: 0.25 }}>
+                      <Typography variant="body2" fontWeight={500}>Use contrast enhanced image</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        Segments the enhanced pixels instead of the raw image. Off by default.
+                      </Typography>
+                    </Box>
+                  }
+                />
+              )}
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                 <Typography variant="body2" fontWeight={500}>Min Mask Area (px²)</Typography>
                 <InfoTip text="Masks smaller than this area (in pixels²) are discarded after segmentation. Useful for removing small spurious detections. Set to 0 to keep all masks." />
