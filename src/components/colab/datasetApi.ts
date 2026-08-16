@@ -211,6 +211,14 @@ export function labelFolder(label: string): string {
  * resolves without any per-artifact follow-up call. Callers hydrate each
  * dataset's labels separately with `discoverLabels`, so slow per-dataset
  * label discovery never blocks the initial card render.
+ *
+ * Ownership matches by id OR email (mirrors the broker's own
+ * `resolve_role`, which checks both): a token-based login's `user.id` is a
+ * Hypha-assigned per-connection id, not the stable `github|<id>` a real
+ * OAuth login recorded as `owner.id`/`created_by` at creation time, so an
+ * id-only match silently drops every owned dataset for anything but the
+ * exact session that created it. `email` is the durable identity across
+ * both.
  */
 export async function listMyDatasetsBasic(artifactManager: any, user: any): Promise<DatasetSummaryBasic[]> {
   if (!artifactManager || !user) return [];
@@ -236,7 +244,10 @@ export async function listMyDatasetsBasic(artifactManager: any, user: any): Prom
   const myArtifacts = allArtifacts.filter(
     (artifact) =>
       artifact.type === 'dataset' &&
-      (artifact.manifest?.owner?.id === user.id || artifact.manifest?.created_by === user.id),
+      (artifact.manifest?.owner?.id === user.id ||
+        artifact.manifest?.owner?.email === user.email ||
+        artifact.manifest?.created_by === user.id ||
+        artifact.manifest?.created_by === user.email),
   );
 
   return myArtifacts.map((artifact) => ({
