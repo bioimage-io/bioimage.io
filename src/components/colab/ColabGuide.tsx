@@ -150,9 +150,11 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
               <div>
                 <h5 className="font-semibold text-gray-800 mb-1">Set Up a Train/Test Split</h5>
                 <p className="text-sm text-gray-600">
-                  Before fine-tuning, use <strong>Data split</strong> in the image list to divide images between
-                  Train and Test, either with a random percentage split or by moving individual images by hand. This
-                  split is reused when you start a fine-tuning run.
+                  Click <strong>Finetune</strong> on a label to open its split builder. The image list on the left
+                  groups into <strong>Train</strong>, <strong>Test</strong>, and <strong>Unused</strong> sections,
+                  click an image's badge to move it between sections, or use <strong>Auto-distribute</strong> to fill
+                  a target train percentage automatically. Splits are named and add-only: once you create one, you
+                  can extend it with more images later, but a train image can never move to test.
                 </p>
               </div>
             </div>
@@ -165,10 +167,11 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
               <div>
                 <h5 className="font-semibold text-gray-800 mb-1">Fine-tune and Use Your Model</h5>
                 <p className="text-sm text-gray-600">
-                  Click <strong>Finetune</strong> to open the training page for a label. Pick a base model, start a
-                  run, and monitor its status and elapsed time. Fine-tuning needs densely annotated images: every
-                  object in each training image should have a mask. Once a run shows <strong>Checkpoint ready</strong>,
-                  click <strong>Use for annotation</strong> to send you back to the annotator with that model active.
+                  In the same finetune view, pick a base model and click <strong>Start training</strong>. Fine-tuning
+                  needs densely annotated images: every object in each training image should have a mask. Track
+                  progress on the dataset's <strong>Training sessions</strong> page, and once a run shows{' '}
+                  <strong>Checkpoint ready</strong>, click <strong>Use for annotation</strong> to send you back to the
+                  annotator with that model active.
                 </p>
               </div>
             </div>
