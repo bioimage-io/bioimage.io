@@ -27,12 +27,15 @@ import {
   BrokerRole,
   DatasetWithRole,
   SplitDoc,
+  SplitSummary,
   createSplit,
   getDataset,
+  getSplit,
   getTrainingUrls,
   listSplits,
   resetBrokerServiceCache,
   setSplitCheckpoint,
+  splitDocToSummary,
   updateSplit,
 } from './brokerApi';
 import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
@@ -226,9 +229,16 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // FinetuneView) because the per-row assignment badges rendered by
   // renderImageRow (left panel) and the split-builder controls (right panel,
   // FinetuneView) both need to read/write the same `assignment` state.
-  const [existingSplits, setExistingSplits] = useState<SplitDoc[]>([]);
+  const [existingSplits, setExistingSplits] = useState<SplitSummary[]>([]);
   const [splitsLoading, setSplitsLoading] = useState(false);
   const [activeSplitName, setActiveSplitName] = useState<string | null>(null);
+  // Full doc (train/test membership, annotation_counts, checkpoint) for
+  // whichever split is active. `list_splits` only returns compact summaries
+  // (no membership arrays), so this is fetched separately via `getSplit`
+  // whenever `activeSplitName` changes — reading `.train`/`.test` off a
+  // summary object crashes every consumer below (§23.4-era bug, fixed by
+  // never letting a compact summary flow into this variable).
+  const [activeSplitLoading, setActiveSplitLoading] = useState(false);
   const [newSplitName, setNewSplitName] = useState('default');
   const [trainPercent, setTrainPercent] = useState(80);
   const [assignment, setAssignment] = useState<Record<string, 'train' | 'test' | 'unused'>>({});
@@ -249,10 +259,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // add-only now, so there's no clean removal path, only a block).
   const [blockedDeleteInfo, setBlockedDeleteInfo] = useState<{ stem: string; label: string; splitName: string } | null>(null);
 
-  const activeSplit = useMemo(
-    () => existingSplits.find((s) => s.name === activeSplitName) ?? null,
-    [existingSplits, activeSplitName],
-  );
+  const [activeSplit, setActiveSplit] = useState<SplitDoc | null>(null);
 
   // --- Role guard ---
   useEffect(() => {
@@ -354,6 +361,31 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [server, artifactId, canManage, finetuneViewOpen, selectedLabel, splitsRefreshTick]);
+
+  // Full doc for the active split, fetched separately from the compact
+  // `existingSplits` summaries above (broker v0.7.0 `list_splits` never
+  // returns `train`/`test` membership).
+  useEffect(() => {
+    if (!canManage || !finetuneViewOpen || !selectedLabel || !activeSplitName) {
+      setActiveSplit(null);
+      return;
+    }
+    let active = true;
+    setActiveSplitLoading(true);
+    (async () => {
+      try {
+        const doc = await getSplit(server, artifactId, selectedLabel, activeSplitName);
+        if (active) setActiveSplit(doc);
+      } catch (err) {
+        if (active) setSplitSaveError((err as Error).message || 'Failed to load split.');
+      } finally {
+        if (active) setActiveSplitLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [server, artifactId, canManage, finetuneViewOpen, selectedLabel, activeSplitName]);
 
   // --- Labels + per-label annotated counts ---
   const reloadLabels = useCallback(async () => {
@@ -791,8 +823,12 @@ print("Service registered successfully", end='')
   const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const allSplits = await listSplits(server, artifactId);
-      const owner = allSplits.find((s) => s.train.includes(stem) || s.test.includes(stem));
+      // `listSplits` only returns compact summaries (no membership arrays),
+      // so per-stem ownership has to be resolved with a follow-up `getSplit`
+      // per split name.
+      const summaries = await listSplits(server, artifactId);
+      const docs = await Promise.all(summaries.map((s) => getSplit(server, artifactId, s.label, s.name)));
+      const owner = docs.find((s) => s.train.includes(stem) || s.test.includes(stem));
       if (owner) {
         setBlockedDeleteInfo({ stem, label: owner.label, splitName: owner.name });
         return;
@@ -911,12 +947,16 @@ print("Service registered successfully", end='')
       let result: SplitDoc;
       if (activeSplitName === null) {
         result = await createSplit(server, artifactId, selectedLabel, newSplitName, train, test, trainPercent / 100);
-        setExistingSplits((prev) => [...prev, result]);
+        setExistingSplits((prev) => [...prev, splitDocToSummary(result)]);
         setActiveSplitName(newSplitName);
       } else {
         result = await updateSplit(server, artifactId, selectedLabel, activeSplitName, train, test);
-        setExistingSplits((prev) => prev.map((s) => (s.name === result.name ? result : s)));
+        setExistingSplits((prev) => prev.map((s) => (s.name === result.name ? splitDocToSummary(result) : s)));
       }
+      // `create_split`/`update_split` already return the full doc, so set it
+      // directly rather than waiting on the `activeSplitName` fetch effect
+      // (which still fires for the create case, since the name just changed).
+      setActiveSplit(result);
       setAssignment({});
     } catch (err) {
       setSplitSaveError((err as Error).message || 'Failed to save the split.');
@@ -962,7 +1002,8 @@ print("Service registered successfully", end='')
         session_id: status.session_id,
         model_type: ftModelType,
       });
-      setExistingSplits((prev) => prev.map((s) => (s.name === updated.name ? updated : s)));
+      setExistingSplits((prev) => prev.map((s) => (s.name === updated.name ? splitDocToSummary(updated) : s)));
+      setActiveSplit(updated);
     } catch (err) {
       setStartTrainingError((err as Error).message || 'Failed to start training.');
     } finally {
@@ -1587,6 +1628,8 @@ print("Service registered successfully", end='')
                 existingSplits={existingSplits}
                 splitsLoading={splitsLoading}
                 activeSplitName={activeSplitName}
+                activeSplit={activeSplit}
+                activeSplitLoading={activeSplitLoading}
                 onSelectSplit={setActiveSplitName}
                 newSplitName={newSplitName}
                 onNewSplitNameChange={setNewSplitName}

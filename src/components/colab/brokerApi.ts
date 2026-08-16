@@ -129,6 +129,39 @@ export interface SplitDoc {
   checkpoint: { session_id: string; model_type: string; [key: string]: any } | null;
 }
 
+/**
+ * Compact listing row returned by `list_splits` (broker v0.7.0,
+ * `broker_core.split_summary`). Deliberately omits `train`/`test`/
+ * `annotation_counts`/`created_by`/`history` — anything needing per-stem
+ * membership must fetch the full doc via `getSplit`.
+ */
+export interface SplitSummary {
+  name: string;
+  label: string;
+  n_train: number;
+  n_test: number;
+  ratio: number;
+  created_at: string;
+  updated_at: string;
+  checkpoint: { session_id: string; model_type: string; [key: string]: any } | null;
+}
+
+/** Derive a listing-row summary from a full split doc, e.g. to keep a
+ * compact-summary list in sync after `createSplit`/`updateSplit` return the
+ * full doc directly. */
+export function splitDocToSummary(doc: SplitDoc): SplitSummary {
+  return {
+    name: doc.name,
+    label: doc.label,
+    n_train: doc.train.length,
+    n_test: doc.test.length,
+    ratio: doc.ratio,
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
+    checkpoint: doc.checkpoint,
+  };
+}
+
 /** One image+annotation pair url resolved for fine-tuning (broker v0.7.0). */
 export interface TrainingUrlEntry {
   stem: string;
@@ -507,10 +540,13 @@ export async function getSplit(server: any, artifactId: string, label: string, n
 
 /**
  * List splits for one label, or across all labels when `label` is omitted
- * (broker v0.7.0). The all-labels form powers the image-delete guard: a stem
- * that's a member of any split, for any label, cannot be deleted.
+ * (broker v0.7.0). Returns compact summaries only (no `train`/`test`
+ * membership arrays) — use `getSplit` for one split's full doc. The
+ * all-labels form powers the image-delete guard: a stem that's a member of
+ * any split, for any label, cannot be deleted, but resolving *which* split
+ * owns a given stem requires following up with `getSplit` per name.
  */
-export async function listSplits(server: any, artifactId: string, label?: string): Promise<SplitDoc[]> {
+export async function listSplits(server: any, artifactId: string, label?: string): Promise<SplitSummary[]> {
   return callBroker(server, (broker) => broker.list_splits({ artifact_id: artifactId, label, _rkwargs: true }));
 }
 

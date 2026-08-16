@@ -1,25 +1,26 @@
 import React from 'react';
+import { SplitDoc, SplitSummary } from './brokerApi';
 
 export interface FinetuneViewRow {
   stem: string;
   annotationCount: number;
 }
 
-export interface SplitSummary {
-  name: string;
-  label: string;
-  train: string[];
-  test: string[];
-  annotation_counts: Record<string, number>;
-  checkpoint: { session_id: string; model_type: string; [key: string]: any } | null;
-}
-
 export interface FinetuneViewProps {
   label: string;
   alias: string;
+  // Compact listing rows for the split-name dropdown only (broker v0.7.0
+  // `list_splits` never returns membership arrays) — full train/test/
+  // annotation_counts/checkpoint for the SELECTED split comes separately via
+  // `activeSplit` below, fetched by the parent with `getSplit`.
   existingSplits: SplitSummary[];
   splitsLoading: boolean;
   activeSplitName: string | null;
+  activeSplit: SplitDoc | null;
+  // True while the full doc for `activeSplitName` is being fetched — locked
+  // train/test membership isn't known yet, so staging changes or starting
+  // training during this window would race against stale (empty) state.
+  activeSplitLoading: boolean;
   onSelectSplit: (name: string | null) => void;
   newSplitName: string;
   onNewSplitNameChange: (value: string) => void;
@@ -80,6 +81,8 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   existingSplits,
   splitsLoading,
   activeSplitName,
+  activeSplit,
+  activeSplitLoading,
   onSelectSplit,
   newSplitName,
   onNewSplitNameChange,
@@ -112,7 +115,6 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   onDismissEmptyTestWarning,
   onConfirmStartWithEmptyTest,
 }) => {
-  const activeSplit = existingSplits.find((s) => s.name === activeSplitName) ?? null;
   const isNewSplit = activeSplitName === null;
 
   const lockedTrainCount = activeSplit?.train.length ?? 0;
@@ -124,7 +126,11 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   const testCount = lockedTestCount + stagedTestCount;
 
   const hasStagedChanges = stagedTrainCount > 0 || stagedTestCount > 0;
-  const saveDisabled = isSaving || (!isNewSplit && !hasStagedChanges) || (isNewSplit && stagedTrainCount === 0);
+  const saveDisabled =
+    isSaving ||
+    (!isNewSplit && activeSplitLoading) ||
+    (!isNewSplit && !hasStagedChanges) ||
+    (isNewSplit && stagedTrainCount === 0);
 
   const isCheckpointed = !!activeSplit?.checkpoint;
   const trainPoolEmpty = trainCount === 0;
@@ -318,10 +324,12 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
 
             <button
               onClick={onStartTraining}
-              disabled={isStartingTraining || isNewSplit || trainPoolEmpty}
+              disabled={isStartingTraining || isNewSplit || activeSplitLoading || trainPoolEmpty}
               title={
                 isNewSplit
                   ? 'Create the split first.'
+                  : activeSplitLoading
+                  ? 'Loading split details...'
                   : trainPoolEmpty
                   ? 'This split has no training images yet.'
                   : undefined
