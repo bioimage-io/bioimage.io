@@ -70,6 +70,11 @@ function loadConfig(): CellposeConfig {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
+      // backend and useEnhancedImage are never persisted going forward (see
+      // saveConfig) — strip them here too, in case a save from before this
+      // change left one behind, so the default always wins.
+      delete parsed.backend;
+      delete parsed.useEnhancedImage;
       return { ...DEFAULT_CELLPOSE_CONFIG, ...parsed };
     }
   } catch {
@@ -80,9 +85,10 @@ function loadConfig(): CellposeConfig {
 
 function saveConfig(config: CellposeConfig): void {
   try {
-    // useEnhancedImage is intentionally excluded so it always starts
-    // unchecked next session, even if it was left checked here.
-    const { useEnhancedImage, ...persisted } = config;
+    // useEnhancedImage and backend are intentionally excluded so they always
+    // start at their defaults (unchecked / μSAM) next session, even if left
+    // changed here.
+    const { useEnhancedImage, backend, ...persisted } = config;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch {
     // ignore storage errors
@@ -119,6 +125,13 @@ interface CellposeConfigDialogProps {
    *  In that mode each instant slider drag debounce-fires
    *  ``onInstantConfigChange`` and the dialog stays open after Run. */
   livePreviewReady?: boolean;
+  /** True once any Cellpose run has returned a result, whether via the
+   *  instant local-preview path or a plain server round trip. Drives the
+   *  Compute Flow Field -> Refine Results auto-collapse independently of
+   *  ``livePreviewReady``, so the accordion still advances even when the
+   *  run went through the server-only fallback (e.g. Pyodide still
+   *  booting) and instant slider recompute isn't available. */
+  resultReady?: boolean;
   /** Fires on every instant-group slider change while ``livePreviewReady``;
    *  callers are expected to debounce + run compute_masks_np locally. */
   onInstantConfigChange?: (config: CellposeConfig) => void;
@@ -182,6 +195,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onRun,
   isRunning,
   livePreviewReady,
+  resultReady,
   onInstantConfigChange,
   microSamAvailable,
   claheActive,
@@ -231,27 +245,32 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   // Section 1 ("Run") starts open and Section 2 ("Refine Results") starts
   // closed. Reopening the dialog after a run restores whichever state
   // matches the current readiness instead of always resetting to defaults.
-  const [runSectionOpen, setRunSectionOpen] = useState(!livePreviewReady);
-  const [refineSectionOpen, setRefineSectionOpen] = useState(!!livePreviewReady);
+  // Collapse timing is keyed on resultReady (any run, local or server
+  // fallback) rather than livePreviewReady (instant-recompute capability
+  // only) so the accordion still advances when the server fallback path
+  // was used.
+  const isResultReady = resultReady ?? livePreviewReady;
+  const [runSectionOpen, setRunSectionOpen] = useState(!isResultReady);
+  const [refineSectionOpen, setRefineSectionOpen] = useState(!!isResultReady);
 
   useEffect(() => {
     if (open) {
-      setRunSectionOpen(!livePreviewReady);
-      setRefineSectionOpen(!!livePreviewReady);
+      setRunSectionOpen(!isResultReady);
+      setRefineSectionOpen(!!isResultReady);
     }
-    // Only re-derive on the open transition, not on every livePreviewReady
+    // Only re-derive on the open transition, not on every isResultReady
     // change while open (that case is handled by the effect below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const prevLivePreviewReady = useRef(livePreviewReady);
+  const prevResultReady = useRef(isResultReady);
   useEffect(() => {
-    if (livePreviewReady && !prevLivePreviewReady.current) {
+    if (isResultReady && !prevResultReady.current) {
       setRunSectionOpen(false);
       setRefineSectionOpen(true);
     }
-    prevLivePreviewReady.current = livePreviewReady;
-  }, [livePreviewReady]);
+    prevResultReady.current = isResultReady;
+  }, [isResultReady]);
 
   // Flow Threshold and Cell Probability Threshold repaint the mask overlay
   // live, so while either is being dragged the dialog fades out to reveal
@@ -315,7 +334,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             </Box>
             {isMicroSam && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
-                μSAM segments every object automatically. It takes no Cellpose tuning parameters.
+                μSAM segments every object automatically.
               </Typography>
             )}
           </Grid>
@@ -398,7 +417,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                       <Typography variant="body2" fontWeight={500}>Cell Diameter (px)</Typography>
-                      <InfoTip text="Cellpose-SAM is deliberately scale-robust, so this is usually unnecessary. When set, it rescales the image so objects match the network's ~30 px working size before segmentation. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        trained range 7.5-120 px
+                      </Typography>
+                      <InfoTip text="Cellpose-SAM is deliberately scale-robust, so this is usually unnecessary. It was trained on object diameters from 7.5 to 120 px, with a mean of 30 px. When set, it rescales the image so objects match that trained scale before segmentation; diameters above 120 px are downsampled toward the trained scale. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
                       {onMeasureDiameter && (
                         <Tooltip title="Measure a representative object in the image to set the diameter automatically" placement="top" arrow>
                           <Button
@@ -603,6 +625,7 @@ export function useCellposeConfig(opts?: {
    *  the Pyodide compute_masks call back through onInstantConfigChange. */
   keepOpenAfterApply?: boolean;
   livePreviewReady?: boolean;
+  resultReady?: boolean;
   onInstantConfigChange?: (config: CellposeConfig) => void;
   microSamAvailable?: boolean;
   /** Whether CLAHE is currently active. Gates the "Use contrast enhanced
@@ -659,6 +682,7 @@ export function useCellposeConfig(opts?: {
       onRun={opts?.onRun}
       isRunning={opts?.isRunning}
       livePreviewReady={opts?.livePreviewReady}
+      resultReady={opts?.resultReady}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
       claheActive={opts?.claheActive}

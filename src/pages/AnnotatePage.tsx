@@ -113,6 +113,11 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
+  // True after ANY successful Cellpose run, local Pyodide flows path or full
+  // server fallback alike — unlike livePreviewReady (which only means
+  // "instant slider recompute is available"), this just drives the config
+  // dialog's Compute Flow Field -> Refine Results auto-collapse.
+  const [hasCellposeResult, setHasCellposeResult] = useState(false);
   // Declared ahead of its usual position (alongside the other CLAHE state
   // below) so it can be passed into useCellposeConfig's opts here.
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
@@ -124,6 +129,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     // can keep tweaking the preview without forcing the user to re-open it.
     keepOpenAfterApply: true,
     livePreviewReady,
+    resultReady: hasCellposeResult,
     microSamAvailable,
     claheActive: isCLAHEActive,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
@@ -783,6 +789,7 @@ print('CLAHE packages ready')
     }
     flowsCacheRef.current = null;
     setLivePreviewReady(false);
+    setHasCellposeResult(false);
   }, []);
 
   // Cellpose can return a fresh (dP, cellprob) over the wire when the
@@ -981,6 +988,7 @@ print('CLAHE packages ready')
       }
       console.log('[AnnotatePage] Cellpose added', n, 'masks (local=' + usedLocalPath + ')');
       if (usedLocalPath) setLivePreviewReady(true);
+      setHasCellposeResult(true);
       addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from Cellpose`, 'success', 5000);
     } catch (err: any) {
       const fullError = err.message || 'Unknown error';
@@ -1016,7 +1024,7 @@ print('CLAHE packages ready')
       } catch (err: any) {
         console.warn('[AnnotatePage] Live preview failed:', err);
       }
-    }, 150);
+    }, 500);
   }, [imageUrl, originalImageUrl, isCLAHEActive, claheEnhancedUrl, runCellposeFlowsPipeline]);
 
   // Keep refs in sync so the config dialog's Run button + instant-config
