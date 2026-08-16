@@ -66,6 +66,10 @@ export interface CellposeParams {
    *  has no diameter parameter of its own; the server never sees this value,
    *  only the already-rescaled pixels. Ignored by the μSAM path. */
   diameter?: number | null;
+  /** Cellpose-SAM only. Forwarded to the runner's infer() call: runs the
+   *  model twice, feeding the first pass's raw flow field back in as input
+   *  to the second pass, whose output is what gets postprocessed. */
+  two_pass?: boolean;
 }
 
 /**
@@ -652,6 +656,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             };
             if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
             if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
+            if (p.two_pass) inferArgs.two_pass = true;
 
             // infer() returns a request_id immediately; poll until the job
             // completes.
@@ -902,6 +907,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               return_flows: true,
               _rkwargs: true,
             };
+            if (p.two_pass) inferArgs.two_pass = true;
 
             const requestId = await cellposeService.infer(inferArgs);
             const result = await pollCellpose4Infer(cellposeService, requestId);

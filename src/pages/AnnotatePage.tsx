@@ -797,14 +797,18 @@ print('CLAHE packages ready')
       // `sourceUrl` already differs when the CLAHE-enhanced pixels are in
       // play (see handleRunCellpose), so no separate CLAHE flag is needed.
       // `diameter` drives the client-side rescale before the network call, so
-      // it also invalidates the cache.
-      const cacheKey = JSON.stringify({ u: sourceUrl, d: cfg.diameter ?? null });
+      // it also invalidates the cache. `two_pass` changes which forward
+      // pass's flow field the server returns, so it invalidates the cache too.
+      const cacheKey = JSON.stringify({ u: sourceUrl, d: cfg.diameter ?? null, tp: !!cfg.two_pass });
 
       let cached = flowsCacheRef.current;
       if (!cached || cached.cacheKey !== cacheKey) {
         const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
         try {
-          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, { diameter: cfg.diameter });
+          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
+            diameter: cfg.diameter,
+            two_pass: cfg.two_pass,
+          });
           cached = { cacheKey, ...flows };
           flowsCacheRef.current = cached;
         } finally {
@@ -954,6 +958,7 @@ print('CLAHE packages ready')
           niter: cfg.niter,
           min_mask_area: cfg.min_mask_area,
           diameter: cfg.diameter,
+          two_pass: cfg.two_pass,
         });
         if (masks && masks.length > 0) {
           const vs = getVectorSource?.();

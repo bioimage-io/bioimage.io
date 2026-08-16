@@ -45,6 +45,11 @@ export interface CellposeConfig {
    *  enhanced pixels instead of the raw image. Never persisted across
    *  sessions (stripped in saveConfig) so it always starts unchecked. */
   useEnhancedImage: boolean;
+  /** Cellpose-SAM only. When true, the model runs twice: the first pass
+   *  produces a raw flow field (postprocessing skipped), the second pass
+   *  feeds that flow field back through the model as input, and the
+   *  flow-dynamics postprocessing applies to the second pass's output. */
+  two_pass: boolean;
 }
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
@@ -55,6 +60,7 @@ export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   min_mask_area: 30,
   diameter: null,
   useEnhancedImage: false,
+  two_pass: false,
 };
 
 const STORAGE_KEY = 'cellpose-config';
@@ -89,7 +95,8 @@ function configDiffersFromDefault(config: CellposeConfig): boolean {
     config.cellprob_threshold !== DEFAULT_CELLPOSE_CONFIG.cellprob_threshold ||
     config.niter !== DEFAULT_CELLPOSE_CONFIG.niter ||
     config.min_mask_area !== DEFAULT_CELLPOSE_CONFIG.min_mask_area ||
-    config.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter
+    config.diameter !== DEFAULT_CELLPOSE_CONFIG.diameter ||
+    config.two_pass !== DEFAULT_CELLPOSE_CONFIG.two_pass
   );
 }
 
@@ -425,6 +432,26 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         },
                       }}
                       sx={{ mb: 1.5 }}
+                    />
+
+                    <FormControlLabel
+                      sx={{ alignItems: 'flex-start', ml: 0, mb: 1.5 }}
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={!!config.two_pass}
+                          onChange={(e) => update('two_pass', e.target.checked)}
+                        />
+                      }
+                      label={
+                        <Box sx={{ mt: 0.25 }}>
+                          <Typography variant="body2" fontWeight={500}>2nd pass</Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Runs the model a second time on its own predicted flow field. Can improve
+                            results on low contrast images.
+                          </Typography>
+                        </Box>
+                      }
                     />
 
                     {onRun && (
