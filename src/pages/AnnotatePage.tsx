@@ -48,7 +48,16 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     const searchParams = new URLSearchParams(location.search);
     const label = searchParams.get('label');
     if (!sessionId || !label) return null;
-    return { artifactId: sessionId, label };
+    // Fine-tuned micro-sam session override (colab-rework-plan.md §20 item
+    // 2), set by the Finetune page's "Use for annotation" action. Both
+    // params must be present, a session id without its base model_type is
+    // unusable server-side.
+    const usmSessionId = searchParams.get('usm_session');
+    const usmModelType = searchParams.get('usm_model');
+    const microSamSession = usmSessionId && usmModelType
+      ? { sessionId: usmSessionId, modelType: usmModelType }
+      : undefined;
+    return { artifactId: sessionId, label, microSamSession };
   }, [sessionId, location.search]);
 
   // Deep link from the overview's Labels box (colab-rework-plan.md §14 item
@@ -1452,6 +1461,13 @@ print("CLAHE_RESULT:" + result_b64)
             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide max-w-[120px] truncate sm:max-w-none">
               {serviceConfig.label}
             </span>
+          )}
+          {serviceConfig?.microSamSession && (
+            <Tooltip title={`Using the fine-tuned model from session ${serviceConfig.microSamSession.sessionId}`}>
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 tracking-wide">
+                Fine-tuned model
+              </span>
+            </Tooltip>
           )}
         </div>
 

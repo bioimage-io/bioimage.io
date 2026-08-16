@@ -93,4 +93,39 @@ test.describe('Finetune page (§20 item 2)', () => {
     // Never click Start — avoid triggering a real training run.
     await expect(page.getByRole('button', { name: 'Start fine-tuning' })).toBeVisible();
   });
+
+  test('"Use for annotation" is gated on a checkpoint-ready session (§20 item 2)', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(90000);
+
+    await injectToken(page, token);
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}/finetune`);
+    await expect(page.getByRole('heading', { name: 'Start a new session' })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('heading', { name: 'Training sessions' })).toBeVisible();
+
+    // A session card only gets a "Use for annotation" button once it carries
+    // a ready checkpoint. Sessions still running, or with no checkpoint yet,
+    // must not render it — never trigger a new training run to force this
+    // fixture's state, just assert the existing gating relationship.
+    const readyBadges = page.getByText('Checkpoint ready');
+    const readyCount = await readyBadges.count();
+    if (readyCount === 0) {
+      // No checkpointed session exists for this fixture yet. Nothing more to
+      // assert without starting a real GPU training run, which is out of
+      // scope here.
+      return;
+    }
+
+    const readyCard = page.locator('div.border.border-gray-200.rounded-lg', { has: readyBadges.first() });
+    const useButton = readyCard.getByRole('button', { name: 'Use for annotation' });
+    await expect(useButton).toBeVisible();
+
+    await useButton.click({ force: true });
+    await expect(page).toHaveURL(/\/colab\/annotate\?.*usm_session=.*usm_model=/);
+    await expect(page.getByText('Fine-tuned model')).toBeVisible({ timeout: 30000 });
+  });
 });

@@ -37,10 +37,15 @@ export function buildAnnotateQuery(
   label: string,
   cellposeModel?: string,
   imageStem?: string,
+  usmSession?: { sessionId: string; modelType: string },
 ): string {
   const params = new URLSearchParams({ session_id: toAlias(artifactId), label });
   if (cellposeModel) params.set('cellpose_model', cellposeModel);
   if (imageStem) params.set('image', imageStem);
+  if (usmSession) {
+    params.set('usm_session', usmSession.sessionId);
+    params.set('usm_model', usmSession.modelType);
+  }
   return params.toString();
 }
 

@@ -23,6 +23,14 @@ import { toArtifactId } from '../../colab/datasetApi';
 export interface AnnotationServiceConfig {
   artifactId: string;
   label: string;
+  /** Serve μSAM's automatic-segmentation and box-embedding calls from a
+   *  fine-tuned training session's checkpoint instead of the base model
+   *  (colab-rework-plan.md §20 item 2). ``modelType`` must be the base
+   *  model the session was trained from; only usable once the session's
+   *  ``checkpoint_available`` flag is true. The shared ONNX prompt decoder
+   *  (``getMicroSamOnnxModel``) still serves the base model_type only, the
+   *  micro-sam service has no per-session decoder export. */
+  microSamSession?: { sessionId: string; modelType: string };
 }
 
 export interface CellposeMask {
@@ -542,6 +550,21 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         const artifactId = toArtifactId(config.artifactId);
         console.log('[useHyphaService] Resolved artifact id:', artifactId);
 
+        // Fine-tuned model override (colab-rework-plan.md §20 item 2): when
+        // set, every μSAM compute_embedding/infer call below serves this
+        // training session's checkpoint instead of the base model. The
+        // stored-embedding cache key is namespaced by session id too, so a
+        // finetuned session's embeddings never collide with (or reuse) the
+        // base model's cache.
+        const microSamModelType = config.microSamSession?.modelType ?? MICRO_SAM_MODEL_TYPE;
+        const microSamSessionId = config.microSamSession?.sessionId;
+        const microSamEmbeddingCacheKey = microSamSessionId
+          ? `${microSamModelType}:session:${microSamSessionId}`
+          : microSamModelType;
+        if (microSamSessionId) {
+          console.log('[useHyphaService] Using fine-tuned micro-sam session:', microSamSessionId, microSamModelType);
+        }
+
         // Cellpose (cellpose4-runner) and micro-sam availability: probed at
         // connect time, but fired as non-blocking promises rather than
         // awaited. Neither probe gates anything `wrappedService`'s methods
@@ -598,7 +621,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           getSaveUrls: async (imageStem: string) =>
             withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
           getEmbeddingUrls: async (imageStem: string) =>
-            withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, MICRO_SAM_MODEL_TYPE)),
+            withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, microSamEmbeddingCacheKey)),
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
@@ -665,11 +688,12 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             };
 
             // μSAM AIS takes no Cellpose-style knobs; just the image. Pin
-            // model_type to the same constant the box path uses so auto pre-seg
-            // and the interactive decoder never diverge from the server default.
+            // model_type to the same value the box path uses so auto pre-seg
+            // and the interactive decoder never diverge from each other.
             const result = await microSamService.infer({
               input_arrays: [inputArray],
-              model_type: MICRO_SAM_MODEL_TYPE,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
             });
             console.log('[useHyphaService] micro-sam raw result:', result);
@@ -696,8 +720,13 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           getMicroSamOnnxModel: async (): Promise<Uint8Array> => {
             const microSamService = await resolveMicroSamService(server);
             console.log('[useHyphaService] Fetching micro-sam ONNX decoder');
+            // No session_id here: the micro-sam service exports the ONNX
+            // prompt decoder per base model_type only, fine-tuning does not
+            // produce a per-session decoder. Still uses microSamModelType so
+            // the decoder always matches the family of whatever encoder
+            // produced the embedding (base or fine-tuned).
             const bytes = await microSamService.get_onnx_model({
-              model_type: MICRO_SAM_MODEL_TYPE,
+              model_type: microSamModelType,
               quantize: true,
               _rkwargs: true,
             });
@@ -728,7 +757,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
             const emb = await microSamService.compute_embedding({
               inputs: inputArray,
-              model_type: MICRO_SAM_MODEL_TYPE,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
             });
             if (!emb || !emb.features || emb.features._rtype !== 'ndarray') {
@@ -775,7 +805,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             };
             await microSamService.compute_embedding({
               inputs: inputArray,
-              model_type: MICRO_SAM_MODEL_TYPE,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
               embedding_upload_url: uploadUrl,
               _rkwargs: true,
             });
@@ -829,7 +860,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             // passed as the server's embedding-resolution min_size.
             const result = await microSamService.infer({
               embeddings: [npzUrl],
-              model_type: MICRO_SAM_MODEL_TYPE,
+              model_type: microSamModelType,
+              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
             });
 
@@ -955,7 +987,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = null;
       }
     };
-  }, [config?.artifactId, config?.label, retryNonce]);
+  }, [config?.artifactId, config?.label, config?.microSamSession?.sessionId, config?.microSamSession?.modelType, retryNonce]);
 
   const retry = () => setRetryNonce((n) => n + 1);
 

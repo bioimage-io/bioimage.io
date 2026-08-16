@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   DatasetLabelRef,
+  buildAnnotateQuery,
   discoverLabels,
 } from './datasetApi';
 import {
@@ -633,6 +634,24 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                   <p className="text-xs text-gray-400 mt-2">
                     Stopping requests cancellation. An epoch already in progress may finish first.
                   </p>
+                )}
+                {s.checkpoint_available && annotationLabel && s.model_type && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/colab/annotate?${buildAnnotateQuery(artifactId, annotationLabel, undefined, undefined, {
+                            sessionId: s.session_id,
+                            modelType: s.model_type as string,
+                          })}`,
+                        )
+                      }
+                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-medium hover:bg-emerald-700 transition-colors"
+                    >
+                      Use for annotation
+                    </button>
+                  </div>
                 )}
               </div>
             );
