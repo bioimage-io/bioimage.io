@@ -25,14 +25,16 @@ import {
   BrokerAccessError,
   BrokerErrorCode,
   BrokerRole,
+  DatasetSplit,
   DatasetWithRole,
   getDataset,
+  getSplit as getBrokerSplit,
   resetBrokerServiceCache,
+  setSplit as setBrokerSplit,
 } from './brokerApi';
 import LabelManager from './LabelManager';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
-import TrainingModal from './TrainingModal';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
 import LoginButton from '../LoginButton';
@@ -201,13 +203,30 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const imageRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [showAnnotateDialog, setShowAnnotateDialog] = useState(false);
-  const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteDatasetModal, setShowDeleteDatasetModal] = useState(false);
   const [deleteLabelTarget, setDeleteLabelTarget] = useState<string | null>(null);
   const [cellposeModel, setCellposeModel] = useState('cpsam');
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // --- Train/test split (colab-rework-plan.md §20 item 1) ---
+  const [split, setSplitState] = useState<DatasetSplit>({ train: [], test: [] });
+  const [splitMode, setSplitMode] = useState(false);
+  // Local pending test-set membership while in split mode, seeded from the
+  // committed split on entry so re-entering split mode never loses the last
+  // applied assignment.
+  const [pendingTestSet, setPendingTestSet] = useState<Set<string>>(new Set());
+  const [showRandomSplitDialog, setShowRandomSplitDialog] = useState(false);
+  const [randomSplitRatio, setRandomSplitRatio] = useState(10);
+  const [showApplySplitDialog, setShowApplySplitDialog] = useState(false);
+  const [isApplyingSplit, setIsApplyingSplit] = useState(false);
+  const [splitApplyError, setSplitApplyError] = useState<string | null>(null);
+  const [dragStem, setDragStem] = useState<string | null>(null);
+  const [dragOverSection, setDragOverSection] = useState<'train' | 'test' | null>(null);
+  // A cloud image whose stem is already in the split, pending confirmation
+  // of "remove from split and delete" (§20 item 4).
+  const [pendingDeleteStem, setPendingDeleteStem] = useState<string | null>(null);
 
   // Restore the last-used model whenever the selected label changes, so
   // switching labels keeps its own model choice (models are fine-tuned
@@ -217,13 +236,6 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     const stored = localStorage.getItem(modelStorageKey(artifactId, selectedLabel));
     setCellposeModel(stored || 'cpsam');
   }, [artifactId, selectedLabel]);
-
-  const handleCellposeModelChange = (model: string) => {
-    setCellposeModel(model);
-    if (selectedLabel) {
-      localStorage.setItem(modelStorageKey(artifactId, selectedLabel), model);
-    }
-  };
 
   // --- Role guard ---
   useEffect(() => {
@@ -298,6 +310,23 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [artifactManager, artifactId, canManage, refreshTick]);
+
+  // --- Train/test split ---
+  useEffect(() => {
+    if (!canManage) return;
+    let active = true;
+    (async () => {
+      try {
+        const s = await getBrokerSplit(server, artifactId);
+        if (active) setSplitState(s);
+      } catch {
+        // best-effort; a failed read just leaves the "no split yet" default
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [server, artifactId, canManage, refreshTick]);
 
   // --- Labels + per-label annotated counts ---
   const reloadLabels = useCallback(async () => {
@@ -719,9 +748,7 @@ print("Service registered successfully", end='')
     });
   };
 
-  const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
+  const performDeleteCloudImage = async (stem: string) => {
     try {
       await deleteImageEverywhere(artifactManager, artifactId, stem);
       if (selectedStem === stem) setSelectedStem(null);
@@ -729,6 +756,38 @@ print("Service registered successfully", end='')
     } catch (err) {
       setError((err as Error).message || 'Failed to delete image.');
     }
+  };
+
+  // §20 item 4: deleting an image whose stem is already in the split would
+  // silently leave a stale entry in `train/split.json`, so route through a
+  // dialog offering to clean the split up first instead of just deleting.
+  const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (split.train.includes(stem) || split.test.includes(stem)) {
+      setPendingDeleteStem(stem);
+      return;
+    }
+    if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
+    await performDeleteCloudImage(stem);
+  };
+
+  const handleRemoveFromSplitAndDelete = async () => {
+    if (!pendingDeleteStem) return;
+    const stem = pendingDeleteStem;
+    setPendingDeleteStem(null);
+    try {
+      const result = await setBrokerSplit(
+        server,
+        artifactId,
+        split.train.filter((s) => s !== stem),
+        split.test.filter((s) => s !== stem),
+      );
+      setSplitState(result);
+    } catch (err) {
+      setError((err as Error).message || 'Failed to update the split.');
+      return;
+    }
+    await performDeleteCloudImage(stem);
   };
 
   const imageRows: ImageRow[] = useMemo(() => {
@@ -741,6 +800,173 @@ print("Service registered successfully", end='')
     }));
     return [...cloudRows, ...localRows];
   }, [images, localImages]);
+
+  // §20 item 1: cloud rows section into Test/Train once a split has been
+  // applied, or while actively editing one in split mode; local (not yet
+  // uploaded) rows are never part of the split, so they render separately.
+  const cloudImageRows = useMemo(() => imageRows.filter((r) => r.isCloud), [imageRows]);
+  const localImageRows = useMemo(() => imageRows.filter((r) => !r.isCloud), [imageRows]);
+  const committedTestSet = useMemo(() => new Set(split.test), [split]);
+  const activeTestSet = splitMode ? pendingTestSet : committedTestSet;
+  const showSplitSections = splitMode || split.train.length > 0 || split.test.length > 0;
+  const testRows = useMemo(
+    () => cloudImageRows.filter((r) => activeTestSet.has(r.stem)),
+    [cloudImageRows, activeTestSet],
+  );
+  const trainRows = useMemo(
+    () => cloudImageRows.filter((r) => !activeTestSet.has(r.stem)),
+    [cloudImageRows, activeTestSet],
+  );
+
+  const handleEnterSplitMode = () => {
+    setPendingTestSet(new Set(split.test));
+    setSplitApplyError(null);
+    setSplitMode(true);
+  };
+
+  const handleCancelSplitMode = () => {
+    setSplitMode(false);
+    setPendingTestSet(new Set(split.test));
+  };
+
+  const toggleSplitMembership = useCallback((stem: string) => {
+    setPendingTestSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(stem)) next.delete(stem);
+      else next.add(stem);
+      return next;
+    });
+  }, []);
+
+  const applyRandomSplit = () => {
+    const shuffled = [...cloudImageRows.map((r) => r.stem)].sort(() => Math.random() - 0.5);
+    const testCount = Math.round((shuffled.length * randomSplitRatio) / 100);
+    setPendingTestSet(new Set(shuffled.slice(0, testCount)));
+    setShowRandomSplitDialog(false);
+  };
+
+  const handleApplySplit = async () => {
+    setIsApplyingSplit(true);
+    setSplitApplyError(null);
+    try {
+      const test = [...pendingTestSet];
+      const train = cloudImageRows.map((r) => r.stem).filter((s) => !pendingTestSet.has(s));
+      const result = await setBrokerSplit(server, artifactId, train, test);
+      setSplitState(result);
+      setSplitMode(false);
+      setShowApplySplitDialog(false);
+    } catch (err) {
+      setSplitApplyError((err as Error).message || 'Failed to apply the split.');
+    } finally {
+      setIsApplyingSplit(false);
+    }
+  };
+
+  const handleRowDragStart = (stem: string) => (e: React.DragEvent) => {
+    setDragStem(stem);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleRowDragEnd = () => {
+    setDragStem(null);
+    setDragOverSection(null);
+  };
+
+  const handleSectionDragOver = (section: 'train' | 'test') => (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverSection(section);
+  };
+
+  const handleSectionDrop = (section: 'train' | 'test') => (e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragStem) {
+      setPendingTestSet((prev) => {
+        const next = new Set(prev);
+        if (section === 'test') next.add(dragStem);
+        else next.delete(dragStem);
+        return next;
+      });
+    }
+    setDragStem(null);
+    setDragOverSection(null);
+  };
+
+  // One image row, shared by the flat and sectioned (Test/Train) list
+  // renderings. `canSplit` gates the drag/double-click split-membership
+  // interactions on top of the always-available select/upload/delete
+  // behavior (§20 item 1) — local, not-yet-uploaded rows are never
+  // draggable since they can't be part of the split yet.
+  const renderImageRow = (row: ImageRow, canSplit: boolean) => {
+    const draggableRow = canSplit && splitMode;
+    return (
+      <div
+        key={row.stem}
+        ref={(el) => { imageRowRefs.current[row.stem] = el; }}
+        className="group relative"
+        draggable={draggableRow}
+        onDragStart={draggableRow ? handleRowDragStart(row.stem) : undefined}
+        onDragEnd={draggableRow ? handleRowDragEnd : undefined}
+      >
+        <button
+          onClick={() => handleSelectImage(row)}
+          onDoubleClick={draggableRow ? () => toggleSplitMembership(row.stem) : undefined}
+          className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
+            selectedStem === row.stem
+              ? 'bg-purple-50 border-l-2 border-purple-500'
+              : 'hover:bg-gray-50 border-l-2 border-transparent'
+          } ${draggableRow ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        >
+          <div className="flex items-center flex-1 min-w-0 gap-2">
+            {row.isCloud ? (
+              <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+              </svg>
+            ) : uploadingStems.has(row.stem) ? (
+              <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
+            ) : (
+              <div
+                className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  uploadSingleImage({ stem: row.stem, format: row.format! });
+                }}
+                title="Upload to the dataset"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              </div>
+            )}
+            <span className="text-sm text-gray-700 truncate">{row.stem}</span>
+          </div>
+          {row.isCloud && annotatedStems.has(row.stem) && (
+            <svg
+              className={`w-4 h-4 text-emerald-500 shrink-0 transition-opacity ${
+                row.isCloud ? 'group-hover:opacity-0' : ''
+              }`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+        {row.isCloud && (
+          <button
+            onClick={(e) => handleDeleteCloudImage(row.stem, e)}
+            title="Delete image from the dataset"
+            aria-label="Delete image from the dataset"
+            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
+          >
+            <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const downloadZipUrl = server?.config?.publicBaseUrl
     ? `${server.config.publicBaseUrl}/${artifactId.split('/')[0]}/artifacts/${artifactId
@@ -999,6 +1225,42 @@ print("Service registered successfully", end='')
             {statsViewOpen ? 'Show image preview' : 'Show annotation progress'}
           </button>
         )}
+        {cloudImageRows.length > 0 && (
+          <>
+            {splitMode ? (
+              <>
+                <button
+                  onClick={() => setShowApplySplitDialog(true)}
+                  disabled={isApplyingSplit}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-60"
+                >
+                  Apply data split
+                </button>
+                <button
+                  onClick={() => setShowRandomSplitDialog(true)}
+                  disabled={isApplyingSplit}
+                  className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
+                >
+                  Random split
+                </button>
+                <button
+                  onClick={handleCancelSplitMode}
+                  disabled={isApplyingSplit}
+                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleEnterSplitMode}
+                className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
+              >
+                Data split
+              </button>
+            )}
+          </>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setShowShareModal(true)}
@@ -1012,7 +1274,7 @@ print("Service registered successfully", end='')
             )}
           </button>
           <button
-            onClick={() => setShowTrainingModal(true)}
+            onClick={() => navigate(`/colab/${toAlias(artifactId)}/finetune`)}
             disabled={!selectedLabel}
             className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
           >
@@ -1070,78 +1332,64 @@ print("Service registered successfully", end='')
               </svg>
             </button>
           </div>
-          <div className="overflow-y-auto divide-y divide-gray-100 flex-1">
+          <div className="overflow-y-auto flex-1">
             {images === null ? (
               <div className="flex items-center justify-center py-8">
                 <Spinner className="w-6 h-6 text-purple-600" />
               </div>
             ) : imageRows.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
-            ) : (
-              imageRows.map((row) => (
+            ) : showSplitSections ? (
+              <>
                 <div
-                  key={row.stem}
-                  ref={(el) => { imageRowRefs.current[row.stem] = el; }}
-                  className="group relative"
+                  onDragOver={splitMode ? handleSectionDragOver('test') : undefined}
+                  onDrop={splitMode ? handleSectionDrop('test') : undefined}
+                  className={`divide-y divide-gray-100 transition-colors ${
+                    dragOverSection === 'test' ? 'bg-amber-50' : ''
+                  }`}
                 >
-                  <button
-                    onClick={() => handleSelectImage(row)}
-                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
-                      selectedStem === row.stem
-                        ? 'bg-purple-50 border-l-2 border-purple-500'
-                        : 'hover:bg-gray-50 border-l-2 border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center flex-1 min-w-0 gap-2">
-                      {row.isCloud ? (
-                        <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                        </svg>
-                      ) : uploadingStems.has(row.stem) ? (
-                        <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
-                      ) : (
-                        <div
-                          className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            uploadSingleImage({ stem: row.stem, format: row.format! });
-                          }}
-                          title="Upload to the dataset"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                          </svg>
-                        </div>
-                      )}
-                      <span className="text-sm text-gray-700 truncate">{row.stem}</span>
-                    </div>
-                    {row.isCloud && annotatedStems.has(row.stem) && (
-                      <svg
-                        className={`w-4 h-4 text-emerald-500 shrink-0 transition-opacity ${
-                          row.isCloud ? 'group-hover:opacity-0' : ''
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-                  {row.isCloud && (
-                    <button
-                      onClick={(e) => handleDeleteCloudImage(row.stem, e)}
-                      title="Delete image from the dataset"
-                      aria-label="Delete image from the dataset"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
-                    >
-                      <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                  <div className="sticky top-0 z-10 px-4 py-1.5 bg-amber-50/90 backdrop-blur border-y border-amber-100 text-xs font-semibold text-amber-700 flex items-center justify-between">
+                    <span>Test</span>
+                    <span>{testRows.length}</span>
+                  </div>
+                  {testRows.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4 px-4">
+                      {splitMode ? 'Double-click or drag images here' : 'No test images'}
+                    </p>
+                  ) : (
+                    testRows.map((row) => renderImageRow(row, true))
                   )}
                 </div>
-              ))
+                <div
+                  onDragOver={splitMode ? handleSectionDragOver('train') : undefined}
+                  onDrop={splitMode ? handleSectionDrop('train') : undefined}
+                  className={`divide-y divide-gray-100 transition-colors ${
+                    dragOverSection === 'train' ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="sticky top-0 z-10 px-4 py-1.5 bg-blue-50/90 backdrop-blur border-y border-blue-100 text-xs font-semibold text-blue-700 flex items-center justify-between">
+                    <span>Train</span>
+                    <span>{trainRows.length}</span>
+                  </div>
+                  {trainRows.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4 px-4">
+                      {splitMode ? 'Double-click or drag images here' : 'No train images'}
+                    </p>
+                  ) : (
+                    trainRows.map((row) => renderImageRow(row, true))
+                  )}
+                </div>
+                {localImageRows.length > 0 && (
+                  <div className="divide-y divide-gray-100">
+                    <div className="sticky top-0 z-10 px-4 py-1.5 bg-gray-50/90 backdrop-blur border-y border-gray-100 text-xs font-semibold text-gray-500">
+                      Not yet uploaded
+                    </div>
+                    {localImageRows.map((row) => renderImageRow(row, false))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="divide-y divide-gray-100">{imageRows.map((row) => renderImageRow(row, false))}</div>
             )}
           </div>
         </div>
@@ -1269,18 +1517,6 @@ print("Service registered successfully", end='')
         />
       )}
 
-      {showTrainingModal && selectedLabel && (
-        <TrainingModal
-          setShowTrainingModal={setShowTrainingModal}
-          dataArtifactId={artifactId}
-          label={selectedLabel}
-          server={server}
-          artifactManager={artifactManager}
-          cellposeModel={cellposeModel}
-          onCellposeModelChange={handleCellposeModelChange}
-        />
-      )}
-
       {showShareModal && (
         <ShareModal
           server={server}
@@ -1321,6 +1557,121 @@ print("Service registered successfully", end='')
             reloadLabels();
           }}
         />
+      )}
+
+      {showRandomSplitDialog && (() => {
+        const total = cloudImageRows.length;
+        const testCount = Math.round((total * randomSplitRatio) / 100);
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
+            <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Random split</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  Pick a percentage of images to assign to the test set. The rest go to train.
+                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Test set size</span>
+                  <span className="text-sm font-semibold text-purple-600">{randomSplitRatio}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={5}
+                  max={50}
+                  step={5}
+                  value={randomSplitRatio}
+                  onChange={(e) => setRandomSplitRatio(Number(e.target.value))}
+                  className="w-full accent-purple-600"
+                />
+                <p className="text-xs text-gray-400 mt-3">
+                  {testCount} test · {total - testCount} train, out of {total} images.
+                </p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+                <button
+                  onClick={() => setShowRandomSplitDialog(false)}
+                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={applyRandomSplit}
+                  className="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all"
+                >
+                  Use this split
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {showApplySplitDialog && (() => {
+        const testCount = pendingTestSet.size;
+        const trainCount = cloudImageRows.length - testCount;
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
+            <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Apply data split</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  This will assign {testCount} image{testCount === 1 ? '' : 's'} to test and {trainCount} to train
+                  for every collaborator on this dataset.
+                </p>
+                {splitApplyError && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-2">
+                    {splitApplyError}
+                  </p>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+                <button
+                  onClick={() => setShowApplySplitDialog(false)}
+                  disabled={isApplyingSplit}
+                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleApplySplit}
+                  disabled={isApplyingSplit}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-60 flex items-center gap-2"
+                >
+                  {isApplyingSplit && <Spinner className="w-4 h-4 text-white" />}
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {pendingDeleteStem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
+          <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
+            <div className="p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Remove from split and delete</h3>
+              <p className="text-sm text-gray-500">
+                "{pendingDeleteStem}" is part of the train/test split. Deleting it will also remove it from the
+                split.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setPendingDeleteStem(null)}
+                className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveFromSplitAndDelete}
+                className="px-3.5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium shadow-sm transition-all"
+              >
+                Remove from split and delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
