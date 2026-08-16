@@ -123,11 +123,14 @@ export interface ImagePreviewProps {
   annotationUrl: string;
   hasAnnotation: boolean;
   alt: string;
-  // When set, the displayed image is clickable to flip between the raw
-  // image and the annotation mask for a quick A/B comparison
-  // (colab-rework-plan.md §19 item 7). Omit to render a plain, non-clickable
-  // image (e.g. outside browse mode).
-  onToggleView?: () => void;
+  // When set, the displayed image supports a press-and-hold A/B comparison:
+  // holding down shows the raw image, releasing (or the pointer leaving or
+  // being cancelled) shows the annotation again (colab-rework-plan.md §19b
+  // item 4). Using hold instead of click-toggle means the view can never be
+  // left stuck on raw while the rest of the UI still believes annotations
+  // are shown. Omit to render a plain, non-interactive image (e.g. outside
+  // browse mode).
+  onHoldChange?: (holding: boolean) => void;
 }
 
 // The center preview pane shared by ImageViewer (session dashboard) and, once
@@ -140,7 +143,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   annotationUrl,
   hasAnnotation,
   alt,
-  onToggleView,
+  onHoldChange,
 }) => {
   if (viewMode === 'annotated' && !hasAnnotation) {
     return (
@@ -153,24 +156,41 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
     );
   }
 
-  const clickableClass = onToggleView
-    ? 'cursor-pointer active:scale-[0.99] transition-transform duration-150'
+  const holdableClass = onHoldChange
+    ? 'cursor-pointer active:scale-[0.99] transition-transform duration-150 select-none'
     : '';
-  const hint = viewMode === 'raw' ? 'Show annotation' : 'Show original image';
+  const hint = viewMode === 'raw' ? 'Release to see annotation' : 'Hold to see original image';
+
+  // Pointer capture guarantees pointerup/pointercancel fire on this same
+  // element regardless of where the pointer ends up, so a hold can never be
+  // left "stuck" showing raw even if the pointer drifts off the image or a
+  // touch gesture is interrupted (colab-rework-plan.md §19b item 4).
+  const holdHandlers = onHoldChange
+    ? {
+        onPointerDown: (e: React.PointerEvent) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          onHoldChange(true);
+        },
+        onPointerUp: () => onHoldChange(false),
+        onPointerLeave: () => onHoldChange(false),
+        onPointerCancel: () => onHoldChange(false),
+        style: { touchAction: 'none' as const },
+      }
+    : {};
 
   if (viewMode === 'raw' && imageUrl) {
     return (
-      <div className="group relative max-w-full max-h-full" onClick={onToggleView}>
+      <div className="group relative max-w-full max-h-full" {...holdHandlers}>
         <img
           src={imageUrl}
           alt={alt}
-          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${clickableClass}`}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${holdableClass}`}
           onError={(e) => {
             (e.target as HTMLImageElement).src = IMAGE_FALLBACK_SVG;
           }}
         />
-        {onToggleView && (
-          <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+        {onHoldChange && (
+          <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-100 transition-opacity duration-150 pointer-events-none">
             {hint}
           </span>
         )}
@@ -180,11 +200,11 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
 
   if (viewMode === 'annotated' && annotationUrl) {
     return (
-      <div className="group relative max-w-full max-h-full" onClick={onToggleView}>
+      <div className="group relative max-w-full max-h-full" {...holdHandlers}>
         <ColorizedMask
           src={annotationUrl}
           alt={`${alt} (annotated)`}
-          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${clickableClass}`}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${holdableClass}`}
           onError={(e) => {
             const target = e.target || e;
             if (target && typeof target === 'object' && 'src' in target) {
@@ -192,7 +212,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             }
           }}
         />
-        {onToggleView && (
+        {onHoldChange && (
           <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
             {hint}
           </span>

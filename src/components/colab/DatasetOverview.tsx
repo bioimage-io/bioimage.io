@@ -953,7 +953,7 @@ print("Service registered successfully", end='')
         {selectedStem && selectedLabel && !statsViewOpen && (
           <button
             onClick={handleToggleBrowse}
-            disabled={pairs.length === 0}
+            disabled={!browserOpen && pairs.length === 0}
             className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {browserOpen ? 'Hide annotations' : `Browse annotations${pairs.length ? ` (${pairs.length})` : ''}`}
@@ -1166,9 +1166,9 @@ print("Service registered successfully", end='')
                   annotationUrl={annotationUrl}
                   hasAnnotation={!!currentPair}
                   alt={selectedStem}
-                  onToggleView={
+                  onHoldChange={
                     browserOpen && currentPair
-                      ? () => setPreviewMode((m) => (m === 'raw' ? 'annotated' : 'raw'))
+                      ? (holding) => setPreviewMode(holding ? 'raw' : 'annotated')
                       : undefined
                   }
                 />

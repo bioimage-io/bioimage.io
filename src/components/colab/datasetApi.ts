@@ -428,9 +428,13 @@ export async function getTrainingPairs(
 }
 
 /**
- * Every annotation pair for one image across every user, newest first —
- * feeds the dataset overview's annotation browser (prev/next through who
- * annotated what and when).
+ * Every complete annotation pair for one image stem, across every user
+ * folder AND every saved timestamp, newest first — feeds the dataset
+ * overview's annotation browser (prev/next through who annotated what and
+ * when). Unlike `walkLatestPairsByUser`, this does not collapse to one pair
+ * per user: a user who saved the same image 3 times shows up as 3 entries
+ * (colab-rework-plan.md §19b item 2 — browse must step through ALL pairs,
+ * not just each user's latest).
  */
 export async function listAnnotationPairs(
   artifactManager: any,
@@ -438,19 +442,42 @@ export async function listAnnotationPairs(
   label: string,
   stem: string,
 ): Promise<AnnotationPair[]> {
-  const byUser = await walkLatestPairsByUser(artifactManager, artifactId, label);
+  const folder = labelFolder(label);
+  const userDirs = (await listFilesSafe(artifactManager, artifactId, folder)).filter(isDirectoryEntry);
+
   const pairs: AnnotationPair[] = [];
-  for (const [userFolder, stemMap] of byUser) {
-    const entry = stemMap.get(stem);
-    if (!entry) continue;
-    pairs.push({
-      userFolder,
-      stem,
-      timestamp: entry.timestamp,
-      pngPath: entry.pngPath,
-      geojsonPath: entry.geojsonPath,
-    });
-  }
+  const limit = pLimit(4);
+  await Promise.all(
+    userDirs.map((dirEntry) =>
+      limit(async () => {
+        const userFolder = entryName(dirEntry);
+        if (!userFolder.startsWith('user-')) return;
+        const dirPath = `${folder}/${userFolder}`;
+        const files = await listFilesSafe(artifactManager, artifactId, dirPath);
+
+        const tsMap = new Map<string, { png?: string; geojson?: string }>();
+        for (const file of files) {
+          const parsed = parseAnnotationFilename(entryName(file));
+          if (!parsed || parsed.stem !== stem) continue;
+          const pair = tsMap.get(parsed.timestamp) ?? {};
+          pair[parsed.ext] = entryName(file);
+          tsMap.set(parsed.timestamp, pair);
+        }
+        for (const [timestamp, pair] of tsMap) {
+          if (pair.png && pair.geojson) {
+            pairs.push({
+              userFolder,
+              stem,
+              timestamp,
+              pngPath: `${dirPath}/${pair.png}`,
+              geojsonPath: `${dirPath}/${pair.geojson}`,
+            });
+          }
+        }
+      }),
+    ),
+  );
+
   pairs.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
   return pairs;
 }
