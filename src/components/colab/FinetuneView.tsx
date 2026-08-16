@@ -354,8 +354,9 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
             <div className="p-6">
               <h3 className="text-base font-semibold text-gray-900 mb-1">Test split is empty</h3>
               <p className="text-sm text-gray-500">
-                Training will fall back to an internal validation slice instead of your held-out images. Start
-                anyway?
+                {trainCount === 1
+                  ? 'This split has a single training image and no held-out test image. Validation will reuse the training image. Start anyway?'
+                  : 'Training will fall back to an internal validation slice instead of your held-out images. Start anyway?'}
               </p>
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
