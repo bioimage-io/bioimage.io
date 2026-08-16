@@ -48,6 +48,7 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { useCellpose4Runner } from '../hooks/useCellpose4Runner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
 // The BioEngine inference-check status is derived from the model's test-report
@@ -102,6 +103,13 @@ const ArtifactDetails = () => {
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
   const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
+  // Cellpose-4 models (e.g. Cellpose-SAM) never pass the model-runner-based
+  // bioengineStatus check (model-runner can't run them at all), so their Test
+  // Run Model routes to the KTH-only cellpose4-runner instead once supported.
+  const cellpose4 = useCellpose4Runner();
+  const modelId = selectedResource?.id ? selectedResource.id.split('/').pop() : undefined;
+  const isCellpose4Model = cellpose4.isSupported(modelId);
+  const canTestRun = bioengineStatus?.status === 'passed' || isCellpose4Model;
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -786,7 +794,7 @@ const ArtifactDetails = () => {
                   // button's HintTooltip.
                   const testRunHint = !isLoggedIn
                     ? 'Please log in to test run models'
-                    : !bioengineStatus
+                    : (!bioengineStatus && !isCellpose4Model)
                       ? 'This model has not been validated on the BioEngine yet.'
                       : undefined;
                   return (
@@ -797,9 +805,15 @@ const ArtifactDetails = () => {
                       data-highlight-login={!isLoggedIn && isTestButtonHovered ? 'true' : 'false'}
                     >
                       <Button
-                        disabled={!bioengineStatus || !isLoggedIn}
+                        // Stay disabled until the cellpose4-runner probe settles.
+                        // A Cellpose-4 model can carry a FAILED bioengineStatus
+                        // (model-runner cannot run it), which alone enables the
+                        // button. Clicking in that window reads isCellpose4Model
+                        // as false and raises the BioEngine failure dialog
+                        // instead of routing to cellpose4-runner.
+                        disabled={(!bioengineStatus && !isCellpose4Model) || !isLoggedIn || cellpose4.loading}
                         onClick={() => {
-                          if (bioengineStatus?.status === 'passed') {
+                          if (canTestRun) {
                             handleRunModel();
                           } else if (bioengineStatus) {
                             setIsBioengineErrorDialogOpen(true);
@@ -807,36 +821,42 @@ const ArtifactDetails = () => {
                         }}
                         variant="outlined"
                         size="medium"
-                        startIcon={bioengineStatus ? (
-                          <Tooltip 
+                        startIcon={canTestRun ? (
+                          <Tooltip
+                            title={bioengineStatus?.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
+                            arrow
+                          >
+                            <Box component="span" sx={{ display: 'flex' }}>
+                              <CheckCircleIcon sx={{ fontSize: 20 }} />
+                            </Box>
+                          </Tooltip>
+                        ) : bioengineStatus ? (
+                          <Tooltip
                             title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
                             arrow
                           >
                             <Box component="span" sx={{ display: 'flex' }}>
-                              {bioengineStatus.status === 'passed' ? 
-                                <CheckCircleIcon sx={{ fontSize: 20 }} /> : 
-                                <CancelIcon sx={{ fontSize: 20 }} />
-                              }
+                              <CancelIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
                         ) : undefined}
                         sx={{
                           borderRadius: '12px',
-                          backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
+                          backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
                           backdropFilter: 'blur(8px)',
-                          border: `2px solid ${bioengineStatus?.status === 'passed' ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
-                          color: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
+                          border: `2px solid ${canTestRun ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
+                          color: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
                           fontWeight: 500,
                           px: 4,
                           py: 1.5,
                           fontSize: '0.95rem',
                           transition: 'all 0.3s ease',
                           '&:hover': {
-                            backgroundColor: bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
-                            borderColor: bioengineStatus?.status === 'passed' ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
-                            color: bioengineStatus?.status === 'passed' ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
+                            backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                            borderColor: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
+                            color: canTestRun ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
                             transform: 'translateY(-2px) scale(1.02)',
-                            boxShadow: `0 8px 25px ${bioengineStatus?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
+                            boxShadow: `0 8px 25px ${canTestRun ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
                           },
                           '&.Mui-disabled': {
                             borderColor: 'rgba(0, 0, 0, 0.12)',

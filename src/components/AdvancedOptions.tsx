@@ -16,6 +16,7 @@ interface AdvancedOptionsProps {
   onSelectSite: (site: RunnerSite) => void;
   siteAvailable: Record<RunnerSite, boolean>;
   siteLoading?: boolean;
+  siteDisabledTitle?: Partial<Record<RunnerSite, string>>;
   showToggle?: boolean;
   /** Reset the shared Hypha connection. */
   onReset: () => void;
@@ -45,6 +46,7 @@ const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
   onSelectSite,
   siteAvailable,
   siteLoading = false,
+  siteDisabledTitle,
   showToggle = true,
   onReset,
   isResetting = false,
@@ -130,6 +132,7 @@ const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                   onSelect={onSelectSite}
                   available={siteAvailable}
                   loading={siteLoading}
+                  disabledTitle={siteDisabledTitle}
                 />
               )}
             </div>

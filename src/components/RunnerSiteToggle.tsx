@@ -14,6 +14,8 @@ interface RunnerSiteToggleProps {
   available: Record<RunnerSite, boolean>;
   /** While loading, every option shows a pulsing indicator dot. */
   loading?: boolean;
+  /** Per-site override for the disabled-option tooltip text. Falls back to the generic "unavailable" message. */
+  disabledTitle?: Partial<Record<RunnerSite, string>>;
   className?: string;
 }
 
@@ -32,6 +34,7 @@ const RunnerSiteToggle: React.FC<RunnerSiteToggleProps> = ({
   onSelect,
   available,
   loading = false,
+  disabledTitle,
   className = '',
 }) => {
   return (
@@ -49,7 +52,7 @@ const RunnerSiteToggle: React.FC<RunnerSiteToggleProps> = ({
           ? `Looking for the ${opt.label} model-runner service...`
           : isAvailable
             ? `Run the model-runner on the ${opt.label} cluster`
-            : `${opt.label} cluster's model-runner is unavailable right now`;
+            : (disabledTitle?.[opt.id] ?? `${opt.label} cluster's model-runner is unavailable right now`);
 
         return (
           <button

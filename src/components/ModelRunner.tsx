@@ -12,6 +12,7 @@ import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, proces
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
+import { useCellpose4Runner } from '../hooks/useCellpose4Runner';
 import AdvancedOptions from './AdvancedOptions';
 import InferenceProgressDialog, { InferenceProgress } from './InferenceProgressDialog';
 import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
@@ -146,6 +147,11 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   // override live in a shared store, identical to the other pages).
   const conn = useModelRunnerConnection();
   const modelRunners = conn.modelRunners;
+  const modelId = artifactId ? artifactId.split('/').pop() : undefined;
+  // Cellpose-4 models (e.g. Cellpose-SAM) can't be run by model-runner at
+  // all; cellpose4-runner is their KTH-only inference backend.
+  const cellpose4 = useCellpose4Runner();
+  const isCellpose4Model = cellpose4.isSupported(modelId);
   const [isLoading, setIsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [currentWindowId, setCurrentWindowId] = useState<string | null>(null);
@@ -187,10 +193,11 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [tileSize, setTileSize] = useState<number>(512);
 
   // Effective service id for the next ModelRunnerEngine.init() call.
-  // Resolution order: explicit override > toggle's active site > KTH constant
-  // (legacy fallback so this component never produces an empty serviceId).
+  // Resolution order: explicit override > cellpose4-runner (Cellpose-4 models
+  // only, KTH-only) > toggle's active site > KTH constant (legacy fallback so
+  // this component never produces an empty serviceId).
   const serviceId = conn.serviceIdOverride.trim()
-    || modelRunners.activeServiceId
+    || (isCellpose4Model ? cellpose4.serviceId : modelRunners.activeServiceId)
     || BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID;
   
   // Button states
@@ -211,12 +218,16 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     if (
       artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
       && !isRunning && !isLoading && !initializingRef.current
-      && !modelRunners.loading
-      && modelRunners.activeServiceId
+      // Always wait for the cellpose4-runner probe to settle first: while it's
+      // still loading, isCellpose4Model reads as false, which would otherwise
+      // let a Cellpose-4 model fall through and wrongly init against
+      // model-runner before we know better.
+      && !cellpose4.loading
+      && (isCellpose4Model || (!modelRunners.loading && modelRunners.activeServiceId))
     ) {
       setupRunner();
     }
-  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId]);
+  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId, cellpose4.loading, isCellpose4Model]);
 
   // Surface a resumable in-flight inference for this model (survives page refresh).
   useEffect(() => {
@@ -890,11 +901,16 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           onServerUrlChange={conn.setServerUrl}
           serviceIdOverride={conn.serviceIdOverride}
           onServiceIdOverrideChange={conn.setServiceIdOverride}
-          serviceIdPlaceholder={modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
-          toggleSelected={conn.toggleSelected}
+          serviceIdPlaceholder={isCellpose4Model ? cellpose4.serviceId : (modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID)}
+          toggleSelected={isCellpose4Model ? 'kth' : conn.toggleSelected}
           onSelectSite={conn.selectSite}
-          siteAvailable={{ kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
+          siteAvailable={isCellpose4Model
+            ? { kth: true, denbi: false }
+            : { kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
           siteLoading={conn.baseRunners.loading}
+          siteDisabledTitle={isCellpose4Model
+            ? { denbi: 'Cellpose-4 models (e.g. Cellpose-SAM) only run on the KTH cluster.' }
+            : undefined}
           showToggle={isLoggedIn}
           onReset={conn.reset}
           isResetting={conn.isReconnecting || conn.isConnecting}
