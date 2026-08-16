@@ -39,7 +39,7 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-4">
             <p className="text-gray-700 leading-relaxed">
               <strong className="text-purple-900">BioImage.IO Colab</strong> is a browser-based tool for collaborative
-              image annotation and Cellpose-SAM fine-tuning. Annotation runs entirely in your browser using Python via
+              image annotation and AI model fine-tuning. Annotation runs entirely in your browser using Python via
               WebAssembly, and images, masks, and models are shared through Hypha Cloud artifacts.
             </p>
           </div>
@@ -57,8 +57,9 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                 <h5 className="font-semibold text-gray-800 mb-1">Create a Dataset</h5>
                 <p className="text-sm text-gray-600">
                   From the Colab landing page, either <strong>mount a local folder</strong> of images (files stay on
-                  your machine and are read directly by your browser) or <strong>create a cloud dataset</strong> and
-                  upload images to it. Both paths land you on the dataset overview page.
+                  your machine and are read directly by your browser, press and hold the folder button for a
+                  drag-and-drop alternative) or <strong>create a cloud dataset</strong> and upload images to it. Both
+                  paths land you on the dataset overview page.
                 </p>
                 <p className="text-sm text-gray-600 mt-2">
                   Supported formats: <strong>{formatList}</strong>
@@ -79,7 +80,9 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                 <p className="text-sm text-gray-600">
                   A dataset can hold one or more labels (Cell, Nucleus, whatever your task needs). Each label is its
                   own independent set of masks, so the same images can be annotated for several targets at once.
-                  Create and manage labels from the Labels box on the dataset overview page.
+                  Create and manage labels from the Labels box on the dataset overview page. The same box shows
+                  <strong> annotation progress</strong>: how many annotation files exist per image for the selected
+                  label, updated automatically as your team saves work.
                 </p>
               </div>
             </div>
@@ -95,7 +98,8 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                   Every dataset has one owner, and any number of managers and annotators. Managers can manage labels
                   and sharing, annotators can only annotate. Use the <strong>Share</strong> button to grant roles by
                   email, make the dataset public, or approve access requests from people who opened the link without
-                  a role yet.
+                  a role yet. The dialog always shows a QR code and a direct annotation link for the selected label,
+                  so you can send collaborators straight into annotating.
                 </p>
               </div>
             </div>
@@ -125,9 +129,46 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                 <p className="text-sm text-gray-600">
                   Open the annotator from a label's <strong>Annotate</strong> button, or share the annotation URL so
                   collaborators can jump straight into a label without visiting the overview page first. Manual
-                  drawing tools are available immediately. The AI Box needs a per-image embedding and a decoder
-                  model, so it shows a loading state until both are ready, usually a few seconds after the image
-                  appears.
+                  drawing tools are available immediately.
+                </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  Two AI tools sit at the bottom of the tools list: <strong>Interactive Segmentation</strong> draws a
+                  box around one cell for a one-click mask, and <strong>Full Image Segmentation</strong> runs AI
+                  segmentation across the whole image. Both warm up in the background and show a spinner until ready,
+                  and neither overlaps an existing annotation. Use <strong>Enhance Contrast</strong> to visualize dim
+                  features while you work. It only changes what you see: segmentation still runs on the raw image
+                  unless you check "Use contrast enhanced image" in the Full Image Segmentation dialog.
+                </p>
+              </div>
+            </div>
+
+            {/* Train/test split */}
+            <div className="flex items-start">
+              <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg flex items-center justify-center font-bold mr-3 text-sm">
+                6
+              </div>
+              <div>
+                <h5 className="font-semibold text-gray-800 mb-1">Set Up a Train/Test Split</h5>
+                <p className="text-sm text-gray-600">
+                  Before fine-tuning, use <strong>Data split</strong> in the image list to divide images between
+                  Train and Test, either with a random percentage split or by moving individual images by hand. This
+                  split is reused when you start a fine-tuning run.
+                </p>
+              </div>
+            </div>
+
+            {/* Fine-tuning */}
+            <div className="flex items-start">
+              <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg flex items-center justify-center font-bold mr-3 text-sm">
+                7
+              </div>
+              <div>
+                <h5 className="font-semibold text-gray-800 mb-1">Fine-tune and Use Your Model</h5>
+                <p className="text-sm text-gray-600">
+                  Click <strong>Finetune</strong> to open the training page for a label. Pick a base model, start a
+                  run, and monitor its status and elapsed time. Fine-tuning needs densely annotated images: every
+                  object in each training image should have a mask. Once a run shows <strong>Checkpoint ready</strong>,
+                  click <strong>Use for annotation</strong> to send you back to the annotator with that model active.
                 </p>
               </div>
             </div>
@@ -147,24 +188,8 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                   <li>• For a mounted local folder, keep this browser tab open while collaborators are annotating.</li>
                   <li>• The first time you mount a folder, Python packages are downloaded, which can take a moment.</li>
                   <li>• Local folder mounting works best in Chromium-based browsers (Chrome, Edge, Brave).</li>
+                  <li>• In the annotation progress view, press and hold an image to compare it against its saved mask, release to go back.</li>
                 </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Fine-tuning */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start">
-              <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="font-semibold text-blue-800 mb-1">Fine-tuning</p>
-                <p className="text-sm text-blue-700">
-                  Once a label has enough annotated images, click <strong>Finetune</strong> to train a Cellpose-SAM
-                  model on them. The trained model becomes available for that label's AI Box, so future predictions
-                  improve as you annotate more.
-                </p>
               </div>
             </div>
           </div>
