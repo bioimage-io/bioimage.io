@@ -221,7 +221,8 @@ export async function listMyDatasets(artifactManager: any, user: any): Promise<D
 
   const myArtifacts = allArtifacts.filter(
     (artifact) =>
-      artifact.manifest?.owner?.id === user.id || artifact.manifest?.created_by === user.id,
+      artifact.type === 'dataset' &&
+      (artifact.manifest?.owner?.id === user.id || artifact.manifest?.created_by === user.id),
   );
 
   const limit = pLimit(4);
