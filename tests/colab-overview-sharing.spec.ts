@@ -14,10 +14,13 @@ import fs from 'fs';
 // "cells") from annotate-ai-box.spec.ts for the overview/share coverage,
 // since the test token already has an owner/manager role on it.
 //
-// The request-access test needs a dataset the test token has NO role on
-// (to actually hit the permission-denied branch while logged in). There is
-// no fixture for that in this repo yet, so it's opt-in via the
-// PRIVATE_DATASET_ALIAS env var and skips otherwise.
+// The request-access test needs a dataset the test token has NO role on (to
+// actually hit the permission-denied branch while logged in). It also needs
+// BIOIMAGE_IO_TOKEN (same fallback-to-.env convention), used only to
+// self-provision and tear down that fixture: the dataset is registered with
+// an id-only broker owner (no email), so HYPHA_TOKEN can never accidentally
+// match it via the broker's email fallback even if both tokens trace back
+// to the same underlying human in Hypha's auth backend.
 
 test.use({ baseURL: 'http://localhost:3012' });
 
@@ -33,6 +36,27 @@ function readHyphaToken(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function readBioimageIoToken(): string | undefined {
+  if (process.env.BIOIMAGE_IO_TOKEN) return process.env.BIOIMAGE_IO_TOKEN;
+  try {
+    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const match = envText.match(/BIOIMAGE_IO_TOKEN=(\S+)/);
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+// Hypha access tokens are JWTs; the `sub` claim is the same id the broker's
+// RPC context resolves the caller to (confirmed empirically: it matches
+// `server.config.user.id` inside a live hypha-rpc connection). Decoding it
+// locally avoids a round trip just to discover the admin token's own id.
+function decodeTokenSubject(token: string): string {
+  const payload = token.split('.')[1];
+  const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+  return decoded.sub;
 }
 
 // A direct element.click() (skipping Playwright's coordinate hit-testing)
@@ -68,6 +92,71 @@ async function cleanupLabel(token: string, artifactId: string, name: string): Pr
     });
   } catch {
     // Best-effort only — a cleanup failure here shouldn't fail the test.
+  }
+}
+
+async function callBrokerHttp(token: string, method: string, body: Record<string, unknown>): Promise<any> {
+  const res = await fetch(`${HYPHA_SERVER_URL}/bioimage-io/services/annotation-broker/${method}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok || (data && data.success === false)) {
+    throw new Error(`broker.${method} failed: ${res.status} ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+async function callArtifactManagerHttp(token: string, method: string, body: Record<string, unknown>): Promise<any> {
+  const res = await fetch(`${HYPHA_SERVER_URL}/public/services/artifact-manager/${method}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok || (data && data.success === false)) {
+    throw new Error(`artifact-manager.${method} failed: ${res.status} ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+// Creates a throwaway dataset the calling browser-session token (HYPHA_TOKEN)
+// has NO role on, so the annotate page's permission-denied branch can be
+// exercised live instead of skipped. The trick: register the dataset's
+// broker owner as an id-only record (no email). The broker's owner-match
+// falls back to email only when the stored entry HAS an email key, so an
+// id-only owner can never accidentally match a different token that happens
+// to share the same underlying human/email in Hypha's auth backend.
+async function provisionPrivateDataset(
+  adminToken: string,
+  alias: string,
+  label: string,
+): Promise<string> {
+  const artifactId = `bioimage-io/${alias}`;
+  const ownerId = decodeTokenSubject(adminToken);
+  await callArtifactManagerHttp(adminToken, 'create', {
+    parent_id: 'bioimage-io/bioimage.io',
+    alias,
+    manifest: { name: alias, description: 'Playwright fixture, deleted after the test run', owner: { id: ownerId } },
+    type: 'dataset',
+    stage: true,
+  });
+  await callBrokerHttp(adminToken, 'register_dataset', { artifact_id: artifactId });
+  await callBrokerHttp(adminToken, 'create_label', { artifact_id: artifactId, name: label, description: 'fixture label' });
+  return artifactId;
+}
+
+async function cleanupPrivateDataset(adminToken: string, artifactId: string): Promise<void> {
+  try {
+    await callBrokerHttp(adminToken, 'delete_dataset_record', { artifact_id: artifactId });
+  } catch {
+    // Best-effort — the broker record may already be gone.
+  }
+  try {
+    await callArtifactManagerHttp(adminToken, 'delete', { artifact_id: artifactId });
+  } catch {
+    // Best-effort — the artifact may already be gone.
   }
 }
 
@@ -184,26 +273,37 @@ test.describe('Share dialog Apply flow (§14 items 1, 2)', () => {
 test.describe('Annotate request-access flow (§13 item 4)', () => {
   test('logged-in visitor without a role sees a Request access button', async ({ page }) => {
     const token = readHyphaToken();
-    const privateAlias = process.env.PRIVATE_DATASET_ALIAS;
-    if (!token || !privateAlias) {
+    const adminToken = readBioimageIoToken();
+    if (!token || !adminToken) {
       test.skip();
       return;
     }
-    test.setTimeout(60000);
+    test.setTimeout(90000);
 
-    await injectToken(page, token);
-    const url = `/#/colab/annotate?session_id=${encodeURIComponent(privateAlias)}&label=${encodeURIComponent(LABEL)}`;
-    await page.goto(url);
+    const alias = `pw-fixture-private-${Date.now()}`;
+    const artifactId = await provisionPrivateDataset(adminToken, alias, LABEL);
+    try {
+      await injectToken(page, token);
+      const url = `/#/colab/annotate?session_id=${encodeURIComponent(alias)}&label=${encodeURIComponent(LABEL)}`;
+      await page.goto(url);
 
-    const requestButton = page.getByRole('button', { name: 'Request access' });
-    await expect(requestButton).toBeVisible({ timeout: 30000 });
-    await requestButton.click({ force: true });
+      const requestButton = page.getByRole('button', { name: 'Request access' });
+      await expect(requestButton).toBeVisible({ timeout: 30000 });
+      await requestButton.click({ force: true });
 
-    // Either the request is recorded (confirmation text) or the caller
-    // already had access and the page reconnects straight into the viewer.
-    const confirmation = page.getByText('Access requested.', { exact: false });
-    const viewer = page.getByTestId('annotation-viewer');
-    await expect(confirmation.or(viewer)).toBeVisible({ timeout: 30000 });
+      const confirmation = page.getByText('Access requested.', { exact: false });
+      await expect(confirmation).toBeVisible({ timeout: 30000 });
+
+      // Owner sees the request: fetch the dataset record with the admin
+      // token and confirm an access_requests entry exists for this run's
+      // browser-session identity.
+      const ownerView = await callBrokerHttp(adminToken, 'get_dataset', { artifact_id: artifactId });
+      const requesterId = decodeTokenSubject(token);
+      const hasRequest = (ownerView.access_requests || []).some((r: any) => r.id === requesterId);
+      expect(hasRequest).toBe(true);
+    } finally {
+      await cleanupPrivateDataset(adminToken, artifactId);
+    }
   });
 });
 
