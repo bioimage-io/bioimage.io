@@ -42,11 +42,16 @@ export interface ActionPanelProps {
   isSaving: boolean;
   isCLAHEActive: boolean;
   isLowContrast?: boolean;
+  /** True while the page has no viewable session (access denied or login
+   * required, colab-rework-plan.md §19 item 10): dims the whole panel and
+   * blocks interaction so it reads as non-interactive rather than just
+   * being covered up. */
+  disabled?: boolean;
 }
 
 const ActionPanel: React.FC<ActionPanelProps> = ({
   onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onHelp, onUploadGeoJSON,
-  imageName, isSaving, isCLAHEActive, isLowContrast = false,
+  imageName, isSaving, isCLAHEActive, isLowContrast = false, disabled = false,
 }) => {
   const canUndo = useAnnotationStore((s) => s.canUndo);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
@@ -105,6 +110,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
     <Box
       role="toolbar"
       aria-label="Annotation actions"
+      aria-disabled={disabled}
       sx={{
         position: 'absolute',
         zIndex: 1000,
@@ -113,6 +119,9 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
         flexDirection: isPortrait ? 'row' : 'column',
         alignItems: isPortrait ? 'center' : 'flex-end',
         justifyContent: isPortrait ? 'flex-end' : undefined,
+        opacity: disabled ? 0.45 : 1,
+        pointerEvents: disabled ? 'none' : 'auto',
+        transition: 'opacity 150ms ease-out',
       }}
     >
       {/* ── Collapsed strip ─────────────────────────────────────────────── */}

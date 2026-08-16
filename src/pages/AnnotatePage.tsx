@@ -1447,6 +1447,7 @@ print("CLAHE_RESULT:" + result_b64)
         microSamAvailable={microSamAvailable}
         aiBoxReady={aiBoxReady}
         isRunningCellpose={isRunningCellpose}
+        disabled={!!permissionDenied}
       />
       <ActionPanel
         onSave={handleSave}
@@ -1463,6 +1464,7 @@ print("CLAHE_RESULT:" + result_b64)
         isSaving={isSaving}
         isCLAHEActive={isCLAHEActive}
         isLowContrast={isLowContrast}
+        disabled={!!permissionDenied}
       />
       <Box sx={{ position: 'absolute', inset: 0 }}>
         {imageUrl && !allAnnotatedInfo && !noImagesInfo && (

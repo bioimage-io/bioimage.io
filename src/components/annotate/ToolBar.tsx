@@ -72,6 +72,11 @@ export interface ToolBarProps {
    * AI Box tool will actually respond to a drawn box, not just "reachable". */
   aiBoxReady?: boolean;
   isRunningCellpose: boolean;
+  /** True while the page has no viewable session (access denied or login
+   * required, colab-rework-plan.md §19 item 10): dims the whole panel and
+   * blocks interaction so it reads as non-interactive rather than just
+   * being covered up. */
+  disabled?: boolean;
 }
 
 const ToolBar: React.FC<ToolBarProps> = ({
@@ -80,6 +85,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   cellposeAvailable = false, microSamAvailable = false,
   aiBoxReady = false,
   isRunningCellpose,
+  disabled = false,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
   const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
@@ -119,12 +125,16 @@ const ToolBar: React.FC<ToolBarProps> = ({
     <Box
       role="toolbar"
       aria-label="Annotation tools"
+      aria-disabled={disabled}
       sx={{
         position: 'absolute',
         zIndex: 1000,
         ...anchorSx,
         display: 'flex',
         alignItems: 'flex-start',
+        opacity: disabled ? 0.45 : 1,
+        pointerEvents: disabled ? 'none' : 'auto',
+        transition: 'opacity 150ms ease-out',
       }}
     >
       {/* ── Collapsed strip ─────────────────────────────────────────────── */}
