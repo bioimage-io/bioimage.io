@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { HYPHA_SERVER_URL } from '../../config/hypha';
+import DeploymentConfigModal from './DeploymentConfigModal';
+import BioEngineGitHubLink from './BioEngineGitHubLink';
+import InfoPopover from './InfoPopover';
 
 type OSType = 'macos' | 'linux' | 'windows';
 
@@ -106,11 +109,128 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE_VERSION = '0.9.1';
+const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
-const BioEngineGuide: React.FC = () => {
+// One entry of --startup-applications. `config` is the payload the shared deploy
+// dialog emits (the deploy_app kwargs), or null while the box is still unconfigured.
+interface StartupApplication {
+  uid: string;
+  config: Record<string, any> | null;
+}
+
+// Keys the deploy dialog always emits at the worker's own default. Dropping them
+// keeps the generated command readable without changing what gets deployed.
+const STARTUP_APP_DEFAULTS: Record<string, any> = {
+  disable_gpu: false,
+  auto_redeploy: false,
+  debug: false,
+  max_ongoing_requests: 10,
+};
+
+const startupAppJson = (config: Record<string, any>): string => {
+  const payload: Record<string, any> = {};
+  Object.entries(config).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return;
+    if (STARTUP_APP_DEFAULTS[key] === value) return;
+    if (Array.isArray(value) && value.length === 0) return;
+    if (!Array.isArray(value) && typeof value === 'object' && Object.keys(value).length === 0) return;
+    payload[key] = value;
+  });
+  return JSON.stringify(payload);
+};
+
+// Missing artifact_id => nothing to deploy, so the entry is left out of the command.
+// A missing application_id is not a problem: the worker generates one.
+const getStartupAppWarnings = (config: Record<string, any> | null): string[] => {
+  const warnings: string[] = [];
+  if (!config?.artifact_id) {
+    warnings.push('No Artifact ID set. There is nothing to deploy, so this entry is left out of the generated command until you set one.');
+  }
+  return warnings;
+};
+
+// Slim one-line summary of a configured startup application: application ID,
+// artifact ID and version only. Everything else stays behind the settings dialog.
+const StartupApplicationRow: React.FC<{
+  config: Record<string, any> | null;
+  onOpenSettings: () => void;
+  onRemove: () => void;
+}> = ({ config, onOpenSettings, onRemove }) => {
+  const applicationId = (config?.application_id || '').trim();
+  const artifactId = (config?.artifact_id || '').trim();
+  const version = (config?.version || '').trim();
+  const warnings = getStartupAppWarnings(config);
+  const hasWarning = warnings.length > 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+        hasWarning ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'
+      }`}
+    >
+      {hasWarning && (
+        <span className="relative group flex-shrink-0">
+          <button
+            type="button"
+            aria-label="Incomplete startup application"
+            className="flex items-center text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 rounded"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </button>
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute left-0 top-6 z-20 hidden group-hover:block group-focus-within:block w-72 p-2 rounded-lg bg-gray-900 text-white text-xs shadow-lg"
+          >
+            {warnings.map((warning, i) => (
+              <span key={i} className="block first:mt-0 mt-1.5">{warning}</span>
+            ))}
+          </span>
+        </span>
+      )}
+
+      <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+        {applicationId
+          ? <span className="text-sm font-medium text-gray-800 truncate">{applicationId}</span>
+          : <span className="text-sm text-gray-500 italic">Auto-generated ID</span>}
+        <span className="text-gray-300" aria-hidden="true">|</span>
+        {artifactId
+          ? <code className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded truncate">{artifactId}</code>
+          : <span className="text-sm text-amber-700 italic">No artifact ID</span>}
+        <span className="text-gray-300" aria-hidden="true">|</span>
+        <span className="text-xs text-gray-500">{version || 'latest version'}</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="flex items-center flex-shrink-0 px-2 py-1 text-xs text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+      >
+        <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        Settings
+      </button>
+
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove startup application"
+        className="flex-shrink-0 p-1 text-gray-400 rounded hover:text-red-600 hover:bg-red-50 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+};
+
+const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScrollToWorkers }) => {
   const { server, isLoggedIn, user } = useHyphaStore();
   const [os, setOS] = useState<OSType>('macos');
   const [mode, setMode] = useState<ModeType>('single-machine');
@@ -120,13 +240,11 @@ const BioEngineGuide: React.FC = () => {
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
-  const [cpus, setCpus] = useState(2);
-  const [gpus, setGpus] = useState(0);
-  const [memory, setMemory] = useState(10);
-  const [copied, setCopied] = useState(false);
+  const [cpus, setCpus] = useState(4);
+  const [gpus, setGpus] = useState(1);
+  const [memory, setMemory] = useState(24);
   const [copiedStep1, setCopiedStep1] = useState(false);
   const [copiedStep2, setCopiedStep2] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Main settings
@@ -135,6 +253,11 @@ const BioEngineGuide: React.FC = () => {
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
 
+  // Startup applications (--startup-applications)
+  const [startupApps, setStartupApps] = useState<StartupApplication[]>([]);
+  const [editingStartupUid, setEditingStartupUid] = useState<string | null>(null);
+  const startupUidCounter = useRef(0);
+
   // Advanced options
   const [workspace, setWorkspace] = useState('');
   const [serverUrl, setServerUrl] = useState('');
@@ -142,9 +265,7 @@ const BioEngineGuide: React.FC = () => {
   const [adminUsers, setAdminUsers] = useState<string[]>([]);
   const [workerName, setWorkerName] = useState('');
   const [workspaceDir, setWorkspaceDir] = useState('');
-  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
-  const [shmSize, setShmSize] = useState('8g');
+  const [shmSizeGb, setShmSizeGb] = useState(8);
   const [customImage, setCustomImage] = useState('');
   const [platformOverride, setPlatformOverride] = useState('');
   const [clientId, setClientId] = useState('');
@@ -161,7 +282,6 @@ const BioEngineGuide: React.FC = () => {
   // header for dashboard requests from the proxy actor) and stored alongside
   // HYPHA_TOKEN in the bioengine-secrets Kubernetes Secret.
   const [rayAuthToken, setRayAuthToken] = useState('');
-  const [showRayWorkspaceDirDialog, setShowRayWorkspaceDirDialog] = useState(false);
   const [k8sSecretCopied, setK8sSecretCopied] = useState(false);
   const [k8sYamlCopied, setK8sYamlCopied] = useState(false);
   const [k8sApplyCopied, setK8sApplyCopied] = useState(false);
@@ -183,17 +303,19 @@ const BioEngineGuide: React.FC = () => {
   const [slurmWorkerWorkspaceDir, setSlurmWorkerWorkspaceDir] = useState('');
   const [copiedSlurmStep1, setCopiedSlurmStep1] = useState(false);
   const [copiedSlurmStep2, setCopiedSlurmStep2] = useState(false);
-  const [copiedSlurmStep3, setCopiedSlurmStep3] = useState(false);
 
-  const troubleshootingDialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (showTroubleshooting && troubleshootingDialogRef.current) {
-      setTimeout(() => {
-        troubleshootingDialogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-      }, 100);
-    }
-  }, [showTroubleshooting]);
+  // Token lifetime follows how the token is stored. Container and SLURM commands
+  // carry it on the command line, where it is only needed until the worker
+  // connects and starts renewing its own token, so one hour is enough. The
+  // Kubernetes manifest stores it in a long-lived Secret that has to survive pod
+  // restarts, so that one keeps the 30-day lifetime. The agent prompt gets a
+  // little more slack (3 hours) since an AI agent walking through setup with the
+  // user can take longer than a human copy-pasting commands.
+  const wantsLongLivedToken = audience === 'human' && mode === 'external-cluster';
+  const tokenLifetimeSeconds = audience === 'agent' ? 3 * 3600 : wantsLongLivedToken ? 30 * 24 * 3600 : 3600;
+  const tokenLifetimeLabel = audience === 'agent' ? '3 hours' : wantsLongLivedToken ? '30 days' : '1 hour';
+  const tokenLifetimeAdjective = audience === 'agent' ? '3-hour' : wantsLongLivedToken ? '30-day' : '1-hour';
+  const generatedTokenLifetime = useRef<number | null>(null);
 
   // Auto-generate token when user is logged in and no manual token is set
   const generateToken = useCallback(async () => {
@@ -201,22 +323,31 @@ const BioEngineGuide: React.FC = () => {
     setIsGeneratingToken(true);
     setTokenError(null);
     try {
-      const thirtyDays = 30 * 24 * 3600;
-      const generatedToken = await server.generateToken({ permission: 'admin', expires_in: thirtyDays });
+      const generatedToken = await server.generateToken({ permission: 'admin', expires_in: tokenLifetimeSeconds });
       setToken(generatedToken);
       setTokenIsManual(false);
+      generatedTokenLifetime.current = tokenLifetimeSeconds;
     } catch (err) {
       setTokenError(`Failed to generate token: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsGeneratingToken(false);
     }
-  }, [isLoggedIn, server]);
+  }, [isLoggedIn, server, tokenLifetimeSeconds]);
 
   useEffect(() => {
     if (isLoggedIn && !tokenIsManual && !token) {
       generateToken();
     }
   }, [isLoggedIn, tokenIsManual, token, generateToken]);
+
+  // Switching mode changes the lifetime the token should have, so reissue the
+  // auto-generated one. A pasted token is left alone.
+  useEffect(() => {
+    if (!isLoggedIn || tokenIsManual || !token) return;
+    if (generatedTokenLifetime.current !== null && generatedTokenLifetime.current !== tokenLifetimeSeconds) {
+      generateToken();
+    }
+  }, [tokenLifetimeSeconds, isLoggedIn, tokenIsManual, token, generateToken]);
 
   // Pre-populate Admin Users with the logged-in user's email — only when the
   // list is currently empty, so manual edits aren't overwritten on re-renders.
@@ -279,6 +410,32 @@ const BioEngineGuide: React.FC = () => {
     return '--gpus=all ';
   };
 
+  const addStartupApp = () => {
+    startupUidCounter.current += 1;
+    const uid = `startup-app-${startupUidCounter.current}`;
+    setStartupApps(prev => [...prev, { uid, config: null }]);
+    // Open the settings dialog straight away: a new box is empty, and an empty
+    // box is exactly the state the row warns about.
+    setEditingStartupUid(uid);
+  };
+
+  const removeStartupApp = (uid: string) => {
+    setStartupApps(prev => prev.filter(app => app.uid !== uid));
+    setEditingStartupUid(current => (current === uid ? null : current));
+  };
+
+  const saveStartupApp = (uid: string, config: Record<string, any>) => {
+    setStartupApps(prev => prev.map(app => (app.uid === uid ? { ...app, config } : app)));
+  };
+
+  const editingStartupApp = startupApps.find(app => app.uid === editingStartupUid) || null;
+
+  // Entries without an artifact ID have nothing to deploy, so they never reach the
+  // generated command. The row itself carries the warning that explains why.
+  const deployableStartupApps = startupApps
+    .map(app => app.config)
+    .filter((config): config is Record<string, any> => Boolean(config?.artifact_id));
+
   const getCommand = () => {
     let args: string[] = [];
 
@@ -309,6 +466,20 @@ const BioEngineGuide: React.FC = () => {
     // at container-runtime via the docker/podman command, not here.
     if (mode === 'slurm' && customImage) args.push(`--image ${customImage}`);
 
+    // --startup-applications takes one JSON object per app (argparse nargs="+").
+    // SLURM always runs through bash, so only the container command on Windows
+    // needs the escaped double-quote form instead of single quotes.
+    if (deployableStartupApps.length > 0) {
+      const useWindowsQuoting = os === 'windows' && mode !== 'slurm';
+      const quoted = deployableStartupApps.map(config => {
+        const json = startupAppJson(config);
+        return useWindowsQuoting
+          ? `"${json.replace(/"/g, '\\"')}"`
+          : `'${json.replace(/'/g, `'\\''`)}'`;
+      });
+      args.push(`--startup-applications ${quoted.join(' ')}`);
+    }
+
     const argsString = args.length > 0 ? args.join(' ') : '';
 
     if (mode === 'slurm') {
@@ -337,16 +508,15 @@ const BioEngineGuide: React.FC = () => {
 
       const hostPath = workspaceDir || '$HOME/.bioengine';
       const createDirCmd = `mkdir -p ${hostPath}`;
-      const tokenExportCmd = token
-        ? `export HYPHA_TOKEN=${token}`
-        : `export HYPHA_TOKEN=<your-hypha-token>`;
-      return { createDirCmd, tokenExportCmd, scriptCmd };
+      // No separate HYPHA_TOKEN export step: the token is already on the script's
+      // command line, and start_hpc_worker.sh forwards it to the worker.
+      return { createDirCmd, scriptCmd };
     }
 
     const platform = getPlatform();
     const userFlag = getUserFlag();
     const gpuFlag = getGpuFlag();
-    const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSize} `;
+    const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSizeGb}g `;
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
     const imageToUse = customImage || DEFAULT_IMAGE;
     const gpuEnvFlag = (gpuIndices && gpus > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
@@ -414,108 +584,6 @@ const BioEngineGuide: React.FC = () => {
     return { createDirCmd, dockerCmd };
   };
 
-  const copyToClipboard = async () => {
-    try {
-      const command = getCommand();
-      const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-      let textToCopy = '';
-      if (typeof command === 'string') {
-        textToCopy = command;
-      } else if ('scriptCmd' in command) {
-        textToCopy = `# Step 1: Create the BioEngine workspace directory\n${command.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${command.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${command.scriptCmd}`;
-      } else {
-        textToCopy = `# Step 1: Create directories\n${command.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${command.dockerCmd}`;
-      }
-      await navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  const getTroubleshootingPrompt = () => {
-    const isK8s = mode === 'external-cluster';
-    const currentCommand = isK8s ? null : getCommand();
-    const containerName = containerRuntime.charAt(0).toUpperCase() + containerRuntime.slice(1);
-
-    let commandText = '';
-    if (currentCommand) {
-      if (typeof currentCommand === 'string') {
-        commandText = currentCommand;
-      } else if ('scriptCmd' in currentCommand) {
-        commandText = `# Step 1: Create the BioEngine workspace directory\n${currentCommand.createDirCmd}\n\n# Step 2: Set your Hypha authentication token\n${currentCommand.tokenExportCmd}\n\n# Step 3: Launch the BioEngine worker on SLURM\n${currentCommand.scriptCmd}`;
-      } else {
-        commandText = `# Step 1: Create directories\n${currentCommand.createDirCmd}\n\n# Step 2: Run ${containerName} container\n${currentCommand.dockerCmd}`;
-      }
-      // Redact token from command
-      if (token) commandText = commandText.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<my-token>');
-    }
-
-    let setupSection: string;
-    if (isK8s) {
-      const k8sLines = [
-        `- **Ray Cluster Address**: ${rayAddress || '<not set>'}`,
-        `- **Kubernetes Namespace**: ${k8sNamespace || 'bioengine'}`,
-        `- **Ray Workspace Directory**: ${rayWorkspaceDir || '<not set>'}`,
-        `- **PVC available**: ${hasPvc ? 'yes (bioengine-pvc)' : 'no'}`,
-        workspace && `- **Hypha Workspace**: ${workspace}`,
-        serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
-        adminUsers.length > 0 && `- **Admin Users**: ${adminUsers.join(', ')}`,
-        customImage && `- **Custom Image**: ${customImage}`,
-      ].filter(Boolean).join('\n');
-      const yaml = getKubernetesWorkerYaml().replace(token, '<my-token>');
-      setupSection = `### My Kubernetes Setup\n${k8sLines}\n\n### Deployment YAML\n\`\`\`yaml\n${yaml}\n\`\`\``;
-    } else {
-      const isSlurm = mode === 'slurm';
-      const lines = [
-        !isSlurm && `- **Operating System**: ${os === 'macos' ? 'macOS' : os === 'linux' ? 'Linux' : 'Windows'}`,
-        !isSlurm && `- **Container Runtime**: ${containerName}`,
-        `- **Mode**: ${mode === 'single-machine' ? 'Single Machine (local)' : 'SLURM (HPC cluster)'}`,
-        mode === 'single-machine' && `- **CPUs**: ${cpus}`,
-        mode === 'single-machine' && `- **GPUs**: ${gpus}${gpus > 0 && gpuIndices ? ` (indices: ${gpuIndices})` : ''}`,
-        mode === 'single-machine' && `- **Memory**: ${memory > 0 ? `${memory} GB` : 'auto-detect'}`,
-        isSlurm && `- **Worker CPUs (default)**: ${slurmDefaultNumCpus}`,
-        isSlurm && `- **Worker GPUs (default)**: ${slurmDefaultNumGpus}`,
-        isSlurm && `- **Memory per CPU (default)**: ${slurmDefaultMemPerCpu} GB`,
-        isSlurm && `- **Worker time limit (default)**: ${slurmDefaultTimeLimit}`,
-        isSlurm && slurmMaxWorkers !== '' && `- **Max workers**: ${slurmMaxWorkers}`,
-        isSlurm && slurmGpuFlag !== '--gpus={n}' && `- **GPU sbatch flag**: ${slurmGpuFlag || '(omitted)'}`,
-        isSlurm && slurmFurtherArgs.trim() && `- **Further SLURM args**: ${slurmFurtherArgs.trim()}`,
-        isSlurm && slurmApptainerArgs.trim() && `- **Further apptainer args**: ${slurmApptainerArgs.trim()}`,
-        isSlurm && slurmWorkerWorkspaceDir && `- **Worker Workspace Directory**: ${slurmWorkerWorkspaceDir}`,
-        workspace && `- **Hypha Workspace**: ${workspace}`,
-        serverUrl && `- **Hypha Server URL**: ${serverUrl}`,
-        adminUsers.length > 0 && `- **Admin Users**: ${adminUsers.join(', ')}`,
-        workspaceDir && `- **BioEngine Workspace Directory**: ${workspaceDir}`,
-        customImage && `- **Custom Image**: ${customImage}`,
-      ].filter(Boolean).join('\n');
-      setupSection = `### My Setup\n${lines}\n\n### Generated Command\n\`\`\`bash\n${commandText}\n\`\`\``;
-    }
-
-    return `# BioEngine Worker Troubleshooting
-
-I'm trying to set up a **BioEngine Worker**. BioEngine is part of the AI4Life project and provides cloud-powered AI tools for bioimage analysis.
-
-The source code and documentation are available at: https://github.com/aicell-lab/bioengine
-${isK8s ? `Deployment is on **Kubernetes** using KubeRay (external-cluster mode). The worker connects to an existing Ray cluster and registers itself as a Hypha service.` : `Deployment mode: **${mode === 'single-machine' ? 'Single Machine' : 'SLURM HPC cluster'}**.`}
-${setupSection}
-
-## My Issue
-
-[Paste your error message or describe your problem here]`;
-  };
-
-  const copyTroubleshootingPrompt = async () => {
-    try {
-      await navigator.clipboard.writeText(getTroubleshootingPrompt());
-      setPromptCopied(true);
-      setTimeout(() => setPromptCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy prompt:', err);
-    }
-  };
-
   const getK8sSecretCommand = () => {
     const ns = k8sNamespace || 'bioengine';
     const tokenValue = token || '<your-admin-token>';
@@ -581,6 +649,15 @@ DOCKERFILE`;
     }
     if (workerName) extraArgs += arg('--worker-name', workerName);
 
+    // Startup-app configs are JSON, so they go in single-quoted YAML scalars
+    // (a double-quoted scalar would need every inner quote escaped).
+    if (deployableStartupApps.length > 0) {
+      extraArgs += `\n        - "--startup-applications"`;
+      extraArgs += deployableStartupApps
+        .map(config => `\n        - '${startupAppJson(config).replace(/'/g, "''")}'`)
+        .join('');
+    }
+
     // RAY_AUTH_TOKEN + RAY_AUTH_MODE — only emit when the user provided a
     // Ray Cluster Auth Token. Otherwise the env vars stay unset and Ray
     // Client / proxy actor make unauthenticated requests, which is the
@@ -642,6 +719,12 @@ spec:
         - "--client-id"
         - "$(BIOENGINE_CLIENT_ID)"${extraArgs}
         env:
+        # UID 65534 (nobody) has no writable home dir (/nonexistent) in the
+        # base image, which crashes the worker on startup. Pin HOME to the
+        # same path mounted below (PVC-backed, or an ephemeral emptyDir when
+        # no PVC is available) so it's always writable.
+        - name: HOME
+          value: /home/bioengine
         - name: HYPHA_TOKEN
           valueFrom:
             secretKeyRef:
@@ -661,7 +744,7 @@ spec:
             - /bin/sh
             - -c
             - 'curl -sf "${serverUrlVal}/${workspaceVal}/services/$POD_NAME:bioengine-worker/get_status"
-              | grep -E "\"is_ready\":\\s*true"'
+              | grep -E ''"is_ready":\\s*true'''
           initialDelaySeconds: 60
           periodSeconds: 20
           timeoutSeconds: 10
@@ -672,63 +755,63 @@ spec:
             - /bin/sh
             - -c
             - 'curl -sf "${serverUrlVal}/${workspaceVal}/services/$POD_NAME:bioengine-worker/get_status"
-              | grep -E "\"is_ready\":\\s*true"'
+              | grep -E ''"is_ready":\\s*true'''
           initialDelaySeconds: 10
           periodSeconds: 30
           timeoutSeconds: 10
-          failureThreshold: 2${hasPvc ? `
+          failureThreshold: 2
         volumeMounts:
         - name: bioengine
           mountPath: /home/bioengine
       volumes:
       - name: bioengine
-        persistentVolumeClaim:
-          claimName: bioengine-pvc` : ''}`;
+        ${hasPvc ? `persistentVolumeClaim:
+          claimName: bioengine-pvc` : `emptyDir: {}`}`;
   };
 
-  return (
-    <div className="pt-4">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full flex items-center justify-between text-left rounded-xl p-4 transition-all duration-200 ${isExpanded
-            ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
-            : 'bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-2 border-blue-200 hover:shadow-md'
-          }`}
-      >
-        <div className="flex items-center">
-          <div className={`rounded-xl flex items-center justify-center mr-4 transition-all duration-200 ${isExpanded
-              ? 'w-8 h-8 bg-gradient-to-r from-gray-400 to-gray-500'
-              : 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-md'
-            }`}>
-            <svg className={`text-white transition-all duration-200 ${isExpanded ? 'w-4 h-4' : 'w-6 h-6'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h4 className={`font-semibold transition-all duration-200 ${isExpanded ? 'text-sm text-gray-700' : 'text-lg text-gray-800'}`}>
-              Launch Your Own BioEngine Instance
-            </h4>
-            <p className={`text-gray-500 transition-all duration-200 ${isExpanded ? 'text-xs' : 'text-sm font-medium'}`}>
-              Deployment configurator
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center">
-          <span className={`text-gray-500 mr-3 transition-all duration-200 ${isExpanded ? 'text-xs' : 'text-sm font-medium'}`}>{isExpanded ? 'Hide' : 'Show'}</span>
-          <svg className={`text-gray-400 transition-all duration-200 ${isExpanded ? 'w-4 h-4 rotate-180' : 'w-5 h-5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </button>
+  // Rendered between the standard configuration fields and the advanced options,
+  // in both the Kubernetes and the container/SLURM branch of the configurator.
+  const startupApplicationsSection = (
+    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+      <h5 className="text-sm font-semibold text-gray-700">Startup Applications</h5>
+      <p className="text-xs text-gray-500 mt-1 mb-3">
+        Applications the worker deploys automatically every time it starts. Each one is configured with the same dialog as the Deploy button on the BioEngine dashboard.
+      </p>
 
-      {isExpanded && (
-        <form className="mt-4 space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
+      <div className="space-y-2">
+        {startupApps.map(app => (
+          <StartupApplicationRow
+            key={app.uid}
+            config={app.config}
+            onOpenSettings={() => setEditingStartupUid(app.uid)}
+            onRemove={() => removeStartupApp(app.uid)}
+          />
+        ))}
+
+        <button
+          type="button"
+          onClick={addStartupApp}
+          className="w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
+        >
+          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add startup application
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <form className="space-y-6" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
 
           {/* ── Audience toggle: small segmented control, no explainer (the rest of the form explains itself) ── */}
           <div className="flex justify-center -mb-2">
             <div className="inline-flex items-center bg-gray-100 rounded-lg p-1" role="tablist" aria-label="Audience">
               {(['human', 'agent'] as const).map(value => {
                 const selected = audience === value;
+                const isAgent = value === 'agent';
                 return (
                   <button
                     key={value}
@@ -736,12 +819,22 @@ spec:
                     role="tab"
                     aria-selected={selected}
                     onClick={() => setAudience(value)}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    // The agent tab keeps a light blue tint while unselected so the
+                    // "let an agent do this" route is noticed rather than looking
+                    // like the inactive half of a plain toggle.
+                    className={`flex items-center justify-center gap-1.5 min-w-[7rem] px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                       selected
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900'
+                        ? 'bg-white shadow-sm ' + (isAgent ? 'text-blue-700' : 'text-gray-900')
+                        : isAgent
+                          ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                          : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
+                    {isAgent && (
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                      </svg>
+                    )}
                     {value === 'human' ? 'Human' : 'AI Agent'}
                   </button>
                 );
@@ -754,7 +847,7 @@ spec:
             const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
             const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
             const promptText = (includeAgentToken && token)
-              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace:\n${token}`
+              ? `${basePrompt}\n\nUse this Hypha admin token for my workspace (valid for ${tokenLifetimeLabel}, ask me to generate a new one if it has expired):\n${token}`
               : basePrompt;
             return (
               <div className="space-y-4">
@@ -797,7 +890,7 @@ spec:
                       className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded"
                     />
                     <span className="ml-2 text-sm text-gray-700">
-                      Include an admin Hypha token for my workspace in the prompt
+                      Include an admin Hypha token for my workspace in the prompt (valid for {tokenLifetimeLabel})
                       {!isLoggedIn && <span className="text-gray-500"> (log in to enable)</span>}
                       {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
                     </span>
@@ -855,56 +948,23 @@ spec:
             <div className="space-y-4 border-t border-gray-200 pt-4">
 
               {/* Intro */}
-              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                <p className="text-sm font-semibold text-orange-800 mb-1">Starting from an existing Ray cluster</p>
-                <p className="text-sm text-orange-700">
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl border border-blue-200">
+                <p className="text-sm font-semibold text-gray-800 mb-1">Getting started on Kubernetes clusters</p>
+                <p className="text-sm text-gray-700">
                   This mode connects the BioEngine worker to a Ray cluster already running on Kubernetes.
                   If you don't have one yet, follow the{' '}
                   <a
                     href="https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="underline font-medium hover:text-orange-900"
+                    className="underline font-medium hover:text-blue-900"
                   >
                     KubeRay Quick Start Guide
                   </a>.
                 </p>
-              </div>
-
-              {/* Note 1: Ray workspace directory */}
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start flex-1 mr-3">
-                    <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="text-sm text-blue-800">
-                      <p className="font-medium">Recommended: mount a shared PVC on your Ray cluster nodes</p>
-                      <p className="text-blue-700 text-xs mt-1">
-                        BioEngine apps run on Ray nodes and write to the Ray Workspace Directory. For apps that communicate through the filesystem (e.g. <code className="bg-blue-100 px-1 rounded">bioimage-io/model-runner</code>), scaling to multiple replicas requires a shared volume across all Ray nodes. Otherwise only reduced functionality is available.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowRayWorkspaceDirDialog(true)}
-                    className="flex-shrink-0 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors"
-                  >
-                    Learn more
-                  </button>
-                </div>
-              </div>
-
-              {/* Note 2: PVC for BioEngine workspace dir */}
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-start">
-                  <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm text-blue-800">
-                    <span className="font-medium">Recommended: mount a PVC at the BioEngine Workspace Directory</span>
-                    <span className="text-blue-700">. Worker logs will otherwise be lost when the pod restarts.</span>
-                  </p>
-                </div>
+                <p className="text-sm text-gray-700 mt-3">
+                  <strong>Recommended:</strong> mount a shared <strong>ReadWriteMany</strong> PVC (e.g. NFS, <code className="bg-white/60 px-1 rounded">ontap-nas</code>) at the same path on all Ray head and worker nodes, and set that path as the <strong>Ray Workspace Directory</strong> below. BioEngine apps execute on Ray cluster nodes, not inside the worker pod. Some apps, like <code className="bg-white/60 px-1 rounded">bioimage-io/model-runner</code>, split work across multiple deployments that Ray Serve can place on different nodes, so without a shared volume they can't see each other's files and inference fails, even with a single running instance.
+                </p>
               </div>
 
               {/* Standard configuration fields */}
@@ -967,54 +1027,44 @@ spec:
                       />
                       <span className="text-sm font-medium text-gray-700">I have a PVC named <code className="bg-gray-100 px-1 rounded">bioengine-pvc</code> available in this namespace</span>
                     </label>
-                    <p className="text-xs text-gray-500 mt-1">Mounts the PVC into the <strong>BioEngine worker pod</strong> at <code className="bg-gray-100 px-1 rounded">/home/bioengine</code> to persist worker logs. This is separate from the Ray cluster PVC.</p>
+                    <p className="text-xs text-gray-500 mt-1">Mounts the PVC into the <strong>BioEngine worker pod</strong> at <code className="bg-gray-100 px-1 rounded">/home/bioengine</code> to persist worker logs. This can be a different PVC than the one on the Ray cluster nodes, for example if the Ray cluster runs in a different namespace.</p>
+                    {!hasPvc && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-start">
+                          <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-sm text-blue-800">
+                            <span className="font-medium">Recommended: mount a PVC at the BioEngine Workspace Directory</span>
+                            <span className="text-blue-700">. Worker logs will otherwise be lost when the pod restarts.</span>
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Auth warning */}
-              {!token && (
-                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    <div className="text-sm text-amber-800">
-                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
-                      <div className="text-amber-700 space-y-1">
-                        {isLoggedIn ? (
-                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
-                        ) : (
-                          <>
-                            <p>An authentication token is required. Either:</p>
-                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a 30-day admin token, or</li>
-                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
-                            </ol>
-                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Startup applications */}
+              {startupApplicationsSection}
 
               {/* Advanced options */}
-              <div className="pt-2 pb-2">  
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                 <button
+                  type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                  className="w-full flex items-center justify-between text-left"
+                  aria-expanded={showAdvanced}
                 >
-                  <svg className={`w-4 h-4 mr-2 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                  <h5 className="text-sm font-semibold text-gray-700">Advanced Options</h5>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`}
                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                  Advanced Options
                 </button>
 
                 {showAdvanced && (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
                       <TagInput
@@ -1043,7 +1093,7 @@ spec:
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                               </svg>
                             )}
-                            Regenerate (30 days)
+                            Regenerate ({tokenLifetimeLabel})
                           </button>
                         )}
                       </div>
@@ -1057,7 +1107,7 @@ spec:
                       />
                       {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                       {isLoggedIn && !tokenIsManual && token && (
-                        <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
+                        <p className="text-xs text-green-600 mt-1">Auto-generated {tokenLifetimeAdjective} admin token. Regenerate when it expires using the button above.</p>
                       )}
                       <p className="text-xs text-gray-500 mt-1">Used to resolve workspace and populate the deployment YAML. Store in a Kubernetes secret for production.</p>
                     </div>
@@ -1133,6 +1183,34 @@ spec:
                   </div>
                 )}
               </div>
+
+              {/* Auth warning */}
+              {!token && (
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                  <div className="flex items-start">
+                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <div className="text-sm text-amber-800">
+                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
+                      <div className="text-amber-700 space-y-1">
+                        {isLoggedIn ? (
+                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
+                        ) : (
+                          <>
+                            <p>An authentication token is required. Either:</p>
+                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
+                              <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
+                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
+                            </ol>
+                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Build & push a custom image (only when a non-default Ray version is requested) */}
               {rayVersion && (
@@ -1304,17 +1382,16 @@ spec:
                     List deployments and status: <code className="bg-gray-100 px-1 rounded">kubectl get deployments -n {k8sNamespace || 'bioengine'}</code>. Check pod logs: <code className="bg-gray-100 px-1 rounded">kubectl logs -l app=bioengine-worker -n {k8sNamespace || 'bioengine'}</code>. Delete deployment: <code className="bg-gray-100 px-1 rounded">kubectl delete deployment bioengine-worker -n {k8sNamespace || 'bioengine'}</code>.
                   </p>
                 </div>
-              </div>
 
-              {/* K8s troubleshooting */}
-              <div className="flex justify-center pt-2 border-t border-gray-200">
-                <button onClick={() => setShowTroubleshooting(true)}
-                  className="flex items-center px-4 py-2 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Need Help? Get AI Troubleshooting Prompt
-                </button>
+                {/* Step 4: view dashboard */}
+                <div>
+                  <p className="text-sm text-gray-700 font-medium">4. View your worker's dashboard</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Once the worker pod is running, scroll up and click{' '}
+                    <button type="button" onClick={() => onScrollToWorkers?.()} className="font-semibold text-blue-600 hover:text-blue-800 underline">View BioEngine Workers</button>{' '}
+                    to open its dashboard.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -1323,99 +1400,30 @@ spec:
           {mode !== 'external-cluster' && (
             <div className="space-y-4">
 
-              {/* Container runtime requirement */}
-              {mode === 'single-machine' && (
-                <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                  <p className="text-sm font-semibold text-orange-800 mb-1">Container runtime required</p>
-                  <p className="text-sm text-orange-700">
-                    BioEngine runs inside a container. Install one of the supported runtimes: <strong>Docker</strong> (most common), <strong>Podman</strong> (rootless alternative), <strong>Apptainer</strong> (HPC, Singularity successor), or <strong>Singularity</strong>. The latest image is ~1.1 GB and will be pulled automatically on first run.
-                  </p>
-                  {gpus > 0 && (
-                    <p className="text-sm text-orange-700 mt-2">
-                      <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-900">installation guide</a>.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Workspace directory info */}
-              {mode === 'single-machine' && (
-                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                  <div className="flex items-start">
-                    <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-sm text-blue-800">
-                      <span className="font-medium">BioEngine Workspace Directory: </span>
-                      <code className="bg-blue-100 px-1 rounded">{workspaceDir || (os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine')}</code>
-                      <span className="text-blue-700 text-xs block mt-1">This directory is created on the host and mounted into the container. It stores apps, logs, and temporary files. Change it in Advanced Options below.</span>
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Authentication Required warning when no token */}
-              {!token && (
-                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    <div className="text-sm text-amber-800">
-                      <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
-                      <div className="text-amber-700 space-y-1">
-                        {isLoggedIn ? (
-                          <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
-                        ) : (
-                          <>
-                            <p>An authentication token is required. Either:</p>
-                            <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
-                              <li><strong>Log in</strong> to auto-generate a 30-day admin token, or</li>
-                              <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
-                            </ol>
-                            <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* SLURM info */}
               {mode === 'slurm' && (
                 <>
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                    <p className="text-sm font-semibold text-blue-800 mb-1">HPC Cluster Setup</p>
-                    <p className="text-sm text-blue-700">
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl border border-blue-200">
+                    <p className="text-sm font-semibold text-gray-800 mb-1">Getting started on HPC clusters</p>
+                    <p className="text-sm text-gray-700">
                       Run BioEngine on an HPC cluster managed by SLURM. The head node runs on the login node inside an Apptainer/Singularity container and submits SLURM jobs to scale Ray workers up and down on demand. Please report issues and feedback on <a href="https://github.com/aicell-lab/bioengine/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">GitHub</a>.
                     </p>
-                  </div>
-
-                  {/* Cluster requirements */}
-                  <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-                    <p className="text-sm font-semibold text-orange-800 mb-1">Cluster requirements</p>
-                    <ul className="text-sm text-orange-700 list-disc list-inside space-y-1">
-                      <li>Run from a <strong>login node</strong> with <code className="bg-orange-100 px-1 rounded">sbatch</code>, <code className="bg-orange-100 px-1 rounded">squeue</code>, <code className="bg-orange-100 px-1 rounded">scancel</code>, and <code className="bg-orange-100 px-1 rounded">sinfo</code> available.</li>
+                    <p className="text-sm font-medium text-gray-800 mt-3 mb-1">Cluster requirements</p>
+                    <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
+                      <li>Run from a <strong>login node</strong> with <code className="bg-white/60 px-1 rounded">sbatch</code>, <code className="bg-white/60 px-1 rounded">squeue</code>, <code className="bg-white/60 px-1 rounded">scancel</code>, and <code className="bg-white/60 px-1 rounded">sinfo</code> available.</li>
                       <li><strong>Apptainer</strong> or <strong>Singularity</strong> available on both login and compute nodes.</li>
-                      <li>The BioEngine workspace directory must live on a <strong>shared filesystem</strong> visible to every compute node (e.g. <code className="bg-orange-100 px-1 rounded">/proj/...</code> or <code className="bg-orange-100 px-1 rounded">/home/...</code> on most clusters).</li>
+                      <li>The BioEngine workspace directory must live on a <strong>shared filesystem</strong> visible to every compute node (e.g. <code className="bg-white/60 px-1 rounded">/proj/...</code> or <code className="bg-white/60 px-1 rounded">/home/...</code> on most clusters).</li>
                       <li>Your SLURM account/project must have <strong>sufficient allocation</strong> for the requested GPUs and time.</li>
+                      <li>The latest image is <strong>~1.1 GB</strong> and is pulled automatically on the first worker job.</li>
+                    </ul>
+                    <p className="text-sm font-medium text-gray-800 mt-3 mb-1">Tips</p>
+                    <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
+                      <li>Run the script inside <code className="bg-white/60 px-1 rounded">tmux</code> or <code className="bg-white/60 px-1 rounded">screen</code> so the head survives ssh disconnects.</li>
+                      <li>Monitor active jobs: <code className="bg-white/60 px-1 rounded">squeue -u $USER -n ray_worker</code>.</li>
+                      <li>Stop everything: <code className="bg-white/60 px-1 rounded">Ctrl+C</code> in the script window. Pending Ray workers are auto-cancelled on cleanup.</li>
                     </ul>
                   </div>
 
-                  {/* Workspace directory info */}
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                    <div className="flex items-start">
-                      <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <p className="text-sm text-blue-800">
-                        <span className="font-medium">BioEngine Workspace Directory: </span>
-                        <code className="bg-blue-100 px-1 rounded">{workspaceDir || '$HOME/.bioengine'}</code>
-                        <span className="text-blue-700 text-xs block mt-1">Created on the login node, mounted into the head and worker containers. Stores apps, logs, the Apptainer image cache, and Ray temporary files. Must be on a filesystem shared between login and compute nodes. Change it in Advanced Options below.</span>
-                      </p>
-                    </div>
-                  </div>
                 </>
               )}
 
@@ -1513,7 +1521,12 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Container Runtime</label>
+                      <div className="flex items-center gap-1 mb-1">
+                        <label className="block text-sm font-medium text-gray-700">Container Runtime</label>
+                        <InfoPopover label="Container runtime info">
+                          BioEngine runs inside a container. Make sure the selected container runtime is installed on this machine. The latest image is ~1.1 GB and will be pulled automatically on first run.
+                        </InfoPopover>
+                      </div>
                       <select value={containerRuntime} onChange={(e) => setContainerRuntime(e.target.value as ContainerRuntimeType)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="docker">Docker</option>
@@ -1530,14 +1543,22 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Shared Memory Size</label>
-                      <select value={shmSize} onChange={(e) => setShmSize(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        {['1g','2g','4g','6g','8g','10g','12g','16g'].map(v => (
-                          <option key={v} value={v}>{v.replace('g', ' GB')}</option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-gray-500 mt-1">Increase for large models{(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? ' (uses system shm)' : ''}</p>
+                      {(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? null : (
+                        <>
+                          <div className="flex items-center gap-1 mb-1">
+                            <label className="block text-sm font-medium text-gray-700">Shared Memory Size (GB)</label>
+                            <InfoPopover label="Shared memory size info">
+                              Ray's object store lives in <code className="bg-gray-100 px-1 rounded">/dev/shm</code>, which Docker and Podman default to just 64 MB, too small for Ray. This sets that limit. Independent of the Workspace Directory mount below, which is for persistent files on the host.
+                            </InfoPopover>
+                          </div>
+                          <input type="number" min="1" max="256" value={shmSizeGb}
+                            onChange={(e) => setShmSizeGb(parseInt(e.target.value) || 1)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Size of /dev/shm for Ray's object store.
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div>
@@ -1549,12 +1570,17 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">GPUs</label>
+                      <div className="flex items-center gap-1 mb-1">
+                        <label className="block text-sm font-medium text-gray-700">GPUs</label>
+                        <InfoPopover label="GPU info">
+                          <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
+                        </InfoPopover>
+                      </div>
                       <input type="number" min="0" max="16" value={gpus}
                         onChange={(e) => setGpus(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">
-                        {gpus > 0 ? `Requires NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : `drivers (--nv flag)`}` : 'Set to 0 for CPU-only mode'}
+                        {gpus > 0 ? `Requires NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : `drivers (--nv flag)`}` : 'CPU-only mode, no GPU access'}
                       </p>
                     </div>
 
@@ -1563,7 +1589,7 @@ spec:
                       <input type="number" min="0" max="512" value={memory}
                         onChange={(e) => setMemory(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">RAM for Ray head node in GB (0 = auto-detect)</p>
+                      <p className="text-xs text-gray-500 mt-1">Total RAM available to Ray on this machine (0 = auto-detect).</p>
                     </div>
                   </div>
                 </div>
@@ -1571,22 +1597,27 @@ spec:
             </div>
           )}
 
+          {/* ── Startup applications ── */}
+          {mode !== 'external-cluster' && startupApplicationsSection}
+
           {/* ── Advanced options ── */}
           {mode !== 'external-cluster' && (
-            <div>
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
               <button
+                type="button"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                className="w-full flex items-center justify-between text-left"
+                aria-expanded={showAdvanced}
               >
-                <svg className={`w-4 h-4 mr-2 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                <h5 className="text-sm font-semibold text-gray-700">Advanced Options</h5>
+                <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-                Advanced Options
               </button>
 
               {showAdvanced && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
 
                   {/* ── Worker identity ── */}
                   <div>
@@ -1632,7 +1663,7 @@ spec:
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
                           )}
-                          Regenerate (30 days)
+                          Regenerate ({tokenLifetimeLabel})
                         </button>
                       )}
                     </div>
@@ -1646,10 +1677,10 @@ spec:
                     />
                     {tokenError && <p className="text-xs text-red-600 mt-1">{tokenError}</p>}
                     {isLoggedIn && !tokenIsManual && token && (
-                      <p className="text-xs text-green-600 mt-1">Auto-generated 30-day admin token. Regenerate when it expires using the button above.</p>
+                      <p className="text-xs text-green-600 mt-1">Auto-generated {tokenLifetimeAdjective} admin token. Regenerate when it expires using the button above.</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>.
+                      Required. Manually provided tokens must have <strong>Permission Level: Admin</strong>. The short lifetime only has to cover the initial connection: from then on the worker renews its own token. Generate a fresh one here if you start the worker again later.
                     </p>
                   </div>
 
@@ -1755,6 +1786,34 @@ spec:
             </div>
           )}
 
+          {/* ── Authentication Required warning when no token ── */}
+          {mode !== 'external-cluster' && !token && (
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">🔐 Important: Authentication Required</p>
+                  <div className="text-amber-700 space-y-1">
+                    {isLoggedIn ? (
+                      <p>Generating your authentication token… or set one manually in <strong>Advanced Options → Authentication Token</strong>.</p>
+                    ) : (
+                      <>
+                        <p>An authentication token is required. Either:</p>
+                        <ol className="list-decimal list-inside space-y-1 ml-2 text-xs">
+                          <li><strong>Log in</strong> to auto-generate a {tokenLifetimeAdjective} admin token, or</li>
+                          <li>Set a token manually in <strong>Advanced Options → Authentication Token</strong></li>
+                        </ol>
+                        <p className="text-xs italic mt-1">Manually provided tokens must have <strong>Permission Level: Admin</strong>.</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Generated command (SLURM step-by-step) ── */}
           {mode === 'slurm' && (
             <div className="space-y-3 border-t border-gray-200 pt-4">
@@ -1783,52 +1842,25 @@ spec:
                     {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.createDirCmd : ''; })()}
                   </pre>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <code className="bg-gray-100 px-1 rounded">{workspaceDir || '$HOME/.bioengine'}</code> is created on the login node and mounted into the head and worker containers. Stores apps, logs, the Apptainer image cache, and Ray temporary files. Must be on a filesystem shared between login and compute nodes.
+                </p>
               </div>
 
-              {/* Step 2: Export Hypha token */}
+              {/* Step 2: Run the SLURM script */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">2. Set your Hypha authentication token</p>
+                  <p className="text-sm text-gray-700 font-medium">2. Launch the BioEngine worker on SLURM</p>
                   <button
                     onClick={async () => {
                       const command = getCommand();
                       if (typeof command !== 'string' && 'scriptCmd' in command) {
-                        try { await navigator.clipboard.writeText(command.tokenExportCmd); setCopiedSlurmStep2(true); setTimeout(() => setCopiedSlurmStep2(false), 2000); } catch (_) {}
+                        try { await navigator.clipboard.writeText(command.scriptCmd); setCopiedSlurmStep2(true); setTimeout(() => setCopiedSlurmStep2(false), 2000); } catch (_) {}
                       }
                     }}
                     className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
                   >
                     {copiedSlurmStep2 ? (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
-                    ) : (
-                      <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
-                    )}
-                  </button>
-                </div>
-                <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                  <pre className="text-green-400 text-xs font-mono whitespace-pre">
-                    {(() => { const command = getCommand(); return typeof command !== 'string' && 'scriptCmd' in command ? command.tokenExportCmd : ''; })()}
-                  </pre>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  The startup script picks up <code className="bg-gray-100 px-1 rounded">HYPHA_TOKEN</code> from the environment (or from a <code className="bg-gray-100 px-1 rounded">.env</code> file in the current directory). Prefer this over baking the token into the command itself so it doesn't end up in your shell history.
-                </p>
-              </div>
-
-              {/* Step 3: Run the SLURM script */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">3. Launch the BioEngine worker on SLURM</p>
-                  <button
-                    onClick={async () => {
-                      const command = getCommand();
-                      if (typeof command !== 'string' && 'scriptCmd' in command) {
-                        try { await navigator.clipboard.writeText(command.scriptCmd); setCopiedSlurmStep3(true); setTimeout(() => setCopiedSlurmStep3(false), 2000); } catch (_) {}
-                      }
-                    }}
-                    className="flex items-center px-2 py-1 text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
-                  >
-                    {copiedSlurmStep3 ? (
                       <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
                     ) : (
                       <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
@@ -1845,15 +1877,14 @@ spec:
                 </p>
               </div>
 
-              <div className="flex justify-end">
-                <button onClick={copyToClipboard}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg flex items-center">
-                  {copied ? (
-                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied all steps!</>
-                  ) : (
-                    <><svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy all three steps</>
-                  )}
-                </button>
+              {/* Step 3: view dashboard */}
+              <div>
+                <p className="text-sm text-gray-700 font-medium">3. View your worker's dashboard</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Once the worker is running, scroll up and click{' '}
+                  <button type="button" onClick={() => onScrollToWorkers?.()} className="font-semibold text-blue-600 hover:text-blue-800 underline">View BioEngine Workers</button>{' '}
+                  to open its dashboard.
+                </p>
               </div>
             </div>
           )}
@@ -1863,7 +1894,7 @@ spec:
               {/* Step 1: Create directories */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm text-gray-700 font-medium">1. Create directories</p>
+                  <p className="text-sm text-gray-700 font-medium">1. Create the BioEngine workspace directory</p>
                   <button
                     onClick={async () => {
                       const command = getCommand();
@@ -1885,6 +1916,9 @@ spec:
                     {(() => { const command = getCommand(); return typeof command !== 'string' ? command.createDirCmd : ''; })()}
                   </pre>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <code className="bg-gray-100 px-1 rounded">{workspaceDir || (os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine')}</code> is mounted into the container. Stores apps, logs, and temporary files.
+                </p>
               </div>
 
               {/* Step 2: Run container */}
@@ -1923,33 +1957,15 @@ spec:
                   </p>
                 )}
               </div>
-            </div>
-          )}
 
-
-          {/* ── SLURM info ── */}
-          {mode === 'slurm' && (
-            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="flex items-start">
-                <svg className="w-5 h-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-                <div className="text-sm text-blue-800">
-                  <p className="font-medium mb-2">🖥️ SLURM Cluster Mode</p>
-                  <div className="text-blue-700 space-y-1">
-                    <p>The startup script downloads the BioEngine container, starts the Ray head inside <code className="bg-blue-100 px-1 rounded">apptainer</code> on the login node, and submits SLURM jobs for Ray workers on demand. Workers idle out automatically when nothing is deployed.</p>
-                    <div className="mt-2 p-3 bg-blue-100 rounded-lg">
-                      <p className="font-medium text-blue-900 mb-1">💡 Tips:</p>
-                      <ul className="list-disc list-inside space-y-1 text-blue-800 text-xs">
-                        <li>Run the script inside <code className="bg-blue-200 px-1 rounded">tmux</code> or <code className="bg-blue-200 px-1 rounded">screen</code> so the head survives ssh disconnects.</li>
-                        <li>Monitor active jobs: <code className="bg-blue-200 px-1 rounded">squeue -u $USER -n ray_worker</code>.</li>
-                        <li>Stop everything: <code className="bg-blue-200 px-1 rounded">Ctrl+C</code> in the script window. Pending Ray workers are auto-cancelled on cleanup.</li>
-                        <li>The first launch will pull the Apptainer image (~1 GB) into <code className="bg-blue-200 px-1 rounded">$WORKSPACE_DIR/images</code>. Subsequent runs are fast.</li>
-                        <li>After the script reports the worker is registered, open the dashboard at <a href="https://bioimage.io/#/bioengine" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-blue-900">bioimage.io/#/bioengine</a>.</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+              {/* Step 3: view dashboard */}
+              <div>
+                <p className="text-sm text-gray-700 font-medium">3. View your worker's dashboard</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Once the worker is running, scroll up and click{' '}
+                  <button type="button" onClick={() => onScrollToWorkers?.()} className="font-semibold text-blue-600 hover:text-blue-800 underline">View BioEngine Workers</button>{' '}
+                  to open its dashboard.
+                </p>
               </div>
             </div>
           )}
@@ -1958,123 +1974,49 @@ spec:
           </>)}
           {/* end human mode */}
 
-          {/* ── GitHub link (visible in both human and agent modes) ── */}
-          <div className="flex justify-center pt-4 border-t border-gray-200">
+          {/* ── Need help (visible in both human and agent modes) ── */}
+          <div className="pt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => { setAudience('agent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium underline"
+            >
+              Need help? Let an AI agent set it up
+            </button>
+          </div>
+
+          {/* ── Links (visible in both human and agent modes) ── */}
+          <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-center gap-6 flex-wrap">
+            <BioEngineGitHubLink />
             <a
-              href="https://github.com/aicell-lab/bioengine"
+              href="https://github.com/aicell-lab/bioengine/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.4 3-.405 1.02.005 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>aicell-lab/bioengine on GitHub</span>
+              <span>Report an issue</span>
             </a>
           </div>
         </form>
-      )}
 
-      {/* ── Ray workspace dir explanation dialog ── */}
-      {showRayWorkspaceDirDialog && (
-        <>
-          {/* Click-away backdrop */}
-          <div
-            onClick={() => setShowRayWorkspaceDirDialog(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 998 }}
-          />
-          {/* Dialog centered in viewport */}
-          <div style={{
-            position: 'fixed',
-            top: '50vh',
-            left: '50vw',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 999,
-            width: 'min(640px, 90vw)',
-            maxHeight: '80vh',
-            overflowY: 'auto',
-          }} className="bg-white rounded-2xl shadow-2xl border border-gray-200">
-            <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-base font-semibold text-gray-800">Ray Workspace Directory: Why It Matters</h3>
-              <button onClick={() => setShowRayWorkspaceDirDialog(false)}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-5 space-y-4 text-sm text-gray-700">
-              <p>
-                The BioEngine worker runs in its own pod and writes to the <strong>BioEngine Workspace Directory</strong> (e.g. <code className="bg-gray-100 px-1 rounded">/home/bioengine</code>). This is the same directory configured with <code className="bg-gray-100 px-1 rounded">--workspace-dir</code> in single-machine mode.
-              </p>
-              <p>
-                In Kubernetes mode the actual BioEngine apps execute on <strong>Ray cluster nodes</strong>, not inside the worker pod. Those nodes need their own writable directory, set with <code className="bg-gray-100 px-1 rounded">--ray-workspace-dir</code>. If this flag is not set, the worker falls back to the same path as <code className="bg-gray-100 px-1 rounded">--workspace-dir</code>, which only works if the Ray nodes can also reach that path.
-              </p>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="font-medium text-amber-800 mb-1">Impact on scaling</p>
-                <p className="text-amber-700">
-                  Some apps, like <code className="bg-amber-100 px-1 rounded">bioimage-io/model-runner</code>, communicate between the worker and Ray nodes through the filesystem. Without a shared <strong>ReadWriteMany</strong> PVC mounted at the same path on all Ray nodes, running more than one app replica will result in reduced functionality: only the replica on the node that holds the file will work correctly.
-                </p>
-              </div>
-              <p>
-                <strong>Recommended setup:</strong> mount a ReadWriteMany PVC (e.g. NFS, <code className="bg-gray-100 px-1 rounded">ontap-nas</code>) at <code className="bg-gray-100 px-1 rounded">/home/bioengine</code> on all Ray head and worker nodes, and set <code className="bg-gray-100 px-1 rounded">--ray-workspace-dir /home/bioengine</code>.
-              </p>
-            </div>
-            <div className="p-4 border-t border-gray-200 flex justify-end">
-              <button onClick={() => setShowRayWorkspaceDirDialog(false)}
-                className="px-5 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700">Close</button>
-            </div>
-          </div>
-        </>
-      )}
 
-      {/* ── Troubleshooting dialog ── */}
-      {showTroubleshooting && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div ref={troubleshootingDialogRef} className="bg-white rounded-2xl shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <div className="flex items-center">
-                <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center mr-3">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">AI Troubleshooting Assistant</h3>
-                  <p className="text-sm text-gray-600">Copy this prompt to Claude, Gemini, or ChatGPT</p>
-                </div>
-              </div>
-              <button onClick={() => setShowTroubleshooting(false)}
-                className="text-gray-400 hover:text-gray-600 p-2 rounded-xl hover:bg-gray-100">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex-1 p-6 overflow-hidden flex flex-col">
-              <div className="mb-4 flex justify-between items-center">
-                <h4 className="text-sm font-medium text-gray-700">Troubleshooting Prompt</h4>
-                <button onClick={copyTroubleshootingPrompt}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center">
-                  {promptCopied ? (
-                    <><svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Copied!</>
-                  ) : (
-                    <><svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy Prompt</>
-                  )}
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto">
-                <pre className="text-xs text-gray-700 bg-gray-50 p-4 rounded-lg border whitespace-pre-wrap font-mono leading-relaxed">
-                  {getTroubleshootingPrompt()}
-                </pre>
-              </div>
-            </div>
-            <div className="p-4 border-t border-gray-200 flex justify-end">
-              <button onClick={() => setShowTroubleshooting(false)}
-                className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Close</button>
-            </div>
-          </div>
-        </div>
+      {/* Startup application settings: the dashboard's deploy dialog, with an
+          editable artifact ID since no artifact card was clicked to pick one. */}
+      {editingStartupApp && (
+        <DeploymentConfigModal
+          isOpen={true}
+          onClose={() => setEditingStartupUid(null)}
+          onDeploy={(config) => saveStartupApp(editingStartupApp.uid, config)}
+          artifactId={editingStartupApp.config?.artifact_id || ''}
+          initialMode={null}
+          initialConfig={editingStartupApp.config}
+          editableArtifactId
+          title="Startup Application"
+          submitLabel="Save"
+        />
       )}
     </div>
   );

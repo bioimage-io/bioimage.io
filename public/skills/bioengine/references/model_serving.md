@@ -22,7 +22,7 @@ from pydantic import Field
 
 @bioengine.app(
     num_cpus=4,
-    num_gpus=1,
+    gpu_memory_mb=-1,            # a whole GPU: this deployment keeps 4 variants warm
     memory_mb=8 * 1024,
     pip=["cellpose>=4.0"],
 )
@@ -64,36 +64,101 @@ class CachedSegmentation:
 
 ## GPU allocation strategies
 
+GPU is requested as **VRAM in megabytes** on the `@bioengine.app` decorator. The raw
+`@serve.deployment(ray_actor_options={"num_gpus": ...})` form these examples used to show is
+deprecated on two counts — the decorator will fail introspection, and `num_gpus` was removed
+from the decorator surface in bioengine 0.15.0. Scaling is not a decorator field either; pass
+it at deploy time via `deploy_app(scaling={...})`.
+
+> **`gpu_memory_mb` reserves, it does not cap.** The number is consumed by the scheduler when
+> it places the replica and by nothing afterwards. A replica declaring `gpu_memory_mb=8192` was
+> observed allocating **12 GiB** and continuing to run normally. Two things follow. Your own
+> app is not protected from OOM by the number you declared, so size it against the largest
+> input you will actually accept. And a device that looks half-free by reservation can be full
+> in fact, which is why the numbers in `bioengine cluster status` are capacity planning rather
+> than truth — read `nvidia-smi` on the node when it matters.
+>
+> **Over-requesting VRAM hangs instead of failing.** CPU and RAM over-requests reach
+> `DEPLOY_FAILED` in about 9 seconds. A VRAM over-request is unschedulable rather than
+> invalid, so the replica sits in `DEPLOYING` with no timeout (measured at 10.8 minutes).
+> Put a wall-clock deadline on every GPU deploy wait.
+
+### Sizing the number
+
+There is no way to look this up, and guessing runs high: an app that guessed `8192` peaked at
+**1180 MB**, 7× over. On a 24 GB card that guess costs six co-tenants their slot. Measure it:
+
+1. Deploy once with `gpu_memory_mb=-1`. A whole-device request always schedules on an idle GPU,
+   so this step cannot hit the hang above.
+2. Run your real workload at the largest input you intend to support, and read the peak from
+   torch rather than from any BioEngine or NVML field:
+   ```python
+   import torch
+   torch.cuda.reset_peak_memory_stats()
+   ...                                      # the real call
+   peak_mb = round(torch.cuda.max_memory_allocated() / 2**20)
+   ```
+3. Redeploy with the peak plus generous headroom (30% is cheap, being short is an OOM
+   mid-request).
+
+`torch.cuda.max_memory_allocated()` reports what **torch** allocated, which excludes the CUDA
+context itself (a few hundred MB) and anything TensorFlow or onnxruntime is holding. That is
+part of what the headroom is for.
+
+**Warm up in `async_init`.** Loading weights onto the device is not the whole cold start. With
+the model already resident, the first call still cost **2.19×** the tenth — CUDA context
+creation, kernel autotuning and cuDNN algorithm selection all fire on the first tensor that
+reaches the device. One throwaway forward pass at a realistic input shape moves that cost into
+startup. A warm-up at the wrong shape re-triggers autotuning when the real one arrives.
+
+**Confirm the work landed on the GPU by asserting on tensors**, not on
+`torch.cuda.is_available()` (a fact about the host, true throughout a silent CPU fallback) and
+not on utilisation (NVML averages over ~1 s, so a short call reads 0%):
+```python
+assert next(model.parameters()).is_cuda
+assert out.device.type == "cuda"
+```
+
 ### Single large model — one full GPU per replica
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 1, "num_cpus": 4, "memory": 16 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 2},
-)
+@bioengine.app(num_cpus=4, gpu_memory_mb=-1, memory_mb=16 * 1024)
 ```
 
-Use when: Foundation models (SAM, CellSAM), any model that fills an entire GPU.
+Use when: Foundation models (SAM, CellSAM), any model that fills an entire GPU. `-1` is the
+only way to say "the whole device" — there is no maximum you can name that means the same thing
+on every card.
 
-### Small models — fractional GPU (multi-replica per node)
+### Small models — several replicas per GPU
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 0.25, "num_cpus": 2, "memory": 4 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 8},
-)
+@bioengine.app(num_cpus=2, gpu_memory_mb=2048, memory_mb=4 * 1024)
 ```
 
-Use when: Lightweight CNNs (MitoSegNet, StarDist) using < 2 GB VRAM each. Allows 4 replicas per GPU, 4× throughput. **Only safe if this app is the sole GPU user on the cluster — fractional allocation does not enforce VRAM limits.**
+Use when: Lightweight CNNs (MitoSegNet, StarDist) using < 2 GB VRAM each. On a 24 GB card this
+packs many replicas onto one device, and unlike the old fractional `num_gpus=0.25` it is
+**accounted in the units that actually run out**. Ask for what the model needs plus headroom
+for the largest input you expect, not for a share of the device.
 
 ### CPU-only
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 0, "num_cpus": 4, "memory": 8 * 1024**3},
-    autoscaling_config={"min_replicas": 1, "max_replicas": 16},
-)
+@bioengine.app(num_cpus=4, memory_mb=8 * 1024)
 ```
+
+Omit `gpu_memory_mb` entirely. `gpu_memory_mb=0` is hard-rejected, so translating an old
+`num_gpus=0` literally will not deploy.
+
+### Releasing VRAM between calls
+
+Because the reservation is not a cap, a long-lived replica that creeps upward will eventually
+OOM itself or a co-tenant, and `torch.cuda.empty_cache()` only reaches torch's own allocator.
+If your deployment mixes frameworks, or you need "no VRAM left over" to be a guarantee rather
+than a hope, run each inference in a **subprocess** and let the OS reclaim the whole CUDA
+context on exit. This is what the built-in `model-runner` app does. The pattern is written up
+under [Model caching](#model-caching) because that is where it
+first came up, but it is not specific to caching or to TensorFlow — it is the general answer
+whenever process-lifetime VRAM ownership is the thing you cannot tolerate.
 
 ---
 
@@ -175,17 +240,16 @@ async def async_init(self) -> None:
 For apps that run both inference and online fine-tuning:
 
 ```python
-@serve.deployment(
-    ray_actor_options={"num_gpus": 1, "num_cpus": 8, "memory": 32 * 1024**3},
-)
+@bioengine.app(num_cpus=8, gpu_memory_mb=-1, memory_mb=32 * 1024)
 class FineTuningDeployment:
     def __init__(self): self._model = None; self._training = False
 
-    async def async_init(self):
+    @bioengine.async_init
+    async def load(self):
         from cellpose import models
         self._model = models.CellposeModel(model_type='cpsam', gpu=True)
 
-    @schema_method
+    @bioengine.method
     async def start_finetuning(
         self,
         images: list,
@@ -199,7 +263,7 @@ class FineTuningDeployment:
         asyncio.create_task(self._train(images, masks, n_epochs, run_id))
         return {"status": "started", "run_id": run_id}
 
-    @schema_method
+    @bioengine.method
     async def get_training_status(self, run_id: str) -> dict:
         """Poll training progress."""
         return self._jobs.get(run_id, {"status": "not_found"})

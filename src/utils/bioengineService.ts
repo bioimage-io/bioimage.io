@@ -35,6 +35,11 @@ export const BIOIMAGEIO_WORKER_SERVICE_ID =
 // per-site via useModelRunners().
 export const BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID = BIOIMAGEIO_KTH_MODEL_RUNNER_SERVICE_ID;
 
+// The Cellpose-4 runner (Cellpose-SAM etc.) is a KTH-only companion app to
+// model-runner — there is no deNBI deployment.
+export const BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID =
+  `bioimage-io/${BIOIMAGEIO_KTH_WORKER_CLIENT_GLOB}:cellpose4-runner`;
+
 export type RunnerSite = 'kth' | 'denbi';
 
 // KTH is the default runner (RUNNER_SITES[0]); deNBI (v1.15.2 async API)

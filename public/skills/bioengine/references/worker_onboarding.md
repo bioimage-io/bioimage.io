@@ -246,7 +246,7 @@ Run all seven before telling the user "your worker is ready." Each is a single P
 > **`run_code` API contract — read before writing any check.** `run_code(code=..., remote_options={...})` schedules a Ray task that imports the code string, looks up a top-level function named **`analyze`** (literal), calls it with no arguments, and returns its value in `result["result"]`. Three rules that catch every agent the first time:
 > 1. The function MUST be named `analyze`. Anything else raises `Object 'analyze' is not callable: None` — a misleading error that does not name the missing symbol.
 > 2. The function MUST return a JSON-serialisable value. `print(...)` lands in the worker logs, not the return.
-> 3. Ray resource options go through `remote_options={"num_cpus": ..., "num_gpus": ...}`, **not** as direct kwargs.
+> 3. Ray resource options go through `remote_options={"num_cpus": ..., "num_gpus": ...}`, **not** as direct kwargs. `num_gpus` is correct *here* and is not a leftover: `remote_options` is passed straight to Ray's own task API, which still counts devices. The `gpu_memory_mb` rewrite in bioengine 0.15.0 applies to `@bioengine.app` only. Don't "fix" this line.
 >
 > All seven checks below follow this contract.
 
@@ -303,13 +303,22 @@ async def c3():
     code = (
         "def analyze():\n"
         "    import torch\n"
+        "    x = torch.ones(1024, 1024, device='cuda')\n"
+        "    y = (x @ x).sum()\n"
         "    return {'cuda_available': torch.cuda.is_available(),\n"
-        "            'device_count': torch.cuda.device_count()}\n"
+        "            'device_count': torch.cuda.device_count(),\n"
+        "            'ran_on': str(y.device),\n"
+        "            'name': torch.cuda.get_device_name(0),\n"
+        "            'peak_mb': round(torch.cuda.max_memory_allocated() / 2**20)}\n"
     )
     return await w.run_code(code=code, remote_options={"num_gpus": 1})
 ```
 
-**Expected**: `cuda_available: True`, `device_count >= 1`. If `total_gpu == 0`, the host has no GPU, or the container was started without `--gpus=all`, or the GPU is masked by `CUDA_VISIBLE_DEVICES`. Inspect those in order.
+**Expected**: `cuda_available: True`, `device_count >= 1`, `ran_on` starting `cuda`, `peak_mb > 0`. If `total_gpu == 0`, the host has no GPU, or the container was started without `--gpus=all`, or the GPU is masked by `CUDA_VISIBLE_DEVICES`. Inspect those in order.
+
+> **`cuda.is_available()` is a check on the host, not on your computation.** It answers "is there a usable driver and device here", and it stays `True` while your code runs entirely on CPU — which is the actual failure mode you are trying to rule out, and it is silent. That is why the snippet above allocates a tensor, does work on it, and reports `ran_on` and `peak_mb`: those come from the tensor, so they cannot be true unless the device was used. Carry the same habit into apps (`assert next(model.parameters()).is_cuda`, `assert out.device.type == "cuda"`).
+>
+> Do **not** substitute a GPU utilisation reading for this. NVML averages over roughly a 1 second window, so a short call reads `0%` on a card that just ran it, and 0% looks identical to CPU fallback.
 
 ### C4 — Outbound network from a Ray task
 

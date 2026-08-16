@@ -61,7 +61,7 @@ async def main():
                 # (that's what tripped Ray admission at ~122). Polling to
                 # completion keeps exactly POOL jobs live in the GPU queue and
                 # at most one outstanding RPC per worker (<= POOL <= 10).
-                rid = await runner.infer(model_id=MODEL, inputs=arr, skip_cache=True)
+                rid = await runner.infer(model_id=MODEL, inputs=arr, cache="skip")
                 if isinstance(rid, str):
                     for _ in range(180):
                         if stop or time.monotonic() - start >= SECONDS:

@@ -81,7 +81,8 @@ Supported `file_type` values for `get_upload_url`: `.npy`, `.png`, `.tiff`/`.tif
 | `device` | `"cuda"`\|`"cpu"`\|null | null | Auto-selects based on availability if null. |
 | `default_blocksize_parameter` | int \| null | null | Override tiling block size (tiled models only). |
 | `return_download_url` | bool | false | Return presigned S3 URLs instead of raw arrays. |
-| `skip_cache` | bool | false | Force a model re-download before inference. |
+| `cache` | `skip`\|`check`\|`reuse` | `check` | Model-cache policy. `check` re-downloads only if the artifact changed; `skip` forces a full re-download/reload; `reuse` trusts the local cache / warm model. |
+| `skip_cache` | bool \| null | null | **Deprecated** alias for `cache` (`true`→`skip`, `false`→`check`). |
 
 ## `test` parameters
 
@@ -89,7 +90,8 @@ Supported `file_type` values for `get_upload_url`: `.npy`, `.png`, `.tiff`/`.tif
 |---|---|---|---|
 | `model_id` | str | — | Model nickname. |
 | `stage` | bool | false | Test the staged version; report lands in the `staged/` slot. |
-| `skip_cache` | bool | false | Force a fresh package download + re-test. |
+| `cache` | `skip`\|`check`\|`reuse` | `check` | Model-cache policy (same values as `infer`). `check` re-downloads + re-tests only if the artifact changed; `skip` forces a fresh download + re-test; `reuse` trusts the cached package and report. |
+| `skip_cache` | bool \| null | null | **Deprecated** alias for `cache` (`true`→`skip`, `false`→`check`). |
 | `custom_environment` | bool | false | Run inside the model's declared `dependencies` conda env (test-only; env cached on the shared PVC, LRU-evicted). |
 
 ## Environment variables

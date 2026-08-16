@@ -1,0 +1,452 @@
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useHyphaStore } from '../../store/hyphaStore';
+import BioEngineGitHubLink from './BioEngineGitHubLink';
+import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
+
+type GeoLocation = {
+  region?: string;
+  country_name?: string;
+  country_code?: string;
+};
+
+type BioEngineService = {
+  id: string;
+  name: string;
+  description: string;
+  // Worker-process geo (always set when status resolves; same as the cluster
+  // geo in single-machine / SLURM mode, can differ in external-cluster mode
+  // where the worker pod and the Ray head node are in different sites).
+  geo_location?: GeoLocation;
+  // Ray cluster head node geo. Prefer this over `geo_location` on the card
+  // — the user cares about where the compute actually lives.
+  cluster_geo_location?: GeoLocation;
+  bioengine_version?: string;
+};
+
+type WorkspaceStatus = 'loading' | 'loaded' | 'error';
+
+// Extract full service IDs from the "Multiple services found" error message
+const parseMultipleServicesFromError = (errStr: string): string[] => {
+  const regex = /services:public\|bioengine-worker:([^@']+)@\*/g;
+  const ids: string[] = [];
+  let match;
+  while ((match = regex.exec(errStr)) !== null) {
+    if (!ids.includes(match[1])) ids.push(match[1]);
+  }
+  return ids;
+};
+
+const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
+
+const ServiceCard: React.FC<{
+  service: BioEngineService;
+  onNavigate: (serviceId: string) => void;
+  featured?: boolean;
+}> = ({ service, onNavigate, featured }) => {
+  const [copied, setCopied] = useState(false);
+
+  const copyServiceId = async () => {
+    try {
+      await navigator.clipboard.writeText(service.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div className={`w-full max-w-[380px] backdrop-blur-sm rounded-2xl flex flex-col h-full transition-all duration-200 ${
+      featured
+        ? 'bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-300 shadow-md hover:shadow-lg hover:border-blue-400'
+        : 'bg-white/80 border border-white/20 shadow-sm hover:shadow-md hover:border-blue-200'
+    }`}>
+      <div className="p-6 flex-grow">
+        <div className="flex items-center mb-4">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 p-1 ${featured ? 'bg-white shadow-sm' : 'bg-white'}`}>
+            <img src="/static/img/bioengine-icon.svg" alt="BioEngine" className="w-8 h-8" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-semibold text-gray-800">{service.name}</h3>
+            {featured && (
+              <span className="inline-flex items-center mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                ⚡ Powers this website
+              </span>
+            )}
+          </div>
+        </div>
+
+        {(() => {
+          // Prefer the Ray cluster head node location (where compute actually runs).
+          // Worker geo is the fallback for single-machine / SLURM (where the two
+          // are the same) and for older workers that don't expose ray_cluster.geo_location.
+          const geo = service.cluster_geo_location ?? service.geo_location;
+          if (!geo) return null;
+          const where = [geo.region, geo.country_name].filter(Boolean).join(', ');
+          if (!where) return null;
+          return (
+            <div className="mb-3 flex items-center gap-1.5 text-sm text-gray-500">
+              <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span>{where}</span>
+            </div>
+          );
+        })()}
+
+        {service.bioengine_version && (
+          <div className="mb-3 flex items-center gap-1.5 text-sm text-gray-500">
+            <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+            <span>BioEngine {service.bioengine_version}</span>
+          </div>
+        )}
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Service ID</label>
+          <div className="relative">
+            <code className="block w-full px-3 py-2 bg-gray-900 text-green-400 text-sm font-mono rounded-lg border border-gray-300 pr-10 break-all">
+              {service.id}
+            </code>
+            <button
+              onClick={copyServiceId}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-green-400 transition-colors duration-200"
+              title="Copy service ID"
+            >
+              {copied ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-6 pt-0">
+        <button
+          onClick={() => onNavigate(service.id)}
+          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
+        >
+          View Dashboard
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const BioEngineWorkerList: React.FC = () => {
+  const navigate = useNavigate();
+  const { server, isLoggedIn } = useHyphaStore();
+
+  const [workspaceInput, setWorkspaceInput] = useState('');
+  const [workspaceServices, setWorkspaceServices] = useState<Record<string, BioEngineService[]>>({});
+  const [workspaceStatus, setWorkspaceStatus] = useState<Record<string, WorkspaceStatus>>({});
+  const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+
+  const userWorkspace = server?.config?.workspace as string | undefined;
+
+  // Pinned here: the public workspace, plus the logged-in user's own.
+  const defaultWorkspaces = useMemo(() => {
+    const ws = [DEFAULT_PUBLIC_WORKSPACE];
+    if (isLoggedIn && userWorkspace && userWorkspace !== DEFAULT_PUBLIC_WORKSPACE) {
+      ws.push(userWorkspace);
+    }
+    return ws;
+  }, [isLoggedIn, userWorkspace]);
+
+  const { observedWorkspaces, addWorkspace, removeWorkspace } = useObservedWorkspaces(defaultWorkspaces);
+
+  const handleAddWorkspace = () => {
+    addWorkspace(workspaceInput);
+    setWorkspaceInput('');
+  };
+
+  const handleRemoveWorkspace = (ws: string) => {
+    removeWorkspace(ws);
+    setWorkspaceServices(prev => { const next = { ...prev }; delete next[ws]; return next; });
+    setWorkspaceStatus(prev => { const next = { ...prev }; delete next[ws]; return next; });
+  };
+
+  // Fetch services for a single workspace
+  const fetchWorkspaceServices = useCallback(async (workspace: string) => {
+    if (!server) return;
+
+    setWorkspaceStatus(prev => ({ ...prev, [workspace]: 'loading' }));
+
+    try {
+      let services: BioEngineService[] = [];
+
+      if (isLoggedIn && workspace === userWorkspace) {
+        // Own workspace: enumerate all bioengine-worker services
+        const list = await server.listServices({ type: 'bioengine-worker' });
+        services = list.map((s: any) => ({
+          id: s.id,
+          name: s.name || s.id,
+          description: s.description || '',
+        }));
+      } else {
+        // External workspace: probe with short service ID. Multiple workers
+        // (KTH / deNBI / TUBITAK / Berzelius on bioimage-io) trigger the
+        // "Multiple services found" catch below, which parses every ID out
+        // and lists them all as cards. Production traffic (model-runner)
+        // is pinned to KTH separately via BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID.
+        try {
+          const svc = await server.getService(`${workspace}/bioengine-worker`);
+          services = [{ id: svc.id, name: svc.name || svc.id, description: svc.description || '' }];
+        } catch (err) {
+          const errStr = String(err);
+          if (errStr.includes('Multiple services found')) {
+            // Parse all service IDs from the error, then fetch each for details
+            const ids = parseMultipleServicesFromError(errStr);
+            const results = await Promise.allSettled(ids.map(id => server.getService(id)));
+            services = results.map((result, i) => {
+              if (result.status === 'fulfilled') {
+                const s = result.value;
+                return { id: s.id || ids[i], name: s.name || ids[i], description: s.description || '' };
+              }
+              return { id: ids[i], name: ids[i], description: '' };
+            });
+          }
+          // Not found or other error → services remains empty
+        }
+      }
+
+      // Enrich each service with status fields used by the card:
+      // worker + cluster geo, and BioEngine version.
+      if (services.length > 0) {
+        const statusResults = await Promise.allSettled(
+          services.map(async (svc) => {
+            try {
+              const worker = await server.getService(svc.id, { mode: 'random' });
+              const st = await worker.get_status();
+              return {
+                geo_location: st?.geo_location ?? null,
+                cluster_geo_location: st?.ray_cluster?.geo_location ?? null,
+                bioengine_version: st?.bioengine_version ?? null,
+              };
+            } catch {
+              return null;
+            }
+          })
+        );
+        services = services.map((svc, i) => {
+          const res = statusResults[i];
+          if (res.status !== 'fulfilled' || !res.value) return svc;
+          return {
+            ...svc,
+            geo_location: res.value.geo_location ?? undefined,
+            cluster_geo_location: res.value.cluster_geo_location ?? undefined,
+            bioengine_version: res.value.bioengine_version ?? undefined,
+          };
+        });
+      }
+
+      setWorkspaceServices(prev => ({ ...prev, [workspace]: services }));
+      setWorkspaceStatus(prev => ({ ...prev, [workspace]: 'loaded' }));
+    } catch (err) {
+      console.error(`Failed to fetch services for workspace ${workspace}:`, err);
+      setWorkspaceStatus(prev => ({ ...prev, [workspace]: 'error' }));
+    }
+  }, [server, isLoggedIn, userWorkspace]);
+
+  // Fetch all observed workspaces
+  const fetchAllWorkspaces = useCallback(async (isManual = false) => {
+    if (isManual) setManualRefreshLoading(true);
+    await Promise.allSettled(observedWorkspaces.map(ws => fetchWorkspaceServices(ws)));
+    if (isManual) setManualRefreshLoading(false);
+  }, [observedWorkspaces, fetchWorkspaceServices]);
+
+  // Fetch on mount and whenever server connection or workspace list changes
+  useEffect(() => {
+    if (server) fetchAllWorkspaces();
+  }, [server, observedWorkspaces]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    if (!server) return;
+    const interval = setInterval(() => {
+      observedWorkspaces.forEach(ws => fetchWorkspaceServices(ws));
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [server, observedWorkspaces, fetchWorkspaceServices]);
+
+  const navigateToDashboard = (serviceId: string) => {
+    navigate(`/bioengine/worker?service_id=${serviceId}`);
+  };
+
+  const allServices = useMemo(() => {
+    return observedWorkspaces.flatMap(ws => {
+      const services = workspaceServices[ws] || [];
+      if (ws === DEFAULT_PUBLIC_WORKSPACE) {
+        // Put the featured worker first within bioimage-io
+        const featured = services.filter(s => s.name === FEATURED_SERVICE_NAME);
+        const rest = services.filter(s => s.name !== FEATURED_SERVICE_NAME);
+        return [...featured, ...rest];
+      }
+      return services;
+    });
+  }, [observedWorkspaces, workspaceServices]);
+
+  const isAnyLoading = observedWorkspaces.some(ws => workspaceStatus[ws] === 'loading');
+
+  return (
+    <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
+
+      {/* Workspace management */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-gray-800">Observed Workspaces</h3>
+          <button
+            onClick={() => fetchAllWorkspaces(true)}
+            disabled={manualRefreshLoading || !server}
+            className="w-28 h-10 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-200"
+            title="Refresh services list"
+          >
+            {manualRefreshLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            <span className="ml-2 text-sm">Refresh</span>
+          </button>
+        </div>
+
+        {/* Add workspace input */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleAddWorkspace(); }}
+          className="flex gap-2 mb-3"
+        >
+          <input
+            type="text"
+            value={workspaceInput}
+            onChange={(e) => setWorkspaceInput(e.target.value)}
+            placeholder="Add workspace name..."
+            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+          <button
+            type="submit"
+            disabled={!workspaceInput.trim() || observedWorkspaces.includes(workspaceInput.trim())}
+            className="w-28 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium active:scale-[0.98] transition-all duration-200"
+          >
+            Add
+          </button>
+        </form>
+
+        {/* Workspace chips */}
+        <div className="flex flex-wrap gap-2">
+          {observedWorkspaces.map(ws => {
+            const isDefault = defaultWorkspaces.includes(ws);
+            const isUserWs = isLoggedIn && ws === userWorkspace;
+            const isPublicDefault = ws === DEFAULT_PUBLIC_WORKSPACE;
+            const status = workspaceStatus[ws];
+            const count = workspaceServices[ws]?.length ?? null;
+
+            return (
+              <div
+                key={ws}
+                className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                {status === 'loading' && (
+                  <div className="w-2.5 h-2.5 border border-gray-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                )}
+                {status === 'loaded' && (
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${count && count > 0 ? 'bg-green-500' : 'bg-gray-400'}`} />
+                )}
+                {status === 'error' && (
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400 flex-shrink-0" />
+                )}
+                {!status && (
+                  <div className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
+                )}
+                <span className="font-mono">{ws}</span>
+                {isPublicDefault && <span className="text-xs text-gray-400">(public)</span>}
+                {isUserWs && !isPublicDefault && <span className="text-xs text-blue-500">(you)</span>}
+                {count !== null && status === 'loaded' && (
+                  <span className="text-xs text-gray-400">{count} worker{count !== 1 ? 's' : ''}</span>
+                )}
+                {!isDefault && (
+                  <button
+                    onClick={() => handleRemoveWorkspace(ws)}
+                    className="ml-0.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
+                    title="Remove workspace"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Services list */}
+      <div className="border-t border-gray-200/50 pt-6">
+        {!server ? (
+          <div className="flex justify-center items-center h-40">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-100 to-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <p className="text-gray-600 font-medium mb-1">Not connected</p>
+              <p className="text-gray-500 text-sm">Please log in to view BioEngine instances</p>
+            </div>
+          </div>
+        ) : allServices.length === 0 && isAnyLoading ? (
+          <div className="flex justify-center items-center h-40">
+            <div className="flex flex-col items-center">
+              <img
+                src="/static/img/bioengine-logo-black.svg"
+                alt="BioEngine Loading"
+                className="w-32 h-auto opacity-60 animate-pulse"
+              />
+              <p className="text-gray-500 text-sm mt-4 animate-pulse">Loading BioEngine instances...</p>
+            </div>
+          </div>
+        ) : allServices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-gray-500">
+            <div className="w-20 h-20 bg-gradient-to-r from-blue-100 to-purple-100 rounded-2xl flex items-center justify-center mb-4">
+              <svg className="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </div>
+            <p className="text-gray-600 font-medium mb-1">No BioEngine instances found</p>
+            <p className="text-gray-500 text-sm">No running workers found in any observed workspace</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 justify-items-center gap-8 lg:gap-10">
+            {allServices.map(service => (
+              <ServiceCard
+                key={service.id}
+                service={service}
+                onNavigate={navigateToDashboard}
+                featured={service.name === FEATURED_SERVICE_NAME}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Same treatment as the bottom of the setup wizard on /bioengine.
+          Deliberately not on the worker dashboard. */}
+      <div className="flex justify-center pt-4 mt-6 border-t border-gray-200">
+        <BioEngineGitHubLink />
+      </div>
+    </div>
+  );
+};
+
+export default BioEngineWorkerList;

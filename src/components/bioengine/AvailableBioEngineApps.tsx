@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import ArtifactCard from './ArtifactCard';
 import BioEngineAppManager from './BioEngineAppManager';
+import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
 
 const BIOENGINE_SKILL_URL = 'https://bioimage.io/skills/bioengine/SKILL.md';
 
@@ -77,16 +78,19 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
   const userWorkspace: string = server?.config?.workspace || '';
   const workerWorkspace: string = serviceId ? serviceId.split('/')[0] : '';
 
-  // Pinned workspaces can never be removed by the user.
+  // Pinned workspaces can never be removed by the user: the worker's own, the
+  // logged-in user's, and the public one that hosts the curated apps.
   const pinnedWorkspaces = React.useMemo(() => {
     const pinned: string[] = [];
     if (workerWorkspace) pinned.push(workerWorkspace);
     if (userWorkspace && userWorkspace !== workerWorkspace) pinned.push(userWorkspace);
+    if (!pinned.includes(DEFAULT_PUBLIC_WORKSPACE)) pinned.push(DEFAULT_PUBLIC_WORKSPACE);
     return pinned;
   }, [workerWorkspace, userWorkspace]);
 
-  // Default selected = pinned only; user can add extras on top.
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>(pinnedWorkspaces);
+  // Manually added workspaces are shared with the worker discovery list.
+  const { observedWorkspaces: selectedWorkspaces, addWorkspace, removeWorkspace } =
+    useObservedWorkspaces(pinnedWorkspaces);
   const [wsInput, setWsInput] = useState('');
 
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
@@ -102,17 +106,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
   // Counter used to cancel stale concurrent fetches.
   const fetchIdRef = React.useRef(0);
-
-  // Keep pinned workspaces present in selectedWorkspaces whenever they change.
-  // Only update state when the resulting array is actually different to avoid
-  // triggering a spurious re-fetch.
-  useEffect(() => {
-    setSelectedWorkspaces(prev => {
-      const merged = [...pinnedWorkspaces, ...prev.filter(w => !pinnedWorkspaces.includes(w))];
-      if (merged.length === prev.length && merged.every((w, i) => w === prev[i])) return prev;
-      return merged;
-    });
-  }, [pinnedWorkspaces]);
 
   // Initialize artifact manager
   useEffect(() => {
@@ -260,18 +253,18 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     }
   }, [artifactManager, enrichArtifact, onSetArtifactMode, artifactModes]);
 
-  const addWorkspace = () => {
+  const handleAddWorkspace = () => {
     const ws = wsInput.trim();
     if (ws && !selectedWorkspaces.includes(ws)) {
-      setSelectedWorkspaces(prev => [...prev, ws]);
+      addWorkspace(ws);
       fetchWorkspaceArtifacts(ws);
     }
     setWsInput('');
   };
 
-  const removeWorkspace = (ws: string) => {
+  const handleRemoveWorkspace = (ws: string) => {
     if (pinnedWorkspaces.includes(ws)) return; // pinned — cannot be removed
-    setSelectedWorkspaces(prev => prev.filter(w => w !== ws));
+    removeWorkspace(ws);
     // Drop all artifacts that belong to this workspace
     setAvailableArtifacts(prev => prev.filter(a => !a.id.startsWith(`${ws}/`)));
   };
@@ -368,12 +361,12 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
                   ? 'bg-blue-50 border-blue-300 text-blue-700'
                   : 'bg-white border-gray-300 text-gray-700'
               }`}
-              title={isPinned ? `${ws === workerWorkspace ? "Worker's" : "Your"} workspace (cannot be removed)` : ws}
+              title={isPinned ? `${ws === workerWorkspace ? "Worker's" : ws === userWorkspace ? "Your" : 'Public'} workspace (cannot be removed)` : ws}
             >
               {ws}
               {!isPinned && (
                 <button
-                  onClick={() => removeWorkspace(ws)}
+                  onClick={() => handleRemoveWorkspace(ws)}
                   className="text-gray-400 hover:text-red-500 transition-colors"
                   title={`Remove ${ws}`}
                 >
@@ -389,12 +382,12 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
           <input
             value={wsInput}
             onChange={e => setWsInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') addWorkspace(); }}
+            onKeyDown={e => { if (e.key === 'Enter') handleAddWorkspace(); }}
             placeholder="Add workspace…"
             className="px-2 py-1 text-xs border border-gray-300 rounded-lg w-36 focus:ring-1 focus:ring-blue-500"
           />
           <button
-            onClick={addWorkspace}
+            onClick={handleAddWorkspace}
             disabled={!wsInput.trim()}
             className="px-2 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
           >Add</button>
@@ -469,7 +462,7 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
             fetchWorkspaceArtifacts(workspace);
           } else if (workspace && !selectedWorkspaces.includes(workspace)) {
             // Newly created in a workspace not yet observed — add it
-            setSelectedWorkspaces(prev => [...prev, workspace]);
+            addWorkspace(workspace);
             fetchWorkspaceArtifacts(workspace);
           } else {
             fetchAvailableArtifacts();

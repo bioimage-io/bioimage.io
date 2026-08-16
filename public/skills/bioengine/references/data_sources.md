@@ -5,6 +5,7 @@ BioEngine apps can stream image data on-demand from any HTTPS-served Zarr (typic
 ## Contents
 - [Architecture: BioEngine streams, you discover](#architecture-bioengine-streams-you-discover)
 - [Two ways to stream a Zarr: pick one](#two-ways-to-stream-a-zarr-pick-one)
+- [Reading OME-Zarr, wherever it came from](#reading-ome-zarr-wherever-it-came-from)
 - [Worked example: BioImage Archive](#worked-example-bioimage-archive)
 - [Worked example: OMERO servers (incl. IDR)](#worked-example-omero-servers-incl-idr)
 - [Adapting to other repositories](#adapting-to-other-repositories)
@@ -42,21 +43,27 @@ arr = zarr.open(uri, mode="r")
 - **Pros**: minimal, fully standard Zarr/fsspec stack, no BioEngine-specific knowledge needed.
 - **Cons**: each opened store has its own cache (fsspec default is per-filesystem-instance). If multiple apps on the same worker read overlapping chunks, each one re-fetches.
 
-### Option B — `BioEngineDatasets.open_remote_zarr(uri)` (BioEngine-managed)
+### Option B — `HttpZarrStore(base_url=uri)` (BioEngine-managed)
 
 ```python
 # runtime_env.pip = ["zarr>=3.0.8"]   # no fsspec / aiohttp needed
 import zarr
-store = datasets.open_remote_zarr(uri)     # datasets is the injected BioEngineDatasets
+from bioengine.datasets.http_zarr_store import HttpZarrStore
+
+store = HttpZarrStore(base_url=uri)
 arr = zarr.open(store, mode="r")
 ```
 
+Import from the submodule, not `from bioengine.datasets import ...` — the package's `__getattr__` delegates unknown names to the data-server singleton and will fail in an app that has no data server configured.
+
 - **Pros**:
-    - **One shared LRU chunk cache with a GB budget** across every store opened in the worker process (local datasets + every remote URI). Multiple apps streaming the same image = one network fetch, N readers.
+    - **One shared LRU chunk cache with a GB budget** across every store opened this way in the worker process. Multiple apps streaming the same image = one network fetch, N readers. To put remote URIs on the *data server's* cache budget instead of the process-wide default, pass `chunk_cache=bioengine.datasets.chunk_cache`.
     - **HTTP/2** on by default, plus an explicit `Semaphore(max_concurrent_requests)` cap (env-tunable via `BIOENGINE_DATASETS_ZARR_STORE_CONCURRENT_REQUESTS`).
     - **No new dependency** — `httpx` is already in the worker runtime env.
-    - **Token query-param injection** (`?token=...`) for sources that use it, including the BioEngine local data server.
+    - **Bearer-token auth** — an optional `token=` is sent as an `Authorization: Bearer` header on every chunk request. It cannot be a query param: zarr appends `/{key}` to `base_url`, so a query string would end up in the middle of the URL.
 - **Cons**: slightly more BioEngine-specific code in the app.
+
+Local BioEngine datasets return this same store type from `bioengine.datasets.get_file(...)` — see the next section.
 
 ### When does each pay off?
 
@@ -70,6 +77,66 @@ arr = zarr.open(store, mode="r")
 | App where minimising BioEngine coupling matters more than caching | **A** |
 
 You don't have to pick once and forever — different methods in the same deployment can use different paths. They share nothing except the URI.
+
+---
+
+## Reading OME-Zarr, wherever it came from
+
+Once you hold a store, the source stops mattering: a zarr store from a public repository, from a BioEngine dataset, or from a local directory is consumed by exactly the same code.
+
+### Navigate the multiscale metadata, don't hard-code the layout
+
+An OME-Zarr root is a group whose attributes declare its own pyramid. Read the declaration rather than assuming `0` is the full-resolution array or that the axes are `[t, c, z, y, x]` — both vary between datasets and between NGFF versions.
+
+```python
+import zarr
+
+group = zarr.open_group(store, mode="r")
+multiscales = group.attrs["ome"]["multiscales"]   # NGFF v0.5; top-level "multiscales" in v0.4
+level0 = group[multiscales[0]["datasets"][0]["path"]]
+patch = level0[0, 0, 0, 512:1024, 512:1024]       # only these chunks transfer
+```
+
+The axis order for that slice comes from `multiscales[0]["axes"]`. HCS plates follow the same rule one level up: `group.attrs["ome"]["plate"]["wells"][i]["path"]` gives each well's group path.
+
+For anything past reading pixels at a known level — physical scale (µm/px), picking a level by resolution, or **writing** OME-Zarr — add [`ngff-zarr`](https://pypi.org/project/ngff-zarr/) to `pip`. It takes any zarr store, handles NGFF v0.1–v0.6 uniformly, and hands back dask arrays:
+
+```python
+import ngff_zarr
+
+multiscales = ngff_zarr.from_ngff_zarr(store)
+image = multiscales.images[0]
+print(image.dims, image.scale)          # ('t','c','z','y','x'), {'x': 0.325, ...}
+patch = image.data[0, 0, 0].compute()   # dask → streams only the chunks it needs
+```
+
+### Local, access-controlled datasets
+
+Data served by the worker's own data server is reached through `bioengine.datasets`, a process-local singleton — no constructor injection, nothing to wire up:
+
+```python
+import bioengine
+
+store = await bioengine.datasets.get_file("blood-atlas", file_name="image.ome.zarr")
+```
+
+`get_file` returns an `HttpZarrStore` for any `.zarr` path (raw `bytes` for anything else), so the navigation code above is unchanged. Access control is handled for you: the client sends the app's Hypha token as a Bearer header, and a dataset the caller may not read comes back as a 401 rather than data.
+
+`bioengine.datasets.list_datasets()` and `list_files(dataset_id, dir_path=..., recursive=...)` cover discovery when you don't already know the path.
+
+### Plain (non-OME) Zarr hierarchies need listing
+
+OME-Zarr declares every child path in its metadata, so reading one never enumerates the store. A plain zarr group declares nothing — the only way to learn what is in it is to list it, and that requires a store that can enumerate keys:
+
+```python
+store = await bioengine.datasets.get_file("blood-atlas", file_name="unknown.zarr")
+group = zarr.open_group(store, mode="r")
+
+print(sorted(group.array_keys()))   # ['alpha', 'beta']
+print(sorted(group.group_keys()))   # ['nested']
+```
+
+Listing is backed by the data server's file-catalog route, so it works only for stores obtained from `get_file` (bioengine ≥ 0.16.0). A store built directly on an external HTTPS root reports `supports_listing = False` and raises on the listing methods — plain HTTP has no `readdir`. If you need to explore a remote root, reach it through Option A with `fsspec`/`s3fs`, which can list because the underlying protocol can.
 
 ---
 
@@ -115,25 +182,18 @@ Both endpoints return Elasticsearch-style JSON. The shape that matters for strea
 ### Search + stream from an app deployment
 
 ```python
+import bioengine
 import httpx
 import zarr
-from ray import serve
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 2,
-        "num_gpus": 1,
-        "runtime_env": {"pip": ["cellpose>=4.0", "httpx>=0.28", "zarr>=3.0.8"]},
-    },
+@bioengine.app(
+    num_cpus=2,
+    gpu_memory_mb=8192,
+    pip=["cellpose>=4.0", "httpx>=0.28", "zarr>=3.0.8"],
 )
 class CellposeOnBIA:
-    def __init__(self, datasets):
-        # 'datasets' is a BioEngineDatasets instance injected by BioEngine.
-        self.datasets = datasets
-
-    @schema_method
+    @bioengine.method
     async def segment_bia_image(
         self,
         query: str = Field(..., description="BIA search query, e.g. 'HeLa nuclei'"),
@@ -166,7 +226,8 @@ class CellposeOnBIA:
         # 3. Stream the first OME-Zarr — chunks fetch on demand.
         first = candidates[0]
         # ── Option B (BioEngine-managed, shared chunk cache) ──
-        store = self.datasets.open_remote_zarr(first["uri"])
+        from bioengine.datasets.http_zarr_store import HttpZarrStore
+        store = HttpZarrStore(base_url=first["uri"])
         # ── Option A (vanilla zarr+fsspec) — drop-in swap; add "fsspec",
         # "aiohttp" to runtime_env.pip and replace the line above with:
         #    store = first["uri"]
@@ -190,10 +251,12 @@ class CellposeOnBIA:
         }
 
     def _fetch_2d(self, store):
-        """Read the resolution-0 array's first 2D slice via standard zarr API."""
-        root = zarr.open(store, mode="r")
-        # OME-Zarr v0.4 multiscale axes are typically [t, c, z, y, x].
-        return root[0, 0, 0, :, :]
+        """Read the full-resolution array's first 2D slice via standard zarr API."""
+        group = zarr.open_group(store, mode="r")
+        ms = group.attrs.get("ome", group.attrs)["multiscales"]
+        level0 = group[ms[0]["datasets"][0]["path"]]
+        # BIA axes are typically [t, c, z, y, x]; confirm via ms[0]["axes"].
+        return level0[0, 0, 0, :, :]
 ```
 
 ### Mapping a BIA image URI to the right Zarr depth
@@ -207,7 +270,7 @@ If you need the raw resolution-0 array directly:
 ```python
 zarr_root = uri.rstrip("/") + "/0"
 # Either path:
-store = datasets.open_remote_zarr(zarr_root)         # Option B: BioEngine-managed
+store = HttpZarrStore(base_url=zarr_root)            # Option B: BioEngine-managed
 # or:
 arr = zarr.open(zarr_root, mode="r")                 # Option A: fsspec-managed
 ```
@@ -222,7 +285,7 @@ arr = zarr.open(zarr_root, mode="r")                 # Option A: fsspec-managed
 
 | Path | When to use | What it needs |
 |---|---|---|
-| **OME-Zarr export over HTTPS** (recommended) | Primary pixel access for inference, viz, analysis | Just the Zarr root URL. Same `zarr.open(uri)` / `datasets.open_remote_zarr(uri)` you already use. |
+| **OME-Zarr export over HTTPS** (recommended) | Primary pixel access for inference, viz, analysis | Just the Zarr root URL. Same `zarr.open(uri)` / `HttpZarrStore(base_url=uri)` you already use. |
 | **OMERO web JSON API** (`/api/v0/m/...`) | Metadata discovery: project / dataset / image listings, channels, ROIs, map-annotations | HTTPS + optional `X-OMERO-Session-Key` for private servers. Public projects on IDR need no auth. |
 | **`omero-py` / BlitzGateway** | Last resort, only when neither of the above covers what you need | OS-level dependencies on the Ice C++ library; see the caveat below. |
 
@@ -255,31 +318,22 @@ If you need the Zarr URL for an arbitrary IDR image id, the canonical path is to
 ### Search + stream from an app deployment
 
 ```python
+import bioengine
 import csv, io, httpx, zarr
-from ray import serve
-from hypha_rpc.utils.schema import schema_method
 from pydantic import Field
 
-@serve.deployment(
-    ray_actor_options={
-        "num_cpus": 2,
-        "num_gpus": 1,
-        "runtime_env": {
-            "pip": [
-                "cellpose>=4.0",
-                "httpx>=0.28",
-                "zarr>=3.0.8",
-                "numpy==1.26.4",  # match the worker's numpy ABI to avoid Zarr import-time crashes
-            ],
-        },
-    },
+@bioengine.app(
+    num_cpus=2,
+    gpu_memory_mb=8192,
+    pip=[
+        "cellpose>=4.0",
+        "httpx>=0.28",
+        "zarr>=3.0.8",
+        "numpy==1.26.4",  # match the worker's numpy ABI to avoid Zarr import-time crashes
+    ],
 )
 class CellposeOnIDR:
-    def __init__(self, datasets):
-        # 'datasets' is a BioEngineDatasets instance injected by BioEngine.
-        self.datasets = datasets
-
-    @schema_method
+    @bioengine.method
     async def segment_idr_image(
         self,
         study: str = Field("idr0062", description="IDR study accession, e.g. 'idr0062'"),
@@ -304,7 +358,8 @@ class CellposeOnIDR:
         uri = first["File Path"]
 
         # 3. Stream the OME-Zarr. Option B (BioEngine-managed, shared cache):
-        store = self.datasets.open_remote_zarr(uri)
+        from bioengine.datasets.http_zarr_store import HttpZarrStore
+        store = HttpZarrStore(base_url=uri)
         # Option A (vanilla zarr+fsspec): replace the line above with `store = uri`
         # and add "fsspec", "aiohttp" to runtime_env.pip. See "Two ways to stream a Zarr".
 
@@ -391,7 +446,7 @@ async def omero_session(host: str, username: str, password: str) -> tuple[httpx.
     return client, session_key
 ```
 
-`X-OMERO-Session-Key` then authorises both subsequent JSON-API calls and, if the deployment runs `omero-ms-zarr`, the Zarr chunk URLs. The session key behaves like a bearer token for the lifetime of the OMERO session; pass it to `datasets.open_remote_zarr(uri, token=...)` if and only if the Zarr microservice consumes it as a `?token=` query param (some deployments do; most use cookies). For cookie-based Zarr microservices you need Option A with a custom `httpx` client, or a small `HttpZarrStore` extension; open a feedback report if you hit one.
+`X-OMERO-Session-Key` then authorises both subsequent JSON-API calls and, if the deployment runs `omero-ms-zarr`, the Zarr chunk URLs. The session key behaves like a bearer token for the lifetime of the OMERO session, but it travels in its own `X-OMERO-Session-Key` header, and `HttpZarrStore(token=...)` only ever sends `Authorization: Bearer`. So Option B carries it only for a microservice that also accepts the standard Bearer header. For header-named or cookie-based Zarr microservices, use Option A with a custom `httpx`/`fsspec` client; open a feedback report if you hit one.
 
 ### Caveat: `omero-py` and the Ice C++ dependency
 
@@ -415,7 +470,7 @@ The pattern is identical for any HTTPS-served Zarr:
 | Allen Brain Observatory | dataset manifest CSV + S3 OME-Zarr | per-experiment S3 path |
 | Generic OME-Zarr S3 bucket | bucket listing, then choose a `.ome.zarr/` prefix | the prefix itself |
 
-In every case the recipe is: agent code calls the repository's API, extracts the OME-Zarr URI, and passes it to either `datasets.open_remote_zarr(uri)` (Option B, shared cache) or directly to `zarr.open(uri, mode="r")` (Option A, vanilla fsspec). The URI is the same; pick the streaming layer per the trade-off table above.
+In every case the recipe is: agent code calls the repository's API, extracts the OME-Zarr URI, and passes it to either `HttpZarrStore(base_url=uri)` (Option B, shared cache) or directly to `zarr.open(uri, mode="r")` (Option A, vanilla fsspec). The URI is the same; pick the streaming layer per the trade-off table above.
 
 ---
 
@@ -424,5 +479,5 @@ In every case the recipe is: agent code calls the repository's API, extracts the
 - **Repository APIs change** — especially beta ones. If a search query stops returning results, check the upstream API docs (the BIA beta path may change before GA). Don't try to "fix" `bioengine.datasets`; the integration point is intentionally outside.
 - **Only OME-Zarr (and other HTTPS Zarrs) stream chunk-wise.** Other formats listed in `representation[]` (`.tiff`, `.czi`) require downloading the whole file. If you need them, use `httpx` to download and decode locally — but that breaks the streaming model.
 - **Both options are read-only.** Neither `HttpZarrStore` nor `zarr.open(uri)` writes back to remote URIs. Outputs (masks, embeddings, derived images) must be saved through other channels — the local data server's `save_file` for shared artefacts, or your own object storage.
-- **Auth scope is narrow.** `open_remote_zarr` accepts an optional `token` appended as `?token=` to chunk URLs (matches the BioEngine local data server pattern). For Bearer-auth or signed-URL repositories you'd need a custom fsspec filesystem (Option A) or a small extension to `HttpZarrStore` (Option B) — open an issue if you hit one.
+- **Auth scope is narrow.** `HttpZarrStore` accepts an optional `token` and sends it as `Authorization: Bearer` on every chunk request — nothing else. Repositories that want a differently-named header, a cookie, or signed URLs need a custom fsspec filesystem (Option A) — open an issue if you hit one.
 - **No URL validation.** Both paths assume a well-formed HTTPS Zarr root. A typo or wrong path surfaces as a 404 on the first chunk read, not at `open_*` call time.

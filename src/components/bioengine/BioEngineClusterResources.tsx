@@ -184,10 +184,12 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
     return parseFloat(value.toFixed(2)).toString();
   };
 
-  const ResourceBar: React.FC<{ available?: number; total: number; used?: number; color: string; unit?: string }> = ({ available, total, used, color, unit = "" }) => {
+  const ResourceBar: React.FC<{ available?: number; total: number; used?: number; usedLabel?: string; color: string; unit?: string }> = ({ available, total, used, usedLabel, color, unit = "" }) => {
     // Support both old API (available) and new API (used)
     const usedValue = used !== undefined ? used : (available !== undefined ? total - available : 0);
-    const displayUsed = unit === "GB" ? formatBytes(usedValue) : formatNumber(usedValue);
+    // usedLabel overrides the displayed text (e.g. "NA" when no GPU actor is
+    // running to report usage) while usedValue still drives the bar width.
+    const displayUsed = usedLabel !== undefined ? usedLabel : (unit === "GB" ? formatBytes(usedValue) : formatNumber(usedValue));
     const displayTotal = unit === "GB" ? formatBytes(total) : formatNumber(total);
 
     if (total === 0) {
@@ -203,7 +205,7 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
 
     return (
       <div className="flex items-center space-x-2">
-        <span className="text-sm font-medium text-gray-700 w-20">{displayUsed}{unit} / {displayTotal}{unit}</span>
+        <span className="text-sm font-medium text-gray-700 w-20">{displayUsed}{usedLabel === undefined ? unit : ''} / {displayTotal}{unit}</span>
         <div className="flex-1 bg-gray-200 rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all duration-300 ${color}`}
@@ -478,21 +480,17 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                               color="bg-purple-600"
                             />
                           </div>
-                          {(node.total_gpu_memory !== undefined && node.total_gpu_memory !== null) && (
+                          {(node.total_gpu !== undefined && node.total_gpu > 0 && node.total_gpu_memory !== undefined && node.total_gpu_memory !== null) && (
                             <div>
                               <span className="text-gray-600 text-xs">GPU Memory</span>
-                              {typeof node.total_gpu_memory === 'number' && typeof node.used_gpu_memory === 'number' ? (
-                                <>
-                                  <ResourceBar
-                                    used={node.used_gpu_memory}
-                                    total={node.total_gpu_memory}
-                                    color="bg-indigo-600"
-                                    unit="GB"
-                                  />
-                                  <div className="text-xs text-gray-600 mt-1">
-                                    {formatBytes(node.used_gpu_memory)} / {formatBytes(node.total_gpu_memory)} GB
-                                  </div>
-                                </>
+                              {typeof node.total_gpu_memory === 'number' ? (
+                                <ResourceBar
+                                  used={typeof node.used_gpu_memory === 'number' ? node.used_gpu_memory : 0}
+                                  usedLabel={typeof node.used_gpu_memory === 'number' ? undefined : 'NA'}
+                                  total={node.total_gpu_memory}
+                                  color="bg-indigo-600"
+                                  unit="GB"
+                                />
                               ) : (
                                 <div className="text-xs text-gray-600 mt-1">
                                   {node.used_gpu_memory || 'NA'} / {node.total_gpu_memory || 'NA'}
