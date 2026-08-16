@@ -25,13 +25,17 @@ import {
   BrokerAccessError,
   BrokerErrorCode,
   BrokerRole,
-  DatasetSplit,
   DatasetWithRole,
+  SplitDoc,
+  createSplit,
   getDataset,
-  getSplit as getBrokerSplit,
+  getTrainingUrls,
+  listSplits,
   resetBrokerServiceCache,
-  setSplit as setBrokerSplit,
+  setSplitCheckpoint,
+  updateSplit,
 } from './brokerApi';
+import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
 import LabelManager from './LabelManager';
 import FinetuneView from './FinetuneView';
 import AnnotationStatsView from './AnnotationStatsView';
@@ -210,30 +214,45 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Train/test split (colab-rework-plan.md §20 item 1) ---
-  const [split, setSplitState] = useState<DatasetSplit>({ train: [], test: [] });
-  const [splitMode, setSplitMode] = useState(false);
-  // Local pending test-set membership while in split mode, seeded from the
-  // committed split on entry so re-entering split mode never loses the last
-  // applied assignment.
-  const [pendingTestSet, setPendingTestSet] = useState<Set<string>>(new Set());
-  const [showRandomSplitDialog, setShowRandomSplitDialog] = useState(false);
-  const [randomSplitRatio, setRandomSplitRatio] = useState(10);
-  const [showApplySplitDialog, setShowApplySplitDialog] = useState(false);
-  const [isApplyingSplit, setIsApplyingSplit] = useState(false);
-  const [splitApplyError, setSplitApplyError] = useState<string | null>(null);
-  const [dragStem, setDragStem] = useState<string | null>(null);
-  const [dragOverSection, setDragOverSection] = useState<'train' | 'test' | null>(null);
-  // A cloud image whose stem is already in the split, pending confirmation
-  // of "remove from split and delete" (§20 item 4).
-  const [pendingDeleteStem, setPendingDeleteStem] = useState<string | null>(null);
-
   // --- Finetune view (colab-rework-plan.md §23.2) ---
   // Reuses `selectedLabel` as the finetune view's active label, so the
   // existing annotatedStems effect (keyed on selectedLabel) doubles as the
   // "images with annotations for this label" filter with no new fetching.
   const [showFinetuneLabelDialog, setShowFinetuneLabelDialog] = useState(false);
   const [finetuneViewOpen, setFinetuneViewOpen] = useState(false);
+
+  // --- Split authoring (broker v0.7.0, colab-rework-plan.md §23.1/§23.4) ---
+  // Per-label, named, add-only splits. Lifted up here (rather than local to
+  // FinetuneView) because the per-row assignment badges rendered by
+  // renderImageRow (left panel) and the split-builder controls (right panel,
+  // FinetuneView) both need to read/write the same `assignment` state.
+  const [existingSplits, setExistingSplits] = useState<SplitDoc[]>([]);
+  const [splitsLoading, setSplitsLoading] = useState(false);
+  const [activeSplitName, setActiveSplitName] = useState<string | null>(null);
+  const [newSplitName, setNewSplitName] = useState('default');
+  const [trainPercent, setTrainPercent] = useState(80);
+  const [assignment, setAssignment] = useState<Record<string, 'train' | 'test' | 'unused'>>({});
+  const [isSavingSplit, setIsSavingSplit] = useState(false);
+  const [splitSaveError, setSplitSaveError] = useState<string | null>(null);
+  const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
+  const [ftModelType, setFtModelType] = useState<'vit_t_lm' | 'vit_b_lm'>('vit_t_lm');
+  const [ftShowAdvanced, setFtShowAdvanced] = useState(false);
+  const [ftNEpochs, setFtNEpochs] = useState(5);
+  const [ftNObjectsPerBatch, setFtNObjectsPerBatch] = useState(8);
+  const [ftPatchSize, setFtPatchSize] = useState(512);
+  const [ftBatchSize, setFtBatchSize] = useState(1);
+  const [ftLearningRate, setFtLearningRate] = useState(1e-5);
+  const [isStartingTraining, setIsStartingTraining] = useState(false);
+  const [startTrainingError, setStartTrainingError] = useState<string | null>(null);
+  // A cloud image that's a member of some split, blocking delete (§23.4
+  // supersedes §20 item 4's "remove from split and delete": splits are
+  // add-only now, so there's no clean removal path, only a block).
+  const [blockedDeleteInfo, setBlockedDeleteInfo] = useState<{ stem: string; label: string; splitName: string } | null>(null);
+
+  const activeSplit = useMemo(
+    () => existingSplits.find((s) => s.name === activeSplitName) ?? null,
+    [existingSplits, activeSplitName],
+  );
 
   // --- Role guard ---
   useEffect(() => {
@@ -309,22 +328,32 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     };
   }, [artifactManager, artifactId, canManage, refreshTick]);
 
-  // --- Train/test split ---
+  // --- Splits for the finetune view's active label (broker v0.7.0) ---
+  const [splitsRefreshTick, setSplitsRefreshTick] = useState(0);
   useEffect(() => {
-    if (!canManage) return;
+    if (!canManage || !finetuneViewOpen || !selectedLabel) {
+      setExistingSplits([]);
+      setActiveSplitName(null);
+      return;
+    }
     let active = true;
+    setSplitsLoading(true);
     (async () => {
       try {
-        const s = await getBrokerSplit(server, artifactId);
-        if (active) setSplitState(s);
-      } catch {
-        // best-effort; a failed read just leaves the "no split yet" default
+        const found = await listSplits(server, artifactId, selectedLabel);
+        if (!active) return;
+        setExistingSplits(found);
+        setActiveSplitName((prev) => (prev && found.some((s) => s.name === prev) ? prev : found[0]?.name ?? null));
+      } catch (err) {
+        if (active) setSplitSaveError((err as Error).message || 'Failed to load splits.');
+      } finally {
+        if (active) setSplitsLoading(false);
       }
     })();
     return () => {
       active = false;
     };
-  }, [server, artifactId, canManage, refreshTick]);
+  }, [server, artifactId, canManage, finetuneViewOpen, selectedLabel, splitsRefreshTick]);
 
   // --- Labels + per-label annotated counts ---
   const reloadLabels = useCallback(async () => {
@@ -755,35 +784,24 @@ print("Service registered successfully", end='')
     }
   };
 
-  // §20 item 4: deleting an image whose stem is already in the split would
-  // silently leave a stale entry in `train/split.json`, so route through a
-  // dialog offering to clean the split up first instead of just deleting.
+  // §23.4 supersedes §20 item 4: splits are add-only now (broker v0.7.0), so
+  // there is no clean "remove from split" path. A stem that's a member of
+  // any split, for any label, simply cannot be deleted, hence a live
+  // all-labels lookup instead of the old single dataset-global split state.
   const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (split.train.includes(stem) || split.test.includes(stem)) {
-      setPendingDeleteStem(stem);
+    try {
+      const allSplits = await listSplits(server, artifactId);
+      const owner = allSplits.find((s) => s.train.includes(stem) || s.test.includes(stem));
+      if (owner) {
+        setBlockedDeleteInfo({ stem, label: owner.label, splitName: owner.name });
+        return;
+      }
+    } catch (err) {
+      setError((err as Error).message || 'Failed to check dataset splits.');
       return;
     }
     if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
-    await performDeleteCloudImage(stem);
-  };
-
-  const handleRemoveFromSplitAndDelete = async () => {
-    if (!pendingDeleteStem) return;
-    const stem = pendingDeleteStem;
-    setPendingDeleteStem(null);
-    try {
-      const result = await setBrokerSplit(
-        server,
-        artifactId,
-        split.train.filter((s) => s !== stem),
-        split.test.filter((s) => s !== stem),
-      );
-      setSplitState(result);
-    } catch (err) {
-      setError((err as Error).message || 'Failed to update the split.');
-      return;
-    }
     await performDeleteCloudImage(stem);
   };
 
@@ -798,22 +816,7 @@ print("Service registered successfully", end='')
     return [...cloudRows, ...localRows];
   }, [images, localImages]);
 
-  // §20 item 1: cloud rows section into Test/Train once a split has been
-  // applied, or while actively editing one in split mode; local (not yet
-  // uploaded) rows are never part of the split, so they render separately.
   const cloudImageRows = useMemo(() => imageRows.filter((r) => r.isCloud), [imageRows]);
-  const localImageRows = useMemo(() => imageRows.filter((r) => !r.isCloud), [imageRows]);
-  const committedTestSet = useMemo(() => new Set(split.test), [split]);
-  const activeTestSet = splitMode ? pendingTestSet : committedTestSet;
-  const showSplitSections = splitMode || split.train.length > 0 || split.test.length > 0;
-  const testRows = useMemo(
-    () => cloudImageRows.filter((r) => activeTestSet.has(r.stem)),
-    [cloudImageRows, activeTestSet],
-  );
-  const trainRows = useMemo(
-    () => cloudImageRows.filter((r) => !activeTestSet.has(r.stem)),
-    [cloudImageRows, activeTestSet],
-  );
 
   // Finetune view (colab-rework-plan.md §23.2): the image list is filtered
   // to cloud images with >0 annotation files for the selected label,
@@ -832,103 +835,202 @@ print("Service registered successfully", end='')
     }
   }, [finetuneViewOpen, displayedImageRows, selectedStem]);
 
-  const handleEnterSplitMode = () => {
-    setPendingTestSet(new Set(split.test));
-    setSplitApplyError(null);
-    setSplitMode(true);
-  };
+  // §23.4 item 3 (revised, message HaWNeJ1HaN): the finetune-view image list
+  // groups rows into Train / Test / Unused sections with headers, mirroring
+  // the old dataset-global split UI's layout, rather than a flat list with
+  // only a per-row badge. Locked (already-committed) split members render
+  // read-only under their split's section; everything else lives under
+  // Unused until `cycleAssignment` moves it, which re-sorts it into its new
+  // section on the next render.
+  const splitSections = useMemo(() => {
+    const train: ImageRow[] = [];
+    const test: ImageRow[] = [];
+    const unused: ImageRow[] = [];
+    for (const row of displayedImageRows) {
+      const locked = activeSplit?.train.includes(row.stem)
+        ? 'train'
+        : activeSplit?.test.includes(row.stem)
+        ? 'test'
+        : null;
+      const value = locked ?? assignment[row.stem] ?? 'unused';
+      (value === 'train' ? train : value === 'test' ? test : unused).push(row);
+    }
+    return { train, test, unused };
+  }, [displayedImageRows, activeSplit, assignment]);
 
-  const handleCancelSplitMode = () => {
-    setSplitMode(false);
-    setPendingTestSet(new Set(split.test));
-  };
-
-  const toggleSplitMembership = useCallback((stem: string) => {
-    setPendingTestSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(stem)) next.delete(stem);
-      else next.add(stem);
+  // Seed/reconcile the editable assignment whenever the active split or the
+  // displayed row set changes: locked (already-committed) stems are never
+  // stored here, they render read-only straight from `activeSplit`; every
+  // other displayed stem defaults to 'unused' unless already staged.
+  useEffect(() => {
+    setAssignment((prev) => {
+      const lockedTrain = new Set(activeSplit?.train ?? []);
+      const lockedTest = new Set(activeSplit?.test ?? []);
+      const next: Record<string, 'train' | 'test' | 'unused'> = {};
+      for (const row of displayedImageRows) {
+        if (lockedTrain.has(row.stem) || lockedTest.has(row.stem)) continue;
+        next[row.stem] = prev[row.stem] ?? 'unused';
+      }
       return next;
     });
-  }, []);
+  }, [activeSplit, displayedImageRows]);
 
-  const applyRandomSplit = () => {
-    const shuffled = [...cloudImageRows.map((r) => r.stem)].sort(() => Math.random() - 0.5);
-    const testCount = Math.round((shuffled.length * randomSplitRatio) / 100);
-    setPendingTestSet(new Set(shuffled.slice(0, testCount)));
-    setShowRandomSplitDialog(false);
-  };
+  // Click-to-cycle assignment badge (§23.4 item 3, replacing the old §20
+  // drag-and-drop interaction). No-op on a stem that's already a locked
+  // member of the active split — add-only splits can't un-assign a member.
+  const cycleAssignment = useCallback((stem: string) => {
+    if (activeSplit?.train.includes(stem) || activeSplit?.test.includes(stem)) return;
+    setAssignment((prev) => {
+      const current = prev[stem] ?? 'unused';
+      const next: 'train' | 'test' | 'unused' = current === 'unused' ? 'train' : current === 'train' ? 'test' : 'unused';
+      return { ...prev, [stem]: next };
+    });
+  }, [activeSplit]);
 
-  const handleApplySplit = async () => {
-    setIsApplyingSplit(true);
-    setSplitApplyError(null);
+  // Shuffle only the unused pool (unlocked, currently-displayed stems) into
+  // train/test at `trainPercent`; locked split members are never touched.
+  const autoDistribute = useCallback(() => {
+    const lockedTrain = new Set(activeSplit?.train ?? []);
+    const lockedTest = new Set(activeSplit?.test ?? []);
+    const pool = displayedImageRows.filter((r) => !lockedTrain.has(r.stem) && !lockedTest.has(r.stem));
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const trainCount = Math.round((shuffled.length * trainPercent) / 100);
+    const next: Record<string, 'train' | 'test' | 'unused'> = {};
+    shuffled.forEach((row, i) => {
+      next[row.stem] = i < trainCount ? 'train' : 'test';
+    });
+    setAssignment(next);
+  }, [activeSplit, displayedImageRows, trainPercent]);
+
+  const handleSaveSplit = async () => {
+    setIsSavingSplit(true);
+    setSplitSaveError(null);
     try {
-      const test = [...pendingTestSet];
-      const train = cloudImageRows.map((r) => r.stem).filter((s) => !pendingTestSet.has(s));
-      const result = await setBrokerSplit(server, artifactId, train, test);
-      setSplitState(result);
-      setSplitMode(false);
-      setShowApplySplitDialog(false);
+      const train = Object.entries(assignment).filter(([, v]) => v === 'train').map(([stem]) => stem);
+      const test = Object.entries(assignment).filter(([, v]) => v === 'test').map(([stem]) => stem);
+      let result: SplitDoc;
+      if (activeSplitName === null) {
+        result = await createSplit(server, artifactId, selectedLabel, newSplitName, train, test, trainPercent / 100);
+        setExistingSplits((prev) => [...prev, result]);
+        setActiveSplitName(newSplitName);
+      } else {
+        result = await updateSplit(server, artifactId, selectedLabel, activeSplitName, train, test);
+        setExistingSplits((prev) => prev.map((s) => (s.name === result.name ? result : s)));
+      }
+      setAssignment({});
     } catch (err) {
-      setSplitApplyError((err as Error).message || 'Failed to apply the split.');
+      setSplitSaveError((err as Error).message || 'Failed to save the split.');
     } finally {
-      setIsApplyingSplit(false);
+      setIsSavingSplit(false);
     }
   };
 
-  const handleRowDragStart = (stem: string) => (e: React.DragEvent) => {
-    setDragStem(stem);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleRowDragEnd = () => {
-    setDragStem(null);
-    setDragOverSection(null);
-  };
-
-  const handleSectionDragOver = (section: 'train' | 'test') => (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverSection(section);
-  };
-
-  const handleSectionDrop = (section: 'train' | 'test') => (e: React.DragEvent) => {
-    e.preventDefault();
-    if (dragStem) {
-      setPendingTestSet((prev) => {
-        const next = new Set(prev);
-        if (section === 'test') next.add(dragStem);
-        else next.delete(dragStem);
-        return next;
+  const handleStartTraining = async (skipEmptyTestWarning = false) => {
+    if (!activeSplitName || activeSplit?.checkpoint) return;
+    if (!skipEmptyTestWarning && (activeSplit?.test.length ?? 0) === 0) {
+      setShowEmptyTestWarning(true);
+      return;
+    }
+    setShowEmptyTestWarning(false);
+    setIsStartingTraining(true);
+    setStartTrainingError(null);
+    try {
+      const urls = await getTrainingUrls(server, artifactId, selectedLabel, activeSplitName);
+      if (urls.train.length === 0) {
+        setStartTrainingError(`Split "${activeSplitName}" has no training images yet.`);
+        return;
+      }
+      const params: any = {
+        train_images: urls.train.map((e) => e.image_url),
+        train_labels: urls.train.map((e) => e.geojson_url),
+        model_type: ftModelType,
+        n_epochs: ftNEpochs,
+        n_objects_per_batch: ftNObjectsPerBatch,
+        patch_size: ftPatchSize,
+        batch_size: ftBatchSize,
+        learning_rate: ftLearningRate,
+        label: `${toAlias(artifactId)}/${selectedLabel}`,
+        _rkwargs: true,
+      };
+      if (urls.test.length > 0) {
+        params.val_images = urls.test.map((e) => e.image_url);
+        params.val_labels = urls.test.map((e) => e.geojson_url);
+      }
+      const svc = await resolvePinnedMicroSamTrainingService(server);
+      const status = await svc.start_training(params);
+      const updated = await setSplitCheckpoint(server, artifactId, selectedLabel, activeSplitName, {
+        session_id: status.session_id,
+        model_type: ftModelType,
       });
+      setExistingSplits((prev) => prev.map((s) => (s.name === updated.name ? updated : s)));
+    } catch (err) {
+      setStartTrainingError((err as Error).message || 'Failed to start training.');
+    } finally {
+      setIsStartingTraining(false);
     }
-    setDragStem(null);
-    setDragOverSection(null);
   };
 
-  // One image row, shared by the flat and sectioned (Test/Train) list
-  // renderings. `canSplit` gates the drag/double-click split-membership
-  // interactions on top of the always-available select/upload/delete
-  // behavior (§20 item 1) — local, not-yet-uploaded rows are never
-  // draggable since they can't be part of the split yet.
-  const renderImageRow = (row: ImageRow, canSplit: boolean) => {
-    const draggableRow = canSplit && splitMode;
+  // colab-rework-plan.md §23.4 item 3: split-assignment badge shown per row
+  // while the finetune view is open, replacing the plain emerald checkmark.
+  // Locked (already-committed split member) badges are read-only static
+  // labels; everything else cycles unused -> train -> test -> unused on
+  // click, mirroring the FinetuneView skeleton's original badge styling.
+  const splitBadgeClass = (value: 'train' | 'test' | 'unused') =>
+    value === 'train'
+      ? 'bg-blue-100 text-blue-700'
+      : value === 'test'
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-gray-100 text-gray-500';
+
+  const renderFinetuneBadge = (row: ImageRow) => {
+    const isLocked = activeSplit?.train.includes(row.stem) || activeSplit?.test.includes(row.stem);
+    if (isLocked) {
+      const value: 'train' | 'test' = activeSplit!.train.includes(row.stem) ? 'train' : 'test';
+      const priorCount = activeSplit!.annotation_counts[row.stem] ?? 0;
+      const currentCount = labelStats[row.stem] ?? 0;
+      const newCount = currentCount - priorCount;
+      return (
+        <span className="flex items-center gap-1 shrink-0">
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${splitBadgeClass(value)}`}>
+            {value}
+          </span>
+          {newCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+              +{newCount} new
+            </span>
+          )}
+        </span>
+      );
+    }
+    const value = assignment[row.stem] ?? 'unused';
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          cycleAssignment(row.stem);
+        }}
+        className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize transition-colors shrink-0 ${splitBadgeClass(value)}`}
+        title="Click to cycle: train, test, unused"
+      >
+        {value}
+      </button>
+    );
+  };
+
+  const renderImageRow = (row: ImageRow) => {
     return (
       <div
         key={row.stem}
         ref={(el) => { imageRowRefs.current[row.stem] = el; }}
         className="group relative"
-        draggable={draggableRow}
-        onDragStart={draggableRow ? handleRowDragStart(row.stem) : undefined}
-        onDragEnd={draggableRow ? handleRowDragEnd : undefined}
       >
         <button
           onClick={() => handleSelectImage(row)}
-          onDoubleClick={draggableRow ? () => toggleSplitMembership(row.stem) : undefined}
           className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
             selectedStem === row.stem
               ? 'bg-purple-50 border-l-2 border-purple-500'
               : 'hover:bg-gray-50 border-l-2 border-transparent'
-          } ${draggableRow ? 'cursor-grab active:cursor-grabbing' : ''}`}
+          }`}
         >
           <div className="flex items-center flex-1 min-w-0 gap-2">
             {row.isCloud ? (
@@ -953,17 +1055,21 @@ print("Service registered successfully", end='')
             )}
             <span className="text-sm text-gray-700 truncate">{row.stem}</span>
           </div>
-          {row.isCloud && annotatedStems.has(row.stem) && (
-            <svg
-              className={`w-4 h-4 text-emerald-500 shrink-0 transition-opacity ${
-                row.isCloud ? 'group-hover:opacity-0' : ''
-              }`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
+          {finetuneViewOpen && row.isCloud ? (
+            renderFinetuneBadge(row)
+          ) : (
+            row.isCloud && annotatedStems.has(row.stem) && (
+              <svg
+                className={`w-4 h-4 text-emerald-500 shrink-0 transition-opacity ${
+                  row.isCloud ? 'group-hover:opacity-0' : ''
+                }`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            )
           )}
         </button>
         {row.isCloud && (
@@ -1262,54 +1368,20 @@ print("Service registered successfully", end='')
             {statsViewOpen ? 'Show image preview' : 'Show annotation progress'}
           </button>
         )}
-        {!finetuneViewOpen && cloudImageRows.length > 0 && (
-          <>
-            {splitMode ? (
-              <>
-                <button
-                  onClick={() => setShowApplySplitDialog(true)}
-                  disabled={isApplyingSplit}
-                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-60"
-                >
-                  Apply data split
-                </button>
-                <button
-                  onClick={() => setShowRandomSplitDialog(true)}
-                  disabled={isApplyingSplit}
-                  className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
-                >
-                  Random split
-                </button>
-                <button
-                  onClick={handleCancelSplitMode}
-                  disabled={isApplyingSplit}
-                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={handleEnterSplitMode}
-                className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
-              >
-                Data split
-              </button>
-            )}
-          </>
-        )}
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => setShowShareModal(true)}
-            className="relative px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all"
-          >
-            Share
-            {!!dataset?.access_requests?.length && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[1.15rem] h-[1.15rem] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold shadow-sm">
-                {dataset.access_requests.length}
-              </span>
-            )}
-          </button>
+          {!finetuneViewOpen && (
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="relative px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all"
+            >
+              Share
+              {!!dataset?.access_requests?.length && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[1.15rem] h-[1.15rem] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold shadow-sm">
+                  {dataset.access_requests.length}
+                </span>
+              )}
+            </button>
+          )}
           {!finetuneViewOpen && (
             <button
               onClick={() => setShowFinetuneLabelDialog(true)}
@@ -1319,13 +1391,15 @@ print("Service registered successfully", end='')
               Finetune
             </button>
           )}
-          <a
-            href={downloadZipUrl}
-            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
-          >
-            Download
-          </a>
-          {role === 'owner' && (
+          {!finetuneViewOpen && (
+            <a
+              href={downloadZipUrl}
+              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
+            >
+              Download
+            </a>
+          )}
+          {!finetuneViewOpen && role === 'owner' && (
             <button
               onClick={() => setShowDeleteDatasetModal(true)}
               className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 text-sm font-medium text-gray-900 hover:text-red-600 transition-colors"
@@ -1384,63 +1458,31 @@ print("Service registered successfully", end='')
                   No annotated images yet for this label.
                 </p>
               ) : (
-                <div className="divide-y divide-gray-100">
-                  {displayedImageRows.map((row) => renderImageRow(row, false))}
+                <div>
+                  {(
+                    [
+                      ['train', 'Train', splitSections.train, 'bg-blue-50 text-blue-700'],
+                      ['test', 'Test', splitSections.test, 'bg-amber-50 text-amber-700'],
+                      ['unused', 'Unused', splitSections.unused, 'bg-gray-50 text-gray-500'],
+                    ] as const
+                  ).map(([key, title, rows, headerClass]) => (
+                    <div key={key} className="border-b border-gray-100">
+                      <div className={`px-4 py-1.5 text-xs font-semibold uppercase tracking-wide ${headerClass}`}>
+                        {title} ({rows.length})
+                      </div>
+                      {rows.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-3 px-4">No images</p>
+                      ) : (
+                        <div className="divide-y divide-gray-100">{rows.map((row) => renderImageRow(row))}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )
             ) : imageRows.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">No images yet. Mount a folder to get started.</p>
-            ) : showSplitSections ? (
-              <>
-                <div
-                  onDragOver={splitMode ? handleSectionDragOver('test') : undefined}
-                  onDrop={splitMode ? handleSectionDrop('test') : undefined}
-                  className={`divide-y divide-gray-100 transition-colors ${
-                    dragOverSection === 'test' ? 'bg-amber-50' : ''
-                  }`}
-                >
-                  <div className="sticky top-0 z-10 px-4 py-1.5 bg-amber-50/90 backdrop-blur border-y border-amber-100 text-xs font-semibold text-amber-700 flex items-center justify-between">
-                    <span>Test</span>
-                    <span>{testRows.length}</span>
-                  </div>
-                  {testRows.length === 0 ? (
-                    <p className="text-xs text-gray-400 text-center py-4 px-4">
-                      {splitMode ? 'Double-click or drag images here' : 'No test images'}
-                    </p>
-                  ) : (
-                    testRows.map((row) => renderImageRow(row, true))
-                  )}
-                </div>
-                <div
-                  onDragOver={splitMode ? handleSectionDragOver('train') : undefined}
-                  onDrop={splitMode ? handleSectionDrop('train') : undefined}
-                  className={`divide-y divide-gray-100 transition-colors ${
-                    dragOverSection === 'train' ? 'bg-blue-50' : ''
-                  }`}
-                >
-                  <div className="sticky top-0 z-10 px-4 py-1.5 bg-blue-50/90 backdrop-blur border-y border-blue-100 text-xs font-semibold text-blue-700 flex items-center justify-between">
-                    <span>Train</span>
-                    <span>{trainRows.length}</span>
-                  </div>
-                  {trainRows.length === 0 ? (
-                    <p className="text-xs text-gray-400 text-center py-4 px-4">
-                      {splitMode ? 'Double-click or drag images here' : 'No train images'}
-                    </p>
-                  ) : (
-                    trainRows.map((row) => renderImageRow(row, true))
-                  )}
-                </div>
-                {localImageRows.length > 0 && (
-                  <div className="divide-y divide-gray-100">
-                    <div className="sticky top-0 z-10 px-4 py-1.5 bg-gray-50/90 backdrop-blur border-y border-gray-100 text-xs font-semibold text-gray-500">
-                      Not yet uploaded
-                    </div>
-                    {localImageRows.map((row) => renderImageRow(row, false))}
-                  </div>
-                )}
-              </>
             ) : (
-              <div className="divide-y divide-gray-100">{imageRows.map((row) => renderImageRow(row, false))}</div>
+              <div className="divide-y divide-gray-100">{imageRows.map((row) => renderImageRow(row))}</div>
             )}
           </div>
         </div>
@@ -1503,22 +1545,20 @@ print("Service registered successfully", end='')
                   </svg>
                 </button>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-gray-800">
-                    {browserIndex === 0
-                      ? 'Raw image'
-                      : currentPair
-                        ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder
-                        : ' '}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {browserIndex === 0
-                      ? pairs.length
-                        ? `${pairs.length} annotation${pairs.length === 1 ? '' : 's'} available`
-                        : 'No annotations yet'
-                      : currentPair
-                        ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex} of ${pairs.length}`
-                        : ' '}
-                  </p>
+                  {browserIndex > 0 && (
+                    <>
+                      <p className="text-sm font-medium text-gray-800">
+                        {currentPair
+                          ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder
+                          : ' '}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {currentPair
+                          ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex} of ${pairs.length}`
+                          : ' '}
+                      </p>
+                    </>
+                  )}
                 </div>
                 <button
                   onClick={() => setBrowserIndex((i) => Math.min(pairs.length, i + 1))}
@@ -1543,7 +1583,41 @@ print("Service registered successfully", end='')
             {finetuneViewOpen ? (
               <FinetuneView
                 label={selectedLabel}
+                alias={toAlias(artifactId)}
+                existingSplits={existingSplits}
+                splitsLoading={splitsLoading}
+                activeSplitName={activeSplitName}
+                onSelectSplit={setActiveSplitName}
+                newSplitName={newSplitName}
+                onNewSplitNameChange={setNewSplitName}
+                trainPercent={trainPercent}
+                onTrainPercentChange={setTrainPercent}
+                onAutoDistribute={autoDistribute}
                 rows={displayedImageRows.map((r) => ({ stem: r.stem, annotationCount: labelStats[r.stem] ?? 0 }))}
+                assignment={assignment}
+                isSaving={isSavingSplit}
+                saveError={splitSaveError}
+                onSaveSplit={handleSaveSplit}
+                modelType={ftModelType}
+                onModelTypeChange={setFtModelType}
+                showAdvanced={ftShowAdvanced}
+                onToggleAdvanced={() => setFtShowAdvanced((v) => !v)}
+                nEpochs={ftNEpochs}
+                onNEpochsChange={setFtNEpochs}
+                nObjectsPerBatch={ftNObjectsPerBatch}
+                onNObjectsPerBatchChange={setFtNObjectsPerBatch}
+                patchSize={ftPatchSize}
+                onPatchSizeChange={setFtPatchSize}
+                batchSize={ftBatchSize}
+                onBatchSizeChange={setFtBatchSize}
+                learningRate={ftLearningRate}
+                onLearningRateChange={setFtLearningRate}
+                isStartingTraining={isStartingTraining}
+                startTrainingError={startTrainingError}
+                onStartTraining={() => handleStartTraining()}
+                showEmptyTestWarning={showEmptyTestWarning}
+                onDismissEmptyTestWarning={() => setShowEmptyTestWarning(false)}
+                onConfirmStartWithEmptyTest={() => handleStartTraining(true)}
               />
             ) : (
               <LabelManager
@@ -1586,7 +1660,6 @@ print("Service registered successfully", end='')
           role={role}
           onClose={() => setShowFinetuneLabelDialog(false)}
           onSelect={(l) => {
-            if (splitMode) handleCancelSplitMode();
             setSelectedLabel(l);
             setShowFinetuneLabelDialog(false);
             setFinetuneViewOpen(true);
@@ -1636,115 +1709,22 @@ print("Service registered successfully", end='')
         />
       )}
 
-      {showRandomSplitDialog && (() => {
-        const total = cloudImageRows.length;
-        const testCount = Math.round((total * randomSplitRatio) / 100);
-        return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
-            <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
-              <div className="p-6">
-                <h3 className="text-base font-semibold text-gray-900 mb-1">Random split</h3>
-                <p className="text-sm text-gray-500 mb-5">
-                  Pick a percentage of images to assign to the test set. The rest go to train.
-                </p>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Test set size</span>
-                  <span className="text-sm font-semibold text-purple-600">{randomSplitRatio}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={50}
-                  step={5}
-                  value={randomSplitRatio}
-                  onChange={(e) => setRandomSplitRatio(Number(e.target.value))}
-                  className="w-full accent-purple-600"
-                />
-                <p className="text-xs text-gray-400 mt-3">
-                  {testCount} test · {total - testCount} train, out of {total} images.
-                </p>
-              </div>
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-                <button
-                  onClick={() => setShowRandomSplitDialog(false)}
-                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={applyRandomSplit}
-                  className="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 text-sm font-medium shadow-sm transition-all"
-                >
-                  Use this split
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {showApplySplitDialog && (() => {
-        const testCount = pendingTestSet.size;
-        const trainCount = cloudImageRows.length - testCount;
-        return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
-            <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
-              <div className="p-6">
-                <h3 className="text-base font-semibold text-gray-900 mb-1">Apply data split</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  This will assign {testCount} image{testCount === 1 ? '' : 's'} to test and {trainCount} to train
-                  for every collaborator on this dataset.
-                </p>
-                {splitApplyError && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-2">
-                    {splitApplyError}
-                  </p>
-                )}
-              </div>
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-                <button
-                  onClick={() => setShowApplySplitDialog(false)}
-                  disabled={isApplyingSplit}
-                  className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleApplySplit}
-                  disabled={isApplyingSplit}
-                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-60 flex items-center gap-2"
-                >
-                  {isApplyingSplit && <Spinner className="w-4 h-4 text-white" />}
-                  Apply
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {pendingDeleteStem && (
+      {blockedDeleteInfo && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
           <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
             <div className="p-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-1">Remove from split and delete</h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Image is part of a split</h3>
               <p className="text-sm text-gray-500">
-                "{pendingDeleteStem}" is part of the train/test split. Deleting it will also remove it from the
-                split.
+                "{blockedDeleteInfo.stem}" is part of the "{blockedDeleteInfo.splitName}" split for label "
+                {blockedDeleteInfo.label}". Splits are add-only, so it cannot be deleted while it's a split member.
               </p>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
               <button
-                onClick={() => setPendingDeleteStem(null)}
-                className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                onClick={() => setBlockedDeleteInfo(null)}
+                className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleRemoveFromSplitAndDelete}
-                className="px-3.5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium shadow-sm transition-all"
-              >
-                Remove from split and delete
+                Close
               </button>
             </div>
           </div>
