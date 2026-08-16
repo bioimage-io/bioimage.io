@@ -107,6 +107,30 @@ export interface SaveUrls {
 }
 
 /**
+ * Train/test partition for a dataset (broker v0.6.0, colab-rework-plan.md
+ * §20). Stored as `train/split.json`; a missing file reads back as
+ * `{train: [], test: []}`, which the frontend treats as "no split applied
+ * yet, everything trains."
+ */
+export interface DatasetSplit {
+  train: string[];
+  test: string[];
+}
+
+/** One image+annotation pair url resolved for fine-tuning (broker v0.6.0). */
+export interface TrainingUrlEntry {
+  stem: string;
+  user: string;
+  image_url: string;
+  geojson_url: string;
+}
+
+export interface TrainingUrls {
+  train: TrainingUrlEntry[];
+  test: TrainingUrlEntry[];
+}
+
+/**
  * Retry *fn* up to `maxAttempts` times with a fixed backoff between
  * attempts. Unlike `datasetApi.ts`'s `withStageRetry` (which only retries
  * "not in stage mode" errors), this retries on any error: the broker's own
@@ -421,6 +445,47 @@ export async function getSaveUrls(
       image_stem: imageStem,
       _rkwargs: true,
     }),
+  );
+}
+
+/**
+ * Read the current train/test split (broker v0.6.0, colab-rework-plan.md
+ * §20 item 1). Annotator-min role. A dataset with no split yet resolves as
+ * `{train: [], test: []}`, meaning every stem still trains.
+ */
+export async function getSplit(server: any, artifactId: string): Promise<DatasetSplit> {
+  return callBroker(server, (broker) => broker.get_split({ artifact_id: artifactId, _rkwargs: true }));
+}
+
+/**
+ * Overwrite the train/test split in one call (broker v0.6.0). Manager-min
+ * role. Callers pass the full desired membership of each list, not a delta.
+ */
+export async function setSplit(
+  server: any,
+  artifactId: string,
+  train: string[],
+  test: string[],
+): Promise<DatasetSplit> {
+  return callBroker(server, (broker) =>
+    broker.set_split({ artifact_id: artifactId, train, test, _rkwargs: true }),
+  );
+}
+
+/**
+ * Resolve the latest-pair-per-(user,stem) presigned image+geojson URLs for
+ * one label, partitioned by the current split (broker v0.6.0). Manager-min
+ * role. Stems with no split entry fall into `train`. Feeds the finetune
+ * page's `start_training` call once that contract lands (colab-rework-plan.md
+ * §20 item 2).
+ */
+export async function getTrainingUrls(
+  server: any,
+  artifactId: string,
+  label: string,
+): Promise<TrainingUrls> {
+  return callBroker(server, (broker) =>
+    broker.get_training_urls({ artifact_id: artifactId, label, _rkwargs: true }),
   );
 }
 
