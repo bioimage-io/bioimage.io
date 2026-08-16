@@ -29,6 +29,7 @@ import {
   SplitDoc,
   SplitSummary,
   createSplit,
+  deleteAnnotation,
   getDataset,
   getSplit,
   getTrainingUrls,
@@ -128,6 +129,13 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [refreshTick, setRefreshTick] = useState(0);
   const handleRefresh = () => setRefreshTick((t) => t + 1);
 
+  // A state-backed callback ref (not useRef) so attaching the node itself
+  // triggers the measurement effect below, instead of racing the effect
+  // that fires when the description text first arrives from the fetch.
+  const [descriptionNode, setDescriptionNode] = useState<HTMLParagraphElement | null>(null);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [descTruncated, setDescTruncated] = useState(false);
+
   // "Try again" on the guard-error screen (colab-rework-plan.md §14b item 2):
   // must not just re-await whatever's cached, since a stale cached service
   // handle is exactly what caused the error in the first place. Drop the
@@ -223,6 +231,16 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // "images with annotations for this label" filter with no new fetching.
   const [showFinetuneLabelDialog, setShowFinetuneLabelDialog] = useState(false);
   const [finetuneViewOpen, setFinetuneViewOpen] = useState(false);
+
+  // Only offer expand/collapse when the (collapsed, single-line) description
+  // actually overflows — re-measure whenever the text or view changes.
+  useEffect(() => {
+    if (finetuneViewOpen || descExpanded || !descriptionNode) return;
+    const measure = () => setDescTruncated(descriptionNode.scrollWidth > descriptionNode.clientWidth);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [datasetMeta?.description, finetuneViewOpen, descExpanded, descriptionNode]);
 
   // --- Split authoring (broker v0.7.0, colab-rework-plan.md §23.1/§23.4) ---
   // Per-label, named, add-only splits. Lifted up here (rather than local to
@@ -636,6 +654,32 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [artifactManager, artifactId, currentPair]);
+
+  const isOwnPair = !!(currentPair && user?.id && labelUsers[currentPair.userFolder]?.id === user.id);
+  const canDeletePair = canManage || isOwnPair;
+
+  const [isDeletingPair, setIsDeletingPair] = useState(false);
+
+  const handleDeletePair = useCallback(async () => {
+    if (!currentPair || !selectedLabel) return;
+    if (!window.confirm('Delete this annotation? This cannot be undone.')) return;
+    setIsDeletingPair(true);
+    try {
+      await deleteAnnotation(
+        server,
+        artifactId,
+        selectedLabel,
+        currentPair.userFolder,
+        currentPair.stem,
+        currentPair.timestamp,
+      );
+      handleRefresh();
+    } catch (err) {
+      window.alert((err as Error).message || 'Failed to delete the annotation.');
+    } finally {
+      setIsDeletingPair(false);
+    }
+  }, [server, artifactId, selectedLabel, currentPair]);
 
   // colab-rework-plan.md §11 item 2: mounting a folder never uploads
   // anything by itself, it only registers the Python data-provider service
@@ -1309,7 +1353,14 @@ print("Service registered successfully", end='')
             <h1 className="text-2xl font-bold text-gray-900 truncate">
               {finetuneViewOpen ? `Finetune: ${selectedLabel}` : (datasetMeta?.name ?? toAlias(artifactId))}
             </h1>
-            <p className="text-sm text-gray-600 mt-0.5">
+            <p
+              ref={finetuneViewOpen ? undefined : setDescriptionNode}
+              onClick={!finetuneViewOpen && descTruncated ? () => setDescExpanded((v) => !v) : undefined}
+              className={`text-sm text-gray-600 mt-0.5 ${
+                !finetuneViewOpen && !descExpanded ? 'truncate' : ''
+              } ${!finetuneViewOpen && descTruncated ? 'cursor-pointer hover:text-gray-800' : ''}`}
+              title={!finetuneViewOpen && descTruncated ? (descExpanded ? 'Click to collapse' : 'Click to expand') : undefined}
+            >
               {finetuneViewOpen
                 ? (datasetMeta?.name ?? toAlias(artifactId))
                 : formatDatasetDescription(datasetMeta?.description)}
@@ -1596,11 +1647,31 @@ print("Service registered successfully", end='')
                 <div className="text-center">
                   {browserIndex > 0 && (
                     <>
-                      <p className="text-sm font-medium text-gray-800">
-                        {currentPair
-                          ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder
-                          : ' '}
-                      </p>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <p className="text-sm font-medium text-gray-800">
+                          {currentPair
+                            ? labelUsers[currentPair.userFolder]?.email || currentPair.userFolder
+                            : ' '}
+                        </p>
+                        {currentPair && canDeletePair && (
+                          <button
+                            onClick={handleDeletePair}
+                            disabled={isDeletingPair}
+                            title="Delete this annotation"
+                            aria-label="Delete this annotation"
+                            className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all disabled:opacity-40"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-400">
                         {currentPair
                           ? `${formatTimestamp(currentPair.timestamp)} · ${browserIndex} of ${pairs.length}`

@@ -67,6 +67,11 @@ const ColabGuide: React.FC<ColabGuideProps> = ({ supportedFileTypes, onClose }) 
                 <p className="text-sm text-gray-600 mt-2">
                   Don't have images? <a href="https://github.com/bioimage-io/bioimageio-colab/releases/download/v0.1/hpa-dataset-v2-98-rgb.zip" className="text-purple-600 hover:text-purple-800 underline" target="_blank" rel="noopener noreferrer">Download an example dataset</a> to try it out.
                 </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  The HPA Demo Dataset is public: any logged-in user can open it straight from the{' '}
+                  <strong>Shared with you</strong> list to try collaborative annotation and AI-assisted segmentation
+                  without an invite. You can also download it from the dataset overview and host your own copy.
+                </p>
               </div>
             </div>
 

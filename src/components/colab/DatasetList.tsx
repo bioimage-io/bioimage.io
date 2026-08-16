@@ -204,6 +204,7 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
                 <DatasetCard
                   key={dataset.artifact_id}
                   name={dataset.name}
+                  description={dataset.description}
                   role={dataset.role}
                   labels={dataset.labels}
                   labelCounts={labelCounts[dataset.artifact_id]}

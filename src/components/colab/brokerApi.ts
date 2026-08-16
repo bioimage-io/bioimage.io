@@ -58,6 +58,7 @@ export interface DatasetWithRole extends DatasetMetadata {
 export interface SharedDatasetSummary {
   artifact_id: string;
   name: string;
+  description: string;
   role: BrokerRole;
   labels: DatasetLabel[];
 }
@@ -553,6 +554,26 @@ export async function listSplits(server: any, artifactId: string, label?: string
 /** Delete a named split (broker v0.7.0). Only allowed while `checkpoint` is null. */
 export async function deleteSplit(server: any, artifactId: string, label: string, name: string): Promise<{ deleted: boolean }> {
   return callBroker(server, (broker) => broker.delete_split({ artifact_id: artifactId, label, name, _rkwargs: true }));
+}
+
+export async function deleteAnnotation(
+  server: any,
+  artifactId: string,
+  label: string,
+  userFolder: string,
+  stem: string,
+  timestamp: string,
+): Promise<{ deleted: boolean }> {
+  return callBroker(server, (broker) =>
+    broker.delete_annotation({
+      artifact_id: artifactId,
+      label,
+      user_folder: userFolder,
+      stem,
+      timestamp,
+      _rkwargs: true,
+    }),
+  );
 }
 
 /**
