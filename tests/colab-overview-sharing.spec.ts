@@ -203,10 +203,11 @@ test.describe('Dataset overview (§13)', () => {
     await expect(page.getByText('Make publicly readable')).toBeVisible();
 
     // QR/label section: only present once the dataset has at least one
-    // label, which this fixture dataset does ("cells").
+    // label, which this fixture dataset does ("cells"). The QR renders
+    // unconditionally now (round 20 item 3 — no expand/collapse toggle).
     const annotationLabelHeading = page.getByText('Annotation Label', { exact: false });
     if (await annotationLabelHeading.isVisible().catch(() => false)) {
-      await expect(page.getByText('Show QR Code')).toBeVisible();
+      await expect(page.getByAltText(/QR Code for/)).toBeVisible();
     }
 
     // Close the dialog.
