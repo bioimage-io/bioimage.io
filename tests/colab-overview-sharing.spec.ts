@@ -221,7 +221,7 @@ test.describe('Annotation stats view (§15 item 3)', () => {
 
     // selectedLabel auto-selects the fixture's only label ("cells") once the
     // label list loads, which is what makes the stats toggle appear.
-    const statsToggle = page.getByRole('button', { name: /Show annotation stats/ });
+    const statsToggle = page.getByRole('button', { name: /Show annotation progress/ });
     await expect(statsToggle).toBeVisible({ timeout: 60000 });
 
     // Capture whichever image the overview auto-selected before switching
@@ -232,7 +232,7 @@ test.describe('Annotation stats view (§15 item 3)', () => {
     const initialStem = await initialImg.getAttribute('alt');
 
     await statsToggle.click({ force: true });
-    await expect(page.getByText('Annotations per image', { exact: false })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Annotation files per image', { exact: false })).toBeVisible({ timeout: 15000 });
 
     // Each row's stem label is a `<span title="...">`, unique to the stats
     // view (the image-list rows elsewhere on this page don't set `title`),
