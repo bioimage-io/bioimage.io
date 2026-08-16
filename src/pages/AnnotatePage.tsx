@@ -418,6 +418,27 @@ print('CLAHE packages ready')
     retryService();
   }, [setError, retryService]);
 
+  // Auto-recheck access while the "Access needed" dialog is shown (§22 item
+  // 6): an owner approving a pending request should make the dialog vanish
+  // and unblock the page on its own, without a manual reload. Reuses the
+  // same getDatasetIndex() call as the initial load, since success both
+  // confirms the new role and supplies the index needed to proceed.
+  useEffect(() => {
+    if (!permissionDenied || !service) return;
+    const poll = async () => {
+      try {
+        const index = await service.getDatasetIndex();
+        setDatasetIndex(index);
+        lastIndexFetchAtRef.current = Date.now();
+        setPermissionDenied(false);
+      } catch {
+        // still denied, wait for the next tick
+      }
+    };
+    const id = setInterval(poll, 12_000);
+    return () => clearInterval(id);
+  }, [permissionDenied, service]);
+
   const handleRequestAccess = useCallback(async () => {
     if (!service) return;
     setRequestAccessState('requesting');

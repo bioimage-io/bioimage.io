@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { AccessRequest, BrokerRole, BrokerUserRef, DatasetWithRole, dismissAccessRequest, updateSharing } from './brokerApi';
+import { AccessRequest, BrokerRole, BrokerUserRef, DatasetWithRole, getDataset, updateSharing } from './brokerApi';
 import { buildAnnotateQuery } from './datasetApi';
 import SharingPanel, { PendingAdd, userKey } from './SharingPanel';
 
@@ -9,6 +9,7 @@ interface ShareModalProps {
   artifactId: string;
   role: BrokerRole;
   dataset: DatasetWithRole;
+  datasetName: string;
   selectedLabel: string;
   onSelectLabel: (label: string) => void;
   onChanged: () => void | Promise<void>;
@@ -21,6 +22,12 @@ const QR_ENLARGED_SIZE = 320;
 // Higher-resolution render used only for the copy/download outputs, independent
 // of what's shown on screen.
 const QR_EXPORT_SIZE = 512;
+
+// How often the Access requests list is re-polled while the dialog is open
+// (colab-rework-plan.md §22 item 3).
+const ACCESS_REQUESTS_POLL_MS = 20_000;
+
+const slugify = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '-');
 
 /** Renders a QR code for `url` onto a canvas at `size`, client-side (no external
  * image request), so the copy/download buttons never hit a cross-origin canvas. */
@@ -44,7 +51,7 @@ const renderQrBlob = (url: string): Promise<Blob | null> =>
   });
 
 /** QR code section: click to enlarge for scanning, plus copy-image and download. */
-const QRCodeSection: React.FC<{ url: string; label: string }> = ({ url, label }) => {
+const QRCodeSection: React.FC<{ url: string; label: string; datasetName: string }> = ({ url, label, datasetName }) => {
   const [enlarged, setEnlarged] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState('Copy image');
 
@@ -68,7 +75,9 @@ const QRCodeSection: React.FC<{ url: string; label: string }> = ({ url, label })
     if (!blob) return;
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${label || 'annotation'}-qr.png`;
+    const namePart = slugify(datasetName) || 'dataset';
+    const labelPart = slugify(label) || 'annotation';
+    link.download = `${namePart}-${labelPart}.png`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -176,142 +185,12 @@ const URLField: React.FC<{
   );
 };
 
-/**
- * One pending access request: pre-filled email, a role picker, and
- * Add/Dismiss actions. Add now stages the grant into the shared
- * `pendingAdds` batch (§14 item 2) instead of calling `setRole`
- * immediately, so it lands in the same `update_sharing` call as any
- * Sharing-box edits. Dismiss stays an immediate call: it only clears
- * the request and isn't part of the ACL batch.
- */
-const AccessRequestRow: React.FC<{
-  server: any;
-  artifactId: string;
-  request: AccessRequest;
-  isOwner: boolean;
-  pendingAdds: PendingAdd[];
-  onStageAdd: (user: BrokerUserRef, role: 'manager' | 'annotator') => void;
-  onUndoAdd: (user: BrokerUserRef) => void;
-  onChanged: () => void;
-}> = ({ server, artifactId, request, isOwner, pendingAdds, onStageAdd, onUndoAdd, onChanged }) => {
-  const defaultRole = request.requested_role === 'manager' && isOwner ? 'manager' : 'annotator';
-  const [selectedRole, setSelectedRole] = useState<'manager' | 'annotator'>(defaultRole);
-  const [dismissing, setDismissing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const staged = pendingAdds.find((p) => userKey(p.user) === request.email.toLowerCase());
-
-  const handleAdd = () => {
-    onStageAdd({ email: request.email }, selectedRole);
-  };
-
-  const handleUndo = () => {
-    onUndoAdd({ email: request.email });
-  };
-
-  const handleDismiss = async () => {
-    setDismissing(true);
-    setError(null);
-    try {
-      await dismissAccessRequest(server, artifactId, { email: request.email });
-      onChanged();
-    } catch (err) {
-      setError((err as Error).message || 'Failed to dismiss request.');
-      setDismissing(false);
-    }
-  };
-
-  if (staged) {
-    return (
-      <li className="py-2">
-        <div className="flex items-center gap-2">
-          <span className="flex-1 min-w-0 truncate text-sm text-purple-700">
-            {request.email} will be added as {staged.role}
-          </span>
-          <button onClick={handleUndo} className="text-xs text-gray-400 hover:text-red-600 transition-colors shrink-0">
-            Undo
-          </button>
-        </div>
-      </li>
-    );
-  }
-
-  return (
-    <li className="py-2">
-      <div className="flex items-center gap-2">
-        <span className="flex-1 min-w-0 truncate text-sm text-gray-800">{request.email}</span>
-        <select
-          value={selectedRole}
-          onChange={(e) => setSelectedRole(e.target.value as 'manager' | 'annotator')}
-          disabled={dismissing}
-          className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-        >
-          <option value="annotator">Annotator</option>
-          {isOwner && <option value="manager">Manager</option>}
-        </select>
-        <button
-          onClick={handleAdd}
-          disabled={dismissing}
-          className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 text-sm font-medium transition-colors shrink-0"
-        >
-          Add
-        </button>
-        <button
-          onClick={handleDismiss}
-          disabled={dismissing}
-          className="text-xs text-gray-400 hover:text-red-600 transition-colors shrink-0"
-        >
-          {dismissing ? 'Dismissing...' : 'Dismiss'}
-        </button>
-      </div>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </li>
-  );
-};
-
-const AccessRequestsSection: React.FC<{
-  server: any;
-  artifactId: string;
-  role: BrokerRole;
-  requests: AccessRequest[];
-  pendingAdds: PendingAdd[];
-  onStageAdd: (user: BrokerUserRef, role: 'manager' | 'annotator') => void;
-  onUndoAdd: (user: BrokerUserRef) => void;
-  onChanged: () => void;
-}> = ({ server, artifactId, role, requests, pendingAdds, onStageAdd, onUndoAdd, onChanged }) => {
-  if (requests.length === 0) return null;
-  const isOwner = role === 'owner';
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4">
-      <h3 className="text-sm font-semibold text-gray-900 mb-1">Pending access requests</h3>
-      <p className="text-xs text-gray-500 mb-2">
-        Add stages the selected role for the next Apply. Dismiss clears the request immediately without granting
-        access.
-      </p>
-      <ul className="divide-y divide-gray-100">
-        {requests.map((req) => (
-          <AccessRequestRow
-            key={req.id || req.email}
-            server={server}
-            artifactId={artifactId}
-            request={req}
-            isOwner={isOwner}
-            pendingAdds={pendingAdds}
-            onStageAdd={onStageAdd}
-            onUndoAdd={onUndoAdd}
-            onChanged={onChanged}
-          />
-        ))}
-      </ul>
-    </div>
-  );
-};
-
 const ShareModal: React.FC<ShareModalProps> = ({
   server,
   artifactId,
   role,
   dataset,
+  datasetName,
   selectedLabel,
   onSelectLabel,
   onChanged,
@@ -324,6 +203,34 @@ const ShareModal: React.FC<ShareModalProps> = ({
   const [pendingPublic, setPendingPublic] = useState<boolean | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>(dataset.access_requests ?? []);
+
+  // Keep the locally-polled access requests in sync whenever the parent's
+  // dataset refetches (e.g. after Apply), without waiting for the next poll
+  // tick.
+  useEffect(() => {
+    setAccessRequests(dataset.access_requests ?? []);
+  }, [dataset.access_requests]);
+
+  // Auto-refresh pending access requests while the dialog is open
+  // (colab-rework-plan.md §22 item 3), so a new request shows up without
+  // closing and reopening the dialog. Scoped to a direct broker call rather
+  // than the parent's full onChanged refresh, so it doesn't also trigger the
+  // dataset overview's image/label/stats refetches every tick. Owners and
+  // managers only: the broker omits access_requests for lower roles.
+  useEffect(() => {
+    if (role !== 'owner' && role !== 'manager') return;
+    const poll = async () => {
+      try {
+        const d = await getDataset(server, artifactId);
+        setAccessRequests(d.access_requests ?? []);
+      } catch {
+        // transient poll failure, just wait for the next tick
+      }
+    };
+    const id = setInterval(poll, ACCESS_REQUESTS_POLL_MS);
+    return () => clearInterval(id);
+  }, [server, artifactId, role]);
 
   const handleStageAdd = (user: BrokerUserRef, addRole: 'manager' | 'annotator') => {
     const key = userKey(user);
@@ -347,8 +254,9 @@ const ShareModal: React.FC<ShareModalProps> = ({
     setPendingPublic(value === dataset.public ? null : value);
   };
 
+  const hasPendingChanges = pendingAdds.length > 0 || pendingRemoves.length > 0 || pendingPublic !== null;
+
   const handleApply = async () => {
-    const hasPendingChanges = pendingAdds.length > 0 || pendingRemoves.length > 0 || pendingPublic !== null;
     if (!hasPendingChanges || applying) return;
     setApplying(true);
     setApplyError(null);
@@ -417,7 +325,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
           <div className="p-6 space-y-5">
             {labels.length > 0 ? (
               <div>
-                <div className="flex items-end gap-3">
+                <div className="flex items-start gap-3">
                   <div className="shrink-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Annotation Label</label>
                     <select
@@ -437,7 +345,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                   </div>
                 </div>
 
-                <QRCodeSection url={annotationURL} label={selectedLabel} />
+                <QRCodeSection url={annotationURL} label={selectedLabel} datasetName={datasetName} />
 
                 <p className="mt-2 text-xs text-gray-500 text-center">
                   Share this link with collaborators to annotate together. Annotations are saved to the cloud
@@ -449,41 +357,54 @@ const ShareModal: React.FC<ShareModalProps> = ({
             )}
 
             <SharingPanel
+              server={server}
+              artifactId={artifactId}
               role={role}
               dataset={dataset}
+              accessRequests={accessRequests}
               pendingAdds={pendingAdds}
               pendingRemoves={pendingRemoves}
               pendingPublic={pendingPublic}
               applying={applying}
-              applyError={applyError}
               onStageAdd={handleStageAdd}
               onToggleRemove={handleToggleRemove}
               onUndoAdd={handleUndoAdd}
               onSetPendingPublic={handleSetPendingPublic}
-              onApply={handleApply}
-            />
-
-            <AccessRequestsSection
-              server={server}
-              artifactId={artifactId}
-              role={role}
-              requests={dataset.access_requests ?? []}
-              pendingAdds={pendingAdds}
-              onStageAdd={handleStageAdd}
-              onUndoAdd={handleUndoAdd}
-              onChanged={onChanged}
+              onAccessRequestDismissed={onChanged}
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-6 pt-0 border-t border-gray-200/50 flex justify-end space-x-3 flex-shrink-0">
-          <button
-            onClick={() => setShowShareModal(false)}
-            className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all duration-200 font-medium"
-          >
-            Close
-          </button>
+        <div className="p-6 pt-0 border-t border-gray-200/50 flex-shrink-0">
+          {applyError && (
+            <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">{applyError}</div>
+          )}
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => setShowShareModal(false)}
+              className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all duration-200 font-medium"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleApply}
+              disabled={applying || !hasPendingChanges}
+              className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:bg-gray-300 transition-all duration-200 font-medium flex items-center gap-2"
+            >
+              {applying && (
+                <svg className="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              {applying ? 'Applying, this takes a few seconds' : 'Apply'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

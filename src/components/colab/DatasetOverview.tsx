@@ -1535,6 +1535,7 @@ print("Service registered successfully", end='')
           artifactId={artifactId}
           role={role as BrokerRole}
           dataset={dataset}
+          datasetName={datasetMeta?.name ?? toAlias(artifactId)}
           selectedLabel={selectedLabel}
           onSelectLabel={setSelectedLabel}
           onChanged={refreshDatasetNow}
