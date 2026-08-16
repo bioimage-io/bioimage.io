@@ -830,7 +830,12 @@ const ArtifactDetails = () => {
                               <CheckCircleIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
-                        ) : bioengineStatus ? (
+                        ) : (bioengineStatus && !cellpose4.loading) ? (
+                          // Held back while the cellpose4-runner probe is in
+                          // flight: a Cellpose-4 model always carries a FAILED
+                          // bioengineStatus, so showing the failure icon here
+                          // would flash a wrong status before flipping to the
+                          // passing one a moment later.
                           <Tooltip
                             title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
                             arrow
