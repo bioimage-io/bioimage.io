@@ -72,6 +72,12 @@ export interface DatasetSummary {
   labels: DatasetLabelRef[];
 }
 
+export interface DatasetSummaryBasic {
+  artifact_id: string;
+  name: string;
+  description: string;
+}
+
 export interface DatasetLabelRef {
   name: string;
   description: string;
@@ -195,13 +201,18 @@ export function labelFolder(label: string): string {
 }
 
 /**
- * Own datasets: staged + committed union under the collection, deduplicated
- * by id, filtered to artifacts the caller owns. Mirrors the pattern in
- * `SessionModal.tsx`'s `fetchUserArtifacts` (staged datasets are put back
- * into staging mode by `colab_service.py` on session resume, so both lists
- * matter). Full per-artifact reads pick up the current label list.
+ * Own datasets, name + description only: staged + committed union under the
+ * collection, deduplicated by id, filtered to artifacts the caller owns.
+ * Mirrors the pattern in `SessionModal.tsx`'s `fetchUserArtifacts` (staged
+ * datasets are put back into staging mode by `colab_service.py` on session
+ * resume, so both lists matter). This is the fast phase of the landing
+ * page's two-phase load (colab-rework-plan.md §23.4 item 5): name and
+ * description already live on the `list()` entry's manifest, so this
+ * resolves without any per-artifact follow-up call. Callers hydrate each
+ * dataset's labels separately with `discoverLabels`, so slow per-dataset
+ * label discovery never blocks the initial card render.
  */
-export async function listMyDatasets(artifactManager: any, user: any): Promise<DatasetSummary[]> {
+export async function listMyDatasetsBasic(artifactManager: any, user: any): Promise<DatasetSummaryBasic[]> {
   if (!artifactManager || !user) return [];
 
   const [stagedResult, committedResult] = await Promise.allSettled([
@@ -228,34 +239,10 @@ export async function listMyDatasets(artifactManager: any, user: any): Promise<D
       (artifact.manifest?.owner?.id === user.id || artifact.manifest?.created_by === user.id),
   );
 
-  const limit = pLimit(4);
-  const details = await Promise.all(
-    myArtifacts.map((artifact) =>
-      limit(async () => {
-        let full = artifact;
-        try {
-          full = await withStageRetry(() =>
-            artifactManager.read({ artifact_id: artifact.id, stage: true, _rkwargs: true }),
-          );
-        } catch {
-          // fall back to the list entry
-        }
-        let labels: DatasetLabelRef[] = [];
-        try {
-          labels = await discoverLabels(artifactManager, artifact.id);
-        } catch {
-          // best-effort
-        }
-        return { artifact: full, labels };
-      }),
-    ),
-  );
-
-  return details.map(({ artifact, labels }) => ({
+  return myArtifacts.map((artifact) => ({
     artifact_id: artifact.id,
     name: artifact.manifest?.name ?? artifact.id,
     description: artifact.manifest?.description ?? '',
-    labels,
   }));
 }
 

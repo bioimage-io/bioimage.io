@@ -13,6 +13,7 @@ export interface DatasetCardProps {
   description?: string;
   role?: BrokerRole;
   labels: DatasetCardLabel[];
+  labelsLoading?: boolean;
   labelCounts?: Record<string, number>;
   onOpen: () => void;
 }
@@ -36,6 +37,7 @@ const DatasetCard: React.FC<DatasetCardProps> = ({
   description,
   role,
   labels,
+  labelsLoading,
   labelCounts,
   onOpen,
 }) => {
@@ -55,7 +57,12 @@ const DatasetCard: React.FC<DatasetCardProps> = ({
       <p className="text-sm text-gray-500 line-clamp-2">{formatDatasetDescription(description)}</p>
 
       <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
-        {labels.length === 0 ? (
+        {labelsLoading ? (
+          <>
+            <span className="h-5 w-16 rounded-full bg-gray-100 animate-pulse" />
+            <span className="h-5 w-20 rounded-full bg-gray-100 animate-pulse" />
+          </>
+        ) : labels.length === 0 ? (
           <span className="text-xs text-gray-400">No labels yet</span>
         ) : (
           labels.map((label, i) => (

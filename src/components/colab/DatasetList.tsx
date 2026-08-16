@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DatasetSummary, getAnnotatedStems, listMyDatasets, pLimit, toAlias } from './datasetApi';
+import {
+  DatasetLabelRef,
+  DatasetSummaryBasic,
+  discoverLabels,
+  getAnnotatedStems,
+  listMyDatasetsBasic,
+  pLimit,
+  toAlias,
+} from './datasetApi';
 import { SharedDatasetSummary, listMyDatasets as listSharedDatasets } from './brokerApi';
 import DatasetCard from './DatasetCard';
 import CreateDatasetModal from './CreateDatasetModal';
@@ -17,10 +25,19 @@ export interface DatasetListProps {
 // selected. Own datasets read directly (owner already holds `*`); shared
 // datasets come from the broker's index, which is the only place role
 // (manager/annotator/public) and the "shared with you" membership live.
+//
+// §23.4 item 5: cards render as soon as name + description are known (phase
+// 1), then each card hydrates its own labels and per-label annotation-file
+// counts independently (phase 2) behind a skeleton, never blocking on the
+// slowest dataset in the list. Own datasets need a per-artifact label-
+// discovery call (`ownLabels` starts undefined = loading); the broker
+// already bundles labels into its single "shared with you" call, so that
+// column only has counts left to hydrate.
 const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager, onRequireLogin }) => {
   const navigate = useNavigate();
 
-  const [ownDatasets, setOwnDatasets] = useState<DatasetSummary[] | null>(null);
+  const [ownDatasets, setOwnDatasets] = useState<DatasetSummaryBasic[] | null>(null);
+  const [ownLabels, setOwnLabels] = useState<Record<string, DatasetLabelRef[]>>({});
   const [sharedDatasets, setSharedDatasets] = useState<SharedDatasetSummary[] | null>(null);
   const [labelCounts, setLabelCounts] = useState<Record<string, Record<string, number>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +72,25 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
     // (colab-rework-plan.md §21 item 3).
     (async () => {
       try {
-        const own = await listMyDatasets(artifactManager, user);
+        const own = await listMyDatasetsBasic(artifactManager, user);
         if (!active) return;
         setOwnDatasets(own);
-        await Promise.all(own.map((d) => collectLabelCounts(d.artifact_id, d.labels)));
+        // Phase 2: each dataset's labels (and, once known, its label
+        // counts) hydrate independently — one slow `discoverLabels` call
+        // never holds up the rest of the column.
+        own.forEach((d) => {
+          limit(async () => {
+            let labels: DatasetLabelRef[] = [];
+            try {
+              labels = await discoverLabels(artifactManager, d.artifact_id);
+            } catch {
+              // best-effort
+            }
+            if (!active) return;
+            setOwnLabels((prev) => ({ ...prev, [d.artifact_id]: labels }));
+            await collectLabelCounts(d.artifact_id, labels);
+          });
+        });
       } catch (err) {
         if (active) setError((err as Error).message || 'Failed to load your datasets.');
       }
@@ -70,7 +102,9 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
         if (!active) return;
         const sharedList = shared.shared || [];
         setSharedDatasets(sharedList);
-        await Promise.all(sharedList.map((d) => collectLabelCounts(d.artifact_id, d.labels)));
+        sharedList.forEach((d) => {
+          limit(() => collectLabelCounts(d.artifact_id, d.labels));
+        });
       } catch (err) {
         if (active) setError((err as Error).message || 'Failed to load shared datasets.');
       }
@@ -141,7 +175,8 @@ const DatasetList: React.FC<DatasetListProps> = ({ user, server, artifactManager
                   name={dataset.name}
                   description={dataset.description}
                   role="owner"
-                  labels={dataset.labels}
+                  labels={ownLabels[dataset.artifact_id] ?? []}
+                  labelsLoading={ownLabels[dataset.artifact_id] === undefined}
                   labelCounts={labelCounts[dataset.artifact_id]}
                   onOpen={() => openOwnDataset(dataset.artifact_id)}
                 />
