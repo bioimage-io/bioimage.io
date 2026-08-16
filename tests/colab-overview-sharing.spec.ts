@@ -216,6 +216,57 @@ test.describe('Dataset overview (§13)', () => {
   });
 });
 
+test.describe('Share dialog annotation URL (§21 item 5)', () => {
+  test('generated URL includes the hash-router prefix and actually reaches the annotate page', async ({ page }) => {
+    const token = readHyphaToken();
+    if (!token) {
+      test.skip();
+      return;
+    }
+    test.setTimeout(120000);
+
+    await injectToken(page, token);
+    await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}`);
+
+    const shareButton = page.getByRole('button', { name: 'Share', exact: true });
+    await expect(shareButton).toBeVisible({ timeout: 60000 });
+    await shareButton.click({ force: true });
+    await expect(page.getByText('Share Dataset')).toBeVisible();
+
+    const urlInput = page.getByLabel('Annotation URL');
+    await expect(urlInput).toBeVisible();
+    // The label selector auto-selects the first label asynchronously (after
+    // discoverLabels resolves), so the field can briefly render with an
+    // empty value right after the modal opens. Wait for it to settle instead
+    // of reading it immediately.
+    await expect(urlInput).toHaveValue(/#\/colab\/annotate/, { timeout: 15000 });
+    const annotationURL = await urlInput.inputValue();
+
+    // Regression check (§21 item 5): the URL must carry the HashRouter's
+    // "#/" prefix, not a bare pathname query string that the router (and a
+    // static host) would resolve to the models page instead of the
+    // annotate route.
+    expect(annotationURL).toContain('#/colab/annotate');
+    expect(annotationURL).toContain(`session_id=${DATASET_ALIAS}`);
+    expect(annotationURL).toContain(`label=${LABEL}`);
+    // The dead cellpose_model param (no reader since the model picker was
+    // dropped in §17-18) must not be re-appended.
+    expect(annotationURL).not.toContain('cellpose_model');
+
+    await page.getByRole('button', { name: 'Close' }).click({ force: true });
+
+    // Confirm the generated URL actually routes to the annotate page and
+    // not e.g. the models list (the failure mode without the hash prefix).
+    // The back button's accessible name comes from its MUI Tooltip title
+    // ("Go back to the Colab session: ..."), not its visible "Session
+    // overview" label text.
+    const url = new URL(annotationURL);
+    await page.goto(url.pathname + url.search + url.hash);
+    await expect(page.getByRole('button', { name: /Go back to the Colab session/ })).toBeVisible({ timeout: 60000 });
+    expect(page.url()).toContain('#/colab/annotate');
+  });
+});
+
 test.describe('Share dialog Apply flow (§14 items 1, 2)', () => {
   test('staging a public-flag toggle enables Apply, applies in one batch, and can be reverted', async ({ page }) => {
     const token = readHyphaToken();

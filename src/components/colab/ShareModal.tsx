@@ -10,7 +10,6 @@ interface ShareModalProps {
   dataset: DatasetWithRole;
   selectedLabel: string;
   onSelectLabel: (label: string) => void;
-  cellposeModel?: string;
   onChanged: () => void | Promise<void>;
   setShowShareModal: (show: boolean) => void;
 }
@@ -59,7 +58,8 @@ const URLField: React.FC<{
   label: string;
   url: string;
   qrLabel: string;
-}> = ({ label, url, qrLabel }) => {
+  inputId: string;
+}> = ({ label, url, qrLabel, inputId }) => {
   const [feedback, setFeedback] = useState('Copy');
 
   const handleCopy = async () => {
@@ -75,9 +75,12 @@ const URLField: React.FC<{
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1.5">
+        {label}
+      </label>
       <div className="relative">
         <input
+          id={inputId}
           type="text"
           value={url}
           readOnly
@@ -234,7 +237,6 @@ const ShareModal: React.FC<ShareModalProps> = ({
   dataset,
   selectedLabel,
   onSelectLabel,
-  cellposeModel,
   onChanged,
   setShowShareModal,
 }) => {
@@ -298,9 +300,9 @@ const ShareModal: React.FC<ShareModalProps> = ({
   const annotationURL = useMemo(
     () =>
       selectedLabel
-        ? `${window.location.origin}/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel, cellposeModel)}`
+        ? `${window.location.origin}${window.location.pathname}#/colab/annotate?${buildAnnotateQuery(artifactId, selectedLabel)}`
         : '',
-    [artifactId, selectedLabel, cellposeModel],
+    [artifactId, selectedLabel],
   );
 
   return (
@@ -378,7 +380,12 @@ const ShareModal: React.FC<ShareModalProps> = ({
                 </select>
 
                 <div className="mt-3">
-                  <URLField label="Annotation URL" url={annotationURL} qrLabel={selectedLabel} />
+                  <URLField
+                    label="Annotation URL"
+                    url={annotationURL}
+                    qrLabel={selectedLabel}
+                    inputId="annotation-url-input"
+                  />
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
                   Share this link with collaborators to annotate together. Annotations are saved to the cloud

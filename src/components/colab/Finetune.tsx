@@ -641,7 +641,7 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                       type="button"
                       onClick={() =>
                         navigate(
-                          `/colab/annotate?${buildAnnotateQuery(artifactId, annotationLabel, undefined, undefined, {
+                          `/colab/annotate?${buildAnnotateQuery(artifactId, annotationLabel, undefined, {
                             sessionId: s.session_id,
                             modelType: s.model_type as string,
                           })}`,

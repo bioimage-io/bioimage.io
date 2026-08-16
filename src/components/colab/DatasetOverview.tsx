@@ -71,13 +71,10 @@ const navigateToAnnotate = (
   navigate: ReturnType<typeof useNavigate>,
   artifactId: string,
   label: string,
-  cellposeModel?: string,
   imageStem?: string,
 ) => {
-  navigate(`/colab/annotate?${buildAnnotateQuery(artifactId, label, cellposeModel, imageStem)}`);
+  navigate(`/colab/annotate?${buildAnnotateQuery(artifactId, label, imageStem)}`);
 };
-
-const modelStorageKey = (artifactId: string, label: string) => `colab_cellpose_model:${artifactId}:${label}`;
 
 const formatTimestamp = (ts: string): string => {
   const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(ts);
@@ -206,7 +203,6 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteDatasetModal, setShowDeleteDatasetModal] = useState(false);
   const [deleteLabelTarget, setDeleteLabelTarget] = useState<string | null>(null);
-  const [cellposeModel, setCellposeModel] = useState('cpsam');
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,15 +223,6 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // A cloud image whose stem is already in the split, pending confirmation
   // of "remove from split and delete" (§20 item 4).
   const [pendingDeleteStem, setPendingDeleteStem] = useState<string | null>(null);
-
-  // Restore the last-used model whenever the selected label changes, so
-  // switching labels keeps its own model choice (models are fine-tuned
-  // per label, not per dataset).
-  useEffect(() => {
-    if (!selectedLabel) return;
-    const stored = localStorage.getItem(modelStorageKey(artifactId, selectedLabel));
-    setCellposeModel(stored || 'cpsam');
-  }, [artifactId, selectedLabel]);
 
   // --- Role guard ---
   useEffect(() => {
@@ -1498,7 +1485,6 @@ print("Service registered successfully", end='')
                 navigate,
                 artifactId,
                 l,
-                cellposeModel,
                 selectedStem && imageRows.find((r) => r.stem === selectedStem)?.isCloud ? selectedStem : undefined,
               )}
               onDeleteLabel={(l) => setDeleteLabelTarget(l)}
@@ -1513,7 +1499,7 @@ print("Service registered successfully", end='')
           artifactId={artifactId}
           role={role}
           onClose={() => setShowAnnotateDialog(false)}
-          onSelect={(l) => navigateToAnnotate(navigate, artifactId, l, cellposeModel)}
+          onSelect={(l) => navigateToAnnotate(navigate, artifactId, l)}
         />
       )}
 
@@ -1525,7 +1511,6 @@ print("Service registered successfully", end='')
           dataset={dataset}
           selectedLabel={selectedLabel}
           onSelectLabel={setSelectedLabel}
-          cellposeModel={cellposeModel}
           onChanged={refreshDatasetNow}
           setShowShareModal={setShowShareModal}
         />

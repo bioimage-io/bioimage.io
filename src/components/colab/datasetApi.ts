@@ -35,12 +35,10 @@ export function toAlias(artifactId: string): string {
 export function buildAnnotateQuery(
   artifactId: string,
   label: string,
-  cellposeModel?: string,
   imageStem?: string,
   usmSession?: { sessionId: string; modelType: string },
 ): string {
   const params = new URLSearchParams({ session_id: toAlias(artifactId), label });
-  if (cellposeModel) params.set('cellpose_model', cellposeModel);
   if (imageStem) params.set('image', imageStem);
   if (usmSession) {
     params.set('usm_session', usmSession.sessionId);
