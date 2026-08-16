@@ -30,6 +30,7 @@ interface TrainingSessionStatus {
   label?: string;
   n_train_inputs?: number;
   checkpoint_available: boolean;
+  val_reused_train?: boolean;
   elapsed_s?: number;
   start_time?: number;
   end_time?: number;
@@ -313,6 +314,9 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                       {s.session_id}
                     </div>
                     {s.message && <div className="text-xs text-gray-600 mt-1">{s.message}</div>}
+                    {s.val_reused_train && (
+                      <div className="text-xs text-amber-600 mt-1">Validation reused the training image(s).</div>
+                    )}
                     <div className="text-xs text-gray-400 mt-1">
                       {s.created_at ? `Started ${formatUnixTime(s.created_at)}` : ''}
                       {s.elapsed_s != null ? ` · Elapsed ${formatElapsed(s.elapsed_s)}` : ''}

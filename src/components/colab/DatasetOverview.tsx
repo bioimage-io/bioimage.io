@@ -966,7 +966,7 @@ print("Service registered successfully", end='')
   };
 
   const handleStartTraining = async (skipEmptyTestWarning = false) => {
-    if (!activeSplitName || activeSplit?.checkpoint) return;
+    if (!activeSplitName) return;
     if (!skipEmptyTestWarning && (activeSplit?.test.length ?? 0) === 0) {
       setShowEmptyTestWarning(true);
       return;
@@ -980,10 +980,15 @@ print("Service registered successfully", end='')
         setStartTrainingError(`Split "${activeSplitName}" has no training images yet.`);
         return;
       }
+      // A checkpointed split resumes from its prior session and is locked to
+      // that session's model type — the server rejects a mismatched
+      // model_type, so this can't drift from what start_training was
+      // actually trained with.
+      const modelType = activeSplit?.checkpoint ? activeSplit.checkpoint.model_type : ftModelType;
       const params: any = {
         train_images: urls.train.map((e) => e.image_url),
         train_labels: urls.train.map((e) => e.geojson_url),
-        model_type: ftModelType,
+        model_type: modelType,
         n_epochs: ftNEpochs,
         n_objects_per_batch: ftNObjectsPerBatch,
         patch_size: ftPatchSize,
@@ -996,11 +1001,14 @@ print("Service registered successfully", end='')
         params.val_images = urls.test.map((e) => e.image_url);
         params.val_labels = urls.test.map((e) => e.geojson_url);
       }
+      if (activeSplit?.checkpoint) {
+        params.resume_session_id = activeSplit.checkpoint.session_id;
+      }
       const svc = await resolvePinnedMicroSamTrainingService(server);
       const status = await svc.start_training(params);
       const updated = await setSplitCheckpoint(server, artifactId, selectedLabel, activeSplitName, {
         session_id: status.session_id,
-        model_type: ftModelType,
+        model_type: modelType,
       });
       setExistingSplits((prev) => prev.map((s) => (s.name === updated.name ? splitDocToSummary(updated) : s)));
       setActiveSplit(updated);

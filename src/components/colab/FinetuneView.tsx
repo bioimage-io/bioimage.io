@@ -59,6 +59,20 @@ const MODEL_OPTIONS: Array<{ value: 'vit_t_lm' | 'vit_b_lm'; label: string }> = 
   { value: 'vit_b_lm', label: 'ViT-Base (vit_b_lm)' },
 ];
 
+// Upper-bound seconds/step measured on the shared T4 (plan §23.7); the
+// displayed estimate rounds up so it reads as "at most this long", not a
+// promise.
+const SECONDS_PER_STEP: Record<string, number> = {
+  vit_t_lm: 0.8,
+  vit_b_lm: 1.8,
+};
+
+const formatDurationEstimate = (steps: number, modelType: string): string => {
+  const rate = SECONDS_PER_STEP[modelType] ?? SECONDS_PER_STEP.vit_t_lm;
+  const minutes = Math.max(1, Math.ceil((steps * rate) / 60));
+  return `roughly ${minutes} min`;
+};
+
 const badgeClass = (value: 'train' | 'test' | 'unused') =>
   value === 'train'
     ? 'bg-blue-100 text-blue-700'
@@ -134,6 +148,8 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
 
   const isCheckpointed = !!activeSplit?.checkpoint;
   const trainPoolEmpty = trainCount === 0;
+  const effectiveModelType = isCheckpointed ? activeSplit!.checkpoint!.model_type : modelType;
+  const trainingSteps = nEpochs * Math.max(trainCount, 100);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 h-full flex flex-col overflow-y-auto">
@@ -233,11 +249,9 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
 
       <div className="pt-3 border-t border-gray-100">
         {isCheckpointed ? (
-          <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5 text-xs text-amber-800">
-            This split was already used to train <span className="font-medium">{activeSplit!.checkpoint!.model_type}</span>{' '}
-            (session <span className="font-mono">{activeSplit!.checkpoint!.session_id}</span>). Continued
-            fine-tuning from a checkpoint isn't supported by the training backend yet. Start a new split to train
-            again.
+          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-800 mb-3">
+            Continuing from <span className="font-medium">{activeSplit!.checkpoint!.model_type}</span>{' '}
+            (session <span className="font-mono">{activeSplit!.checkpoint!.session_id}</span>).
           </div>
         ) : (
           <>
@@ -257,100 +271,100 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
                 </button>
               ))}
             </div>
-
-            <button
-              onClick={onToggleAdvanced}
-              className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2"
-            >
-              {showAdvanced ? 'Hide advanced parameters' : 'Show advanced parameters'}
-            </button>
-
-            {showAdvanced && (
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <label className="text-xs text-gray-500">
-                  Epochs
-                  <input
-                    type="number"
-                    value={nEpochs}
-                    onChange={(e) => onNEpochsChange(Number(e.target.value))}
-                    className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-                  />
-                </label>
-                <label className="text-xs text-gray-500">
-                  Objects/batch
-                  <input
-                    type="number"
-                    value={nObjectsPerBatch}
-                    onChange={(e) => onNObjectsPerBatchChange(Number(e.target.value))}
-                    className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-                  />
-                </label>
-                <label className="text-xs text-gray-500">
-                  Patch size
-                  <input
-                    type="number"
-                    value={patchSize}
-                    onChange={(e) => onPatchSizeChange(Number(e.target.value))}
-                    className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-                  />
-                </label>
-                <label className="text-xs text-gray-500">
-                  Batch size
-                  <input
-                    type="number"
-                    value={batchSize}
-                    onChange={(e) => onBatchSizeChange(Number(e.target.value))}
-                    className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-                  />
-                </label>
-                <label className="text-xs text-gray-500 col-span-2">
-                  Learning rate
-                  <input
-                    type="number"
-                    step="0.00001"
-                    value={learningRate}
-                    onChange={(e) => onLearningRateChange(Number(e.target.value))}
-                    className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-                  />
-                </label>
-              </div>
-            )}
-
-            {startTrainingError && (
-              <p className="mb-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                {startTrainingError}
-              </p>
-            )}
-
-            <p className="mb-2 text-xs text-gray-500">
-              {nEpochs} epoch{nEpochs === 1 ? '' : 's'} x {Math.max(trainCount, 100)} crops ={' '}
-              {nEpochs * Math.max(trainCount, 100)} training steps
-            </p>
-
-            <button
-              onClick={onStartTraining}
-              disabled={isStartingTraining || isNewSplit || activeSplitLoading || trainPoolEmpty}
-              title={
-                isNewSplit
-                  ? 'Create the split first.'
-                  : activeSplitLoading
-                  ? 'Loading split details...'
-                  : trainPoolEmpty
-                  ? 'This split has no training images yet.'
-                  : undefined
-              }
-              className="w-full px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isStartingTraining && (
-                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              )}
-              Start training
-            </button>
           </>
         )}
+
+        <button
+          onClick={onToggleAdvanced}
+          className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2"
+        >
+          {showAdvanced ? 'Hide advanced parameters' : 'Show advanced parameters'}
+        </button>
+
+        {showAdvanced && (
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <label className="text-xs text-gray-500">
+              Epochs
+              <input
+                type="number"
+                value={nEpochs}
+                onChange={(e) => onNEpochsChange(Number(e.target.value))}
+                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
+              />
+            </label>
+            <label className="text-xs text-gray-500">
+              Objects/batch
+              <input
+                type="number"
+                value={nObjectsPerBatch}
+                onChange={(e) => onNObjectsPerBatchChange(Number(e.target.value))}
+                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
+              />
+            </label>
+            <label className="text-xs text-gray-500">
+              Patch size
+              <input
+                type="number"
+                value={patchSize}
+                onChange={(e) => onPatchSizeChange(Number(e.target.value))}
+                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
+              />
+            </label>
+            <label className="text-xs text-gray-500">
+              Batch size
+              <input
+                type="number"
+                value={batchSize}
+                onChange={(e) => onBatchSizeChange(Number(e.target.value))}
+                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
+              />
+            </label>
+            <label className="text-xs text-gray-500 col-span-2">
+              Learning rate
+              <input
+                type="number"
+                step="0.00001"
+                value={learningRate}
+                onChange={(e) => onLearningRateChange(Number(e.target.value))}
+                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
+              />
+            </label>
+          </div>
+        )}
+
+        {startTrainingError && (
+          <p className="mb-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            {startTrainingError}
+          </p>
+        )}
+
+        <p className="mb-2 text-xs text-gray-500">
+          {nEpochs} epoch{nEpochs === 1 ? '' : 's'} x {Math.max(trainCount, 100)} crops ={' '}
+          {trainingSteps} training steps, {formatDurationEstimate(trainingSteps, effectiveModelType)}
+        </p>
+
+        <button
+          onClick={onStartTraining}
+          disabled={isStartingTraining || isNewSplit || activeSplitLoading || trainPoolEmpty}
+          title={
+            isNewSplit
+              ? 'Create the split first.'
+              : activeSplitLoading
+              ? 'Loading split details...'
+              : trainPoolEmpty
+              ? 'This split has no training images yet.'
+              : undefined
+          }
+          className="w-full px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {isStartingTraining && (
+            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+          Start training
+        </button>
       </div>
 
       {showEmptyTestWarning && (
