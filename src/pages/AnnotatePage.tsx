@@ -222,7 +222,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
       width: number,
       height: number,
     ): Promise<string> => {
-      if (!service) throw new Error('μSAM service unavailable');
+      if (!service) throw new Error('BioImageIO Fine-tune is unavailable');
       const cache = ensuredEmbeddingRef.current;
       let stored = cache.get(imageStem);
       if (!stored) {

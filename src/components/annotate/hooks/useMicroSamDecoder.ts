@@ -59,7 +59,7 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
   );
 
   const ensureSession = useCallback((): Promise<any> => {
-    if (!service) throw new Error('μSAM service unavailable');
+    if (!service) throw new Error('BioImageIO Fine-tune is unavailable');
     if (!sessionPromiseRef.current) {
       sessionPromiseRef.current = (async () => {
         const ort = await loadOrt();
@@ -100,7 +100,7 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
 
   const ensureEmbedding = useCallback(
     (url: string, width: number, height: number): Promise<MicroSamEmbedding> => {
-      if (!service) throw new Error('μSAM service unavailable');
+      if (!service) throw new Error('BioImageIO Fine-tune is unavailable');
       if (!embeddingRef.current || embeddingRef.current.url !== url) {
         // Prefer the injected loader (stored .npz) so the box tool reuses the
         // precomputed embedding; fall back to an inline encode if none is set.
