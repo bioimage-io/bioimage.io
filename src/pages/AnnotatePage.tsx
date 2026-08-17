@@ -861,17 +861,14 @@ print('CLAHE packages ready')
 
       let cached = flowsCacheRef.current;
       if (!cached || cached.cacheKey !== cacheKey) {
-        const fetchBanner = addBanner('Fetching flows from server...', 'loading', 0);
-        try {
-          const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
-            diameter: cfg.diameter,
-            two_pass: cfg.two_pass,
-          }, signal);
-          cached = { cacheKey, ...flows };
-          flowsCacheRef.current = cached;
-        } finally {
-          removeBanner(fetchBanner);
-        }
+        // No banner of its own: the caller's "Running Cellpose segmentation..."
+        // banner already covers the server round-trip.
+        const flows = await service.runCellposeFlows(sourceUrl, imageWidth, imageHeight, {
+          diameter: cfg.diameter,
+          two_pass: cfg.two_pass,
+        }, signal);
+        cached = { cacheKey, ...flows };
+        flowsCacheRef.current = cached;
       }
       if (signal?.aborted) return;
 

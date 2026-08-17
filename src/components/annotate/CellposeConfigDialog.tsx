@@ -17,6 +17,7 @@ import {
   Collapse,
   Checkbox,
   FormControlLabel,
+  Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import ListSubheader from '@mui/material/ListSubheader';
@@ -421,10 +422,11 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 sx={{ fontSize: '0.8rem', fontWeight: 700, ml: 'auto', minWidth: 150 }}
               >
-                {(['lm', 'em_organelles'] as const).flatMap((group) => {
+                {(['lm', 'em_organelles'] as const).flatMap((group, groupIndex) => {
                   const optionsInGroup = MICRO_SAM_MODEL_OPTIONS.filter((o) => o.group === group);
                   if (optionsInGroup.length === 0) return [];
                   return [
+                    ...(groupIndex > 0 ? [<Divider key={`divider-${group}`} sx={{ my: 0.5 }} />] : []),
                     <ListSubheader key={`header-${group}`} sx={{ fontSize: '0.75rem', lineHeight: '2rem' }}>
                       {MICRO_SAM_GROUP_LABELS[group]}
                     </ListSubheader>,
@@ -440,6 +442,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                     )),
                   ];
                 })}
+                <Divider sx={{ my: 0.5 }} />
                 <MenuItem value="cellpose" disabled={!cellposeAvailable} sx={{ fontSize: '0.8rem' }}>
                   {cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)'}
                 </MenuItem>
@@ -554,7 +557,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                       <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                         trained range 7.5-120 px
                       </Typography>
-                      <InfoTip text="Cellpose-SAM is deliberately scale-robust, so this is usually unnecessary. It was trained on object diameters from 7.5 to 120 px, with a mean of 30 px. When set, it rescales the image so objects match that trained scale before segmentation; diameters above 120 px are downsampled toward the trained scale. Leave empty to run at the original scale. Use Measure in image to pick a representative object's diameter directly from the image." />
+                      <InfoTip text="Cellpose-SAM is scale-robust and was trained on diameters of 7.5 to 120 px (mean 30 px). Setting a diameter inside that range is not recommended. When set, the image is rescaled so objects match the trained scale. Leave empty to run at the original scale, or use Measure in image to read the diameter off a representative object." />
                       {onMeasureDiameter && (
                         <Tooltip title="Measure a representative object in the image to set the diameter automatically" placement="top" arrow>
                           <Button
@@ -587,8 +590,14 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                           endAdornment: <InputAdornment position="end">px</InputAdornment>,
                         },
                       }}
-                      sx={{ mb: 1.5 }}
+                      sx={{ mb: config.diameter !== null && config.diameter >= 7.5 && config.diameter <= 120 ? 0.5 : 1.5 }}
                     />
+                    {config.diameter !== null && config.diameter >= 7.5 && config.diameter <= 120 && (
+                      <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: 'warning.main' }}>
+                        {config.diameter} px is within the trained range (7.5 to 120 px). Rescaling is not
+                        recommended, leave the field empty to run at the original scale.
+                      </Typography>
+                    )}
 
                     <FormControlLabel
                       sx={{ alignItems: 'flex-start', ml: 0, mb: 1.5 }}
