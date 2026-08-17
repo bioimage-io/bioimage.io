@@ -47,12 +47,23 @@ jobs:
           CI: false
 
       - name: Download and extract chatbot static files
+        # Authenticated API zipball instead of the public codeload URL: the
+        # unauthenticated archive endpoint rate-limits (HTTP 429) and has
+        # failed whole deploys. Retry with backoff on top.
         run: |
-          curl -LOk https://github.com/bioimage-io/bioimageio-chatbot/archive/refs/heads/main.zip
-          unzip main.zip
+          for i in 1 2 3 4 5; do
+            curl -fsSL --retry 3 \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -o chatbot.zip \
+              https://api.github.com/repos/bioimage-io/bioimageio-chatbot/zipball/main \
+              && break
+            echo "chatbot download attempt $i failed, retrying in $((i*20))s"
+            sleep $((i*20))
+          done
+          unzip -q chatbot.zip -d chatbot-src
           mkdir -p build/chat
-          cp -r bioimageio-chatbot-main/bioimageio_chatbot/static/* build/chat/
-          rm -rf main.zip bioimageio-chatbot-main
+          cp -r chatbot-src/*/bioimageio_chatbot/static/* build/chat/
+          rm -rf chatbot.zip chatbot-src
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
