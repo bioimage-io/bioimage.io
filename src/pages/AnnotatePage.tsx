@@ -247,6 +247,15 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // fresh GPU round-trip. The instant sliders read this cache and never hit
   // the network.
   const flowsCacheRef = useRef<({ cacheKey: string } & CellposeFlowsResult) | null>(null);
+  // Monotonic counter guarding runCellposeFlowsPipeline against overlapping
+  // invocations: the initial Run and a debounced instant-slider recompute
+  // (or two rapid slider drags) can both be in flight at once, with no
+  // ordering guarantee on which resolves first. Each call snapshots the
+  // counter on entry and re-checks it (plus the image stem) right before
+  // applying results, so a call that's no longer the latest — or whose
+  // image has since changed — discards its output instead of painting
+  // stale/mismatched polygons onto the current preview.
+  const flowsRunSeqRef = useRef(0);
   // OL features added by the latest Cellpose run. Replaced wholesale on each
   // instant-slider recompute so the preview stays in sync.
   const previewFeaturesRef = useRef<Feature[]>([]);
@@ -829,6 +838,9 @@ print('CLAHE packages ready')
     async (cfg: CellposeConfig, signal?: AbortSignal) => {
       if (!service || !imageWidth || !imageHeight) return;
 
+      const stemAtStart = currentImageStemRef.current;
+      const mySeq = ++flowsRunSeqRef.current;
+
       const { url: sourceUrl, useEnhanced } = deriveCellposeSource(cfg);
       if (!sourceUrl) return;
 
@@ -888,6 +900,17 @@ print('CLAHE packages ready')
         cached.displayH,
         cfg.min_mask_area ?? 0,
       );
+
+      // Discard this result if a newer run has since started, or the user
+      // has switched images while this one was in flight. Without this, an
+      // older/slower call can win the race against a newer/faster one and
+      // paint polygons scaled for a different image's dimensions onto the
+      // current preview — masks that look totally decoupled from the
+      // visible cells.
+      if (mySeq !== flowsRunSeqRef.current || currentImageStemRef.current !== stemAtStart) {
+        console.warn('[AnnotatePage] Discarding stale Cellpose flows result (image changed or a newer run started)');
+        return;
+      }
 
       const vs = getVectorSource?.();
       if (vs && !livePreviewReady) {
