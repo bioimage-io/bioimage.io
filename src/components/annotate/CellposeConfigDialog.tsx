@@ -147,6 +147,13 @@ interface CellposeConfigDialogProps {
   /** Whether the μSAM backend is reachable. Gates the μSAM option in the
    *  backend selector. */
   microSamAvailable?: boolean;
+  /** Whether the Cellpose-SAM backend (cellpose4-runner) is reachable. Gates
+   *  the Cellpose-SAM option in the backend selector. */
+  cellposeAvailable?: boolean;
+  /** Fires once whenever the dialog transitions to open, so the caller can
+   *  re-check service availability without polling while the dialog is
+   *  closed. */
+  onDialogOpen?: () => void;
   /** Whether CLAHE is currently active on the image. Gates the "Use
    *  contrast enhanced image" checkbox, shown for both backends. */
   claheActive?: boolean;
@@ -214,6 +221,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   completedRunId,
   onInstantConfigChange,
   microSamAvailable,
+  cellposeAvailable,
+  onDialogOpen,
   claheActive,
   onMeasureDiameter,
   onCancelRun,
@@ -225,6 +234,37 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       setConfig(initialConfig);
     }
   }, [open, initialConfig]);
+
+  // Re-check availability every time the dialog opens, so a stale probe from
+  // before the dialog was last shown doesn't linger.
+  const onDialogOpenRef = useRef(onDialogOpen);
+  onDialogOpenRef.current = onDialogOpen;
+  useEffect(() => {
+    if (open) {
+      onDialogOpenRef.current?.();
+    }
+  }, [open]);
+
+  // If the currently selected backend's service is unavailable but the other
+  // one is up, switch to the available one. Runs on open and again whenever
+  // availability changes while the dialog stays open, so a probe refresh (or
+  // a service coming back) re-derives the selection without user action.
+  // Default stays μSAM when both are up: this only ever moves away from an
+  // unavailable backend, never toward a preference between two available ones.
+  useEffect(() => {
+    if (!open) return;
+    setConfig((prev) => {
+      if (prev.backend === 'microsam' && microSamAvailable === false && cellposeAvailable !== false) {
+        return { ...prev, backend: 'cellpose' };
+      }
+      if (prev.backend === 'cellpose' && cellposeAvailable === false && microSamAvailable !== false) {
+        return { ...prev, backend: 'microsam' };
+      }
+      return prev;
+    });
+  }, [open, microSamAvailable, cellposeAvailable]);
+
+  const bothUnavailable = microSamAvailable === false && cellposeAvailable === false;
 
   // Fire instant-group updates back to the caller (debounced by the caller's
   // own debouncer; we just propagate every state change). React batches the
@@ -360,10 +400,16 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 <MenuItem value="microsam" disabled={!microSamAvailable} sx={{ fontSize: '0.8rem' }}>
                   {microSamAvailable ? 'μSAM' : 'μSAM (unavailable)'}
                 </MenuItem>
-                <MenuItem value="cellpose" sx={{ fontSize: '0.8rem' }}>Cellpose-SAM</MenuItem>
+                <MenuItem value="cellpose" disabled={!cellposeAvailable} sx={{ fontSize: '0.8rem' }}>
+                  {cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)'}
+                </MenuItem>
               </Select>
             </Box>
-            {isMicroSam && (
+            {bothUnavailable ? (
+              <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
+                Segmentation services are currently unavailable. Please try again shortly.
+              </Typography>
+            ) : isMicroSam && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
                 μSAM segments every object automatically.
               </Typography>
@@ -411,7 +457,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                   onClick={() => { handleApply(); onRun(config); }}
                   variant="contained"
                   color="secondary"
-                  disabled={isRunning}
+                  disabled={isRunning || bothUnavailable}
                   fullWidth
                   sx={{ mt: 2 }}
                 >
@@ -529,7 +575,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         onClick={() => { handleApply(); onRun(config); }}
                         variant="contained"
                         color="secondary"
-                        disabled={isRunning}
+                        disabled={isRunning || bothUnavailable}
                         fullWidth
                       >
                         {livePreviewReady ? 'Re-run on Server' : 'Compute Flow Field'}
@@ -688,6 +734,10 @@ export function useCellposeConfig(opts?: {
   completedRunId?: number;
   onInstantConfigChange?: (config: CellposeConfig) => void;
   microSamAvailable?: boolean;
+  /** Whether the Cellpose-SAM backend (cellpose4-runner) is reachable. */
+  cellposeAvailable?: boolean;
+  /** Fires whenever the dialog opens, for a cheap availability re-check. */
+  onDialogOpen?: () => void;
   /** Whether CLAHE is currently active. Gates the "Use contrast enhanced
    *  image" checkbox, shown for both backends. */
   claheActive?: boolean;
@@ -749,6 +799,8 @@ export function useCellposeConfig(opts?: {
       completedRunId={opts?.completedRunId}
       onInstantConfigChange={opts?.onInstantConfigChange}
       microSamAvailable={opts?.microSamAvailable}
+      cellposeAvailable={opts?.cellposeAvailable}
+      onDialogOpen={opts?.onDialogOpen}
       claheActive={opts?.claheActive}
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
       onCancelRun={opts?.onCancelRun}
