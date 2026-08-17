@@ -656,6 +656,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           onClick={() => {
             if (isResultReady) {
               handleApply();
+              onClose();
             } else {
               onCancelRun?.();
               onClose();
