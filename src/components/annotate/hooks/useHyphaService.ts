@@ -247,6 +247,14 @@ function decodeLabelMask(maskResult: any): {
  *  512 gives 5-15 min for the same images (too slow for interactive use). */
 const CELLPOSE_MAX_DIM = 256;
 
+/** Hard minimum for BOTH dimensions of the image sent to cellpose4-runner:
+ *  the served model's input axes declare min 256 on y and x, and the server
+ *  rejects anything smaller. This floor overrides both the CELLPOSE_MAX_DIM
+ *  soft cap (a non-square image downsampled to long side 256 would land
+ *  below 256 on the short side) and the diameter-driven rescale (a large
+ *  measured diameter can otherwise shrink the image below the minimum). */
+const CELLPOSE_MIN_DIM = 256;
+
 /** Long-side pixel cap for the μSAM image encoder. SAM resizes its input to
  *  1024 internally, so 1024 is the quality sweet spot (256 loses detail); the
  *  box-decoder coordinate math is resolution-invariant, so this only affects
@@ -271,11 +279,16 @@ function getImagePixelsCHW(
       // time/memory; when uncapped this can undersize objects relative to
       // the 30 px target, trading fidelity for a bounded round-trip.
       const capScale = maxDim / Math.max(width, height);
-      const scale = diameter && diameter > 0
+      const preferredScale = diameter && diameter > 0
         ? Math.min(30 / diameter, capScale)
         : Math.min(1, capScale);
-      const scaledW = Math.round(width * scale);
-      const scaledH = Math.round(height * scale);
+      // The served model rejects inputs below CELLPOSE_MIN_DIM on either
+      // axis, so the floor wins over both the soft cap and the diameter
+      // rescale (also upsamples natively-small images to the minimum).
+      const floorScale = CELLPOSE_MIN_DIM / Math.min(width, height);
+      const scale = Math.max(preferredScale, floorScale);
+      const scaledW = Math.max(Math.round(width * scale), width <= height ? CELLPOSE_MIN_DIM : 0);
+      const scaledH = Math.max(Math.round(height * scale), height <= width ? CELLPOSE_MIN_DIM : 0);
 
       const canvas = document.createElement('canvas');
       canvas.width = scaledW;
