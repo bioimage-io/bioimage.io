@@ -138,8 +138,12 @@ export interface AnnotationDataService {
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
    *  response), so it returns the same ``CellposeMask[]`` polygons. Only
    *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
-   *  Cellpose-specific knobs (flow/cellprob, niter). */
-  runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
+   *  Cellpose-specific knobs (flow/cellprob, niter). ``modelType``, when
+   *  given, overrides the interactive session's model_type for this call
+   *  only (the Full Image Segmentation picker's own choice) — every other
+   *  μSAM call (embedding, decoder, box tool) stays pinned to the session's
+   *  model_type regardless of what this argument is. */
+  runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams, modelType?: string) => Promise<CellposeMask[]>;
   /** Fetch the quantized μSAM ONNX prompt-decoder bytes for the in-browser box
    *  tool. One round-trip per page; the decoder hook caches the ort session. */
   getMicroSamOnnxModel: () => Promise<Uint8Array>;
@@ -154,7 +158,10 @@ export interface AnnotationDataService {
    *  (reconstructs the same ``MicroSamEmbedding`` the inline encode returned). */
   loadMicroSamEmbedding: (npzUrl: string) => Promise<MicroSamEmbedding>;
   /** μSAM AIS pre-seg from a stored embedding link. Server reads the ``.npz``
-   *  and returns the same ``[{output}]`` list; the browser never pulls it. */
+   *  and returns the same ``[{output}]`` list; the browser never pulls it.
+   *  The stored embedding was encoded with a fixed model_type (the session's),
+   *  so there is no ``modelType`` override here — callers that want a
+   *  different model_type must use ``runMicroSam`` (fresh encode) instead. */
   runMicroSamFromEmbedding: (npzUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** Fetch raw (dP, cellprob) for client-side mask-gen tuning. The network
    *  output only depends on the image (always the published 'idealistic-eagle'
@@ -683,7 +690,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
             return polygons;
           },
-          runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams) => {
+          runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams, modelType?: string) => {
             const microSamService = await resolveMicroSamService(server);
             const p = params || {};
             console.log('[useHyphaService] Running micro-sam AIS inference');
@@ -697,13 +704,17 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            // μSAM AIS takes no Cellpose-style knobs; just the image. Pin
+            // μSAM AIS takes no Cellpose-style knobs; just the image. Default
             // model_type to the same value the box path uses so auto pre-seg
-            // and the interactive decoder never diverge from each other.
+            // and the interactive decoder don't diverge from each other, but
+            // let the caller override it (the Full Image Segmentation model
+            // picker) for this one call — a fresh encode has no stored
+            // embedding to stay consistent with, unlike runMicroSamFromEmbedding.
+            const effectiveModelType = modelType ?? microSamModelType;
             const result = await microSamService.infer({
               input_arrays: [inputArray],
-              model_type: microSamModelType,
-              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              model_type: effectiveModelType,
+              ...(modelType === undefined && microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
             });
             console.log('[useHyphaService] micro-sam raw result:', result);

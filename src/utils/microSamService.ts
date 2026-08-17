@@ -30,6 +30,38 @@ export const MICRO_SAM_SERVICE_ID = 'bioimage-io/micro-sam';
 // generated the embedding. ('vit_b_lm' is the lighter fallback if ever needed.)
 export const MICRO_SAM_MODEL_TYPE = 'vit_l_lm';
 
+/** One selectable μSAM generalist in the Full Image Segmentation model
+ *  picker. ``group`` drives which subheader an option renders under. */
+export interface MicroSamModelOption {
+  modelType: string;
+  group: 'lm' | 'em_organelles';
+  label: string;
+}
+
+/** Human-readable subheader per group, in display order. Only groups that
+ *  actually have entries in ``MICRO_SAM_MODEL_OPTIONS`` render, so adding a
+ *  new group here has no effect until options for it exist below. */
+export const MICRO_SAM_GROUP_LABELS: Record<MicroSamModelOption['group'], string> = {
+  lm: 'μSAM: light microscopy',
+  em_organelles: 'μSAM: EM organelles',
+};
+
+// Phase A (colab-rework-plan.md §29, live-kudu confirmed 2026-08-17): the
+// current prod service (0.9.1) only accepts the 3 LM generalists here; the
+// EM organelle trio (vit_t_em_organelles / vit_b_em_organelles /
+// vit_l_em_organelles) is rejected by its pydantic model_type whitelist.
+// Phase B appends those 3 entries once bioimageio-finetune is live, e.g.:
+//   { modelType: 'vit_t_em_organelles', group: 'em_organelles', label: 'Tiny' },
+//   { modelType: 'vit_b_em_organelles', group: 'em_organelles', label: 'Base' },
+//   { modelType: 'vit_l_em_organelles', group: 'em_organelles', label: 'Large' },
+// The selector groups by `group` generically, so appending is the only
+// change needed here to make the EM subheader appear.
+export const MICRO_SAM_MODEL_OPTIONS: MicroSamModelOption[] = [
+  { modelType: 'vit_t_lm', group: 'lm', label: 'Tiny' },
+  { modelType: 'vit_b_lm', group: 'lm', label: 'Base' },
+  { modelType: 'vit_l_lm', group: 'lm', label: 'Large (default)' },
+];
+
 /**
  * Resolve a fresh handle to the μSAM service. Cheap (one websocket round-trip)
  * so callers re-resolve unconditionally instead of caching, which sidesteps the
