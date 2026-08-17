@@ -1,26 +1,35 @@
-// Service-ID and helpers for the micro-sam (μSAM) Hypha service that backs the
-// annotation UI's box-prompt segmentation and μSAM auto pre-segmentation.
+// Service-ID and helpers for the bioimageio-finetune (display "BioImageIO
+// Fine-tune") Hypha service that backs the annotation UI's box-prompt
+// segmentation and μSAM auto pre-segmentation.
 //
-// The μSAM app runs as a BioEngine app on the shared `bioimage-io` workers.
-// Every worker that deploys it registers the same `micro-sam` service name
-// (e.g. `bioimage-io/bioengine-worker-denbi-...:micro-sam` and
-// `bioimage-io/bioengine-worker-kth-...:micro-sam`), and the app is published
-// with public `authorized_users {'*':['*']}`, so it is callable cross-workspace
-// from any connected server. We therefore resolve the *unqualified* workspace
-// name `bioimage-io/micro-sam` rather than a single worker's client-scoped id:
-// Hypha's service selector then spreads calls across whichever workers are up.
-// This means the UI transparently discovers micro-sam on both the KTH and
-// de.NBI workers, and survives worker redeploys (the random `:<uid>` suffix in
-// the per-client id changes on every restart, an unqualified name does not).
+// The app runs as a BioEngine app on the shared `bioimage-io` workers. Every
+// worker that deploys it registers the same `bioimageio-finetune` service
+// name (e.g. `bioimage-io/bioengine-worker-denbi-...:bioimageio-finetune` and
+// `bioimage-io/bioengine-worker-kth-...:bioimageio-finetune`), and the app is
+// published with public `authorized_users {'*':['*']}`, so it is callable
+// cross-workspace from any connected server. We therefore resolve the
+// *unqualified* workspace name `bioimage-io/bioimageio-finetune` rather than
+// a single worker's client-scoped id: Hypha's service selector then spreads
+// calls across whichever workers are up. This means the UI transparently
+// discovers the service on both the KTH and de.NBI workers, and survives
+// worker redeploys (the random `:<uid>` suffix in the per-client id changes
+// on every restart, an unqualified name does not).
 //
-// Unlike cellpose-finetuning (see utils/cellposeServicePin.ts), μSAM is
-// stateless across replicas, so there is nothing to pin: every call re-resolves
-// a fresh handle (Hypha handles expire after a few minutes of inactivity) and
-// load-balances to the least-busy worker.
+// round-29 Phase B (colab-rework-plan.md §29, 2026-08-17): this service was
+// renamed from `micro-sam` (0.9.x) to `bioimageio-finetune` (0.10.0) when it
+// grew to serve all 6 μSAM generalists (3 LM + 3 EM organelles) for both
+// segmentation inference and fine-tuning. The rename is a byte-identical RPC
+// contract, so no call-site shape changed, only this constant.
+//
+// Unlike cellpose-finetuning (see utils/cellposeServicePin.ts), this service
+// is stateless across replicas for segmentation calls, so there is nothing to
+// pin: every call re-resolves a fresh handle (Hypha handles expire after a
+// few minutes of inactivity) and load-balances to the least-busy worker.
 
-// Workspace-scoped μSAM service name. Deliberately NOT client-qualified so it
-// load-balances across every `bioimage-io` worker that registers `micro-sam`.
-export const MICRO_SAM_SERVICE_ID = 'bioimage-io/micro-sam';
+// Workspace-scoped service name. Deliberately NOT client-qualified so it
+// load-balances across every `bioimage-io` worker that registers
+// `bioimageio-finetune`.
+export const MICRO_SAM_SERVICE_ID = 'bioimage-io/bioimageio-finetune';
 
 // Model type used for every μSAM call. As of micro-sam 0.7.0 the service
 // default flipped to 'vit_l_lm' (DeepBacs zero-shot mean F1 0.229 -> 0.799 vs
@@ -46,35 +55,34 @@ export const MICRO_SAM_GROUP_LABELS: Record<MicroSamModelOption['group'], string
   em_organelles: 'μSAM: EM organelles',
 };
 
-// Phase A (colab-rework-plan.md §29, live-kudu confirmed 2026-08-17): the
-// current prod service (0.9.1) only accepts the 3 LM generalists here; the
-// EM organelle trio (vit_t_em_organelles / vit_b_em_organelles /
-// vit_l_em_organelles) is rejected by its pydantic model_type whitelist.
-// Phase B appends those 3 entries once bioimageio-finetune is live, e.g.:
-//   { modelType: 'vit_t_em_organelles', group: 'em_organelles', label: 'Tiny' },
-//   { modelType: 'vit_b_em_organelles', group: 'em_organelles', label: 'Base' },
-//   { modelType: 'vit_l_em_organelles', group: 'em_organelles', label: 'Large' },
-// The selector groups by `group` generically, so appending is the only
-// change needed here to make the EM subheader appear.
+// Phase B (colab-rework-plan.md §29, 2026-08-17): all 6 generalists are now
+// served by bioimageio-finetune 0.10.0. The selector groups by `group`
+// generically, so this array is the single place either group's membership
+// is defined.
 export const MICRO_SAM_MODEL_OPTIONS: MicroSamModelOption[] = [
   { modelType: 'vit_t_lm', group: 'lm', label: 'Tiny' },
   { modelType: 'vit_b_lm', group: 'lm', label: 'Base' },
   { modelType: 'vit_l_lm', group: 'lm', label: 'Large (default)' },
+  { modelType: 'vit_t_em_organelles', group: 'em_organelles', label: 'Tiny' },
+  { modelType: 'vit_b_em_organelles', group: 'em_organelles', label: 'Base' },
+  { modelType: 'vit_l_em_organelles', group: 'em_organelles', label: 'Large' },
 ];
 
 /**
- * Resolve a fresh handle to the μSAM service. Cheap (one websocket round-trip)
- * so callers re-resolve unconditionally instead of caching, which sidesteps the
- * `Method expired or not found` failure a stale handle would raise.
+ * Resolve a fresh handle to the BioImageIO Fine-tune service. Cheap (one
+ * websocket round-trip) so callers re-resolve unconditionally instead of
+ * caching, which sidesteps the `Method expired or not found` failure a stale
+ * handle would raise.
  *
  * Resolution uses the `select:min:get_load` selector against the unqualified
- * `bioimage-io/micro-sam` name, so when the app is deployed on more than one
- * worker (KTH + de.NBI) each call lands on the least-busy replica. This mirrors
- * how the model-runner resolves across workers (see hooks/useModelRunners.ts).
- * μSAM is stateless across replicas, so load-based selection is safe.
+ * `bioimage-io/bioimageio-finetune` name, so when the app is deployed on more
+ * than one worker (KTH + de.NBI) each call lands on the least-busy replica.
+ * This mirrors how the model-runner resolves across workers (see
+ * hooks/useModelRunners.ts). Segmentation calls are stateless across
+ * replicas, so load-based selection is safe.
  *
  * @param server A connected hypha-rpc server object.
- * @returns The μSAM service proxy.
+ * @returns The service proxy.
  * @throws If the service cannot be reached.
  */
 export async function resolveMicroSamService(server: any): Promise<any> {
@@ -84,7 +92,7 @@ export async function resolveMicroSamService(server: any): Promise<any> {
     });
   } catch (err) {
     throw new Error(
-      `micro-sam service is not available (${(err as Error)?.message || err})`,
+      `BioImageIO Fine-tune is not available (${(err as Error)?.message || err})`,
     );
   }
 }
