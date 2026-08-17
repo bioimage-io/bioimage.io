@@ -108,7 +108,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
 
-  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService } = useHyphaService(serviceConfig);
+  const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService, probeAvailability } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
@@ -134,7 +134,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // from the dialog's Cancel button is always safe.
   const cellposeAbortRef = useRef<AbortController | null>(null);
 
-  const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
+  const { config: cellposeConfig, setConfig: setCellposeConfig, openDialog: openCellposeConfig, closeDialog: closeCellposeConfig, dialogOpen: cellposeConfigOpen, dialogElement: cellposeDialogElement } = useCellposeConfig({
     onRun: (config) => runCellposeRef.current(config),
     isRunning: isRunningCellpose,
     // The flows + Pyodide path keeps the dialog open so the instant sliders
@@ -144,6 +144,8 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     resultReady: hasCellposeResult,
     completedRunId: cellposeCompletedRunId,
     microSamAvailable,
+    cellposeAvailable,
+    onDialogOpen: probeAvailability,
     claheActive: isCLAHEActive,
     onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
     onCancelRun: () => cellposeAbortRef.current?.abort(),
@@ -1004,6 +1006,10 @@ print('CLAHE packages ready')
             console.log('[AnnotatePage] micro-sam added', n, 'masks');
             addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from μSAM`, 'success', 5000);
           }
+          // μSAM has no tunable sliders, so there's nothing left to do in the
+          // dialog once a run completes: masks are already applied above, so
+          // close it the same way the Done button would (apply, then close).
+          closeCellposeConfig();
         } catch (msErr: any) {
           removeBanner(bannerId);
           const msg = msErr?.message || 'Unknown error';
@@ -1090,6 +1096,7 @@ print('CLAHE packages ready')
     cellposeConfig, isCLAHEActive, claheEnhancedUrl, kernelReady, currentImageStem,
     ensureStoredEmbedding, runCellposeFlowsPipeline, applyPolygonsAsPreview,
     getVectorSource, pushUndo, addBanner, removeBanner, deriveCellposeSource,
+    closeCellposeConfig,
   ]);
 
   // Re-run mask gen using the cached flows on every instant-config drag.
