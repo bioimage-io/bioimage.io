@@ -171,7 +171,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <React.Fragment key={tool.id}>
                 <Tooltip
                   title={toolUnavailable
-                    ? `${tool.name} unavailable (μSAM service is offline)`
+                    ? `${tool.name} unavailable (BioImageIO Fine-tune is offline)`
                     : toolPending
                     ? `${tool.name} is warming up...`
                     : `${tool.name} (${tool.shortcut})`}
@@ -276,7 +276,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
-                  title={toolUnavailable ? 'μSAM service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
+                  title={toolUnavailable ? 'BioImageIO Fine-tune is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
                   placement="right"
                   disableHoverListener={!toolDisabled}
                 >

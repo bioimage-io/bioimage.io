@@ -1,5 +1,6 @@
 import React from 'react';
 import { SplitDoc, SplitSummary } from './brokerApi';
+import { MICRO_SAM_TRAINABLE_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
 
 export interface FinetuneViewRow {
   stem: string;
@@ -32,8 +33,8 @@ export interface FinetuneViewProps {
   isSaving: boolean;
   saveError: string | null;
   onSaveSplit: () => void;
-  modelType: 'vit_t_lm' | 'vit_b_lm';
-  onModelTypeChange: (value: 'vit_t_lm' | 'vit_b_lm') => void;
+  modelType: string;
+  onModelTypeChange: (value: string) => void;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
   nEpochs: number;
@@ -54,21 +55,19 @@ export interface FinetuneViewProps {
   onConfirmStartWithEmptyTest: () => void;
 }
 
-const MODEL_OPTIONS: Array<{ value: 'vit_t_lm' | 'vit_b_lm'; label: string }> = [
-  { value: 'vit_t_lm', label: 'ViT-Tiny (vit_t_lm)' },
-  { value: 'vit_b_lm', label: 'ViT-Base (vit_b_lm)' },
-];
-
-// Upper-bound seconds/step measured on the shared T4 (plan §23.7); the
-// displayed estimate rounds up so it reads as "at most this long", not a
-// promise.
+// Upper-bound seconds/step measured on the shared T4 (plan §23.7) for the two
+// original generalists; the displayed estimate rounds up so it reads as "at
+// most this long", not a promise. No measurement exists yet for vit_l_lm or
+// the EM organelles generalists (round-30 §30.1), so formatDurationEstimate
+// returns null for those rather than guessing a number.
 const SECONDS_PER_STEP: Record<string, number> = {
   vit_t_lm: 0.8,
   vit_b_lm: 1.8,
 };
 
-const formatDurationEstimate = (steps: number, modelType: string): string => {
-  const rate = SECONDS_PER_STEP[modelType] ?? SECONDS_PER_STEP.vit_t_lm;
+const formatDurationEstimate = (steps: number, modelType: string): string | null => {
+  const rate = SECONDS_PER_STEP[modelType];
+  if (rate === undefined) return null;
   const minutes = Math.max(1, Math.ceil((steps * rate) / 60));
   return `roughly ${minutes} min`;
 };
@@ -150,6 +149,7 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   const trainPoolEmpty = trainCount === 0;
   const effectiveModelType = isCheckpointed ? activeSplit!.checkpoint!.model_type : modelType;
   const trainingSteps = nEpochs * Math.max(trainCount, 100);
+  const durationEstimate = formatDurationEstimate(trainingSteps, effectiveModelType);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 h-full flex flex-col overflow-y-auto">
@@ -256,20 +256,31 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
         ) : (
           <>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Base model</label>
-            <div className="flex gap-2 mb-3">
-              {MODEL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => onModelTypeChange(opt.value)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                    modelType === opt.value
-                      ? 'bg-purple-50 border-purple-300 text-purple-700'
-                      : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="mb-3 space-y-2">
+              {(['lm', 'em_organelles'] as const).map((group) => {
+                const optionsInGroup = MICRO_SAM_TRAINABLE_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
+                if (optionsInGroup.length === 0) return null;
+                return (
+                  <div key={group}>
+                    <p className="text-[0.65rem] font-medium text-gray-400 mb-1">{MICRO_SAM_GROUP_LABELS[group]}</p>
+                    <div className="flex gap-2">
+                      {optionsInGroup.map((opt: MicroSamModelOption) => (
+                        <button
+                          key={opt.modelType}
+                          onClick={() => onModelTypeChange(opt.modelType)}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                            modelType === opt.modelType
+                              ? 'bg-purple-50 border-purple-300 text-purple-700'
+                              : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -340,7 +351,8 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
 
         <p className="mb-2 text-xs text-gray-500">
           {nEpochs} epoch{nEpochs === 1 ? '' : 's'} x {Math.max(trainCount, 100)} crops ={' '}
-          {trainingSteps} training steps, {formatDurationEstimate(trainingSteps, effectiveModelType)}
+          {trainingSteps} training steps
+          {durationEstimate ? `, ${durationEstimate}` : ''}
         </p>
 
         <button
