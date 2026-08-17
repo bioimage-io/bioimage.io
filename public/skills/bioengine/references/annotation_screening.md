@@ -22,6 +22,8 @@ Everything below works against the deployed production stack today (annotation i
 
 Accept whatever the user has (png/jpg/tif). Convert each to PNG before upload — the annotation viewer serves `images/<stem>.png`. Keep stems unique and filesystem-safe.
 
+Size expectations: images of at least 256 px on both sides work best. The annotation UI's Cellpose backend serves a model with a 256×256 minimum input — smaller images are upsampled to that minimum before inference, which degrades segmentation quality. Don't resize on upload; just prefer source images ≥ 256 px per side and warn the user if theirs are smaller.
+
 ```python
 from pathlib import Path
 from PIL import Image
