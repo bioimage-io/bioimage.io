@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { resolveCellpose4RunnerService, pollCellpose4Infer, CELLPOSE4_RUNNER_MODEL_ID } from '../../../utils/cellpose4RunnerService';
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
@@ -501,6 +501,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   microSamAvailable: boolean;
   /** Tear down and re-run the connect flow from scratch (same config). */
   retry: () => void;
+  /** Re-check cellpose4-runner and micro-sam reachability without reconnecting. */
+  probeAvailability: () => void;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1001,5 +1003,20 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
   const retry = () => setRetryNonce((n) => n + 1);
 
-  return { service, loading, error, cellposeAvailable, microSamAvailable, retry };
+  // Cheap re-check of both services (one websocket round-trip each) without
+  // tearing down the connection -- used when a dialog that offers a choice
+  // between them opens, since a service that was down at page load may have
+  // recovered (or vice versa) by then.
+  const probeAvailability = useCallback(() => {
+    const server = serverRef.current;
+    if (!server) return;
+    resolveCellpose4RunnerService(server)
+      .then(() => setCellposeAvailable(true))
+      .catch(() => setCellposeAvailable(false));
+    resolveMicroSamService(server)
+      .then(() => setMicroSamAvailable(true))
+      .catch(() => setMicroSamAvailable(false));
+  }, []);
+
+  return { service, loading, error, cellposeAvailable, microSamAvailable, retry, probeAvailability };
 }

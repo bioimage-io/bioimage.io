@@ -121,6 +121,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
   const tooltipPlacement = isPortrait ? 'bottom' : 'right';
 
+  // Full Image Segmentation only needs one of the two backends up. It's
+  // disabled solely when both the Cellpose-SAM and μSAM services are down.
+  const segmentationUnavailable = !cellposeAvailable && !microSamAvailable;
+
   return (
     <Box
       role="toolbar"
@@ -197,7 +201,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   <>
                     <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
                     <Tooltip
-                      title={cellposeAvailable ? `Full Image Segmentation: ${AI_BACKEND_DESCRIPTION}` : 'Full Image Segmentation unavailable (cellpose service is offline)'}
+                      title={segmentationUnavailable ? 'Segmentation services are currently unavailable' : `Full Image Segmentation: ${AI_BACKEND_DESCRIPTION}`}
                       placement={tooltipPlacement}
                     >
                       <span>
@@ -205,12 +209,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                           size={btnSize}
                           data-tool="cellpose"
                           onClick={onOpenCellposeConfig}
-                          disabled={isRunningCellpose || !cellposeAvailable}
+                          disabled={isRunningCellpose || segmentationUnavailable}
                           aria-label="Full Image Segmentation"
                           sx={{
                             ...floatingBtnSx(cellposeConfigOpen),
                             flexShrink: 0,
-                            ...aiTintSx(cellposeConfigOpen, !cellposeAvailable),
+                            ...aiTintSx(cellposeConfigOpen, segmentationUnavailable),
                             color: cellposeConfigOpen ? 'secondary.main' : undefined,
                             ...touchSx,
                           }}
@@ -330,14 +334,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   <>
                     <Divider sx={{ my: 0.4, opacity: 0.5 }} />
                     <Tooltip
-                      title={cellposeAvailable ? '' : 'Cellpose service is currently offline'}
+                      title={segmentationUnavailable ? 'Segmentation services are currently unavailable' : ''}
                       placement="right"
-                      disableHoverListener={cellposeAvailable}
+                      disableHoverListener={!segmentationUnavailable}
                     >
                       <span style={{ width: '100%' }}>
                         <ButtonBase
                           onClick={onOpenCellposeConfig}
-                          disabled={isRunningCellpose || !cellposeAvailable}
+                          disabled={isRunningCellpose || segmentationUnavailable}
                           data-tool="cellpose"
                           aria-label="Full Image Segmentation"
                           sx={{
@@ -348,7 +352,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                             '&:hover': { bgcolor: cellposeConfigOpen ? 'rgba(156,39,176,0.18)' : 'rgba(156,39,176,0.11)' },
                             transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
                             '&:active': { transform: 'scale(0.98)' },
-                            opacity: (isRunningCellpose || !cellposeAvailable) ? 0.5 : 1,
+                            opacity: (isRunningCellpose || segmentationUnavailable) ? 0.5 : 1,
                             minHeight: isCompact ? 48 : undefined,
                             touchAction: 'manipulation',
                             ...reducedMotionSx,
@@ -364,7 +368,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block"
                               sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                              {cellposeAvailable ? AI_BACKEND_DESCRIPTION : 'Service offline'}
+                              {segmentationUnavailable ? 'Service offline' : AI_BACKEND_DESCRIPTION}
                             </Typography>
                           </Box>
                         </ButtonBase>
