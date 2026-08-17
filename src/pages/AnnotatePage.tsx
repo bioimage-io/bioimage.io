@@ -18,6 +18,7 @@ import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../co
 import { toArtifactId } from '../components/colab/datasetApi';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
+import { MICRO_SAM_MODEL_TYPE } from '../utils/microSamService';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { exportGeoJSON, renderInstanceSegmentationPNG, importGeoJSON } from '../components/annotate/exportAnnotation';
@@ -967,14 +968,23 @@ print('CLAHE packages ready')
       if (cfg.backend === 'microsam') {
         try {
           let masks;
+          // The stored `.npz` embedding is only valid for the default model
+          // (MICRO_SAM_MODEL_TYPE): the backend enforces embedding/model_type
+          // consistency, so any other selection must bypass reuse and encode
+          // fresh. An explicit modelType override also skips the fine-tuned
+          // session_id pass-through (see runMicroSam's doc), since a
+          // fine-tuned session's weights belong to its own base model_type.
+          const isDefaultModel = cfg.microSamModelType === MICRO_SAM_MODEL_TYPE;
           if (useEnhanced) {
             // Bypass the stored (raw) embedding entirely: infer directly on
             // the enhanced pixels so the shared raw embedding is never
             // overwritten with enhanced data.
-            masks = await service.runMicroSam(claheEnhancedUrl as string, imageWidth, imageHeight, {
-              min_mask_area: cfg.min_mask_area,
-            });
-          } else {
+            masks = await service.runMicroSam(
+              claheEnhancedUrl as string, imageWidth, imageHeight,
+              { min_mask_area: cfg.min_mask_area },
+              isDefaultModel ? undefined : cfg.microSamModelType,
+            );
+          } else if (isDefaultModel) {
             // Reuse the precomputed embedding: AIS runs fully server-side from
             // the stored `.npz` link (the browser never pulls the ~4 MB
             // features). Always anchored to the raw imageUrl, never enhanced
@@ -988,6 +998,14 @@ print('CLAHE packages ready')
             masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
               min_mask_area: cfg.min_mask_area,
             });
+          } else {
+            // Non-default generalist: fresh encode against the raw image,
+            // no stored-embedding reuse.
+            masks = await service.runMicroSam(
+              imageUrl, imageWidth, imageHeight,
+              { min_mask_area: cfg.min_mask_area },
+              cfg.microSamModelType,
+            );
           }
           let n = 0;
           if (masks && masks.length > 0) {

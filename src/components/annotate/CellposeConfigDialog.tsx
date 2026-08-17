@@ -19,11 +19,13 @@ import {
   FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import ListSubheader from '@mui/material/ListSubheader';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import InputAdornment from '@mui/material/InputAdornment';
+import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS } from '../../utils/microSamService';
 
 /** Which segmentation backend the Full Image Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
@@ -33,6 +35,11 @@ export type SegBackend = 'cellpose' | 'microsam';
 
 export interface CellposeConfig {
   backend: SegBackend;
+  /** μSAM only. Which generalist model_type to run (e.g. 'vit_l_lm'). Ignored
+   *  when ``backend`` is 'cellpose'. Defaults to MICRO_SAM_MODEL_TYPE, the
+   *  only value for which the embedding fast-path (stored per-image
+   *  embeddings, no fresh encode) is valid. */
+  microSamModelType: string;
   flow_threshold: number;
   cellprob_threshold: number;
   niter: number | null;
@@ -54,6 +61,7 @@ export interface CellposeConfig {
 
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   backend: 'microsam',
+  microSamModelType: MICRO_SAM_MODEL_TYPE,
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
@@ -70,10 +78,11 @@ function loadConfig(): CellposeConfig {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // backend and useEnhancedImage are never persisted going forward (see
-      // saveConfig) — strip them here too, in case a save from before this
-      // change left one behind, so the default always wins.
+      // backend, microSamModelType, and useEnhancedImage are never persisted
+      // going forward (see saveConfig) — strip them here too, in case a save
+      // from before this change left one behind, so the default always wins.
       delete parsed.backend;
+      delete parsed.microSamModelType;
       delete parsed.useEnhancedImage;
       return { ...DEFAULT_CELLPOSE_CONFIG, ...parsed };
     }
@@ -85,10 +94,10 @@ function loadConfig(): CellposeConfig {
 
 function saveConfig(config: CellposeConfig): void {
   try {
-    // useEnhancedImage and backend are intentionally excluded so they always
-    // start at their defaults (unchecked / μSAM) next session, even if left
-    // changed here.
-    const { useEnhancedImage, backend, ...persisted } = config;
+    // useEnhancedImage, backend, and microSamModelType are intentionally
+    // excluded so they always start at their defaults (unchecked / μSAM /
+    // MICRO_SAM_MODEL_TYPE) next session, even if left changed here.
+    const { useEnhancedImage, backend, microSamModelType, ...persisted } = config;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch {
     // ignore storage errors
@@ -283,7 +292,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const handleReset = () => {
-    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, backend: prev.backend }));
+    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, backend: prev.backend, microSamModelType: prev.microSamModelType }));
   };
 
   const handleApply = () => {
@@ -393,13 +402,44 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 size="small"
                 variant="standard"
                 disableUnderline
-                value={config.backend}
-                onChange={(e) => update('backend', e.target.value as SegBackend)}
+                value={config.backend === 'microsam' ? config.microSamModelType : 'cellpose'}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'cellpose') {
+                    update('backend', 'cellpose');
+                  } else {
+                    setConfig((prev) => ({ ...prev, backend: 'microsam', microSamModelType: value }));
+                  }
+                }}
+                renderValue={(value) => {
+                  if (value === 'cellpose') {
+                    return cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)';
+                  }
+                  const option = MICRO_SAM_MODEL_OPTIONS.find((o) => o.modelType === value);
+                  const label = option ? option.label.replace(' (default)', '') : value;
+                  return microSamAvailable ? `μSAM (${label})` : `μSAM (${label}, unavailable)`;
+                }}
                 sx={{ fontSize: '0.8rem', fontWeight: 700, ml: 'auto', minWidth: 150 }}
               >
-                <MenuItem value="microsam" disabled={!microSamAvailable} sx={{ fontSize: '0.8rem' }}>
-                  {microSamAvailable ? 'μSAM' : 'μSAM (unavailable)'}
-                </MenuItem>
+                {(['lm', 'em_organelles'] as const).flatMap((group) => {
+                  const optionsInGroup = MICRO_SAM_MODEL_OPTIONS.filter((o) => o.group === group);
+                  if (optionsInGroup.length === 0) return [];
+                  return [
+                    <ListSubheader key={`header-${group}`} sx={{ fontSize: '0.75rem', lineHeight: '2rem' }}>
+                      {MICRO_SAM_GROUP_LABELS[group]}
+                    </ListSubheader>,
+                    ...optionsInGroup.map((option) => (
+                      <MenuItem
+                        key={option.modelType}
+                        value={option.modelType}
+                        disabled={!microSamAvailable}
+                        sx={{ fontSize: '0.8rem' }}
+                      >
+                        {option.label}
+                      </MenuItem>
+                    )),
+                  ];
+                })}
                 <MenuItem value="cellpose" disabled={!cellposeAvailable} sx={{ fontSize: '0.8rem' }}>
                   {cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)'}
                 </MenuItem>
