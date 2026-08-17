@@ -219,6 +219,8 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 
 ## Model screening / comparison workflow
 
+> **No ground truth yet?** For segmentation screening, the user can annotate their own images in the bioimage.io annotation interface and those annotations become the screening ground truth — see [references/annotation_screening.md](../../references/annotation_screening.md) for the full loop (create private dataset, user annotates, read the label masks back).
+
 ```text
 - [ ] Step 1: Clarify task type (segmentation / denoising / restoration / detection)
 - [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose4-runner.list_supported_models(); see § Candidate pool — two sources

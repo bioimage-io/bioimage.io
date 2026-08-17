@@ -29,6 +29,8 @@ Four high-level tasks. Pick the one that matches what the user is trying to do, 
 
 Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whether you're authoring the artifact (Task 2) or pointing at an existing one (Task 3). Tasks 2 and 4 both touch **dataset access** because new apps and existing apps both consume image data; see [references/data_sources.md](references/data_sources.md) either way.
 
+**Cross-cutting workflow**: to screen segmentation models against ground truth the user annotates themselves in the browser (few-shot ground truth from the bioimage.io annotation interface), follow [references/annotation_screening.md](references/annotation_screening.md) — it feeds directly into the model screening workflow of [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md).
+
 ---
 
 ## Server, install, and conventions (read once)
