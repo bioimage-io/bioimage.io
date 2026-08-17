@@ -1,13 +1,16 @@
 /**
- * Resolves the ``bioimage-io/micro-sam`` service, pinning a specific worker
- * replica for the duration of the browser tab, for fine-tuning calls only.
+ * Resolves the ``bioimage-io/bioimageio-finetune`` service (renamed from
+ * ``micro-sam`` in round-29 Phase B, colab-rework-plan.md §29), pinning a
+ * specific worker replica for the duration of the browser tab, for
+ * fine-tuning calls (and export_model/get_export_status/push_export, which
+ * share the training service's per-replica in-memory state) only.
  *
  * Why this differs from `microSamService.ts`'s `resolveMicroSamService`
  * -----------------------------------------------------------------------
  * Inference (`infer`, `compute_embedding`, `get_onnx_model`) is stateless
  * across replicas, so `resolveMicroSamService` deliberately re-resolves via
  * `select:min:get_load` on every call to spread load across every worker
- * (KTH + de.NBI) that registers `micro-sam`.
+ * (KTH + de.NBI) that registers `bioimageio-finetune`.
  *
  * Fine-tuning is the opposite: `training.py`'s session store
  * (`~/.bioengine/micro_sam_sessions/<session_id>/status.json` +
@@ -25,6 +28,8 @@
  * tab, each tab gets independent load-balancing, and the pin clears when the
  * tab closes.
  */
+import { MICRO_SAM_SERVICE_ID } from './microSamService';
+
 const STORAGE_KEY = 'bioimage_pinned_microsam_training_service_id';
 
 /** Pure read helper, exported for diagnostics / tests. */
@@ -55,10 +60,10 @@ function clearPinnedMicroSamTrainingServiceId(): void {
 }
 
 /**
- * Resolve a micro-sam service handle for fine-tuning calls, pinning the
- * worker replica for the rest of this tab's session. Hypha service handles
- * can expire mid-session, so callers should call this *per RPC* rather than
- * caching the returned handle.
+ * Resolve a BioImageIO Fine-tune service handle for fine-tuning calls,
+ * pinning the worker replica for the rest of this tab's session. Hypha
+ * service handles can expire mid-session, so callers should call this
+ * *per RPC* rather than caching the returned handle.
  *
  * @param server  An already-connected hypha-rpc server proxy.
  * @returns       The remote service proxy from ``server.getService``.
@@ -81,11 +86,11 @@ export async function resolvePinnedMicroSamTrainingService(server: any): Promise
       clearPinnedMicroSamTrainingServiceId();
     }
   }
-  const svc = await server.getService('bioimage-io/micro-sam', { mode: 'random' });
+  const svc = await server.getService(MICRO_SAM_SERVICE_ID, { mode: 'random' });
   const id = (svc && (svc as any).id) as string | undefined;
   if (id) {
     setPinnedMicroSamTrainingServiceId(id);
-    console.log('[resolvePinnedMicroSamTrainingService] Pinned micro-sam replica:', id);
+    console.log('[resolvePinnedMicroSamTrainingService] Pinned bioimageio-finetune replica:', id);
   }
   return svc;
 }
