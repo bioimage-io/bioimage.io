@@ -2,15 +2,13 @@ import React from 'react';
 import { Box } from '@mui/material';
 
 // Shared visual language for the annotate page's floating panels (tools,
-// actions): blur-backed translucent card, transform/opacity-only
-// transitions, and press feedback via scale (emil-design-eng guidance).
+// actions): opaque card, transform/opacity-only transitions, and press
+// feedback via scale (emil-design-eng guidance).
 
 export const FLOAT_EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
 
 export const floatingPanelSx = {
-  background: 'rgba(255,255,255,0.82)',
-  backdropFilter: 'blur(14px)',
-  WebkitBackdropFilter: 'blur(14px)',
+  background: '#ffffff',
   border: '1px solid rgba(255,255,255,0.6)',
   borderRadius: 3,
   boxShadow: '0 4px 24px rgba(15,23,42,0.16)',

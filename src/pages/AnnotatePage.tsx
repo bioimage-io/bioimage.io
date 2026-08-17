@@ -1529,7 +1529,7 @@ print("CLAHE_RESULT:" + result_b64)
       {/* Floating header bar (Google-Maps-like: spans full width, overlays the
           fullscreen viewer rather than pushing it down) */}
       <div
-        className="flex items-center justify-between px-3 bg-gradient-to-r from-blue-100/90 via-purple-100/85 to-cyan-100/90 backdrop-blur-lg border-b border-blue-200/40 shadow-sm"
+        className="flex items-center justify-between px-3 bg-gradient-to-r from-blue-100 via-purple-100 to-cyan-100 border-b border-blue-200/40 shadow-sm"
         style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1200, height: isMobile ? 48 : 40 }}
       >
         <div className="flex items-center gap-2 z-10 flex-shrink-0">
@@ -1545,7 +1545,7 @@ print("CLAHE_RESULT:" + result_b64)
                   padding: isMobile ? '5px 8px' : '3px 10px',
                   color: '#1976d2',
                   borderColor: 'rgba(25,118,210,0.45)',
-                  bgcolor: 'rgba(255,255,255,0.7)',
+                  bgcolor: '#ffffff',
                   fontSize: '0.75rem',
                   fontWeight: 600,
                   textTransform: 'none',
