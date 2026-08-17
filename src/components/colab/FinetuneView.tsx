@@ -1,6 +1,6 @@
 import React from 'react';
 import { SplitDoc, SplitSummary } from './brokerApi';
-import { MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
+import { MICRO_SAM_TRAINABLE_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
 
 export interface FinetuneViewRow {
   stem: string;
@@ -258,7 +258,7 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Base model</label>
             <div className="mb-3 space-y-2">
               {(['lm', 'em_organelles'] as const).map((group) => {
-                const optionsInGroup = MICRO_SAM_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
+                const optionsInGroup = MICRO_SAM_TRAINABLE_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
                 if (optionsInGroup.length === 0) return null;
                 return (
                   <div key={group}>
