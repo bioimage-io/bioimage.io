@@ -7,9 +7,12 @@ import {
   BrokerRole,
   DatasetWithRole,
   getDataset,
+  listSplits,
+  setSplitCheckpoint,
 } from './brokerApi';
 import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
 import LoginButton from '../LoginButton';
+import ExportModelDialog from './ExportModelDialog';
 
 export interface FinetuneProps {
   artifactId: string;
@@ -21,7 +24,7 @@ export interface FinetuneProps {
 
 type TrainingStatusValue = 'PREPARING' | 'TRAINING' | 'COMPLETED' | 'FAILED' | 'STOPPED' | 'UNKNOWN';
 
-interface TrainingSessionStatus {
+export interface TrainingSessionStatus {
   session_id: string;
   status: TrainingStatusValue;
   message?: string;
@@ -60,7 +63,7 @@ const formatUnixTime = (seconds?: number): string => {
   return new Date(seconds * 1000).toLocaleString();
 };
 
-const Spinner: React.FC<{ className?: string }> = ({ className = 'w-8 h-8 text-purple-600' }) => (
+export const Spinner: React.FC<{ className?: string }> = ({ className = 'w-8 h-8 text-purple-600' }) => (
   <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
     <path
@@ -81,7 +84,7 @@ const sessionTag = (alias: string, annotationLabel: string) => `${alias}/${annot
 
 // Training runs are started from a dataset's finetune view now
 // (colab-rework-plan.md §23.2); this page is monitoring-only.
-const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, user }) => {
+const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, user, artifactManager }) => {
   const navigate = useNavigate();
 
   const [dataset, setDataset] = useState<DatasetWithRole | null>(null);
@@ -93,6 +96,39 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null);
   const [confirmStopId, setConfirmStopId] = useState<string | null>(null);
+
+  const [exportTarget, setExportTarget] = useState<{
+    session: TrainingSessionStatus;
+    annotationLabel: string;
+    splitName: string;
+    checkpoint: { session_id: string; model_type: string; [key: string]: any };
+  } | null>(null);
+  const [exportResolveError, setExportResolveError] = useState<{ sessionId: string; message: string } | null>(null);
+  const [resolvingExportSessionId, setResolvingExportSessionId] = useState<string | null>(null);
+
+  const handleOpenExport = async (s: TrainingSessionStatus, annotationLabel: string) => {
+    setExportResolveError(null);
+    setResolvingExportSessionId(s.session_id);
+    try {
+      const splits = await listSplits(server, artifactId, annotationLabel);
+      const owner = splits.find((sp) => sp.checkpoint?.session_id === s.session_id);
+      if (!owner || !owner.checkpoint) {
+        setExportResolveError({
+          sessionId: s.session_id,
+          message: 'Could not determine the training split for this session, export is unavailable.',
+        });
+        return;
+      }
+      setExportTarget({ session: s, annotationLabel, splitName: owner.name, checkpoint: owner.checkpoint });
+    } catch (err) {
+      setExportResolveError({
+        sessionId: s.session_id,
+        message: (err as Error).message || 'Failed to resolve the training split for this session.',
+      });
+    } finally {
+      setResolvingExportSessionId(null);
+    }
+  };
 
   const role: BrokerRole | undefined = dataset?.role;
   const canManage = role === 'owner' || role === 'manager';
@@ -358,7 +394,7 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                   </p>
                 )}
                 {s.checkpoint_available && annotationLabel && s.model_type && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
                       onClick={() =>
@@ -373,13 +409,46 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                     >
                       Use for annotation
                     </button>
+                    {s.status === 'COMPLETED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExport(s, annotationLabel)}
+                        disabled={resolvingExportSessionId === s.session_id}
+                        className="px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-medium text-gray-700 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 transition-colors disabled:opacity-50"
+                      >
+                        {resolvingExportSessionId === s.session_id ? 'Resolving split...' : 'Export as model'}
+                      </button>
+                    )}
                   </div>
+                )}
+                {exportResolveError?.sessionId === s.session_id && (
+                  <div className="mt-2 text-xs text-red-600">{exportResolveError.message}</div>
                 )}
               </div>
             );
           })}
         </div>
       </div>
+      {exportTarget && (
+        <ExportModelDialog
+          open
+          onClose={() => setExportTarget(null)}
+          server={server}
+          artifactManager={artifactManager}
+          user={user}
+          datasetArtifactId={artifactId}
+          annotationLabel={exportTarget.annotationLabel}
+          session={exportTarget.session}
+          splitName={exportTarget.splitName}
+          existingCheckpoint={exportTarget.checkpoint}
+          onExported={async (exportedModelId) => {
+            await setSplitCheckpoint(server, artifactId, exportTarget.annotationLabel, exportTarget.splitName, {
+              ...exportTarget.checkpoint,
+              exported_model_id: exportedModelId,
+            });
+          }}
+        />
+      )}
     </div>
   );
 };
