@@ -1,16 +1,17 @@
 /**
- * Resolves the ``bioimage-io/bioimageio-finetune`` service (renamed from
- * ``micro-sam`` in round-29 Phase B, colab-rework-plan.md §29), pinning a
- * specific worker replica for the duration of the browser tab, for
- * fine-tuning calls (and export_model/get_export_status/push_export, which
- * share the training service's per-replica in-memory state) only.
+ * Resolves the ``bioimage-io/model-finetune`` service (renamed from
+ * ``micro-sam`` in round-29 Phase B, colab-rework-plan.md §29, then from
+ * ``bioimageio-finetune`` in round-31c), pinning a specific worker replica
+ * for the duration of the browser tab, for fine-tuning calls (and
+ * export_model/get_export_status/push_export, which share the training
+ * service's per-replica in-memory state) only.
  *
  * Why this differs from `microSamService.ts`'s `resolveMicroSamService`
  * -----------------------------------------------------------------------
  * Inference (`infer`, `compute_embedding`, `get_onnx_model`) is stateless
  * across replicas, so `resolveMicroSamService` deliberately re-resolves via
  * `select:min:get_load` on every call to spread load across every worker
- * (KTH + de.NBI) that registers `bioimageio-finetune`.
+ * (KTH + de.NBI) that registers `model-finetune`.
  *
  * Fine-tuning is the opposite: `training.py`'s session store
  * (`~/.bioengine/micro_sam_sessions/<session_id>/status.json` +
@@ -90,7 +91,7 @@ export async function resolvePinnedMicroSamTrainingService(server: any): Promise
   const id = (svc && (svc as any).id) as string | undefined;
   if (id) {
     setPinnedMicroSamTrainingServiceId(id);
-    console.log('[resolvePinnedMicroSamTrainingService] Pinned bioimageio-finetune replica:', id);
+    console.log('[resolvePinnedMicroSamTrainingService] Pinned model-finetune replica:', id);
   }
   return svc;
 }
