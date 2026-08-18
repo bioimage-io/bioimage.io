@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { COLLECTION_ID } from './datasetApi';
 import { registerDataset } from './brokerApi';
+import { isSmallImageDims, readImageDimensions } from '../../utils/imageSize';
 
 export interface CreateDatasetModalProps {
   server: any;
@@ -47,6 +48,7 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
   const [description, setDescription] = useState('');
   const [folderHandle, setFolderHandle] = useState<any>(null);
   const [fileCount, setFileCount] = useState(0);
+  const [smallImageCount, setSmallImageCount] = useState(0);
   const [step, setStep] = useState<'configure' | 'creating'>('configure');
   const [error, setError] = useState<string | null>(null);
 
@@ -57,19 +59,40 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
       if (!name.trim()) setName(dirHandle.name);
 
       let count = 0;
+      const imageHandles: any[] = [];
       for await (const entry of dirHandle.values()) {
         if (entry.kind === 'file') {
           const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-          if (SUPPORTED_EXTENSIONS.includes(ext)) count += 1;
+          if (SUPPORTED_EXTENSIONS.includes(ext)) {
+            count += 1;
+            imageHandles.push(entry);
+          }
         }
       }
       setFileCount(count);
+      setSmallImageCount(0);
       setError(null);
+
+      // Dims are free client-side at this point (the handles are already
+      // in hand), but decoding every picked file can take a moment for a
+      // large folder, so this scan runs in the background instead of
+      // gating folder selection or the Create button.
+      scanForSmallImages(imageHandles);
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         setError(`Failed to select folder: ${(err as Error).message}`);
       }
     }
+  };
+
+  const scanForSmallImages = async (fileHandles: any[]) => {
+    let small = 0;
+    for (const handle of fileHandles) {
+      const file = await handle.getFile();
+      const dims = await readImageDimensions(file);
+      if (dims && isSmallImageDims(dims.width, dims.height)) small += 1;
+    }
+    setSmallImageCount(small);
   };
 
   const createDataset = async (): Promise<string> => {
@@ -181,6 +204,11 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
                 <p className="text-xs text-gray-500 mt-1.5">
                   Images are not uploaded now. You can upload them, one at a time or all at once, from the dataset page.
                 </p>
+                {smallImageCount > 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mt-1.5">
+                    {smallImageCount} image{smallImageCount === 1 ? ' is' : 's are'} below 256 px on a side. AI segmentation quality may be reduced for {smallImageCount === 1 ? 'it' : 'those'}.
+                  </p>
+                )}
               </div>
 
               {error && (

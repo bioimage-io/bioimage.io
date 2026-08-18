@@ -40,6 +40,7 @@ import {
   updateSplit,
 } from './brokerApi';
 import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
+import { isSmallImageDims, readImageDimensions } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
 import FinetuneView from './FinetuneView';
 import AnnotationStatsView from './AnnotationStatsView';
@@ -185,6 +186,9 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [uploadingStems, setUploadingStems] = useState<Set<string>>(new Set());
   const [mounting, setMounting] = useState(false);
   const [folderMounted, setFolderMounted] = useState(false);
+  // Round-31: non-blocking count of picked local images under 256px on a
+  // side, from a background dims scan of the mounted folder handle.
+  const [smallImageCount, setSmallImageCount] = useState(0);
   // colab-rework-plan.md §14 item 9: a folder picked before the kernel has
   // finished starting is queued here instead of erroring, and mounted
   // automatically once executeCode/mountDirectory become available.
@@ -681,6 +685,28 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     }
   }, [server, artifactId, selectedLabel, currentPair]);
 
+  // Round-31: dims are free client-side from a picked FileSystemDirectoryHandle
+  // (no Python/Pyodide round trip needed), so this scans in the background
+  // whenever a folder is mounted and just counts how many images are under
+  // the 256px floor. Non-blocking by design, runs alongside mountLocalFolder
+  // rather than gating it.
+  const scanFolderForSmallImages = useCallback(async (dirHandle: any) => {
+    let small = 0;
+    try {
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind !== 'file') continue;
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        if (!['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(ext)) continue;
+        const file = await entry.getFile();
+        const dims = await readImageDimensions(file);
+        if (dims && isSmallImageDims(dims.width, dims.height)) small += 1;
+      }
+    } catch {
+      // Advisory scan only, ignore failures.
+    }
+    setSmallImageCount(small);
+  }, []);
+
   // colab-rework-plan.md §11 item 2: mounting a folder never uploads
   // anything by itself, it only registers the Python data-provider service
   // (reused by uploadSingleImage/handleUploadAll below) and lists which
@@ -694,6 +720,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         return;
       }
       setMounting(true);
+      setSmallImageCount(0);
+      scanFolderForSmallImages(dirHandle);
       try {
         let token = localStorage.getItem('token') || '';
         if (!token && typeof server?.generateToken === 'function') {
@@ -762,7 +790,7 @@ print("Service registered successfully", end='')
         setMounting(false);
       }
     },
-    [executeCode, mountDirectory, requestKernel, server, user, artifactId, images],
+    [executeCode, mountDirectory, requestKernel, server, user, artifactId, images, scanFolderForSmallImages],
   );
 
   // Completes a mount that was queued in mountLocalFolder because the kernel
@@ -799,6 +827,7 @@ print("Service registered successfully", end='')
     setUploadingStems(new Set());
     setUploadProgress(null);
     setFolderMounted(false);
+    setSmallImageCount(0);
   };
 
   // Auto-mount the folder handed over from CreateDatasetModal, if any, so
@@ -1509,6 +1538,12 @@ print("Service registered successfully", end='')
           )}
         </div>
       </div>
+
+      {!finetuneViewOpen && smallImageCount > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-4">
+          {smallImageCount} local image{smallImageCount === 1 ? ' is' : 's are'} below 256 px on a side. AI segmentation quality may be reduced for {smallImageCount === 1 ? 'it' : 'those'}.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_320px] gap-4">
         {/* Left: image list */}
