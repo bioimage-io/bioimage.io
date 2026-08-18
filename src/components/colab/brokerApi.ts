@@ -65,6 +65,11 @@ export interface SharedDatasetSummary {
 
 export interface DatasetIndexImage {
   stem: string;
+  // annotation-broker 0.8.0+: cached PNG-header read at registration/upload
+  // time. Absent when unreadable, non-PNG, or on a first-call race — treat
+  // missing as "unknown", never warn on it (round-31 follow-up).
+  width?: number;
+  height?: number;
 }
 
 export interface DatasetIndexEmbedding {
