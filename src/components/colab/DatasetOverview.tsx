@@ -31,6 +31,7 @@ import {
   createSplit,
   deleteAnnotation,
   getDataset,
+  getDatasetIndex,
   getSplit,
   getTrainingUrls,
   listSplits,
@@ -40,7 +41,7 @@ import {
   updateSplit,
 } from './brokerApi';
 import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
-import { isSmallImageDims, readImageDimensions } from '../../utils/imageSize';
+import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
 import FinetuneView from './FinetuneView';
 import AnnotationStatsView from './AnnotationStatsView';
@@ -71,6 +72,11 @@ interface ImageRow {
   name: string;
   format?: string;
   isCloud: boolean;
+  // Round-31 follow-up: from the broker's dataset index (annotation-broker
+  // 0.8.0+), absent when unreadable/non-PNG or not indexed yet. Never treat
+  // absence as "small" -- isSmallImageDims already returns false for 0/undefined.
+  width?: number;
+  height?: number;
 }
 
 // Shared by the action-bar "Annotate" button and LabelManager's inline
@@ -356,6 +362,33 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [artifactManager, artifactId, canManage, refreshTick]);
+
+  // Round-31 follow-up: per-image dims from the broker's dataset index,
+  // keyed by stem, for the small-image list badge. Best-effort -- a missing
+  // or failed fetch just means no row gets a badge, not an error banner.
+  const [imageDims, setImageDims] = useState<Record<string, { width?: number; height?: number }>>({});
+  useEffect(() => {
+    if (!server || !canManage) return;
+    let active = true;
+    (async () => {
+      try {
+        const idx = await getDatasetIndex(server, artifactId);
+        if (!active) return;
+        const dims: Record<string, { width?: number; height?: number }> = {};
+        for (const img of idx.images) {
+          if (img.width !== undefined || img.height !== undefined) {
+            dims[img.stem] = { width: img.width, height: img.height };
+          }
+        }
+        setImageDims(dims);
+      } catch {
+        // Advisory only.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [server, artifactId, canManage, refreshTick]);
 
   // --- Splits for the finetune view's active label (broker v0.7.0) ---
   const [splitsRefreshTick, setSplitsRefreshTick] = useState(0);
@@ -915,7 +948,13 @@ print("Service registered successfully", end='')
   };
 
   const imageRows: ImageRow[] = useMemo(() => {
-    const cloudRows: ImageRow[] = (images ?? []).map((img) => ({ stem: img.stem, name: img.name, isCloud: true }));
+    const cloudRows: ImageRow[] = (images ?? []).map((img) => ({
+      stem: img.stem,
+      name: img.name,
+      isCloud: true,
+      width: imageDims[img.stem]?.width,
+      height: imageDims[img.stem]?.height,
+    }));
     const localRows: ImageRow[] = localImages.map((li) => ({
       stem: li.stem,
       name: `${li.stem}.${li.format}`,
@@ -923,7 +962,7 @@ print("Service registered successfully", end='')
       isCloud: false,
     }));
     return [...cloudRows, ...localRows];
-  }, [images, localImages]);
+  }, [images, localImages, imageDims]);
 
   const cloudImageRows = useMemo(() => imageRows.filter((r) => r.isCloud), [imageRows]);
 
@@ -1176,6 +1215,23 @@ print("Service registered successfully", end='')
               </div>
             )}
             <span className="text-sm text-gray-700 truncate">{row.stem}</span>
+            {isSmallImageDims(row.width ?? 0, row.height ?? 0) && (
+              <svg
+                className="w-3.5 h-3.5 text-amber-500 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <title>{SMALL_IMAGE_WARNING_TEXT}</title>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                />
+              </svg>
+            )}
           </div>
           {finetuneViewOpen && row.isCloud ? (
             renderFinetuneBadge(row)
