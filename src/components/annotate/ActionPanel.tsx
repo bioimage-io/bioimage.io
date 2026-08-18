@@ -25,6 +25,7 @@ import { useAnnotationStore } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
 import { floatingPanelSx, floatingBtnSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
+import { isSmallImageDims, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 
 export interface ActionPanelProps {
   onSave: () => void;
@@ -54,6 +55,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
   const canUndo = useAnnotationStore((s) => s.canUndo);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
   const imageHeight = useAnnotationStore((s) => s.imageHeight);
+  const isSmallImage = isSmallImageDims(imageWidth, imageHeight);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const { isPortrait, isCompact } = useResponsiveLayout();
@@ -243,9 +245,16 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
           <Divider flexItem orientation={isPortrait ? 'vertical' : 'horizontal'} sx={{ opacity: 0.35 }} />
 
           {/* Help */}
-          <Tooltip title={`${imageName || 'No image'} (${imageWidth}×${imageHeight} px)`} placement={tooltipPlacement}>
+          <Tooltip
+            title={
+              isSmallImage
+                ? `${imageName || 'No image'} (${imageWidth}×${imageHeight} px). ${SMALL_IMAGE_WARNING_TEXT}`
+                : `${imageName || 'No image'} (${imageWidth}×${imageHeight} px)`
+            }
+            placement={tooltipPlacement}
+          >
             <IconButton size={btnSize} data-tool="info" aria-label="Image info"
-              sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
+              sx={{ ...floatingBtnSx(), flexShrink: 0, ...(isSmallImage ? { color: 'warning.main' } : {}), ...touchSx }}>
               <InfoIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -477,9 +486,16 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
 
           {(imageName || (imageWidth && imageHeight)) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, py: 0.4 }}>
-              <InfoIcon sx={{ fontSize: '0.85rem', color: 'text.disabled' }} aria-hidden="true" />
-              <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem' }} noWrap>
+              <InfoIcon sx={{ fontSize: '0.85rem', color: isSmallImage ? 'warning.main' : 'text.disabled' }} aria-hidden="true" />
+              <Typography variant="caption" color={isSmallImage ? 'warning.main' : 'text.disabled'} sx={{ fontSize: '0.6rem' }} noWrap>
                 {imageName}{imageWidth && imageHeight ? ` (${imageWidth}×${imageHeight} px)` : ''}
+              </Typography>
+            </Box>
+          )}
+          {isSmallImage && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, pb: 0.4 }}>
+              <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.58rem', lineHeight: 1.3 }}>
+                {SMALL_IMAGE_WARNING_TEXT}
               </Typography>
             </Box>
           )}
