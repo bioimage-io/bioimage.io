@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { HyphaCore } from 'hypha-core';
 // Add WinBox type declaration
 declare global {
@@ -39,8 +39,18 @@ export function HyphaProvider({ children }: { children: React.ReactNode }) {
   const [hyphaCoreAPI, setHyphaCoreAPI] = useState<any | null>(null);
   const [isHyphaCoreReady, setIsHyphaCoreReady] = useState<boolean>(false);
 
+  // Guards against React 18 StrictMode's dev-only double-invoke of this
+  // effect. HyphaCore has no public teardown API and throws "Server already
+  // running" if start() is called a second time for the same URL while the
+  // first instance is still registered, so we skip the second invocation
+  // entirely rather than trying to tear down and recreate it.
+  const hasInitializedRef = useRef(false);
+
   // Initialize hypha-core
   useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     const initHyphaCore = async () => {
       try {
         // Initialize HyphaCore
