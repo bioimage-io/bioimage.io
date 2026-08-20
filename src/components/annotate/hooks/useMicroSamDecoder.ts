@@ -34,18 +34,17 @@ async function loadOrt(): Promise<Ort> {
 
 /**
  * In-browser μSAM box-prompt decoder. Fetches the quantized ONNX decoder for
- * the currently selected generalist (round-34: only one decoder is ever kept
- * in memory, switching `modelType` evicts the previous session), computes
- * the image encoder embedding once per image+model pair, then decodes each
- * drawn box locally (no per-box network round-trip). Returns OL-space
- * polygons ready to add to the annotation vector source.
+ * whichever generalist a caller asks for (only one decoder is ever kept in
+ * memory, a call for a different modelType evicts the previous session),
+ * computes the image encoder embedding once per image+model pair, then
+ * decodes each drawn box locally (no per-box network round-trip). Returns
+ * OL-space polygons ready to add to the annotation vector source.
+ *
+ * Nothing downloads or encodes on its own (round 34b): `ensureSession` is
+ * exposed so a caller can trigger the decoder download imperatively, at the
+ * moment the user actually expresses intent (clicking "Start annotating").
  */
-export function useMicroSamDecoder(
-  service: AnnotationDataService | null,
-  imageRendered: boolean,
-  modelType: string,
-  prepare: boolean,
-) {
+export function useMicroSamDecoder(service: AnnotationDataService | null) {
   // Cached ort InferenceSession (decoder weights), keyed by modelType. Only
   // one entry is ever kept: switching models overwrites this ref, dropping
   // the previous session promise for GC (no Cache API is used anywhere in
@@ -116,25 +115,12 @@ export function useMicroSamDecoder(
     [service],
   );
 
-  // Preparation only starts once the caller opts in via `prepare` (round 34:
-  // the model dialog being open) — never at mount and never on a plain image
-  // switch. Downloading the decoder is a real network fetch that must not
-  // start until the user has expressed intent via the dialog. Once started,
-  // readiness is tracked inside `ensureSession`'s own promise chain (see
-  // above), so closing the dialog mid-download lets that download finish and
-  // still correctly report ready, and never spuriously resets an
-  // already-ready decoder back to not-ready just because the dialog closed.
+  // Losing the service handle invalidates any in-memory session, since a
+  // reconnect gets a fresh one; the next imperative ensureSession() call
+  // re-downloads and re-reports ready.
   useEffect(() => {
-    if (!service) {
-      setDecoderReady(false);
-      return;
-    }
-    if (!imageRendered || !prepare) return;
-    if (sessionRef.current?.modelType !== modelType) {
-      setDecoderReady(false);
-    }
-    ensureSession(modelType).catch(() => {});
-  }, [service, imageRendered, modelType, prepare, ensureSession]);
+    if (!service) setDecoderReady(false);
+  }, [service]);
 
   const ensureEmbedding = useCallback(
     (url: string, width: number, height: number, mt: string): Promise<MicroSamEmbedding> => {
@@ -270,5 +256,5 @@ export function useMicroSamDecoder(
     embeddingRef.current = null;
   }, []);
 
-  return { decodeBox, reset, setEmbeddingLoader, decoderReady, loadedModelType };
+  return { decodeBox, reset, setEmbeddingLoader, decoderReady, loadedModelType, ensureSession };
 }

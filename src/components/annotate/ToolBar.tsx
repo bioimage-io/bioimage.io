@@ -22,7 +22,6 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
-import SettingsIcon from '@mui/icons-material/Settings';
 import {
   useAnnotationStore,
   AnnotationTool,
@@ -31,7 +30,7 @@ import {
 } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
-import { floatingPanelSx, floatingBtnSx, reducedMotionSx, ToolSpinner, iconSlotSx } from './floatingPanelStyles';
+import { floatingPanelSx, floatingBtnSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
 
 interface ToolDef {
   id: AnnotationTool;
@@ -73,9 +72,11 @@ const aiTintSx = (active: boolean, dim = false) => ({
 
 export interface ToolBarProps {
   onOpenCellposeConfig: () => void;
-  /** Opens the Interactive Segmentation model-selection dialog. Pressing the
-   *  tool's shortcut (B) only activates it with the current model; this is
-   *  the dedicated configure affordance on the tool row. */
+  /** Opens the Interactive Segmentation model-selection dialog. Clicking the
+   *  tool button always opens this dialog, ready or not (round 34b: no
+   *  separate configure affordance). The keyboard shortcut (B) still
+   *  activates the tool directly when it's ready and only falls back to the
+   *  dialog when it isn't. */
   onOpenSamBoxConfig: () => void;
   /** True while the Full Image Segmentation dialog is open, used to mark
    *  the AI pair "active" the same way a selected tool is. */
@@ -185,60 +186,38 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
           {TOOLS.map((tool) => {
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
-            const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
-            // Only truly offline is fully inert. "Pending" stays clickable so
-            // the click can open the model dialog instead of being a no-op.
+            const toolNotReady = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
             const toolDisabled = toolUnavailable;
             const isPolygon = tool.id === 'polygon';
+            const isSambox = tool.id === 'sambox';
             const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
                   title={toolUnavailable
                     ? `${tool.name} unavailable (the micro-sam segmentation service is offline)`
-                    : toolPending
-                    ? `${tool.name}: click to prepare the model`
+                    : toolNotReady
+                    ? `${tool.name}. Click to choose a model.`
                     : `${tool.name} (${tool.shortcut})`}
                   placement={tooltipPlacement}
                 >
-                  <span style={tool.id === 'sambox' ? { position: 'relative', display: 'inline-flex' } : undefined}>
+                  <span>
                     <IconButton
                       size={btnSize}
                       data-tool={tool.id}
-                      onClick={() => (toolPending ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
+                      onClick={() => (isSambox ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       disabled={toolDisabled}
                       aria-label={tool.name}
                       sx={{
                         ...floatingBtnSx(activeTool === tool.id),
                         flexShrink: 0,
-                        ...(tool.id === 'sambox' ? aiTintSx(activeTool === 'sambox', toolDisabled) : {}),
+                        ...(isSambox ? aiTintSx(activeTool === 'sambox', toolDisabled) : {}),
                         ...touchSx,
                       }}
                     >
-                      {toolPending ? <ToolSpinner size={isCompact ? 20 : 18} /> : toolIcon}
+                      {toolIcon}
                     </IconButton>
-                    {tool.id === 'sambox' && (
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenSamBoxConfig();
-                        }}
-                        aria-label="Configure Interactive Segmentation model"
-                        sx={{
-                          position: 'absolute', bottom: -4, right: -4, p: 0,
-                          width: 16, height: 16, minWidth: 16,
-                          bgcolor: 'background.paper', color: 'text.secondary',
-                          border: '1px solid rgba(0,0,0,0.12)',
-                          transition: 'transform 140ms ease-out',
-                          '&:hover': { bgcolor: 'background.paper' },
-                          '&:active': { transform: 'scale(0.9)' },
-                        }}
-                      >
-                        <SettingsIcon sx={{ fontSize: 10 }} />
-                      </IconButton>
-                    )}
                   </span>
                 </Tooltip>
 
@@ -317,9 +296,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {TOOLS.map((tool) => {
             const active = activeTool === tool.id;
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
-            const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
-            // Only truly offline is fully inert. "Pending" stays clickable so
-            // the click can open the model dialog instead of being a no-op.
+            const isSambox = tool.id === 'sambox';
+            // Only truly offline is fully inert; clicking otherwise always
+            // opens the model dialog for sambox (round 34b: no separate
+            // configure affordance), so nothing else needs to stay pending.
             const toolDisabled = toolUnavailable;
             const isPolygon = tool.id === 'polygon';
             const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
@@ -331,13 +311,13 @@ const ToolBar: React.FC<ToolBarProps> = ({
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
-                  title={toolUnavailable ? 'The micro-sam segmentation service is currently offline' : toolPending ? 'Click to prepare the model before drawing a box' : ''}
+                  title={toolUnavailable ? 'The micro-sam segmentation service is currently offline' : ''}
                   placement="right"
-                  disableHoverListener={!toolUnavailable && !toolPending}
+                  disableHoverListener={!toolUnavailable}
                 >
-                  <span style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: '100%', display: 'flex' }}>
                     <ButtonBase
-                      onClick={() => (toolPending ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
+                      onClick={() => (isSambox ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       data-tool={tool.id}
                       disabled={toolDisabled}
@@ -359,7 +339,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       }}
                     >
                       <Box sx={{ ...iconSlotSx, color: active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.secondary', mt: 0.2 }}>
-                        {toolPending ? <ToolSpinner size={18} /> : toolIcon}
+                        {toolIcon}
                       </Box>
                       <Box sx={{ minWidth: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.6 }}>
@@ -382,25 +362,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         </Typography>
                       </Box>
                     </ButtonBase>
-                    {tool.id === 'sambox' && (
-                      <Tooltip title="Configure Interactive Segmentation model" placement="right">
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenSamBoxConfig();
-                          }}
-                          aria-label="Configure Interactive Segmentation model"
-                          sx={{
-                            flexShrink: 0, color: 'text.secondary',
-                            transition: 'transform 140ms ease-out',
-                            '&:active': { transform: 'scale(0.9)' },
-                          }}
-                        >
-                          <SettingsIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                   </span>
                 </Tooltip>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -36,19 +36,21 @@ interface SamBoxModelDialogProps {
   /** Model types with a stored embedding for the current image. Empty when
    *  unknown (no dataset index loaded yet, or no current image). */
   embeddedModelTypes: string[];
+  /** True while the dataset index (source of `embeddedModelTypes`) hasn't
+   *  loaded yet, so the Recompute affordance shows a spinner instead of
+   *  guessing there's nothing to recompute. */
+  embeddedModelTypesLoading?: boolean;
   onRecomputeEmbedding: (modelType: string) => Promise<void>;
-  /** True once the decoder and this image's embedding are both ready for the
-   *  selected model, so "Start annotating" can be enabled. */
-  ready: boolean;
-  /** Closes the dialog and activates the box tool. Only reachable once `ready`. */
-  onStartAnnotating: () => void;
+  /** Downloads the decoder and computes this image's embedding for the
+   *  selected model, then closes the dialog and activates the tool. Rejects
+   *  on failure, the message is shown inline instead of closing. */
+  onStartAnnotating: () => Promise<void>;
 }
 
 /** Model-selection dialog for the Interactive Segmentation (sambox) tool.
- *  Selecting a model here immediately triggers the ONNX decoder download and
- *  the current image's embedding compute for that model, if not already
- *  done (see useMicroSamDecoder). "Start annotating" stays disabled until
- *  both finish. */
+ *  Nothing downloads or computes on its own (round 34b): picking a model
+ *  just changes the selection, and "Start annotating" is what triggers the
+ *  ONNX decoder download and the current image's embedding compute. */
 const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
   open,
   onClose,
@@ -57,11 +59,20 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
   loadedModelType,
   microSamAvailable,
   embeddedModelTypes,
+  embeddedModelTypesLoading,
   onRecomputeEmbedding,
-  ready,
   onStartAnnotating,
 }) => {
   const [recomputingType, setRecomputingType] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPreparing(false);
+      setError(null);
+    }
+  }, [open]);
 
   const handleRecompute = async (e: React.MouseEvent, mt: string) => {
     e.stopPropagation();
@@ -74,6 +85,18 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
     }
   };
 
+  const handleStart = async () => {
+    if (preparing) return;
+    setError(null);
+    setPreparing(true);
+    try {
+      await onStartAnnotating();
+    } catch (e: any) {
+      setPreparing(false);
+      setError(e?.message || 'Failed to prepare the interactive segmentation model.');
+    }
+  };
+
   const renderRow = (option: MicroSamModelOption) => {
     const selected = option.modelType === modelType;
     const isLoaded = option.modelType === loadedModelType;
@@ -82,7 +105,10 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
     return (
       <ButtonBase
         key={option.modelType}
-        onClick={() => onSelectModelType(option.modelType)}
+        onClick={() => {
+          setError(null);
+          onSelectModelType(option.modelType);
+        }}
         disabled={!microSamAvailable}
         sx={{
           display: 'flex', alignItems: 'center', gap: 1, width: '100%',
@@ -109,11 +135,14 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
             <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main', flexShrink: 0 }} />
           </Tooltip>
         ) : (
-          <Tooltip title="Selecting this model downloads its decoder">
+          <Tooltip title="Start annotating downloads this model's decoder if needed">
             <CloudDownloadOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
           </Tooltip>
         )}
-        {hasEmbedding && (
+        {selected && embeddedModelTypesLoading && (
+          <CircularProgress size={14} sx={{ flexShrink: 0 }} />
+        )}
+        {selected && !embeddedModelTypesLoading && hasEmbedding && (
           <Tooltip title="Recompute embedding. Clears the cached image encoding and computes it again on the next run.">
             <span>
               <IconButton
@@ -143,13 +172,17 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
       <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Interactive Segmentation Model</DialogTitle>
       <DialogContent dividers sx={{ pt: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-          Choose which μSAM generalist decodes the boxes you draw. Selecting a model downloads
-          its decoder and computes this image's embedding right away. "Start annotating"
-          unlocks once both are ready.
+          Choose which μSAM generalist decodes the boxes you draw, then click "Start
+          annotating" to prepare it.
         </Typography>
         {!microSamAvailable && (
           <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
             The micro-sam segmentation service is currently offline.
+          </Typography>
+        )}
+        {error && (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
+            {error}
           </Typography>
         )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -167,24 +200,20 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.25 }}>
-        <Tooltip title={ready ? '' : "Waiting for the decoder and this image's embedding to finish"}>
-          <span>
-            <Button
-              onClick={onStartAnnotating}
-              disabled={!ready}
-              variant="contained"
-              size="small"
-              startIcon={ready ? undefined : <CircularProgress size={14} color="inherit" />}
-              sx={{
-                textTransform: 'none', borderRadius: 2,
-                transition: 'transform 160ms ease-out',
-                '&:active': { transform: 'scale(0.97)' },
-              }}
-            >
-              Start annotating
-            </Button>
-          </span>
-        </Tooltip>
+        <Button
+          onClick={handleStart}
+          disabled={!microSamAvailable || preparing}
+          variant="contained"
+          size="small"
+          startIcon={preparing ? <CircularProgress size={14} color="inherit" /> : undefined}
+          sx={{
+            textTransform: 'none', borderRadius: 2,
+            transition: 'transform 160ms ease-out',
+            '&:active': { transform: 'scale(0.97)' },
+          }}
+        >
+          {preparing ? 'Preparing...' : 'Start annotating'}
+        </Button>
       </DialogActions>
     </Dialog>
   );
