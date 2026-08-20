@@ -127,6 +127,81 @@ export function buildReviewerPermissions(
   return permissions;
 }
 
+/**
+ * The permission level granted to a model's RDF authors/maintainers. Same
+ * level as reviewers: edit, add/remove files, create versions, commit; not
+ * delete.
+ */
+export const CONTRIBUTOR_PERMISSION_LEVEL = 'rw+';
+
+interface ContributorEntry {
+  email?: string;
+}
+
+export interface ContributorManifest {
+  authors?: ContributorEntry[];
+  maintainers?: ContributorEntry[];
+}
+
+export interface ContributorPermissionsResult {
+  permissions: Record<string, string>;
+  contributorKeys: string[];
+}
+
+function contributorEmails(manifest: ContributorManifest | null | undefined): Set<string> {
+  const emails = new Set<string>();
+  const collect = (entries?: ContributorEntry[]) => {
+    for (const entry of entries || []) {
+      const email = entry?.email?.trim().toLowerCase();
+      if (email) emails.add(email);
+    }
+  };
+  collect(manifest?.authors);
+  collect(manifest?.maintainers);
+  return emails;
+}
+
+/**
+ * Build the `config.permissions` map (and the provenance list that should
+ * accompany it) for a model's current RDF authors/maintainers, matched by
+ * email. Every author/maintainer with an email gets `rw+`, never downgrading
+ * an existing `*` or `rw+` entry.
+ *
+ * Also revokes access for anyone who *was* granted access by a previous run
+ * of this function (tracked via `previousContributorKeys`, meant to be
+ * persisted as `config.contributor_permission_keys`) but is no longer an
+ * author/maintainer. A revoke only happens if the entry still holds exactly
+ * `rw+` — if it has since become something else (e.g. an uploader's `*`, or
+ * a reviewer/ops grant), this function is no longer the sole owner of that
+ * entry and leaves it alone, only dropping it from the provenance list.
+ *
+ * This is what makes the sync safe to run on every commit without clobbering
+ * permissions granted for unrelated reasons (uploader, reviewer, manual ops).
+ */
+export function buildContributorPermissions(
+  manifest: ContributorManifest | null | undefined,
+  existingPermissions: Record<string, string> | null | undefined,
+  previousContributorKeys: string[] | null | undefined,
+): ContributorPermissionsResult {
+  const permissions: Record<string, string> = { ...(existingPermissions || {}) };
+  const desired = contributorEmails(manifest);
+
+  for (const key of previousContributorKeys || []) {
+    if (desired.has(key)) continue;
+    if (permissions[key] === CONTRIBUTOR_PERMISSION_LEVEL) {
+      delete permissions[key];
+    }
+  }
+
+  for (const key of desired) {
+    const current = permissions[key];
+    if (current === '*' || current === CONTRIBUTOR_PERMISSION_LEVEL) continue;
+    permissions[key] = CONTRIBUTOR_PERMISSION_LEVEL;
+  }
+
+  return { permissions, contributorKeys: Array.from(desired) };
+}
+
 /** The Hypha workspace that owns the model collection. */
 export const COLLECTION_WORKSPACE = 'bioimage-io';
 

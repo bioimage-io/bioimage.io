@@ -8,6 +8,16 @@ export interface Author {
   name: string;
   orcid?: string;
   affiliation?: string;
+  email?: string;
+  github_user?: string;
+}
+
+export interface Maintainer {
+  name: string;
+  orcid?: string;
+  affiliation?: string;
+  email?: string;
+  github_user?: string;
 }
 
 export interface Citation {
@@ -91,6 +101,7 @@ export interface ArtifactInfo {
     covers?: string[];
     documentation?: string;
     authors?: Author[];
+    maintainers?: Maintainer[];
     cite?: Citation[];
     links?: {
       url: string;
@@ -114,6 +125,8 @@ export interface ArtifactInfo {
   config?: {
     permissions?: Record<string, string>;
     download_weights?: Record<string, number>;
+    /** Emails granted `rw+` by the authors/maintainers permission sync, so the next run can revoke ones no longer listed. */
+    contributor_permission_keys?: string[];
     [key: string]: any;
   };
   name?: string; // From manifest
@@ -151,6 +164,7 @@ export interface Manifest {
   badges?: Badge[];
   covers?: string[];
   authors?: Author[];
+  maintainers?: Maintainer[];
   cite?: Citation[];
   documentation?: Documentation;
   links?: Link[];

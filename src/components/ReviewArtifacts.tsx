@@ -15,7 +15,7 @@ import { Pagination } from './ArtifactGrid';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { IconButton, Tooltip } from '@mui/material';
 import SearchBar from './SearchBar';
-import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished, buildReviewerPermissions, COLLECTION_WORKSPACE } from '../utils/roles';
+import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished, buildReviewerPermissions, buildContributorPermissions, COLLECTION_WORKSPACE } from '../utils/roles';
 import { getDeletionRequest } from '../utils/deletionRequest';
 import RequestDeletionDialog from './RequestDeletionDialog';
 import DeclineDeletionDialog from './DeclineDeletionDialog';
@@ -573,9 +573,20 @@ const ReviewArtifacts: React.FC = () => {
             collection?.config as { permissions?: Record<string, string> } | undefined,
             currentConfig.permissions as Record<string, string> | undefined
           );
+          // Also sync the model's own authors/maintainers (matched by email)
+          // into the same permissions map.
+          const contributorPermissions = buildContributorPermissions(
+            currentArtifact.manifest,
+            permissions,
+            currentConfig.contributor_permission_keys as string[] | undefined,
+          );
           await artifactManager.edit({
             artifact_id: artifact.id,
-            config: { ...currentConfig, permissions },
+            config: {
+              ...currentConfig,
+              permissions: contributorPermissions.permissions,
+              contributor_permission_keys: contributorPermissions.contributorKeys
+            },
             stage: true,
             _rkwargs: true
           });
