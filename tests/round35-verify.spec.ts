@@ -2,17 +2,17 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
 // Round-35 independent acceptance (keen-puma) on a multi-image dataset:
-// (1) switching images never blanks the preview: the previous image stays
-//     rendered (dimmed) with an overlay spinner until the new URL resolves,
-// (2) the Browse annotations button swaps to a spinner during the
+// (1) the Browse annotations button swaps to a spinner during the
 //     availability check,
-// (3) the images-list refresh button spins through a manual refresh's full
+// (2) the images-list refresh button spins through a manual refresh's full
 //     file-list + availability sequence and through the 30s auto-poll.
+// Image-switch loading behavior is covered by round35b-image-switch.spec.ts
+// (round 35b replaced the dim+overlay design with an immediate skeleton).
 // The transient states are observed with rAF-granularity DOM polling started
 // BEFORE the triggering click, since the underlying fetches are hypha-rpc
 // websocket calls that HTTP route interception cannot delay.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round35-verify';
@@ -48,7 +48,7 @@ async function readWatcher(
   }, { n: name, stop });
 }
 
-test('round 35: image-switch overlay, browse spinner, refresh spin cycles', async ({ page }) => {
+test('round 35: browse spinner and refresh spin cycles', async ({ page }) => {
   test.setTimeout(300000);
   fs.mkdirSync(OUT, { recursive: true });
   const pageErrors: string[] = [];
@@ -75,36 +75,8 @@ test('round 35: image-switch overlay, browse spinner, refresh spin cycles', asyn
   const rowCount = await rows.count();
   expect(rowCount).toBeGreaterThan(1);
 
-  // --- (1) Image switch: old image stays, spinner overlays it ---
-  const srcBefore = await preview.getAttribute('src');
-  await armWatcher(
-    page,
-    'overlay',
-    `(() => {
-      const img = document.querySelector('img.max-w-full');
-      if (!img) return false;
-      const dimmed = img.className.includes('opacity-60');
-      const spinner = img.parentElement && img.parentElement.querySelector('svg.animate-spin');
-      return Boolean(dimmed && spinner && img.getAttribute('src') === ${JSON.stringify(srcBefore)});
-    })()`
-  );
-  await rows.nth(1).click();
-  // New image must eventually replace the old one.
-  await expect
-    .poll(async () => preview.getAttribute('src'), { timeout: 30000 })
-    .not.toBe(srcBefore);
-  const overlayHits = await readWatcher(page, 'overlay');
-  console.log(`[r35] overlay-on-old-image frames observed: ${overlayHits}`);
-  expect(overlayHits).toBeGreaterThan(0);
-  await page.screenshot({ path: `${OUT}/1-after-switch.png` });
-
-  // At no point should the preview img have been absent from the DOM: the
-  // watcher predicate itself required the img to exist while spinning, and
-  // the img is still here now.
-  await expect(preview).toBeVisible();
-
-  // --- (2) Browse annotations spinner during availability check +
-  // --- (3a) refresh button spins through a manual refresh ---
+  // --- (1) Browse annotations spinner during availability check +
+  // --- (2a) refresh button spins through a manual refresh ---
   await armWatcher(
     page,
     'refreshSpin',
@@ -135,7 +107,7 @@ test('round 35: image-switch overlay, browse spinner, refresh spin cycles', asyn
   expect(refreshHits).toBeGreaterThan(0);
   await page.screenshot({ path: `${OUT}/2-after-refresh.png` });
 
-  // --- (3b) auto-poll: the refresh button spins again with no user action ---
+  // --- (2b) auto-poll: the refresh button spins again with no user action ---
   await armWatcher(
     page,
     'autoSpin',
