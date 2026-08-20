@@ -36,7 +36,7 @@ async function loginAndOpenAnnotate(page: import('@playwright/test').Page) {
   }
 }
 
-test('gear opens the dialog; B opens it too while not ready', async ({ page }) => {
+test('B opens the dialog on fresh load (not ready); gear opens it too', async ({ page }) => {
   test.setTimeout(180000);
   fs.mkdirSync(OUT, { recursive: true });
   const pageErrors: string[] = [];
@@ -44,37 +44,30 @@ test('gear opens the dialog; B opens it too while not ready', async ({ page }) =
 
   await loginAndOpenAnnotate(page);
 
-  const gearBtn = page.getByRole('button', { name: 'Configure Interactive Segmentation model' });
-  await expect(gearBtn).toBeVisible({ timeout: 10000 });
-  await gearBtn.click();
+  // Round 34 rework: nothing downloads or encodes until the model dialog
+  // opens, so a fresh page load is never ready for any model. Press B before
+  // ever touching the gear icon, so nothing has started preparing yet: B
+  // must open the dialog instead of activating the tool.
+  await page.locator('body').click({ position: { x: 10, y: 10 } }); // ensure focus isn't in a text field
+  await page.keyboard.press('b');
   await expect(page.getByText('Interactive Segmentation Model')).toBeVisible({ timeout: 10000 });
-  await page.screenshot({ path: `${OUT}/1-dialog-open-via-gear.png` });
+  await page.screenshot({ path: `${OUT}/1-dialog-open-via-shortcut-not-ready.png` });
 
-  // Switch to a model this LM test image has never used (the EM organelles
-  // group's Tiny row), which starts a real decoder download + embedding
-  // compute for that (stem, modelType) pair. Deliberately not read-only: the
-  // whole point of this assertion is that not-ready state actually gates the
-  // shortcut, and switching models is the only way to reach it reliably (the
-  // default model's decoder/embedding are typically already warm from
-  // earlier rounds against this shared dataset).
-  const dialog = page.locator('.MuiDialog-root').filter({ hasText: 'Interactive Segmentation Model' });
-  await dialog.getByText('Tiny').nth(1).click(); // EM organelles group, not the LM one
-
-  // Close immediately, before the switch can finish warming up. Click the
-  // backdrop rather than Escape: the app's own keyboard-shortcut listener
-  // also lives on the document and can outrace MUI's Escape handling.
   // Click a corner of the dialog's centering container, outside the paper:
   // that's what MUI actually wires its outside-click close handler to, not
   // the backdrop element itself (which sits behind the container in z-order).
   await page.locator('.MuiDialog-container').click({ position: { x: 10, y: 10 } });
   await expect(page.getByText('Interactive Segmentation Model')).not.toBeVisible();
 
-  // Not ready yet for the newly selected model: B opens the dialog instead
-  // of activating the tool.
-  await page.locator('body').click({ position: { x: 10, y: 10 } }); // ensure focus isn't in a text field
-  await page.keyboard.press('b');
+  // The gear icon opens the same dialog.
+  const gearBtn = page.getByRole('button', { name: 'Configure Interactive Segmentation model' });
+  await expect(gearBtn).toBeVisible({ timeout: 10000 });
+  await gearBtn.click();
   await expect(page.getByText('Interactive Segmentation Model')).toBeVisible({ timeout: 10000 });
-  await page.screenshot({ path: `${OUT}/1b-dialog-open-via-shortcut-not-ready.png` });
+  await page.screenshot({ path: `${OUT}/2-dialog-open-via-gear.png` });
+
+  await page.locator('.MuiDialog-container').click({ position: { x: 10, y: 10 } });
+  await expect(page.getByText('Interactive Segmentation Model')).not.toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -104,10 +97,12 @@ test('dialog lists all 6 generalists grouped LM / EM, default is Large', async (
 
   // "Start annotating" replaces the old "Done" button and stays disabled
   // until the selected model's decoder and this image's embedding are both
-  // ready. Whether that is already true here depends on whether an earlier
-  // run already warmed the default model for this shared test image, so
-  // only presence is asserted, not the disabled state.
-  await expect(page.getByRole('button', { name: 'Start annotating' })).toBeVisible();
+  // ready. Round 34 rework: preparation only starts once this dialog opens,
+  // so on this fresh page load neither has had a chance to finish yet, and
+  // the button is reliably still disabled right after the dialog appears.
+  const startBtn = page.getByRole('button', { name: 'Start annotating' });
+  await expect(startBtn).toBeVisible();
+  await expect(startBtn).toBeDisabled();
 
   // Click a corner of the dialog's centering container, outside the paper:
   // that's what MUI actually wires its outside-click close handler to, not

@@ -44,6 +44,7 @@ export function useMicroSamDecoder(
   service: AnnotationDataService | null,
   imageRendered: boolean,
   modelType: string,
+  prepare: boolean,
 ) {
   // Cached ort InferenceSession (decoder weights), keyed by modelType. Only
   // one entry is ever kept: switching models overwrites this ref, dropping
@@ -73,58 +74,67 @@ export function useMicroSamDecoder(
     [],
   );
 
+  const [decoderReady, setDecoderReady] = useState(false);
+  const [loadedModelType, setLoadedModelType] = useState<string | null>(null);
+
   const ensureSession = useCallback(
     (mt: string): Promise<any> => {
       if (!service) throw new Error('The micro-sam segmentation service is unavailable');
       if (!sessionRef.current || sessionRef.current.modelType !== mt) {
-        sessionRef.current = {
-          modelType: mt,
-          promise: (async () => {
-            const ort = await loadOrt();
-            const bytes = await service.getMicroSamOnnxModel(mt);
-            return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
-          })().catch((e) => {
-            if (sessionRef.current?.modelType === mt) sessionRef.current = null;
+        // Readiness state is updated from inside this promise chain, keyed on
+        // the identity of `entry` itself (not a calling effect's `cancelled`
+        // closure), so an in-flight download still correctly flips
+        // `decoderReady` once it resolves even if the triggering effect's
+        // deps (e.g. the dialog-open flag) have since changed. A newer call
+        // for a different modelType replaces `sessionRef.current`, which
+        // naturally makes the stale entry's identity check fail and its
+        // update a no-op.
+        const entry: { modelType: string; promise: Promise<any> } = { modelType: mt, promise: null as any };
+        entry.promise = (async () => {
+          const ort = await loadOrt();
+          const bytes = await service.getMicroSamOnnxModel(mt);
+          return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
+        })()
+          .then((session) => {
+            if (sessionRef.current === entry) {
+              setDecoderReady(true);
+              setLoadedModelType(mt);
+            }
+            return session;
+          })
+          .catch((e) => {
+            if (sessionRef.current === entry) {
+              sessionRef.current = null;
+              setDecoderReady(false);
+            }
             throw e;
-          }),
-        };
+          });
+        sessionRef.current = entry;
       }
       return sessionRef.current.promise;
     },
     [service],
   );
 
-  // Warm the ONNX decoder session once the service is available AND the
-  // current image has rendered, instead of firing at connect time. The
-  // decoder download (~several MB) would otherwise compete for bandwidth
-  // with the image fetch that the user is actually waiting on; deferring it
-  // until `imageRendered` flips true lets the image show up first while the
-  // decoder downloads in the background, ready by the time a box is drawn.
-  // Also re-fires whenever `modelType` changes (model dialog selection),
-  // downloading and swapping in the new decoder lazily in the background.
-  const [decoderReady, setDecoderReady] = useState(false);
-  const [loadedModelType, setLoadedModelType] = useState<string | null>(null);
+  // Preparation only starts once the caller opts in via `prepare` (round 34:
+  // the model dialog being open) — never at mount and never on a plain image
+  // switch. Downloading the decoder is a real network fetch that must not
+  // start until the user has expressed intent via the dialog. Once started,
+  // readiness is tracked inside `ensureSession`'s own promise chain (see
+  // above), so closing the dialog mid-download lets that download finish and
+  // still correctly report ready, and never spuriously resets an
+  // already-ready decoder back to not-ready just because the dialog closed.
   useEffect(() => {
-    if (!service || !imageRendered) {
+    if (!service) {
       setDecoderReady(false);
       return;
     }
-    let cancelled = false;
-    setDecoderReady(false);
-    ensureSession(modelType)
-      .then(() => {
-        if (!cancelled) {
-          setDecoderReady(true);
-          setLoadedModelType(modelType);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setDecoderReady(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [service, imageRendered, modelType, ensureSession]);
+    if (!imageRendered || !prepare) return;
+    if (sessionRef.current?.modelType !== modelType) {
+      setDecoderReady(false);
+    }
+    ensureSession(modelType).catch(() => {});
+  }, [service, imageRendered, modelType, prepare, ensureSession]);
 
   const ensureEmbedding = useCallback(
     (url: string, width: number, height: number, mt: string): Promise<MicroSamEmbedding> => {

@@ -221,14 +221,15 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
 
   // In-browser μSAM box decoder: fetches the ONNX decoder once the current
   // image has rendered, embeds each image once, decodes each drawn box
-  // locally. See handleSamBox below.
+  // locally. See handleSamBox below. Decoder download only starts once the
+  // model dialog is open (round 34 gating), not merely once the image renders.
   const {
     decodeBox: decodeSamBox,
     reset: resetSamDecoder,
     setEmbeddingLoader,
     decoderReady,
     loadedModelType,
-  } = useMicroSamDecoder(service, !!imageUrl, samBoxModelType);
+  } = useMicroSamDecoder(service, !!imageUrl, samBoxModelType, samBoxConfigOpen);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
   // Mirror of currentImageStem for use inside stable callbacks/effects.
@@ -789,11 +790,16 @@ print('CLAHE packages ready')
     currentImageStemRef.current = currentImageStem;
   }, [currentImageStem]);
 
-  // Eagerly compute + store the μSAM embedding as soon as an image is ready so
-  // the first box draw and the first AIS run reuse it instead of each encoding
-  // from scratch. Memoization (ensuredEmbeddingRef) makes CLAHE toggles and
-  // reloads of the same image a no-op, so this only fires once per image.
+  // Compute + store the μSAM embedding for the current image, but only once
+  // the model dialog is open (round 34 gating: nothing encodes until the
+  // user expresses intent). Preparation starts when the dialog opens and
+  // restarts on model selection change while it stays open; it never fires
+  // just from browsing to a new image. If the dialog closes mid-compute, the
+  // in-flight promise below is not cancelled (only the banner's cleanup
+  // runs), so a preparation that was legitimately started while the dialog
+  // was open still finishes and updates embeddingReadyKey in the background.
   useEffect(() => {
+    if (!samBoxConfigOpen) return;
     if (!microSamAvailable || !service) return;
     if (!currentImageStem || imageWidth <= 0 || imageHeight <= 0) return;
     const stem = currentImageStem;
@@ -812,7 +818,7 @@ print('CLAHE packages ready')
       .finally(() => { if (bannerId) removeBanner(bannerId); });
     return () => { if (bannerId) removeBanner(bannerId); };
   }, [
-    microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
+    samBoxConfigOpen, microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
     samBoxModelType, ensureStoredEmbedding, addBanner, removeBanner,
   ]);
 
