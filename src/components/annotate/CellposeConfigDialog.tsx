@@ -26,6 +26,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import ReplayIcon from '@mui/icons-material/Replay';
 import InputAdornment from '@mui/material/InputAdornment';
 import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS } from '../../utils/microSamService';
 
@@ -181,6 +182,10 @@ interface CellposeConfigDialogProps {
    *  harmless, so this is invoked unconditionally whenever the button
    *  reads "Cancel", not just while ``isRunning``. */
   onCancelRun?: () => void;
+  /** μSAM only. When provided, shows a "Recompute embedding" action for the
+   *  currently selected model. Clears the cached image encoding and computes
+   *  it again on the next run. */
+  onRecomputeEmbedding?: (modelType: string) => Promise<void>;
 }
 
 /** Collapsible section header: click to toggle, chevron shows current state. */
@@ -232,8 +237,20 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   claheActive,
   onMeasureDiameter,
   onCancelRun,
+  onRecomputeEmbedding,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
+  const [recomputingEmbedding, setRecomputingEmbedding] = useState(false);
+
+  const handleRecomputeEmbedding = async () => {
+    if (!onRecomputeEmbedding || recomputingEmbedding) return;
+    setRecomputingEmbedding(true);
+    try {
+      await onRecomputeEmbedding(config.microSamModelType);
+    } finally {
+      setRecomputingEmbedding(false);
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -533,6 +550,23 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 slotProps={{ input: { inputProps: { min: 0 } } }}
               />
+              {onRecomputeEmbedding && (
+                <Tooltip title="Clears the cached image encoding and computes it again on the next run.">
+                  <span>
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="inherit"
+                      onClick={handleRecomputeEmbedding}
+                      disabled={recomputingEmbedding || !microSamAvailable}
+                      startIcon={recomputingEmbedding ? <CircularProgress size={14} /> : <ReplayIcon fontSize="small" />}
+                      sx={{ mt: 1, textTransform: 'none', color: 'text.secondary' }}
+                    >
+                      Recompute embedding
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               {onRun && (
                 <Button
                   onClick={() => { handleApply(); onRun(config); }}
@@ -841,6 +875,9 @@ export function useCellposeConfig(opts?: {
   /** Fires when the user cancels while a run may be in flight — see the
    *  matching prop doc on ``CellposeConfigDialogProps``. */
   onCancelRun?: () => void;
+  /** μSAM only. Passed straight through to ``CellposeConfigDialogProps`` —
+   *  see that prop's doc. */
+  onRecomputeEmbedding?: (modelType: string) => Promise<void>;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -897,6 +934,7 @@ export function useCellposeConfig(opts?: {
       claheActive={opts?.claheActive}
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
       onCancelRun={opts?.onCancelRun}
+      onRecomputeEmbedding={opts?.onRecomputeEmbedding}
     />
   );
 
