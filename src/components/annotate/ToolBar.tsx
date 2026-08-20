@@ -16,7 +16,7 @@ import NearMeIcon from '@mui/icons-material/NearMe';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import AutoFixOffIcon from '@mui/icons-material/AutoFixOff';
 import BrushIcon from '@mui/icons-material/Brush';
-import GestureIcon from '@mui/icons-material/Gesture';
+import ImagesearchRollerIcon from '@mui/icons-material/ImagesearchRoller';
 import PolylineIcon from '@mui/icons-material/Polyline';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
@@ -51,16 +51,17 @@ const TOOLS: ToolDef[] = [
   { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <PolylineIcon fontSize="small" /> },
   { id: 'cutter',   name: 'Cut Mask',    shortcut: 'C', description: 'Draw a line across an existing mask to split it',          icon: <ContentCutIcon fontSize="small" /> },
   { id: 'eraser',   name: 'Eraser',      shortcut: 'E', description: 'Paint to remove areas from an existing mask',              icon: <AutoFixOffIcon fontSize="small" /> },
-  { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <BrushIcon fontSize="small" /> },
+  { id: 'expander', name: 'Expand Mask', shortcut: 'A', description: 'Paint to add area to an existing mask',                    icon: <ImagesearchRollerIcon fontSize="small" /> },
   // AI tools stay last, rendered after a divider and given a subtler shared
   // highlight so they read as a matched pair (see the `expander` injection
   // below for the Full Image Segmentation button that precedes this one).
   { id: 'sambox',   name: 'Interactive Segmentation', shortcut: 'B', description: 'Draw a box around a cell for a one-click AI mask', icon: <HighlightAltIcon fontSize="small" />, requiresMicroSam: true },
 ];
 
-// Shared, generalized description of the AI backend (not Cellpose-specific):
-// used for the Full Image Segmentation subtitle.
-const AI_BACKEND_DESCRIPTION = 'AI backend: Cellpose4 models (Cellpose-SAM now, Cellpose-DINO coming), or μSAM AIS';
+// Shared, generalized description of the AI backend, deliberately model-agnostic
+// since the available models change over time: used for the Full Image
+// Segmentation subtitle.
+const AI_BACKEND_DESCRIPTION = 'Select your model for automatic segmentation';
 
 // Subtle shared tint for the AI tool pair (Full Image Segmentation button +
 // Interactive Segmentation tool row), less heavy than a solid fill.
@@ -180,6 +181,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
             const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
             const toolDisabled = toolUnavailable || toolPending;
+            const isPolygon = tool.id === 'polygon';
+            const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
@@ -195,6 +198,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       size={btnSize}
                       data-tool={tool.id}
                       onClick={() => setActiveTool(tool.id)}
+                      onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       disabled={toolDisabled}
                       aria-label={tool.name}
                       sx={{
@@ -204,28 +208,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         ...touchSx,
                       }}
                     >
-                      {toolPending ? <ToolSpinner size={isCompact ? 20 : 18} /> : tool.icon}
+                      {toolPending ? <ToolSpinner size={isCompact ? 20 : 18} /> : toolIcon}
                     </IconButton>
                   </span>
                 </Tooltip>
-
-                {/* Brush-mode toggle sits right after Expand Mask, before the AI pair */}
-                {tool.id === 'expander' && (
-                  <Tooltip
-                    title={drawMode === 'brush' ? 'Switch to Lasso Drawing' : 'Switch to Brush Painting'}
-                    placement={tooltipPlacement}
-                  >
-                    <IconButton
-                      size={btnSize}
-                      data-tool="brush-mode"
-                      onClick={() => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush')}
-                      aria-label="Toggle Brush Painting"
-                      sx={{ ...floatingBtnSx(drawMode === 'brush'), flexShrink: 0, ...touchSx }}
-                    >
-                      <GestureIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
 
                 {/* AI pair sits at the bottom, below Expand Mask, behind a divider */}
                 {tool.id === 'expander' && (
@@ -304,6 +290,13 @@ const ToolBar: React.FC<ToolBarProps> = ({
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
             const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
             const toolDisabled = toolUnavailable || toolPending;
+            const isPolygon = tool.id === 'polygon';
+            const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
+            const toolDescription = isPolygon
+              ? (drawMode === 'brush'
+                ? 'Paint with a circular brush along the mask edge. Double-click this button for lasso mode.'
+                : 'Click to place vertices, double-click on the canvas to close. Double-click this button for brush mode.')
+              : tool.description;
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
@@ -314,6 +307,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   <span style={{ width: '100%' }}>
                     <ButtonBase
                       onClick={() => setActiveTool(tool.id)}
+                      onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       data-tool={tool.id}
                       disabled={toolDisabled}
                       aria-label={tool.name}
@@ -334,7 +328,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       }}
                     >
                       <Box sx={{ ...iconSlotSx, color: active ? (tool.id === 'sambox' ? 'secondary.main' : 'primary.main') : 'text.secondary', mt: 0.2 }}>
-                        {toolPending ? <ToolSpinner size={18} /> : tool.icon}
+                        {toolPending ? <ToolSpinner size={18} /> : toolIcon}
                       </Box>
                       <Box sx={{ minWidth: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.6 }}>
@@ -353,77 +347,41 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         </Box>
                         <Typography variant="caption" color="text.secondary" display="block"
                           sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                          {tool.description}
+                          {toolDescription}
                         </Typography>
                       </Box>
                     </ButtonBase>
                   </span>
                 </Tooltip>
 
-                {/* Brush-mode toggle + radius stepper, right after Expand Mask */}
-                {tool.id === 'expander' && (
-                  <>
-                    <ButtonBase
-                      onClick={() => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush')}
-                      data-tool="brush-mode"
-                      aria-label="Toggle Brush Painting"
-                      sx={{
-                        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
-                        px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
-                        bgcolor: drawMode === 'brush' ? 'rgba(25,118,210,0.10)' : 'transparent',
-                        border: '1px solid',
-                        borderColor: drawMode === 'brush' ? 'rgba(25,118,210,0.25)' : 'transparent',
-                        '&:hover': { bgcolor: drawMode === 'brush' ? 'rgba(25,118,210,0.14)' : 'rgba(0,0,0,0.05)' },
-                        transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
-                        '&:active': { transform: 'scale(0.98)' },
-                        minHeight: isCompact ? 48 : undefined,
-                        touchAction: 'manipulation',
-                        ...reducedMotionSx,
-                      }}
+                {/* Radius stepper, right below Draw Mask, only while brush mode is active */}
+                {isPolygon && drawMode === 'brush' && (
+                  <Box sx={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    px: 1, py: 0.4, ml: 4.5,
+                  }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => decreaseBrushRadius()}
+                      disabled={brushRadius <= MIN_BRUSH_RADIUS}
+                      aria-label="Decrease brush radius"
+                      sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
                     >
-                      <Box sx={{ ...iconSlotSx, color: drawMode === 'brush' ? 'primary.main' : 'text.secondary', mt: 0.2 }}>
-                        <GestureIcon fontSize="small" />
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" fontWeight={600} color={drawMode === 'brush' ? 'primary.main' : 'text.primary'} display="block"
-                          data-testid="row-title">
-                          {drawMode === 'brush' ? 'Brush Painting' : 'Lasso Drawing'}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
-                          {drawMode === 'brush' ? 'Paint with a circular brush' : 'Click to trace a freehand outline'}
-                        </Typography>
-                      </Box>
-                    </ButtonBase>
-
-                    {drawMode === 'brush' && (
-                      <Box sx={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        px: 1, py: 0.4, ml: 4.5,
-                      }}>
-                        <IconButton
-                          size="small"
-                          onClick={() => decreaseBrushRadius()}
-                          disabled={brushRadius <= MIN_BRUSH_RADIUS}
-                          aria-label="Decrease brush radius"
-                          sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
-                        >
-                          <RemoveIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                          {brushRadius}px
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => increaseBrushRadius()}
-                          disabled={brushRadius >= MAX_BRUSH_RADIUS}
-                          aria-label="Increase brush radius"
-                          sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
-                        >
-                          <AddIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </Box>
-                    )}
-                  </>
+                      <RemoveIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                      {brushRadius}px
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => increaseBrushRadius()}
+                      disabled={brushRadius >= MAX_BRUSH_RADIUS}
+                      aria-label="Increase brush radius"
+                      sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
+                    >
+                      <AddIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
                 )}
 
                 {/* AI pair at the bottom, below Expand Mask, behind a divider */}

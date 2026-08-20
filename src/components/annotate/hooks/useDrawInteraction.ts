@@ -171,10 +171,15 @@ function isTypingTarget(e: KeyboardEvent): boolean {
  */
 function createPixelCircle(cx: number, cy: number, radius: number, segments = 32): turf.Feature<turf.Polygon> {
   const coords: number[][] = [];
-  for (let i = 0; i <= segments; i++) {
+  for (let i = 0; i < segments; i++) {
     const theta = (i / segments) * 2 * Math.PI;
     coords.push([cx + radius * Math.cos(theta), cy + radius * Math.sin(theta)]);
   }
+  // Close the ring with an exact copy of the first point. Recomputing the
+  // last point via trigonometry (theta = 2*PI) is not guaranteed to be
+  // bit-identical to the first (e.g. Math.sin(2*PI) is ~-2.4e-16, not 0),
+  // and turf.polygon requires an exactly closed ring.
+  coords.push([...coords[0]]);
   return turf.polygon([coords]);
 }
 
@@ -210,7 +215,7 @@ function setupBrushPainting(
   onStrokeStart: () => void,
   onDab: (coord: number[]) => void,
   onStrokeEnd?: () => void,
-): () => void {
+): { cleanup: () => void; setCursorRadius: (radius: number) => void } {
   const dragPan = map.getInteractions().getArray().find((i) => i instanceof DragPan) as DragPan | undefined;
   dragPan?.setActive(false);
 
@@ -251,12 +256,19 @@ function setupBrushPainting(
   map.on('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
 
-  return () => {
-    rawMap.un('pointerdown', onDown);
-    map.un('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
-    map.removeLayer(cursorLayer);
-    dragPan?.setActive(true);
+  return {
+    cleanup: () => {
+      rawMap.un('pointerdown', onDown);
+      map.un('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      map.removeLayer(cursorLayer);
+      dragPan?.setActive(true);
+    },
+    // Lets a brushRadius-keyed effect resize the cursor immediately (e.g.
+    // via keyboard/buttons) instead of waiting for the next pointer move.
+    setCursorRadius: (radius: number) => {
+      (cursorFeature.getGeometry() as OlCircle).setRadius(radius);
+    },
   };
 }
 
@@ -524,7 +536,11 @@ export function useDrawInteraction(
   const interactionRefs = useRef<{
     draw: Draw | null;
     modify: Modify | null;
-  }>({ draw: null, modify: null });
+    /** Set while a brush-mode painting interaction is active; lets the
+     *  brushRadius effect below push a live cursor resize without waiting
+     *  for the next pointer move. */
+    brushCursorSetRadius: ((radius: number) => void) | null;
+  }>({ draw: null, modify: null, brushCursorSetRadius: null });
 
   // Keep the box callback + availability in refs so the interaction effect does
   // not re-run (and tear down the active Draw) when the page re-renders.
@@ -551,6 +567,13 @@ export function useDrawInteraction(
   const brushRadius = useAnnotationStore((s) => s.brushRadius);
   const brushRadiusRef = useRef(brushRadius);
   brushRadiusRef.current = brushRadius;
+
+  // Resize the live brush cursor as soon as brushRadius changes (buttons,
+  // arrow keys, or a value restored from localStorage), not only on the next
+  // pointermove. No-op when no brush interaction is currently active.
+  useEffect(() => {
+    interactionRefs.current.brushCursorSetRadius?.(brushRadius);
+  }, [brushRadius]);
   const increaseBrushRadius = useAnnotationStore((s) => s.increaseBrushRadius);
   const decreaseBrushRadius = useAnnotationStore((s) => s.decreaseBrushRadius);
 
@@ -793,7 +816,7 @@ export function useDrawInteraction(
             strokeUnion = null;
           };
 
-          (refs as any)._cleanupBrush = setupBrushPainting(
+          const polygonBrush = setupBrushPainting(
             map,
             brushRadiusRef,
             HIGHLIGHT_STYLE,
@@ -807,6 +830,8 @@ export function useDrawInteraction(
             },
             finalizeStroke,
           );
+          (refs as any)._cleanupBrush = polygonBrush.cleanup;
+          refs.brushCursorSetRadius = polygonBrush.setCursorRadius;
           break;
         }
         const draw = new Draw({
@@ -897,7 +922,7 @@ export function useDrawInteraction(
 
       case 'eraser': {
         if (drawMode === 'brush') {
-          (refs as any)._cleanupBrush = setupBrushPainting(
+          const eraserBrush = setupBrushPainting(
             map,
             brushRadiusRef,
             ERASER_STYLE,
@@ -908,6 +933,8 @@ export function useDrawInteraction(
               applyEraser(olPoly, vectorSource);
             },
           );
+          (refs as any)._cleanupBrush = eraserBrush.cleanup;
+          refs.brushCursorSetRadius = eraserBrush.setCursorRadius;
           break;
         }
         const draw = new Draw({
@@ -928,7 +955,7 @@ export function useDrawInteraction(
 
       case 'expander': {
         if (drawMode === 'brush') {
-          (refs as any)._cleanupBrush = setupBrushPainting(
+          const expanderBrush = setupBrushPainting(
             map,
             brushRadiusRef,
             EXPANDER_STYLE,
@@ -939,6 +966,8 @@ export function useDrawInteraction(
               applyExpander(olPoly, vectorSource, imageWidth, imageHeight);
             },
           );
+          (refs as any)._cleanupBrush = expanderBrush.cleanup;
+          refs.brushCursorSetRadius = expanderBrush.setCursorRadius;
           break;
         }
         const draw = new Draw({
@@ -963,6 +992,7 @@ export function useDrawInteraction(
       if (refs.modify) { map.removeInteraction(refs.modify); refs.modify = null; }
       if ((refs as any)._cleanupClick) { (refs as any)._cleanupClick(); (refs as any)._cleanupClick = null; }
       if ((refs as any)._cleanupBrush) { (refs as any)._cleanupBrush(); (refs as any)._cleanupBrush = null; }
+      refs.brushCursorSetRadius = null;
       if (keyHandler) document.removeEventListener('keydown', keyHandler);
       // Clear selection styles on cleanup
       selectedFeatures.forEach((f) => f.setStyle(undefined as any));

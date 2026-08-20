@@ -5,7 +5,7 @@ import fs from 'fs';
 // radius stepper, and Mask Color dialog. Confirms the controls render,
 // toggle, and don't throw.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: 'https://bioimage.io' });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 
