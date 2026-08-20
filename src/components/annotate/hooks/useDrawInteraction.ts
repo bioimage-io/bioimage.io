@@ -20,11 +20,22 @@ const HIGHLIGHT_STYLE = new Style({
   stroke: new Stroke({ color: '#ffff00', width: 3 }),
 });
 
-// Matches OpenLayers' default Draw interaction color, used by the lasso
-// (freehand Draw with no explicit style) so the brush preview looks the same.
+// Round 33e: replicates OpenLayers' own default Draw sketch style exactly
+// (the lasso freehand Draw has no `style` option, so it renders this same
+// fill/stroke via ol's internal createEditingStyle()). Used for the brush's
+// live-drawn union polygon so brush and lasso strokes are visually
+// identical, not just similarly colored.
 const BRUSH_STYLE = new Style({
-  fill: new Fill({ color: 'rgba(51, 153, 204, 0.3)' }),
-  stroke: new Stroke({ color: '#3399cc', width: 3 }),
+  fill: new Fill({ color: 'rgba(255, 255, 255, 0.4)' }),
+  stroke: new Stroke({ color: '#3399cc', width: 1.25 }),
+});
+
+// Same palette as BRUSH_STYLE, but with a heavier stroke so the brush-radius
+// cursor circle stays readable against busy image content while the stroke
+// it paints still matches the lasso exactly.
+const BRUSH_CURSOR_STYLE = new Style({
+  fill: new Fill({ color: 'rgba(255, 255, 255, 0.4)' }),
+  stroke: new Stroke({ color: '#3399cc', width: 2 }),
 });
 
 const ERASER_STYLE = new Style({
@@ -874,7 +885,7 @@ export function useDrawInteraction(
           const polygonBrush = setupBrushPainting(
             map,
             brushRadiusRef,
-            BRUSH_STYLE,
+            BRUSH_CURSOR_STYLE,
             saveUndo,
             (coord) => {
               const dab = createPixelCircle(coord[0], coord[1], brushRadiusRef.current);
