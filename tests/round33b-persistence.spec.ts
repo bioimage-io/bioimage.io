@@ -3,7 +3,10 @@ import fs from 'fs';
 
 // Round-33 follow-up: drawMode + brushRadius persist across reload (like
 // maskHue), and holding ArrowUp/ArrowDown accelerates after ~1s of
-// continuous hold.
+// continuous hold. Round 33c replaced the standalone brush-mode toggle row
+// with a double-click gesture on the Draw Mask button, so brush mode is
+// detected here via the radius stepper's visibility instead of a
+// "Brush Painting" / "Lasso Drawing" label.
 
 test.use({ baseURL: 'http://localhost:5199' });
 
@@ -38,17 +41,22 @@ async function gotoAnnotate(page: import('@playwright/test').Page) {
   }
 }
 
+async function isBrushMode(page: import('@playwright/test').Page): Promise<boolean> {
+  return page.getByLabel('Increase brush radius').isVisible({ timeout: 2000 }).catch(() => false);
+}
+
 test('round 33b: drawMode and brushRadius persist across reload', async ({ page }) => {
   test.setTimeout(180000);
 
   await gotoAnnotate(page);
 
+  const drawMaskBtn = page.locator('[data-tool="polygon"]').first();
+
   // Reset to a known state first (in case a prior run left brush mode on).
-  const isBrush = await page.getByText('Brush Painting').isVisible({ timeout: 2000 }).catch(() => false);
-  if (!isBrush) {
-    await page.locator('[data-tool="brush-mode"]').first().click();
+  if (!(await isBrushMode(page))) {
+    await drawMaskBtn.dblclick();
   }
-  await expect(page.getByText('Brush Painting')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByLabel('Increase brush radius')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
 
   const increaseBtn = page.getByLabel('Increase brush radius');
@@ -65,7 +73,7 @@ test('round 33b: drawMode and brushRadius persist across reload', async ({ page 
   }
 
   // Persisted: still brush mode, still 30px, with no re-click needed.
-  await expect(page.getByText('Brush Painting')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByLabel('Increase brush radius')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('30px')).toBeVisible({ timeout: 10000 });
 
   // Reset back to lasso + default radius so other specs/runs start clean.
@@ -73,8 +81,8 @@ test('round 33b: drawMode and brushRadius persist across reload', async ({ page 
   await decreaseBtn.click();
   await decreaseBtn.click();
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
-  await page.locator('[data-tool="brush-mode"]').first().click();
-  await expect(page.getByText('Lasso Drawing')).toBeVisible({ timeout: 10000 });
+  await drawMaskBtn.dblclick();
+  await expect(page.getByLabel('Increase brush radius')).not.toBeVisible({ timeout: 10000 });
 });
 
 test('round 33b: holding ArrowUp accelerates brush radius after ~1s', async ({ page }) => {
@@ -82,11 +90,12 @@ test('round 33b: holding ArrowUp accelerates brush radius after ~1s', async ({ p
 
   await gotoAnnotate(page);
 
-  const isBrush = await page.getByText('Brush Painting').isVisible({ timeout: 2000 }).catch(() => false);
-  if (!isBrush) {
-    await page.locator('[data-tool="brush-mode"]').first().click();
+  const drawMaskBtn = page.locator('[data-tool="polygon"]').first();
+
+  if (!(await isBrushMode(page))) {
+    await drawMaskBtn.dblclick();
   }
-  await expect(page.getByText('Brush Painting')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByLabel('Increase brush radius')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
 
   // Focus the page body so document-level keydown listeners fire, then
@@ -110,6 +119,6 @@ test('round 33b: holding ArrowUp accelerates brush radius after ~1s', async ({ p
   const decreaseBtn = page.getByLabel('Decrease brush radius');
   for (let i = 0; i < 3; i++) await decreaseBtn.click();
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
-  await page.locator('[data-tool="brush-mode"]').first().click();
-  await expect(page.getByText('Lasso Drawing')).toBeVisible({ timeout: 10000 });
+  await drawMaskBtn.dblclick();
+  await expect(page.getByLabel('Increase brush radius')).not.toBeVisible({ timeout: 10000 });
 });

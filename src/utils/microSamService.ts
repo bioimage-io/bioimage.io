@@ -116,7 +116,7 @@ export async function resolveMicroSamService(server: any): Promise<any> {
     });
   } catch (err) {
     throw new Error(
-      `BioImageIO Fine-tune is not available (${(err as Error)?.message || err})`,
+      `The micro-sam segmentation service is not available (${(err as Error)?.message || err})`,
     );
   }
 }

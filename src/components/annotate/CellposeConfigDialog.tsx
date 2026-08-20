@@ -691,9 +691,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         <Typography variant="body2" fontWeight={500}>
                           Flow Threshold
                         </Typography>
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          {config.flow_threshold.toFixed(1)}
-                        </Typography>
                         <InfoTip text="Controls how strictly Cellpose checks that predicted flows are consistent with a valid cell shape. Higher → more masks accepted, including irregular shapes. Lower → only well-formed, round-ish masks kept. Decrease if you see too many oddly-shaped detections." />
                       </Box>
                       <Box sx={{ px: 0.5 }}>
@@ -712,9 +709,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
                         <Typography variant="body2" fontWeight={500}>
                           Cell Probability Threshold
-                        </Typography>
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          {config.cellprob_threshold.toFixed(1)}
                         </Typography>
                         <InfoTip text="Minimum confidence score for a pixel to be considered part of a cell. Decrease → detect more cells, including faint or dim ones. Increase → only high-confidence detections are kept." />
                       </Box>
