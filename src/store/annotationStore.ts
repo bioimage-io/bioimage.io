@@ -35,6 +35,45 @@ function clampBrushRadius(radius: number): number {
   return Math.min(MAX_BRUSH_RADIUS, Math.max(MIN_BRUSH_RADIUS, radius));
 }
 
+const DRAW_MODE_STORAGE_KEY = 'bioimage-annotation-draw-mode';
+const BRUSH_RADIUS_STORAGE_KEY = 'bioimage-annotation-brush-radius';
+
+function readStoredDrawMode(): DrawMode {
+  try {
+    const raw = window.localStorage.getItem(DRAW_MODE_STORAGE_KEY);
+    return raw === 'brush' ? 'brush' : 'lasso';
+  } catch {
+    return 'lasso';
+  }
+}
+
+function persistDrawMode(mode: DrawMode) {
+  try {
+    window.localStorage.setItem(DRAW_MODE_STORAGE_KEY, mode);
+  } catch {
+    // localStorage unavailable (private mode); falls back to session-only.
+  }
+}
+
+function readStoredBrushRadius(): number {
+  try {
+    const raw = window.localStorage.getItem(BRUSH_RADIUS_STORAGE_KEY);
+    if (raw === null) return DEFAULT_BRUSH_RADIUS;
+    const n = Number(raw);
+    return Number.isFinite(n) ? clampBrushRadius(n) : DEFAULT_BRUSH_RADIUS;
+  } catch {
+    return DEFAULT_BRUSH_RADIUS;
+  }
+}
+
+function persistBrushRadius(radius: number) {
+  try {
+    window.localStorage.setItem(BRUSH_RADIUS_STORAGE_KEY, String(radius));
+  } catch {
+    // localStorage unavailable (private mode); falls back to session-only.
+  }
+}
+
 // Round 33: mask color is a single hue applied uniformly to every mask
 // (existing + future), saturation/lightness held fixed. The default hue
 // matches the previous default mask color (#0084ff) so nothing changes
@@ -103,13 +142,16 @@ export interface AnnotationState {
   popUndo: () => UndoSnapshot | undefined;
   canUndo: boolean;
 
+  /** Persisted so it survives reload, since it changes the gesture of the
+   *  adjacent draw/erase/expand tools and gets flipped often mid-annotation. */
   drawMode: DrawMode;
   setDrawMode: (mode: DrawMode) => void;
 
+  /** Persisted alongside drawMode for the same reason. */
   brushRadius: number;
   setBrushRadius: (radius: number) => void;
-  increaseBrushRadius: () => void;
-  decreaseBrushRadius: () => void;
+  increaseBrushRadius: (step?: number) => void;
+  decreaseBrushRadius: (step?: number) => void;
 
   /** Single hue (0-360) applied to every mask's fill/stroke. Persisted so it
    *  survives reload. */
@@ -155,13 +197,28 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     return snapshot;
   },
 
-  drawMode: 'lasso',
-  setDrawMode: (mode) => set({ drawMode: mode }),
+  drawMode: readStoredDrawMode(),
+  setDrawMode: (mode) => {
+    persistDrawMode(mode);
+    set({ drawMode: mode });
+  },
 
-  brushRadius: DEFAULT_BRUSH_RADIUS,
-  setBrushRadius: (radius) => set({ brushRadius: clampBrushRadius(radius) }),
-  increaseBrushRadius: () => set((state) => ({ brushRadius: clampBrushRadius(state.brushRadius + BRUSH_RADIUS_STEP) })),
-  decreaseBrushRadius: () => set((state) => ({ brushRadius: clampBrushRadius(state.brushRadius - BRUSH_RADIUS_STEP) })),
+  brushRadius: readStoredBrushRadius(),
+  setBrushRadius: (radius) => {
+    const clamped = clampBrushRadius(radius);
+    persistBrushRadius(clamped);
+    set({ brushRadius: clamped });
+  },
+  increaseBrushRadius: (step = BRUSH_RADIUS_STEP) => set((state) => {
+    const clamped = clampBrushRadius(state.brushRadius + step);
+    persistBrushRadius(clamped);
+    return { brushRadius: clamped };
+  }),
+  decreaseBrushRadius: (step = BRUSH_RADIUS_STEP) => set((state) => {
+    const clamped = clampBrushRadius(state.brushRadius - step);
+    persistBrushRadius(clamped);
+    return { brushRadius: clamped };
+  }),
 
   maskHue: readStoredMaskHue(),
   setMaskHue: (hue) => {

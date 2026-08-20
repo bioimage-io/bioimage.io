@@ -12,7 +12,7 @@ import Collection from 'ol/Collection';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Geometry, Polygon as OlPolygon, LineString as OlLineString, Circle as OlCircle } from 'ol/geom';
 import * as turf from '@turf/turf';
-import { useAnnotationStore, AnnotationTool } from '../../../store/annotationStore';
+import { useAnnotationStore, AnnotationTool, BRUSH_RADIUS_STEP } from '../../../store/annotationStore';
 
 const HIGHLIGHT_STYLE = new Style({
   fill: new Fill({ color: 'rgba(255, 255, 0, 0.3)' }),
@@ -626,21 +626,39 @@ export function useDrawInteraction(
     return () => document.removeEventListener('keydown', handler);
   }, [mapRef, imageWidth, imageHeight]);
 
-  // Brush radius arrow keys, active only while in brush mode.
+  // Brush radius arrow keys, active only while in brush mode. Relies on OS
+  // key-repeat to drive resizing while held (no `e.repeat` filtering), and
+  // accelerates to a bigger step after ~1s of continuous hold so dragging
+  // across the full 5-150px range doesn't feel sluggish.
   useEffect(() => {
     if (drawMode !== 'brush') return;
+    const HOLD_ACCEL_MS = 1000;
+    const holdRef = { key: null as string | null, start: 0 };
+
     const handler = (e: KeyboardEvent) => {
       if (isTypingTarget(e)) return;
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        increaseBrushRadius();
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        decreaseBrushRadius();
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+
+      if (!e.repeat || holdRef.key !== e.key) {
+        holdRef.key = e.key;
+        holdRef.start = Date.now();
       }
+      const held = Date.now() - holdRef.start;
+      const step = held > HOLD_ACCEL_MS ? BRUSH_RADIUS_STEP * 2 : BRUSH_RADIUS_STEP;
+
+      if (e.key === 'ArrowUp') increaseBrushRadius(step);
+      else decreaseBrushRadius(step);
+    };
+    const keyupHandler = (e: KeyboardEvent) => {
+      if (holdRef.key === e.key) holdRef.key = null;
     };
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    document.addEventListener('keyup', keyupHandler);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.removeEventListener('keyup', keyupHandler);
+    };
   }, [drawMode, increaseBrushRadius, decreaseBrushRadius]);
 
   useEffect(() => {
