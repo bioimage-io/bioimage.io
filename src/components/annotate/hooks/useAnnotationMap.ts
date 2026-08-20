@@ -10,6 +10,7 @@ import { Projection } from 'ol/proj';
 import { getCenter } from 'ol/extent';
 import { Style, Fill, Stroke } from 'ol/style';
 import GeoJSON from 'ol/format/GeoJSON';
+import { useAnnotationStore, hslToHex, MASK_COLOR_SATURATION, MASK_COLOR_LIGHTNESS } from '../../../store/annotationStore';
 
 export interface AnnotationMapRefs {
   map: MutableRefObject<Map | null>;
@@ -28,6 +29,13 @@ export function useAnnotationMap(
   const vectorSourceRef = useRef<VectorSource | null>(null);
   const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const imageLayerRef = useRef<ImageLayer | null>(null);
+
+  // Round 33: every mask renders with a single uniform hue (store-level
+  // setting, live-updatable). Read through a ref inside the style function
+  // so changing the hue doesn't require recreating the map/view.
+  const maskHue = useAnnotationStore((s) => s.maskHue);
+  const maskHueRef = useRef(maskHue);
+  maskHueRef.current = maskHue;
 
   useEffect(() => {
     if (!containerRef.current || !imageUrl || !imageWidth || !imageHeight) return;
@@ -63,12 +71,13 @@ export function useAnnotationMap(
       source: vectorSource,
       style: (feature) => {
         const props = feature.getProperties();
+        const color = hslToHex(maskHueRef.current, MASK_COLOR_SATURATION, MASK_COLOR_LIGHTNESS);
         return new Style({
           fill: new Fill({
-            color: (props.face_color || props.edge_color || '#0084ff') + '40',
+            color: color + '40',
           }),
           stroke: new Stroke({
-            color: props.edge_color || '#0084ff',
+            color,
             width: props.edge_width || 2,
           }),
         });
@@ -100,6 +109,13 @@ export function useAnnotationMap(
       mapRef.current = null;
     };
   }, [containerRef, imageUrl, imageWidth, imageHeight]);
+
+  // Round 33: force OL to re-invoke the style function for every rendered
+  // feature when the mask hue changes, without recreating the map/view (which
+  // would reset pan/zoom).
+  useEffect(() => {
+    vectorLayerRef.current?.changed();
+  }, [maskHue]);
 
   return { map: mapRef, vectorSource: vectorSourceRef, vectorLayer: vectorLayerRef, imageLayerRef };
 }

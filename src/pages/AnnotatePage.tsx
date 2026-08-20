@@ -11,6 +11,7 @@ import { useCellposeConfig, CellposeConfig } from '../components/annotate/Cellpo
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
+import MaskColorDialog from '../components/annotate/MaskColorDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
 import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
@@ -317,6 +318,7 @@ print('CLAHE packages ready')
   const [currentImageStem, setCurrentImageStem] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
+  const [maskColorOpen, setMaskColorOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // Auto-open tutorial on first visit
@@ -1670,6 +1672,7 @@ print("CLAHE_RESULT:" + result_b64)
         onClearAll={handleClearAll}
         onToggleCLAHE={handleToggleCLAHE}
         onOpenMaskFilter={() => setMaskFilterOpen(true)}
+        onOpenMaskColor={() => setMaskColorOpen(true)}
         onUploadGeoJSON={handleUploadGeoJSON}
         imageName={currentImageStem || undefined}
         isSaving={isSaving}
@@ -1973,6 +1976,11 @@ print("CLAHE_RESULT:" + result_b64)
         getVectorSource={getVectorSource}
         onSaveUndo={handleSaveUndo}
         onBanner={addBanner}
+      />
+
+      <MaskColorDialog
+        open={maskColorOpen}
+        onClose={() => setMaskColorOpen(false)}
       />
 
       {/* Never show the first-visit tutorial on top of the connecting/error
