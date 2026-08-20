@@ -36,7 +36,7 @@ async function loginAndOpenAnnotate(page: import('@playwright/test').Page) {
   }
 }
 
-test('B opens the dialog on fresh load (not ready); gear opens it too', async ({ page }) => {
+test('B opens the dialog on fresh load (not ready); clicking the tool button opens it too', async ({ page }) => {
   test.setTimeout(180000);
   fs.mkdirSync(OUT, { recursive: true });
   const pageErrors: string[] = [];
@@ -46,7 +46,7 @@ test('B opens the dialog on fresh load (not ready); gear opens it too', async ({
 
   // Round 34 rework: nothing downloads or encodes until the model dialog
   // opens, so a fresh page load is never ready for any model. Press B before
-  // ever touching the gear icon, so nothing has started preparing yet: B
+  // ever touching the tool button, so nothing has started preparing yet: B
   // must open the dialog instead of activating the tool.
   await page.locator('body').click({ position: { x: 10, y: 10 } }); // ensure focus isn't in a text field
   await page.keyboard.press('b');
@@ -59,12 +59,14 @@ test('B opens the dialog on fresh load (not ready); gear opens it too', async ({
   await page.locator('.MuiDialog-container').click({ position: { x: 10, y: 10 } });
   await expect(page.getByText('Interactive Segmentation Model')).not.toBeVisible();
 
-  // The gear icon opens the same dialog.
-  const gearBtn = page.getByRole('button', { name: 'Configure Interactive Segmentation model' });
-  await expect(gearBtn).toBeVisible({ timeout: 10000 });
-  await gearBtn.click();
+  // Round 34b: the gear affordance is gone. Clicking the Interactive
+  // Segmentation tool button itself always opens the same dialog, ready or
+  // not, instead of activating the tool directly.
+  const toolBtn = page.getByRole('button', { name: 'Interactive Segmentation' });
+  await expect(toolBtn).toBeVisible({ timeout: 10000 });
+  await toolBtn.click();
   await expect(page.getByText('Interactive Segmentation Model')).toBeVisible({ timeout: 10000 });
-  await page.screenshot({ path: `${OUT}/2-dialog-open-via-gear.png` });
+  await page.screenshot({ path: `${OUT}/2-dialog-open-via-tool-click.png` });
 
   await page.locator('.MuiDialog-container').click({ position: { x: 10, y: 10 } });
   await expect(page.getByText('Interactive Segmentation Model')).not.toBeVisible();
@@ -79,8 +81,8 @@ test('dialog lists all 6 generalists grouped LM / EM, default is Large', async (
 
   await loginAndOpenAnnotate(page);
 
-  const gearBtn = page.getByRole('button', { name: 'Configure Interactive Segmentation model' });
-  await gearBtn.click();
+  const toolBtn = page.getByRole('button', { name: 'Interactive Segmentation' });
+  await toolBtn.click();
   await expect(page.getByText('Interactive Segmentation Model')).toBeVisible({ timeout: 10000 });
 
   await expect(page.getByText('μSAM: light microscopy')).toBeVisible();
@@ -95,14 +97,13 @@ test('dialog lists all 6 generalists grouped LM / EM, default is Large', async (
   await expect(dialog.getByText('Large (default)')).toHaveCount(1);
   await expect(dialog.getByText('Large')).toHaveCount(2); // "Large (default)" + the EM "Large" row
 
-  // "Start annotating" replaces the old "Done" button and stays disabled
-  // until the selected model's decoder and this image's embedding are both
-  // ready. Round 34 rework: preparation only starts once this dialog opens,
-  // so on this fresh page load neither has had a chance to finish yet, and
-  // the button is reliably still disabled right after the dialog appears.
+  // Round 34b rework: "Start annotating" no longer waits on readiness, it
+  // triggers preparation (decoder download + embedding compute) itself when
+  // clicked. So it's enabled as soon as the μSAM service is reachable, not
+  // gated on decoder/embedding state.
   const startBtn = page.getByRole('button', { name: 'Start annotating' });
   await expect(startBtn).toBeVisible();
-  await expect(startBtn).toBeDisabled();
+  await expect(startBtn).toBeEnabled();
 
   // Click a corner of the dialog's centering container, outside the paper:
   // that's what MUI actually wires its outside-click close handler to, not
@@ -113,7 +114,7 @@ test('dialog lists all 6 generalists grouped LM / EM, default is Large', async (
   expect(pageErrors).toEqual([]);
 });
 
-test('Full Image Segmentation dialog shows Recompute embedding for μSAM', async ({ page }) => {
+test('Full Image Segmentation dialog gates Recompute embedding on existence check', async ({ page }) => {
   test.setTimeout(180000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -123,8 +124,15 @@ test('Full Image Segmentation dialog shows Recompute embedding for μSAM', async
   await page.getByRole('button', { name: 'Full Image Segmentation' }).click();
   await expect(page.getByRole('heading', { name: 'Full Image Segmentation' })).toBeVisible({ timeout: 10000 });
 
-  const recomputeBtn = page.getByRole('button', { name: /Recompute embedding/ });
-  await expect(recomputeBtn).toBeVisible({ timeout: 10000 });
+  // Round 34b: Recompute is no longer unconditional. It shows a spinner
+  // while the broker's embedding-existence check for the currently selected
+  // μSAM model resolves, then only renders the button if an embedding
+  // actually exists for this image + model. Whether it lands there depends
+  // on this dataset's cached state, which this read-only smoke test doesn't
+  // control, so it only asserts the loading state clears (no stuck spinner)
+  // rather than the button's final presence.
+  const recomputeSpinner = page.locator('[role="dialog"]').getByRole('progressbar');
+  await expect(recomputeSpinner).toHaveCount(0, { timeout: 15000 });
 
   await page.screenshot({ path: `${OUT}/2-cellpose-config-recompute.png` });
 
