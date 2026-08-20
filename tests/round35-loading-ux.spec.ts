@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
-// Round 35 (colab-rework-plan.md, DatasetOverview loading UX):
-//   1. Switching the selected image never blanks the raw preview -- the
-//      previously-selected image stays visible, with a spinner overlaid on
-//      top, until the new one resolves.
+// Round 35 (colab-rework-plan.md, DatasetOverview loading UX), amended by
+// round 35b:
+//   1. Switching the selected image removes the previous one immediately and
+//      shows a loading placeholder in its place -- the outgoing image is
+//      never left on screen (dimmed or otherwise) while the next one loads.
 //   2. The "Browse annotations" button shows a spinner and disables itself
 //      while the per-image annotation-availability check is in flight.
 //   3. The images-list refresh button spins for BOTH a manual refresh and
@@ -112,7 +113,7 @@ test.describe('DatasetOverview loading UX (round 35)', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('switching images keeps the previous preview visible instead of blanking it', async ({ page }) => {
+  test('switching images removes the previous preview immediately instead of dimming it', async ({ page }) => {
     const token = readHyphaToken();
     if (!token) {
       test.skip();
@@ -129,9 +130,14 @@ test.describe('DatasetOverview loading UX (round 35)', () => {
     const previewImg = page.locator('img[alt]:not([alt="BioImage.IO"])').first();
     await expect(previewImg).toBeVisible({ timeout: 60000 });
     const initialStem = await previewImg.getAttribute('alt');
+    const initialSrc = await previewImg.getAttribute('src');
 
-    // Pick a different row from the image list and select it.
-    const rows = page.locator('button:has(> div > svg), button:has(> div > img)');
+    // Pick a different row from the image list and select it. The fixture's
+    // rows are named by well-plate stem (e.g. "10036_962_G1_1") -- matching on
+    // that, rather than a structural selector, is what round35-verify.spec.ts
+    // uses successfully against this same dataset.
+    const rows = page.getByRole('button', { name: /^\d+_\d+_[A-H]\d{1,2}_\d+$/ });
+    await expect(rows.first()).toBeVisible({ timeout: 30000 });
     const rowCount = await rows.count();
     let switched = false;
     for (let i = 0; i < rowCount; i++) {
@@ -145,11 +151,16 @@ test.describe('DatasetOverview loading UX (round 35)', () => {
     }
     test.skip(!switched, 'Dataset fixture only has one image, nothing to switch to.');
 
-    // At no point should the <img> disappear from the DOM (the fallback
-    // "Loading image..." placeholder replacing it) -- it must always
-    // resolve to either the old or the new src.
+    // The switch must land on a genuinely different image, and must never do
+    // so by leaving the old <img> on screen dimmed with a spinner overlaid on
+    // top (the pre-35b pattern) -- round 35b replaces the outgoing image with
+    // a loading placeholder instead, so the settled <img> must carry none of
+    // the old dimming class.
+    await expect
+      .poll(async () => previewImg.getAttribute('src'), { timeout: 30000 })
+      .not.toBe(initialSrc);
+    await expect(previewImg).not.toHaveClass(/opacity-60/);
     await expect(previewImg).toBeVisible();
-    await expect(page.getByText('Loading image...')).not.toBeVisible();
 
     expect(pageErrors).toEqual([]);
   });
