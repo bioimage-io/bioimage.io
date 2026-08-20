@@ -45,6 +45,9 @@ test('round 33 behavior: brush paint + undo, radius keys, keyboard zoom, hue per
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);
     localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
+    // Round 33d made brush the default mode; this spec's toggle flow assumes
+    // a lasso start, so seed it explicitly.
+    localStorage.setItem('bioimage-annotation-draw-mode', 'lasso');
     // Init scripts re-run on reload; only clear the hue on the first load so
     // the reload-persistence assertion below sees the app's own value.
     if (!sessionStorage.getItem('r33-hue-cleared')) {

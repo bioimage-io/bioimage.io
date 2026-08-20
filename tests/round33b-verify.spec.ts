@@ -41,9 +41,16 @@ test('persistence + hold acceleration', async ({ page }) => {
     await expandToolbarBtn.click();
   }
 
-  // Fresh state: lasso (no radius stepper), default radius once switched.
-  await expect(page.getByText('20px')).not.toBeVisible();
+  // Round 33d: brush is the default mode, so activating Draw Mask on a fresh
+  // profile shows the radius stepper immediately at the default 20px.
   const drawMaskBtn = page.locator('[data-tool="polygon"]').first();
+  await drawMaskBtn.click();
+  await expect(page.getByLabel('Increase brush radius')).toBeVisible();
+  await expect(page.getByText('20px')).toBeVisible();
+  // Double-click still toggles to lasso (and persists it), then back to brush.
+  await drawMaskBtn.dblclick();
+  await expect(page.getByLabel('Increase brush radius')).not.toBeVisible({ timeout: 5000 });
+  expect(await page.evaluate(() => localStorage.getItem('bioimage-annotation-draw-mode'))).toBe('lasso');
   await drawMaskBtn.dblclick();
   await expect(page.getByLabel('Increase brush radius')).toBeVisible();
   await expect(page.getByText('20px')).toBeVisible();
