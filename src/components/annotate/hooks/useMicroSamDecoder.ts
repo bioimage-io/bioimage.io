@@ -33,45 +33,66 @@ async function loadOrt(): Promise<Ort> {
 }
 
 /**
- * In-browser μSAM box-prompt decoder. Fetches the quantized ONNX decoder once
- * per page, computes the image encoder embedding once per image, then decodes
- * each drawn box locally (no per-box network round-trip). Returns OL-space
+ * In-browser μSAM box-prompt decoder. Fetches the quantized ONNX decoder for
+ * the currently selected generalist (round-34: only one decoder is ever kept
+ * in memory, switching `modelType` evicts the previous session), computes
+ * the image encoder embedding once per image+model pair, then decodes each
+ * drawn box locally (no per-box network round-trip). Returns OL-space
  * polygons ready to add to the annotation vector source.
  */
-export function useMicroSamDecoder(service: AnnotationDataService | null, imageRendered: boolean) {
-  // Cached ort InferenceSession (decoder weights). One per page.
-  const sessionPromiseRef = useRef<Promise<any> | null>(null);
-  // Cached encoder embedding, keyed by image URL so switching images
-  // invalidates it and forces a fresh encode.
-  const embeddingRef = useRef<{ url: string; promise: Promise<MicroSamEmbedding> } | null>(null);
+export function useMicroSamDecoder(
+  service: AnnotationDataService | null,
+  imageRendered: boolean,
+  modelType: string,
+) {
+  // Cached ort InferenceSession (decoder weights), keyed by modelType. Only
+  // one entry is ever kept: switching models overwrites this ref, dropping
+  // the previous session promise for GC (no Cache API is used anywhere in
+  // this codebase, so eviction is purely this in-memory ref replacement).
+  const sessionRef = useRef<{ modelType: string; promise: Promise<any> } | null>(null);
+  // Cached encoder embedding, keyed by (image URL, modelType) so switching
+  // either invalidates it and forces a fresh encode.
+  const embeddingRef = useRef<{ url: string; modelType: string; promise: Promise<MicroSamEmbedding> } | null>(
+    null,
+  );
   // Optional embedding source injected by the page. When set, the box tool
   // pulls its embedding from here (a stored .npz) instead of encoding inline,
   // so it shares the single precomputed embedding with AIS pre-seg.
   const embeddingLoaderRef = useRef<
-    ((url: string, width: number, height: number) => Promise<MicroSamEmbedding>) | null
+    ((url: string, width: number, height: number, modelType: string) => Promise<MicroSamEmbedding>) | null
   >(null);
 
   const setEmbeddingLoader = useCallback(
-    (loader: ((url: string, width: number, height: number) => Promise<MicroSamEmbedding>) | null) => {
+    (
+      loader:
+        | ((url: string, width: number, height: number, modelType: string) => Promise<MicroSamEmbedding>)
+        | null,
+    ) => {
       embeddingLoaderRef.current = loader;
     },
     [],
   );
 
-  const ensureSession = useCallback((): Promise<any> => {
-    if (!service) throw new Error('The micro-sam segmentation service is unavailable');
-    if (!sessionPromiseRef.current) {
-      sessionPromiseRef.current = (async () => {
-        const ort = await loadOrt();
-        const bytes = await service.getMicroSamOnnxModel();
-        return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
-      })().catch((e) => {
-        sessionPromiseRef.current = null;
-        throw e;
-      });
-    }
-    return sessionPromiseRef.current;
-  }, [service]);
+  const ensureSession = useCallback(
+    (mt: string): Promise<any> => {
+      if (!service) throw new Error('The micro-sam segmentation service is unavailable');
+      if (!sessionRef.current || sessionRef.current.modelType !== mt) {
+        sessionRef.current = {
+          modelType: mt,
+          promise: (async () => {
+            const ort = await loadOrt();
+            const bytes = await service.getMicroSamOnnxModel(mt);
+            return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
+          })().catch((e) => {
+            if (sessionRef.current?.modelType === mt) sessionRef.current = null;
+            throw e;
+          }),
+        };
+      }
+      return sessionRef.current.promise;
+    },
+    [service],
+  );
 
   // Warm the ONNX decoder session once the service is available AND the
   // current image has rendered, instead of firing at connect time. The
@@ -79,16 +100,23 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
   // with the image fetch that the user is actually waiting on; deferring it
   // until `imageRendered` flips true lets the image show up first while the
   // decoder downloads in the background, ready by the time a box is drawn.
+  // Also re-fires whenever `modelType` changes (model dialog selection),
+  // downloading and swapping in the new decoder lazily in the background.
   const [decoderReady, setDecoderReady] = useState(false);
+  const [loadedModelType, setLoadedModelType] = useState<string | null>(null);
   useEffect(() => {
     if (!service || !imageRendered) {
       setDecoderReady(false);
       return;
     }
     let cancelled = false;
-    ensureSession()
+    setDecoderReady(false);
+    ensureSession(modelType)
       .then(() => {
-        if (!cancelled) setDecoderReady(true);
+        if (!cancelled) {
+          setDecoderReady(true);
+          setLoadedModelType(modelType);
+        }
       })
       .catch(() => {
         if (!cancelled) setDecoderReady(false);
@@ -96,25 +124,25 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
     return () => {
       cancelled = true;
     };
-  }, [service, imageRendered, ensureSession]);
+  }, [service, imageRendered, modelType, ensureSession]);
 
   const ensureEmbedding = useCallback(
-    (url: string, width: number, height: number): Promise<MicroSamEmbedding> => {
+    (url: string, width: number, height: number, mt: string): Promise<MicroSamEmbedding> => {
       if (!service) throw new Error('The micro-sam segmentation service is unavailable');
-      if (!embeddingRef.current || embeddingRef.current.url !== url) {
+      if (!embeddingRef.current || embeddingRef.current.url !== url || embeddingRef.current.modelType !== mt) {
         // Prefer the injected loader (stored .npz) so the box tool reuses the
         // precomputed embedding; fall back to an inline encode if none is set.
         const load = embeddingLoaderRef.current
-          ? embeddingLoaderRef.current(url, width, height)
-          : service.computeMicroSamEmbedding(url, width, height);
+          ? embeddingLoaderRef.current(url, width, height, mt)
+          : service.computeMicroSamEmbedding(url, width, height, mt);
         const promise = load.catch((e) => {
             // Drop the cache entry so the next box retries the encode.
-            if (embeddingRef.current && embeddingRef.current.url === url) {
+            if (embeddingRef.current && embeddingRef.current.url === url && embeddingRef.current.modelType === mt) {
               embeddingRef.current = null;
             }
             throw e;
           });
-        embeddingRef.current = { url, promise };
+        embeddingRef.current = { url, modelType: mt, promise };
       }
       return embeddingRef.current.promise;
     },
@@ -129,6 +157,7 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
    * @param displayW Source image width in display pixels.
    * @param displayH Source image height in display pixels.
    * @param url Image URL (embedding cache key).
+   * @param modelType Which uSAM generalist to decode with (embedding + decoder cache key).
    */
   const decodeBox = useCallback(
     async (
@@ -136,11 +165,12 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
       displayW: number,
       displayH: number,
       url: string,
+      modelType: string,
     ): Promise<CellposeMask[]> => {
       const ort = await loadOrt();
       const [session, emb] = await Promise.all([
-        ensureSession(),
-        ensureEmbedding(url, displayW, displayH),
+        ensureSession(modelType),
+        ensureEmbedding(url, displayW, displayH, modelType),
       ]);
 
       // --- embedding tensor (1, 256, 64, 64) float32 ---
@@ -224,10 +254,11 @@ export function useMicroSamDecoder(service: AnnotationDataService | null, imageR
   );
 
   // Drop the cached embedding (called on image switch). The decoder session is
-  // image-independent and stays cached for the page lifetime.
+  // image-independent and stays cached (per current modelType) for the page
+  // lifetime, until a model switch evicts it via ensureSession above.
   const reset = useCallback(() => {
     embeddingRef.current = null;
   }, []);
 
-  return { decodeBox, reset, setEmbeddingLoader, decoderReady };
+  return { decodeBox, reset, setEmbeddingLoader, decoderReady, loadedModelType };
 }
