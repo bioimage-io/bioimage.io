@@ -14,7 +14,7 @@ import ReviewPublishArtifact from './ReviewPublishArtifact';
 import yaml from 'js-yaml';
 import RDFEditor from './RDFEditor';
 import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
-import { getArtifactRights, getIsReviewer } from '../utils/roles';
+import { getArtifactRights, getIsReviewer, buildContributorPermissions } from '../utils/roles';
 import { isInternalArtifactFile } from '../utils/internalFiles';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
@@ -450,6 +450,40 @@ const Edit: React.FC = () => {
   // a no-op, since the changes have already landed in the committed version.
   const commitIfStaged = async (comment: string): Promise<void> => {
     if (!artifactManager || !artifactId) return;
+
+    // Sync authors/maintainers into config.permissions before committing, so
+    // the grant lands in base config (permission checks never read the staged
+    // overlay). Read the authoritative staged state first — list/route state
+    // may not carry `.staging`. Best-effort: a failure here must not block
+    // the commit itself.
+    try {
+      const currentArtifact = await artifactManager.read({
+        artifact_id: artifactId,
+        stage: true,
+        _rkwargs: true
+      });
+      if (currentArtifact.staging) {
+        const currentConfig = (currentArtifact.config as Record<string, any>) || {};
+        const contributorPermissions = buildContributorPermissions(
+          currentArtifact.manifest,
+          currentConfig.permissions as Record<string, string> | undefined,
+          currentConfig.contributor_permission_keys as string[] | undefined,
+        );
+        await artifactManager.edit({
+          artifact_id: artifactId,
+          config: {
+            ...currentConfig,
+            permissions: contributorPermissions.permissions,
+            contributor_permission_keys: contributorPermissions.contributorKeys
+          },
+          stage: true,
+          _rkwargs: true
+        });
+      }
+    } catch (permErr) {
+      console.error('Could not sync author/maintainer permissions before commit:', permErr);
+    }
+
     // Don't gate on a client-side `staging` field: the default (committed) read
     // reports staging=null by backend design — it's only surfaced on a
     // stage=true read. Instead attempt the commit and treat the backend's
@@ -1333,13 +1367,24 @@ const Edit: React.FC = () => {
         });
       }
 
+      // Sync authors/maintainers into config.permissions alongside the
+      // download_weights patch below (this edit is already unstaged, so it
+      // lands directly in base config where permission checks read from).
+      const contributorPermissions = buildContributorPermissions(
+        artifact.manifest,
+        artifact.config?.permissions,
+        artifact.config?.contributor_permission_keys,
+      );
+
       // add create_zip_file to download_weights
       const newConfig = {
         ...artifact.config,
         download_weights:{
           ...artifact.config.download_weights,
           create_zip_file: 1.0
-        }
+        },
+        permissions: contributorPermissions.permissions,
+        contributor_permission_keys: contributorPermissions.contributorKeys
       };
 
       // update the manifest

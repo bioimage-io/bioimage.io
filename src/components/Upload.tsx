@@ -18,7 +18,7 @@ import { calculateSHA256, calculateFileSHA256 } from '../utils/sha256';
 import { updateManifestSha256 } from '../utils/sha-handling';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
 import { isInternalArtifactFile } from '../utils/internalFiles';
-import { buildReviewerPermissions } from '../utils/roles';
+import { buildReviewerPermissions, buildContributorPermissions } from '../utils/roles';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -934,6 +934,14 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         undefined,
       );
 
+      // Also grant the manifest's own authors/maintainers (matched by email)
+      // write access from creation, same rw+ level as reviewers.
+      const contributorPermissions = buildContributorPermissions(
+        manifest,
+        reviewerPermissions,
+        undefined,
+      );
+
       // Create new artifact with type-specific alias pattern
       const artifact = await artifactManager.create({
         parent_id: "bioimage-io/bioimage.io",
@@ -942,7 +950,8 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         manifest: manifest,
         config: {
           publish_to: "sandbox_zenodo",
-          permissions: reviewerPermissions
+          permissions: contributorPermissions.permissions,
+          contributor_permission_keys: contributorPermissions.contributorKeys
         },
         stage: true,
         _rkwargs: true,
