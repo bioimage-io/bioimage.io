@@ -289,6 +289,27 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   }[connectionStatus] ?? { dot: 'bg-gray-400', label: 'Connected', pulse: false };
   const showConnectionIssue = connectionStatus !== 'connected';
 
+  // Models awaiting review, surfaced on the closed avatar so a reviewer sees
+  // the backlog without opening the account menu. Non-reviewers never get a
+  // count they could act on, so the badge is gated on canAccessReview too.
+  const reviewCount = canAccessReview ? pendingReviewCount : 0;
+  // The connection dot already owns the top-right corner and wins outright: two
+  // red markers on a 24px avatar read as noise, and while the socket is down the
+  // store cannot refresh the count anyway, so it would be showing a stale number
+  // next to the very indicator saying the data is stale. The count stays in the
+  // accessible name and the tooltip, and the visible badge returns once the
+  // connection recovers.
+  const showReviewBadge = reviewCount > 0 && !showConnectionIssue;
+  const reviewLabel = reviewCount > 0
+    ? `${reviewCount} model${reviewCount === 1 ? '' : 's'} awaiting review`
+    : null;
+  const avatarLabel = ['User profile menu', showConnectionIssue ? connMeta.label : null, reviewLabel]
+    .filter(Boolean)
+    .join(', ');
+  const avatarTitle = [showConnectionIssue ? connMeta.label : null, reviewLabel]
+    .filter(Boolean)
+    .join(', ') || undefined;
+
   // Manual retry from the account menu. Uses reconnect() (the cached-token
   // connect) rather than attemptReconnect() so a user click always forces an
   // attempt without the auto-path's cooldown or logout-on-failure. reconnect()
@@ -319,10 +340,21 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
             className="relative text-gray-700 hover:text-gray-900 focus:outline-none"
-            aria-label={showConnectionIssue ? `User profile menu, ${connMeta.label}` : 'User profile menu'}
-            title={showConnectionIssue ? connMeta.label : undefined}
+            aria-label={avatarLabel}
+            title={avatarTitle}
           >
             <UserCircleIcon className="h-6 w-6" />
+            {/* Pending-review count. Same red pill as the dropdown entry, sized
+                down for the avatar and ringed so it stays legible over the icon. */}
+            {showReviewBadge && (
+              <span
+                data-testid="pending-review-badge"
+                className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-semibold leading-none ring-2 ring-white"
+                aria-hidden="true"
+              >
+                {reviewCount > 99 ? '99+' : reviewCount}
+              </span>
+            )}
             {/* Only mark the avatar when something is wrong (amber/red); a
                 healthy connection stays unmarked to avoid clutter. */}
             {showConnectionIssue && (

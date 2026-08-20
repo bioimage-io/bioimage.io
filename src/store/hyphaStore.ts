@@ -720,3 +720,12 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
     });
   },
 }));
+
+// Test seam. Playwright specs stub the connection (a fake artifact manager and
+// a fake user) so reviewer-only UI can be rendered deterministically without a
+// live Hypha session or live collection state. CRA inlines NODE_ENV at build
+// time, so this block is dead code in a production bundle and is dropped by the
+// minifier.
+if (process.env.NODE_ENV !== 'production') {
+  (window as any).__hyphaStore = useHyphaStore;
+}

@@ -1,14 +1,14 @@
-// Service-ID and helpers for the bioimageio-finetune (display "BioImageIO
+// Service-ID and helpers for the model-finetune (display "BioImageIO
 // Fine-tune") Hypha service that backs the annotation UI's box-prompt
 // segmentation and μSAM auto pre-segmentation.
 //
 // The app runs as a BioEngine app on the shared `bioimage-io` workers. Every
-// worker that deploys it registers the same `bioimageio-finetune` service
-// name (e.g. `bioimage-io/bioengine-worker-denbi-...:bioimageio-finetune` and
-// `bioimage-io/bioengine-worker-kth-...:bioimageio-finetune`), and the app is
+// worker that deploys it registers the same `model-finetune` service name
+// (e.g. `bioimage-io/bioengine-worker-denbi-...:model-finetune` and
+// `bioimage-io/bioengine-worker-kth-...:model-finetune`), and the app is
 // published with public `authorized_users {'*':['*']}`, so it is callable
 // cross-workspace from any connected server. We therefore resolve the
-// *unqualified* workspace name `bioimage-io/bioimageio-finetune` rather than
+// *unqualified* workspace name `bioimage-io/model-finetune` rather than
 // a single worker's client-scoped id: Hypha's service selector then spreads
 // calls across whichever workers are up. This means the UI transparently
 // discovers the service on both the KTH and de.NBI workers, and survives
@@ -21,6 +21,12 @@
 // segmentation inference and fine-tuning. The rename is a byte-identical RPC
 // contract, so no call-site shape changed, only this constant.
 //
+// round-31c (2026-08-18): renamed again, `bioimageio-finetune` ->
+// `model-finetune`, to pair with `model-runner` and avoid the
+// bioimage-io/bioimageio stutter. Again byte-identical, only this constant
+// changes. The old service stays registered until every frontend deploy has
+// switched, then retires.
+//
 // Unlike cellpose-finetuning (see utils/cellposeServicePin.ts), this service
 // is stateless across replicas for segmentation calls, so there is nothing to
 // pin: every call re-resolves a fresh handle (Hypha handles expire after a
@@ -28,8 +34,8 @@
 
 // Workspace-scoped service name. Deliberately NOT client-qualified so it
 // load-balances across every `bioimage-io` worker that registers
-// `bioimageio-finetune`.
-export const MICRO_SAM_SERVICE_ID = 'bioimage-io/bioimageio-finetune';
+// `model-finetune`.
+export const MICRO_SAM_SERVICE_ID = 'bioimage-io/model-finetune';
 
 // Model type used for every μSAM call. As of micro-sam 0.7.0 the service
 // default flipped to 'vit_l_lm' (DeepBacs zero-shot mean F1 0.229 -> 0.799 vs
@@ -60,9 +66,9 @@ export const MICRO_SAM_GROUP_LABELS: Record<MicroSamModelOption['group'], string
 };
 
 // Phase B (colab-rework-plan.md §29, 2026-08-17): all 6 generalists are now
-// served by bioimageio-finetune 0.10.0. The selector groups by `group`
-// generically, so this array is the single place either group's membership
-// is defined.
+// served by model-finetune (née bioimageio-finetune) 0.10.0. The selector
+// groups by `group` generically, so this array is the single place either
+// group's membership is defined.
 //
 // trainableOnT4: false on both "Large" entries per colab-rework-plan.md §20.2
 // and confirmed again on 0.10.0 (round-30, 2026-08-17, keen-puma relaying
@@ -93,7 +99,7 @@ export const MICRO_SAM_TRAINABLE_MODEL_OPTIONS: MicroSamModelOption[] =
  * handle would raise.
  *
  * Resolution uses the `select:min:get_load` selector against the unqualified
- * `bioimage-io/bioimageio-finetune` name, so when the app is deployed on more
+ * `bioimage-io/model-finetune` name, so when the app is deployed on more
  * than one worker (KTH + de.NBI) each call lands on the least-busy replica.
  * This mirrors how the model-runner resolves across workers (see
  * hooks/useModelRunners.ts). Segmentation calls are stateless across
