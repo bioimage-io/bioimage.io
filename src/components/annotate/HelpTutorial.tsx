@@ -38,6 +38,7 @@ const STEPS: TutorialStep[] = [
   { text: 'Undo (Ctrl+Z): undo the last annotation action. The undo history holds the last 10 steps.', highlightSelector: '[data-tool="undo"]' },
   { text: 'Clear All: remove every annotation from the current image at once.', highlightSelector: '[data-tool="clear"]' },
   { text: 'Filter Masks: remove every mask below a minimum area in one step. Use this after a full-image AI run to clear out small spurious detections without deleting them one by one.', highlightSelector: '[data-tool="filter"]' },
+  { text: 'Mask Color: choose the hue used for all current and future masks. Reset restores the default color.', highlightSelector: '[data-tool="mask-color"]' },
   { text: "Save Annotation: uploads your masks to cloud storage and advances to the next image. If the current image has no annotations yet, saving is skipped: nothing is uploaded and the tool just moves on.", highlightSelector: '[data-tool="save"]' },
   { text: 'Import Annotation: upload a GeoJSON file to load annotations for the current image, for example to restore a backup or bring in masks produced outside this tool.', highlightSelector: '[data-tool="upload"]' },
   { text: "You're all set. Reopen this Guide anytime from the button in the top right of the page, right next to your account icon." },
