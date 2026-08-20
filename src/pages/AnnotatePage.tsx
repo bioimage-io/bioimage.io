@@ -9,7 +9,6 @@ import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
 import { useCellposeConfig, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
-import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
@@ -112,7 +111,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService, probeAvailability } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
-  const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
+  const showPreviewRef = React.useRef<(config: CellposeConfig) => Promise<void>>(async () => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
   // True after ANY successful Cellpose run, local Pyodide flows path or full
@@ -148,7 +147,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     cellposeAvailable,
     onDialogOpen: probeAvailability,
     claheActive: isCLAHEActive,
-    onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
+    onShowPreview: (config) => showPreviewRef.current(config),
     onCancelRun: () => cellposeAbortRef.current?.abort(),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
@@ -166,14 +165,34 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
   
-  // Always call both hooks unconditionally (required by React Rules of Hooks)
-  // Use shared kernel if available (when called from Colab), otherwise use local kernel
+  // AnnotatePage is only ever rendered inside ColabPage's <KernelProvider>
+  // (see ColabPage.tsx), so the shared kernel is always available here. A
+  // second, uninitialized local kernel used to be kept as a fallback, but it
+  // was dead code that booted its own full Pyodide instance in parallel with
+  // the shared one as soon as anything requested a kernel, which starved the
+  // main thread badly enough to stall canvas mounting.
   const sharedKernel = useSharedKernelIfAvailable();
-  const localKernel = useColabKernel();
-  
-  const kernel = sharedKernel || localKernel;
+  const kernel = sharedKernel!;
   const kernelReady = kernel.isReady;
   const executeCode = kernel.executeCode;
+
+  // The shared kernel (from ColabPage's KernelProvider) stays idle until
+  // something calls requestKernel(). That used to only happen from the CLAHE
+  // toggle handler below, but this page's core Cellpose-SAM live-preview
+  // flow (runCellposeFlowsPipeline / maskGen) also needs kernelReady, and a
+  // user landing on the annotate page has already committed to interacting
+  // with images, so request it as soon as this page mounts rather than
+  // waiting for CLAHE specifically. Deliberately mount-once (empty deps): the
+  // KernelProvider's context value is a fresh object on every render (its
+  // kernelStatus ticks through many states during boot), so depending on
+  // `sharedKernel` here re-fires this effect dozens of times a second for the
+  // whole boot window and starves the page's own rendering. requestKernel()
+  // itself is a stable, idempotent useCallback, so reading it once on mount
+  // is sufficient.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    sharedKernel?.requestKernel?.();
+  }, []);
 
   // Pyodide-side mask gen — only used when the server returns flows-only.
   // The hook lazily installs scipy + execs public/cellpose_mask_gen.py on the
@@ -260,10 +279,8 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // stale/mismatched polygons onto the current preview.
   const flowsRunSeqRef = useRef(0);
   // OL features added by the latest Cellpose run. Replaced wholesale on each
-  // instant-slider recompute so the preview stays in sync.
+  // "Show preview" / Done recompute so the preview stays in sync.
   const previewFeaturesRef = useRef<Feature[]>([]);
-  // Debounce timer for instant-config slider drags.
-  const instantRecomputeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
 
@@ -1114,31 +1131,32 @@ print('CLAHE packages ready')
     closeCellposeConfig,
   ]);
 
-  // Re-run mask gen using the cached flows on every instant-config drag.
-  // Debounced so a fast slider sweep only fires one Pyodide call.
-  const handleInstantConfigChange = useCallback((cfg: CellposeConfig) => {
+  // Re-run mask gen against the cached flows. Called explicitly by the
+  // dialog's "Show preview" hold button and "Done" button only — no longer
+  // fired on every slider change, so no debounce is needed here.
+  const handleShowPreview = useCallback(async (cfg: CellposeConfig) => {
     if (!flowsCacheRef.current) return;
-    if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
-    instantRecomputeTimerRef.current = setTimeout(async () => {
-      try {
-        const n = await runCellposeFlowsPipeline(cfg);
-        if (n !== undefined) {
-          console.log('[AnnotatePage] Live preview: %d masks', n);
-        }
-      } catch (err: any) {
-        console.warn('[AnnotatePage] Live preview failed:', err);
+    try {
+      const n = await runCellposeFlowsPipeline(cfg);
+      if (n !== undefined) {
+        console.log('[AnnotatePage] Preview: %d masks', n);
       }
-    }, 200);
-  }, [runCellposeFlowsPipeline]);
+    } catch (err: any) {
+      const fullError = err?.message || String(err);
+      console.warn('[AnnotatePage] Preview failed:', fullError);
+      addBanner('Preview failed', 'error', 8000, fullError);
+      throw err;
+    }
+  }, [runCellposeFlowsPipeline, addBanner]);
 
-  // Keep refs in sync so the config dialog's Run button + instant-config
+  // Keep refs in sync so the config dialog's Run button + show-preview
   // callback can trigger the latest closures without a re-render of the dialog.
   React.useEffect(() => {
     runCellposeRef.current = handleRunCellpose;
   }, [handleRunCellpose]);
   React.useEffect(() => {
-    instantConfigChangeRef.current = handleInstantConfigChange;
-  }, [handleInstantConfigChange]);
+    showPreviewRef.current = handleShowPreview;
+  }, [handleShowPreview]);
 
   // Invalidate the flows cache whenever the source image changes — different
   // image, the cached network outputs no longer apply.
