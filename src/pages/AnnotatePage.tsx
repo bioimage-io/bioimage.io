@@ -9,7 +9,6 @@ import ConfirmDialog from '../components/annotate/ConfirmDialog';
 import FloatingBanners, { useBanners } from '../components/annotate/FloatingBanners';
 import { useCellposeConfig, CellposeConfig } from '../components/annotate/CellposeConfigDialog';
 import CLAHEDialog, { useCLAHE } from '../components/annotate/CLAHEDialog';
-import { useColabKernel } from '../components/colab/useColabKernel';
 import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
@@ -166,14 +165,34 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
 
   const { claheConfig, setClaheConfig, dialogOpen: claheDialogOpen, openDialog: openCLAHEDialog, closeDialog: closeCLAHEDialog } = useCLAHE();
   
-  // Always call both hooks unconditionally (required by React Rules of Hooks)
-  // Use shared kernel if available (when called from Colab), otherwise use local kernel
+  // AnnotatePage is only ever rendered inside ColabPage's <KernelProvider>
+  // (see ColabPage.tsx), so the shared kernel is always available here. A
+  // second, uninitialized local kernel used to be kept as a fallback, but it
+  // was dead code that booted its own full Pyodide instance in parallel with
+  // the shared one as soon as anything requested a kernel, which starved the
+  // main thread badly enough to stall canvas mounting.
   const sharedKernel = useSharedKernelIfAvailable();
-  const localKernel = useColabKernel();
-  
-  const kernel = sharedKernel || localKernel;
+  const kernel = sharedKernel!;
   const kernelReady = kernel.isReady;
   const executeCode = kernel.executeCode;
+
+  // The shared kernel (from ColabPage's KernelProvider) stays idle until
+  // something calls requestKernel(). That used to only happen from the CLAHE
+  // toggle handler below, but this page's core Cellpose-SAM live-preview
+  // flow (runCellposeFlowsPipeline / maskGen) also needs kernelReady, and a
+  // user landing on the annotate page has already committed to interacting
+  // with images, so request it as soon as this page mounts rather than
+  // waiting for CLAHE specifically. Deliberately mount-once (empty deps): the
+  // KernelProvider's context value is a fresh object on every render (its
+  // kernelStatus ticks through many states during boot), so depending on
+  // `sharedKernel` here re-fires this effect dozens of times a second for the
+  // whole boot window and starves the page's own rendering. requestKernel()
+  // itself is a stable, idempotent useCallback, so reading it once on mount
+  // is sufficient.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    sharedKernel?.requestKernel?.();
+  }, []);
 
   // Pyodide-side mask gen — only used when the server returns flows-only.
   // The hook lazily installs scipy + execs public/cellpose_mask_gen.py on the
