@@ -203,13 +203,28 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
 
   const [labels, setLabels] = useState<DatasetLabelRef[] | null>(null);
   const [selectedLabel, setSelectedLabel] = useState('');
+  // Round 35: lets the images-loading effect below read the current label
+  // without depending on it directly, so a label switch alone doesn't
+  // re-trigger a full image-list refetch.
+  const selectedLabelRef = useRef(selectedLabel);
+  useEffect(() => {
+    selectedLabelRef.current = selectedLabel;
+  }, [selectedLabel]);
   const [labelTotals, setLabelTotals] = useState<Record<string, LabelTotals>>({});
   const [annotatedStems, setAnnotatedStems] = useState<Set<string>>(new Set());
   const [labelStats, setLabelStats] = useState<Record<string, number>>({});
   const [statsLoading, setStatsLoading] = useState(false);
 
   const [imageUrl, setImageUrl] = useState('');
+  // Round 35: whether the raw-image URL fetch for the current selection is
+  // in flight. The URL itself is never cleared until the new one resolves
+  // (see the effect below), so this only drives an overlay spinner on top
+  // of the still-visible previous image, never a blank state.
+  const [imageLoading, setImageLoading] = useState(false);
   const [pairs, setPairs] = useState<AnnotationPair[]>([]);
+  // Round 35: drives the "Browse annotations" button's spinner while the
+  // per-image annotation-availability check is in flight.
+  const [pairsLoading, setPairsLoading] = useState(false);
   // Which image the center preview shows while browsing annotations
   // (colab-rework-plan.md §19 item 7): decoupled from browserIndex so
   // clicking the displayed image can flip it back and forth for an A/B
@@ -341,6 +356,12 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const canManage = role === 'owner' || role === 'manager';
 
   // --- Images ---
+  // Round 35: this is the sole trigger for the images-list refresh button's
+  // spinner (both the button click and the 30s auto-poll below reuse this
+  // same flag). It stays true through two sequential phases -- the file
+  // list, then the per-label annotation-availability check -- so the
+  // spinner covers the whole duration instead of dropping as soon as the
+  // file list resolves while the availability check is still in flight.
   const [imagesLoading, setImagesLoading] = useState(false);
   useEffect(() => {
     if (!canManage) return;
@@ -352,6 +373,23 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         if (!active) return;
         setImages(imgs);
         setSelectedStem((prev) => (prev && imgs.some((i) => i.stem === prev) ? prev : imgs[0]?.stem ?? null));
+
+        const label = selectedLabelRef.current;
+        if (label) {
+          setStatsLoading(true);
+          try {
+            const [stems, totals] = await Promise.all([
+              getAnnotatedStems(artifactManager, artifactId, label),
+              getLabelTotals(artifactManager, artifactId, label),
+            ]);
+            if (active) {
+              setAnnotatedStems(stems);
+              setLabelStats(totals.perStemCounts);
+            }
+          } finally {
+            if (active) setStatsLoading(false);
+          }
+        }
       } catch (err) {
         if (active) setError((err as Error).message || 'Failed to load images.');
       } finally {
@@ -490,6 +528,10 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   }, [labels, labelTotals, totalImages]);
 
   // --- Annotated stems + stats for the selected label ---
+  // Round 35: no longer keyed on refreshTick -- a manual/auto refresh's
+  // annotation-availability check is handled sequentially inside the images
+  // effect above (file list first, this check second). This effect now only
+  // reacts to the user actually switching labels.
   useEffect(() => {
     if (!canManage || !selectedLabel) {
       setAnnotatedStems(new Set());
@@ -517,7 +559,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     return () => {
       active = false;
     };
-  }, [artifactManager, artifactId, selectedLabel, canManage, refreshTick]);
+  }, [artifactManager, artifactId, selectedLabel, canManage]);
 
   // On label switch, the preview reverts to the raw image rather than
   // staying on the previous label's annotation overlay (§19 item 5).
@@ -568,6 +610,10 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   useEffect(() => {
     if (!canManage || !artifactManager) return;
     const id = setInterval(async () => {
+      // Round 35: the refresh button should spin through an auto-poll cycle
+      // exactly like a manual refresh, file list first, then the
+      // annotation-availability check, same as the images effect above.
+      setImagesLoading(true);
       try {
         const imgs = await listImages(artifactManager, artifactId);
         setImages((prev) => {
@@ -577,19 +623,26 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         });
 
         if (selectedLabel) {
-          const [stems, totals] = await Promise.all([
-            getAnnotatedStems(artifactManager, artifactId, selectedLabel),
-            getLabelTotals(artifactManager, artifactId, selectedLabel),
-          ]);
-          setAnnotatedStems((prev) => {
-            const prevKey = [...prev].sort().join(',');
-            const nextKey = [...stems].sort().join(',');
-            return prevKey === nextKey ? prev : stems;
-          });
-          setLabelStats((prev) => (JSON.stringify(prev) === JSON.stringify(totals.perStemCounts) ? prev : totals.perStemCounts));
+          setStatsLoading(true);
+          try {
+            const [stems, totals] = await Promise.all([
+              getAnnotatedStems(artifactManager, artifactId, selectedLabel),
+              getLabelTotals(artifactManager, artifactId, selectedLabel),
+            ]);
+            setAnnotatedStems((prev) => {
+              const prevKey = [...prev].sort().join(',');
+              const nextKey = [...stems].sort().join(',');
+              return prevKey === nextKey ? prev : stems;
+            });
+            setLabelStats((prev) => (JSON.stringify(prev) === JSON.stringify(totals.perStemCounts) ? prev : totals.perStemCounts));
+          } finally {
+            setStatsLoading(false);
+          }
         }
       } catch {
         // silent -- a transient poll failure just waits for the next tick
+      } finally {
+        setImagesLoading(false);
       }
     }, 30_000);
     return () => clearInterval(id);
@@ -600,9 +653,11 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     if (!canManage || !selectedStem || !selectedLabel) {
       setPairs([]);
       setBrowserIndex(0);
+      setPairsLoading(false);
       return;
     }
     let active = true;
+    setPairsLoading(true);
     (async () => {
       try {
         const [found, users] = await Promise.all([
@@ -615,6 +670,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         setLabelUsers(users);
       } catch {
         if (active) setPairs([]);
+      } finally {
+        if (active) setPairsLoading(false);
       }
     })();
     return () => {
@@ -623,17 +680,24 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   }, [artifactManager, artifactId, selectedStem, selectedLabel, canManage, refreshTick]);
 
   // --- Raw image URL for the selected image ---
+  // Round 35: `imageUrl` is deliberately never cleared while this fetch is
+  // in flight (only on a real miss/error), so the previously-selected
+  // image stays visible the whole time; `imageLoading` drives an overlay
+  // spinner on top of it instead of a jarring blank state.
   useEffect(() => {
     if (!canManage || !selectedStem || !images) {
       setImageUrl('');
+      setImageLoading(false);
       return;
     }
     const image = images.find((i) => i.stem === selectedStem);
     if (!image) {
       setImageUrl('');
+      setImageLoading(false);
       return;
     }
     let active = true;
+    setImageLoading(true);
     (async () => {
       try {
         const url = await withStageRetry(() =>
@@ -647,6 +711,8 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
         if (active) setImageUrl(url);
       } catch {
         if (active) setImageUrl('');
+      } finally {
+        if (active) setImageLoading(false);
       }
     })();
     return () => {
@@ -1695,6 +1761,7 @@ print("Service registered successfully", end='')
                 <ImagePreview
                   viewMode={previewMode}
                   imageUrl={imageUrl}
+                  imageLoading={imageLoading}
                   annotationUrl={annotationUrl}
                   hasAnnotation={!!currentPair}
                   alt={selectedStem}
@@ -1773,15 +1840,26 @@ print("Service registered successfully", end='')
                 </div>
                 <button
                   onClick={() => setBrowserIndex((i) => Math.min(pairs.length, i + 1))}
-                  disabled={browserIndex >= pairs.length}
+                  disabled={pairsLoading || browserIndex >= pairs.length}
                   className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
                 >
-                  {browserIndex === 0 && (
+                  {browserIndex === 0 && !pairsLoading && (
                     <span className="text-sm font-medium text-gray-700">Browse annotations</span>
                   )}
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+                  {pairsLoading ? (
+                    <svg className="w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  )}
                 </button>
               </div>
             </div>

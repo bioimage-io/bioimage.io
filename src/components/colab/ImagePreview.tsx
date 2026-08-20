@@ -120,6 +120,11 @@ const ANNOTATION_FALLBACK_SVG =
 export interface ImagePreviewProps {
   viewMode: 'raw' | 'annotated';
   imageUrl: string;
+  // Round 35: true while the raw-image URL for the current selection is being
+  // fetched. `imageUrl` itself keeps showing the previously-selected image
+  // during this window, so this only drives an overlay spinner on top of it
+  // rather than a blank/placeholder state.
+  imageLoading?: boolean;
   annotationUrl: string;
   hasAnnotation: boolean;
   alt: string;
@@ -140,6 +145,7 @@ export interface ImagePreviewProps {
 export const ImagePreview: React.FC<ImagePreviewProps> = ({
   viewMode,
   imageUrl,
+  imageLoading,
   annotationUrl,
   hasAnnotation,
   alt,
@@ -184,12 +190,26 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         <img
           src={imageUrl}
           alt={alt}
-          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${holdableClass}`}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg transition-opacity duration-150 ${
+            imageLoading ? 'opacity-60' : 'opacity-100'
+          } ${holdableClass}`}
           onError={(e) => {
             (e.target as HTMLImageElement).src = IMAGE_FALLBACK_SVG;
           }}
         />
-        {onHoldChange && (
+        {imageLoading && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <svg className="w-8 h-8 animate-spin text-white drop-shadow" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+              <path
+                className="opacity-90"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          </div>
+        )}
+        {onHoldChange && !imageLoading && (
           <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-100 transition-opacity duration-150 pointer-events-none">
             {hint}
           </span>
