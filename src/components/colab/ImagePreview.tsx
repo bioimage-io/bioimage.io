@@ -16,15 +16,19 @@ export const LABEL_PALETTE: Array<[number, number, number]> = [
   [244, 63, 94],
 ];
 
-// Round 35b: the placeholder shown while an image is loading, used both for
-// the annotation view below (its original home) and, since switching must
-// never leave a stale frame on screen, for the raw view too.
+// Round 35b (amended): a skeleton box with a picture-frame icon and loading
+// text, used for the annotation view below (its original home), the raw view
+// while switching, and the true-empty-state fallback at the bottom of this
+// file, so all three loading states look identical.
 const ImageLoadingPlaceholder: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div className={`flex items-center justify-center bg-black/5 rounded-lg ${className}`} style={{ minHeight: '300px' }}>
-    <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+  <div
+    className={`flex flex-col items-center justify-center bg-black/5 rounded-lg animate-pulse text-gray-400 ${className}`}
+    style={{ minHeight: '300px' }}
+  >
+    <svg className="w-16 h-16 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
+    <p className="text-sm">Loading image...</p>
   </div>
 );
 
@@ -240,12 +244,5 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
     );
   }
 
-  return (
-    <div className="text-center text-gray-400">
-      <svg className="w-16 h-16 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-      <p>Loading image...</p>
-    </div>
-  );
+  return <ImageLoadingPlaceholder className="w-full h-full" />;
 };
