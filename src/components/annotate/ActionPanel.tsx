@@ -19,9 +19,10 @@ import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ContrastIcon from '@mui/icons-material/Contrast';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import PaletteIcon from '@mui/icons-material/Palette';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import InfoIcon from '@mui/icons-material/Info';
-import { useAnnotationStore } from '../../store/annotationStore';
+import { useAnnotationStore, hslToHex, MASK_COLOR_SATURATION, MASK_COLOR_LIGHTNESS } from '../../store/annotationStore';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { usePanelExpansion } from './hooks/usePanelExpansion';
 import { floatingPanelSx, floatingBtnSx, reducedMotionSx, iconSlotSx } from './floatingPanelStyles';
@@ -36,6 +37,7 @@ export interface ActionPanelProps {
   onClearAll: () => void;
   onToggleCLAHE: () => void;
   onOpenMaskFilter: () => void;
+  onOpenMaskColor: () => void;
   onUploadGeoJSON: (file: File) => void;
   imageName?: string;
   isSaving: boolean;
@@ -49,12 +51,14 @@ export interface ActionPanelProps {
 }
 
 const ActionPanel: React.FC<ActionPanelProps> = ({
-  onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onUploadGeoJSON,
+  onSave, onUndo, onResetView, onZoomIn, onZoomOut, onClearAll, onToggleCLAHE, onOpenMaskFilter, onOpenMaskColor, onUploadGeoJSON,
   imageName, isSaving, isCLAHEActive, isLowContrast = false, disabled = false,
 }) => {
   const canUndo = useAnnotationStore((s) => s.canUndo);
   const imageWidth = useAnnotationStore((s) => s.imageWidth);
   const imageHeight = useAnnotationStore((s) => s.imageHeight);
+  const maskHue = useAnnotationStore((s) => s.maskHue);
+  const maskColorHex = hslToHex(maskHue, MASK_COLOR_SATURATION, MASK_COLOR_LIGHTNESS);
   const isSmallImage = isSmallImageDims(imageWidth, imageHeight);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -207,6 +211,13 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
             <IconButton size={btnSize} data-tool="filter" onClick={onOpenMaskFilter} aria-label="Filter Masks by Area"
               sx={{ ...floatingBtnSx(), flexShrink: 0, ...touchSx }}>
               <FilterListIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Mask Color" placement={tooltipPlacement}>
+            <IconButton size={btnSize} data-tool="mask-color" onClick={onOpenMaskColor} aria-label="Mask Color"
+              sx={{ ...floatingBtnSx(), flexShrink: 0, color: maskColorHex, ...touchSx }}>
+              <PaletteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
 
@@ -433,6 +444,24 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Filter Masks</Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
                 Remove masks below a minimum area
+              </Typography>
+            </Box>
+          </ButtonBase>
+
+          <ButtonBase onClick={onOpenMaskColor} data-tool="mask-color" aria-label="Mask Color"
+            sx={{
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
+              px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+              minHeight: isCompact ? 48 : undefined, touchAction: 'manipulation',
+            }}>
+            <Box sx={{ ...iconSlotSx, color: maskColorHex, mt: 0.2 }}>
+              <PaletteIcon fontSize="small" />
+            </Box>
+            <Box>
+              <Typography variant="caption" fontWeight={600} display="block" data-testid="row-title">Mask Color</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.63rem', lineHeight: 1.3, mt: 0.1 }}>
+                Choose the color used for every mask
               </Typography>
             </Box>
           </ButtonBase>
