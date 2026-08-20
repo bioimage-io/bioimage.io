@@ -56,9 +56,13 @@ test('round 33c: no ring-closure crash after changing brush radius, cursor resiz
     await expandToolbarBtn.click();
   }
 
-  // Switch to brush mode via the Draw Mask double-click (round 33c UX).
+  // Ensure brush mode via the Draw Mask double-click (round 33c UX). Brush is
+  // the default (round 33d), but toggle explicitly so this test is
+  // independent of whatever mode a prior test left behind.
   const drawMaskBtn = page.locator('[data-tool="polygon"]').first();
-  await drawMaskBtn.dblclick();
+  if (!(await page.getByLabel('Increase brush radius').isVisible({ timeout: 2000 }).catch(() => false))) {
+    await drawMaskBtn.dblclick();
+  }
   await expect(page.getByLabel('Increase brush radius')).toBeVisible({ timeout: 10000 });
 
   const canvas = page.locator('canvas').first();

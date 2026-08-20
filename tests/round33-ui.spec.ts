@@ -44,14 +44,9 @@ test('round 33: brush mode toggle, radius stepper, mask color dialog', async ({ 
     await expandToolbarBtn.click();
   }
 
-  // No standalone toggle row: mode starts as lasso, so the radius stepper
-  // (brush-only) should not be present yet.
-  await expect(page.getByText('20px')).not.toBeVisible();
-
-  // Double-clicking the Draw Mask button switches to brush mode; the radius
-  // stepper appears right below it.
+  // No standalone toggle row: mode starts as brush (round 33d default), so
+  // the radius stepper (brush-only) is present immediately.
   const drawMaskBtn = page.locator('[data-tool="polygon"]').first();
-  await drawMaskBtn.dblclick();
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
   const increaseBtn = page.getByLabel('Increase brush radius');
   await increaseBtn.click();
@@ -60,9 +55,14 @@ test('round 33: brush mode toggle, radius stepper, mask color dialog', async ({ 
   await decreaseBtn.click();
   await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
 
-  // Double-click again to switch back to lasso; stepper disappears.
+  // Double-clicking the Draw Mask button switches to lasso mode; the radius
+  // stepper disappears.
   await drawMaskBtn.dblclick();
   await expect(page.getByText('20px')).not.toBeVisible({ timeout: 10000 });
+
+  // Double-click again to switch back to brush; stepper reappears.
+  await drawMaskBtn.dblclick();
+  await expect(page.getByText('20px')).toBeVisible({ timeout: 10000 });
 
   // Mask Color dialog: open, move slider, reset, close.
   await page.locator('[data-tool="mask-color"]').first().click();

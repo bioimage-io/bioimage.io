@@ -41,9 +41,10 @@ const BRUSH_RADIUS_STORAGE_KEY = 'bioimage-annotation-brush-radius';
 function readStoredDrawMode(): DrawMode {
   try {
     const raw = window.localStorage.getItem(DRAW_MODE_STORAGE_KEY);
-    return raw === 'brush' ? 'brush' : 'lasso';
+    if (raw === 'lasso') return 'lasso';
+    return 'brush';
   } catch {
-    return 'lasso';
+    return 'brush';
   }
 }
 

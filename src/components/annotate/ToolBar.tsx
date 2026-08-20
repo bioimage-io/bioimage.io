@@ -47,7 +47,7 @@ interface ToolDef {
 // are added ahead of time.
 const TOOLS: ToolDef[] = [
   { id: 'move',     name: 'Move',        shortcut: 'M', description: 'Pan and navigate the image',                              icon: <OpenWithIcon fontSize="small" /> },
-  { id: 'select',   name: 'Select',      shortcut: 'S', description: 'Click a mask to select it, Shift-click to add more, Del to delete', icon: <NearMeIcon fontSize="small" /> },
+  { id: 'select',   name: 'Select',      shortcut: 'S', description: 'Click a mask to select it, or drag a box to select every mask it touches. Shift adds to the selection, Del deletes', icon: <NearMeIcon fontSize="small" /> },
   { id: 'polygon',  name: 'Draw Mask',   shortcut: 'D', description: 'Click to place vertices, double-click to close the polygon', icon: <PolylineIcon fontSize="small" /> },
   { id: 'cutter',   name: 'Cut Mask',    shortcut: 'C', description: 'Draw a line across an existing mask to split it',          icon: <ContentCutIcon fontSize="small" /> },
   { id: 'eraser',   name: 'Eraser',      shortcut: 'E', description: 'Paint to remove areas from an existing mask',              icon: <AutoFixOffIcon fontSize="small" /> },
@@ -187,7 +187,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <React.Fragment key={tool.id}>
                 <Tooltip
                   title={toolUnavailable
-                    ? `${tool.name} unavailable (BioImageIO Fine-tune is offline)`
+                    ? `${tool.name} unavailable (the micro-sam segmentation service is offline)`
                     : toolPending
                     ? `${tool.name} is warming up...`
                     : `${tool.name} (${tool.shortcut})`}
@@ -300,7 +300,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
-                  title={toolUnavailable ? 'BioImageIO Fine-tune is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
+                  title={toolUnavailable ? 'The micro-sam segmentation service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
                   placement="right"
                   disableHoverListener={!toolDisabled}
                 >
