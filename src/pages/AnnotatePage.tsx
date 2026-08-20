@@ -112,7 +112,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const { service, loading: serviceLoading, error: serviceError, cellposeAvailable, microSamAvailable, retry: retryService, probeAvailability } = useHyphaService(serviceConfig);
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
-  const instantConfigChangeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
+  const showPreviewRef = React.useRef<(config: CellposeConfig) => Promise<void>>(async () => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
   // True after ANY successful Cellpose run, local Pyodide flows path or full
@@ -148,7 +148,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     cellposeAvailable,
     onDialogOpen: probeAvailability,
     claheActive: isCLAHEActive,
-    onInstantConfigChange: (config) => instantConfigChangeRef.current(config),
+    onShowPreview: (config) => showPreviewRef.current(config),
     onCancelRun: () => cellposeAbortRef.current?.abort(),
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
@@ -260,10 +260,8 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // stale/mismatched polygons onto the current preview.
   const flowsRunSeqRef = useRef(0);
   // OL features added by the latest Cellpose run. Replaced wholesale on each
-  // instant-slider recompute so the preview stays in sync.
+  // "Show preview" / Done recompute so the preview stays in sync.
   const previewFeaturesRef = useRef<Feature[]>([]);
-  // Debounce timer for instant-config slider drags.
-  const instantRecomputeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [kernelPackagesInstalled, setKernelPackagesInstalled] = useState(false);
 
@@ -1114,31 +1112,32 @@ print('CLAHE packages ready')
     closeCellposeConfig,
   ]);
 
-  // Re-run mask gen using the cached flows on every instant-config drag.
-  // Debounced so a fast slider sweep only fires one Pyodide call.
-  const handleInstantConfigChange = useCallback((cfg: CellposeConfig) => {
+  // Re-run mask gen against the cached flows. Called explicitly by the
+  // dialog's "Show preview" hold button and "Done" button only — no longer
+  // fired on every slider change, so no debounce is needed here.
+  const handleShowPreview = useCallback(async (cfg: CellposeConfig) => {
     if (!flowsCacheRef.current) return;
-    if (instantRecomputeTimerRef.current) clearTimeout(instantRecomputeTimerRef.current);
-    instantRecomputeTimerRef.current = setTimeout(async () => {
-      try {
-        const n = await runCellposeFlowsPipeline(cfg);
-        if (n !== undefined) {
-          console.log('[AnnotatePage] Live preview: %d masks', n);
-        }
-      } catch (err: any) {
-        console.warn('[AnnotatePage] Live preview failed:', err);
+    try {
+      const n = await runCellposeFlowsPipeline(cfg);
+      if (n !== undefined) {
+        console.log('[AnnotatePage] Preview: %d masks', n);
       }
-    }, 200);
-  }, [runCellposeFlowsPipeline]);
+    } catch (err: any) {
+      const fullError = err?.message || String(err);
+      console.warn('[AnnotatePage] Preview failed:', fullError);
+      addBanner('Preview failed', 'error', 8000, fullError);
+      throw err;
+    }
+  }, [runCellposeFlowsPipeline, addBanner]);
 
-  // Keep refs in sync so the config dialog's Run button + instant-config
+  // Keep refs in sync so the config dialog's Run button + show-preview
   // callback can trigger the latest closures without a re-render of the dialog.
   React.useEffect(() => {
     runCellposeRef.current = handleRunCellpose;
   }, [handleRunCellpose]);
   React.useEffect(() => {
-    instantConfigChangeRef.current = handleInstantConfigChange;
-  }, [handleInstantConfigChange]);
+    showPreviewRef.current = handleShowPreview;
+  }, [handleShowPreview]);
 
   // Invalidate the flows cache whenever the source image changes — different
   // image, the cached network outputs no longer apply.

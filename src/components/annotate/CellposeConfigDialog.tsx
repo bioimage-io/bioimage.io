@@ -18,13 +18,14 @@ import {
   Checkbox,
   FormControlLabel,
   Divider,
+  CircularProgress,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 import ListSubheader from '@mui/material/ListSubheader';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import StraightenIcon from '@mui/icons-material/Straighten';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import InputAdornment from '@mui/material/InputAdornment';
 import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS } from '../../utils/microSamService';
 
@@ -131,9 +132,9 @@ interface CellposeConfigDialogProps {
   onRun?: (config: CellposeConfig) => void;
   isRunning?: boolean;
   /** When true, the parent has already cached (dP, cellprob) for the current
-   *  image and the instant-group sliders re-run mask gen locally in Pyodide.
-   *  In that mode each instant slider drag debounce-fires
-   *  ``onInstantConfigChange`` and the dialog stays open after Run. */
+   *  image, so the "Show preview" hold button and "Done" can re-run mask
+   *  gen locally in Pyodide via ``onShowPreview``. The dialog stays open
+   *  after Run in this mode. */
   livePreviewReady?: boolean;
   /** True once any Cellpose run has returned a result, whether via the
    *  instant local-preview path or a plain server round trip. Drives the
@@ -151,9 +152,11 @@ interface CellposeConfigDialogProps {
    *  first one, so re-running after manually reopening the Run section
    *  still collapses it. */
   completedRunId?: number;
-  /** Fires on every instant-group slider change while ``livePreviewReady``;
-   *  callers are expected to debounce + run compute_masks_np locally. */
-  onInstantConfigChange?: (config: CellposeConfig) => void;
+  /** Runs local Pyodide postprocessing (compute_masks_np) against the cached
+   *  flow field and the given config, repainting the preview. Awaited by the
+   *  dialog's "Show preview" hold button and "Done" button — those are the
+   *  only two triggers for a recompute; slider drags no longer fire this. */
+  onShowPreview?: (config: CellposeConfig) => Promise<void>;
   /** Whether the μSAM backend is reachable. Gates the μSAM option in the
    *  backend selector. */
   microSamAvailable?: boolean;
@@ -212,13 +215,6 @@ const SectionHeader: React.FC<{ title: string; subtitle?: string; open: boolean;
   </Box>
 );
 
-const INSTANT_KEYS: (keyof CellposeConfig)[] = [
-  'flow_threshold',
-  'cellprob_threshold',
-  'niter',
-  'min_mask_area',
-];
-
 const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   open,
   config: initialConfig,
@@ -229,7 +225,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   livePreviewReady,
   resultReady,
   completedRunId,
-  onInstantConfigChange,
+  onShowPreview,
   microSamAvailable,
   cellposeAvailable,
   onDialogOpen,
@@ -276,20 +272,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
   const bothUnavailable = microSamAvailable === false && cellposeAvailable === false;
 
-  // Fire instant-group updates back to the caller (debounced by the caller's
-  // own debouncer; we just propagate every state change). React batches the
-  // setState above so we read the latest config from the next render.
-  const instantConfigChangeRef = useRef(onInstantConfigChange);
-  instantConfigChangeRef.current = onInstantConfigChange;
-
   const update = <K extends keyof CellposeConfig>(key: K, value: CellposeConfig[K]) => {
-    setConfig((prev) => {
-      const next = { ...prev, [key]: value };
-      if (livePreviewReady && INSTANT_KEYS.includes(key)) {
-        instantConfigChangeRef.current?.(next);
-      }
-      return next;
-    });
+    setConfig((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleReset = () => {
@@ -353,13 +337,77 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
     prevResultReady.current = isResultReady;
   }, [completedRunId, isResultReady]);
 
-  // Flow Threshold and Cell Probability Threshold repaint the mask overlay
-  // live, so while either is being dragged the dialog fades out to reveal
-  // the image underneath. The slider itself stays fully opaque (only the
-  // Paper/backdrop backgrounds lose alpha), and the dialog restores on release.
-  const [draggingSlider, setDraggingSlider] = useState(false);
-  const startSliderDrag = () => setDraggingSlider(true);
-  const endSliderDrag = () => setDraggingSlider(false);
+  // "Show preview" is a hold button: while held, the entire dialog (paper +
+  // backdrop) hides so the user can see the image and current mask preview
+  // underneath, and reappears on release. Postprocessing (the local Pyodide
+  // recompute against the cached flow field) runs once on press, and the
+  // dialog only hides once that recompute has actually finished — see
+  // handleShowPreviewPointerDown. previewHeldRef tracks whether the pointer
+  // is still down when the async recompute resolves, since a fast tap can
+  // release before postprocessing completes.
+  const [previewHeld, setPreviewHeld] = useState(false);
+  const [postprocessing, setPostprocessing] = useState(false);
+  const previewHeldRef = useRef(false);
+
+  // Reset hold/spinner state whenever the dialog closes, in case a pointer
+  // capture release was missed (e.g. the dialog closed via Escape mid-hold).
+  useEffect(() => {
+    if (!open) {
+      previewHeldRef.current = false;
+      setPreviewHeld(false);
+      setPostprocessing(false);
+    }
+  }, [open]);
+
+  const handleShowPreviewPointerDown = useCallback(async (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (postprocessing || !onShowPreview) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore — capture is best-effort
+    }
+    previewHeldRef.current = true;
+    setPostprocessing(true);
+    try {
+      await onShowPreview(config);
+    } catch (err) {
+      console.warn('[CellposeConfigDialog] Show preview failed:', err);
+    } finally {
+      setPostprocessing(false);
+      if (previewHeldRef.current) setPreviewHeld(true);
+    }
+  }, [postprocessing, onShowPreview, config]);
+
+  const handleShowPreviewRelease = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    previewHeldRef.current = false;
+    setPreviewHeld(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore — capture may already have been released
+    }
+  }, []);
+
+  const handleDone = useCallback(async () => {
+    if (isResultReady) {
+      if (!isMicroSam && livePreviewReady && onShowPreview && !postprocessing) {
+        setPostprocessing(true);
+        try {
+          await onShowPreview(config);
+        } catch (err) {
+          console.warn('[CellposeConfigDialog] Done postprocessing failed:', err);
+        } finally {
+          setPostprocessing(false);
+        }
+      }
+      handleApply();
+      onClose();
+    } else {
+      onCancelRun?.();
+      onClose();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isResultReady, isMicroSam, livePreviewReady, onShowPreview, postprocessing, config]);
 
   return (
     <Dialog
@@ -367,22 +415,12 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       onClose={onClose}
       maxWidth="sm"
       fullWidth
+      hideBackdrop={previewHeld}
       PaperProps={{
-        sx: (theme) => ({
+        sx: {
           borderRadius: 3,
-          transition: 'background-color 180ms ease, box-shadow 180ms ease',
-          ...(draggingSlider && {
-            bgcolor: alpha(theme.palette.background.paper, 0.1),
-            boxShadow: 'none',
-          }),
-        }),
-      }}
-      slotProps={{
-        backdrop: {
-          sx: {
-            transition: 'background-color 180ms ease',
-            ...(draggingSlider && { bgcolor: 'rgba(0,0,0,0.04)' }),
-          },
+          transition: 'opacity 120ms ease-out',
+          ...(previewHeld && { opacity: 0, pointerEvents: 'none' }),
         },
       }}
     >
@@ -662,8 +700,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         <Slider
                           value={config.flow_threshold}
                           onChange={(_, val) => update('flow_threshold', val as number)}
-                          onChangeCommitted={endSliderDrag}
-                          onPointerDown={startSliderDrag}
                           min={0} max={3} step={0.1}
                           valueLabelDisplay="auto"
                           size="small"
@@ -686,8 +722,6 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                         <Slider
                           value={config.cellprob_threshold}
                           onChange={(_, val) => update('cellprob_threshold', val as number)}
-                          onChangeCommitted={endSliderDrag}
-                          onPointerDown={startSliderDrag}
                           min={-6} max={6} step={0.1}
                           valueLabelDisplay="auto"
                           size="small"
@@ -733,6 +767,27 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                       />
                     </Grid>
 
+                    {onShowPreview && (
+                      <Grid item xs={12}>
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          fullWidth
+                          disabled={!livePreviewReady || postprocessing}
+                          startIcon={postprocessing ? <CircularProgress size={16} /> : <VisibilityIcon fontSize="small" />}
+                          onPointerDown={handleShowPreviewPointerDown}
+                          onPointerUp={handleShowPreviewRelease}
+                          onPointerCancel={handleShowPreviewRelease}
+                          sx={{ touchAction: 'none', userSelect: 'none' }}
+                        >
+                          Show Preview
+                        </Button>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}>
+                          Hold to preview, let go to return to dialog.
+                        </Typography>
+                      </Grid>
+                    )}
+
                   </Grid>
                 </Collapse>
               </Grid>
@@ -748,17 +803,11 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           </Button>
         )}
         <Button
-          onClick={() => {
-            if (isResultReady) {
-              handleApply();
-              onClose();
-            } else {
-              onCancelRun?.();
-              onClose();
-            }
-          }}
+          onClick={handleDone}
           color={isResultReady ? 'primary' : 'inherit'}
           variant={isResultReady ? 'outlined' : 'text'}
+          disabled={postprocessing}
+          startIcon={postprocessing && isResultReady ? <CircularProgress size={16} /> : undefined}
         >
           {isResultReady ? 'Done' : 'Cancel'}
         </Button>
@@ -771,17 +820,18 @@ export function useCellposeConfig(opts?: {
   onRun?: (config: CellposeConfig) => void;
   isRunning?: boolean;
   /** When true, the dialog keeps the (dP, cellprob) flows path active: the
-   *  Apply / Run path does NOT close the dialog so the instant-group
-   *  sliders can keep updating the preview. ``Done`` saves + closes;
-   *  Cancel closes without saving. Pass this when the parent has wired
-   *  the Pyodide compute_masks call back through onInstantConfigChange. */
+   *  Apply / Run path does NOT close the dialog so "Show preview" and
+   *  "Done" can trigger local recompute against the cached flows. ``Done``
+   *  saves + closes; Cancel closes without saving. Pass this when the
+   *  parent has wired the Pyodide compute_masks call back through
+   *  onShowPreview. */
   keepOpenAfterApply?: boolean;
   livePreviewReady?: boolean;
   resultReady?: boolean;
   /** Monotonically increasing id bumped on every completed run — see the
    *  matching prop doc on ``CellposeConfigDialogProps``. */
   completedRunId?: number;
-  onInstantConfigChange?: (config: CellposeConfig) => void;
+  onShowPreview?: (config: CellposeConfig) => Promise<void>;
   microSamAvailable?: boolean;
   /** Whether the Cellpose-SAM backend (cellpose4-runner) is reachable. */
   cellposeAvailable?: boolean;
@@ -846,7 +896,7 @@ export function useCellposeConfig(opts?: {
       livePreviewReady={opts?.livePreviewReady}
       resultReady={opts?.resultReady}
       completedRunId={opts?.completedRunId}
-      onInstantConfigChange={opts?.onInstantConfigChange}
+      onShowPreview={opts?.onShowPreview}
       microSamAvailable={opts?.microSamAvailable}
       cellposeAvailable={opts?.cellposeAvailable}
       onDialogOpen={opts?.onDialogOpen}
