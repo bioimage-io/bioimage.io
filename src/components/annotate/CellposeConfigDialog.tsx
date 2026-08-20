@@ -186,6 +186,15 @@ interface CellposeConfigDialogProps {
    *  currently selected model. Clears the cached image encoding and computes
    *  it again on the next run. */
   onRecomputeEmbedding?: (modelType: string) => Promise<void>;
+  /** Model types with a stored embedding for the current image. Gates the
+   *  Recompute-embedding button: only shown when the currently selected μSAM
+   *  model is in this list. Empty when unknown (no dataset index loaded yet,
+   *  or no current image). */
+  embeddedModelTypes?: string[];
+  /** True while the dataset index (source of `embeddedModelTypes`) hasn't
+   *  loaded yet, so the Recompute affordance shows a spinner instead of
+   *  guessing there's nothing to recompute. */
+  embeddedModelTypesLoading?: boolean;
 }
 
 /** Collapsible section header: click to toggle, chevron shows current state. */
@@ -238,6 +247,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onMeasureDiameter,
   onCancelRun,
   onRecomputeEmbedding,
+  embeddedModelTypes,
+  embeddedModelTypesLoading,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
   const [recomputingEmbedding, setRecomputingEmbedding] = useState(false);
@@ -550,7 +561,14 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 slotProps={{ input: { inputProps: { min: 0 } } }}
               />
-              {onRecomputeEmbedding && (
+              {onRecomputeEmbedding && embeddedModelTypesLoading && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1 }}>
+                  <CircularProgress size={14} />
+                </Box>
+              )}
+              {onRecomputeEmbedding
+                && !embeddedModelTypesLoading
+                && embeddedModelTypes?.includes(config.microSamModelType) && (
                 <Tooltip title="Clears the cached image encoding and computes it again on the next run.">
                   <span>
                     <Button
@@ -878,6 +896,12 @@ export function useCellposeConfig(opts?: {
   /** μSAM only. Passed straight through to ``CellposeConfigDialogProps`` —
    *  see that prop's doc. */
   onRecomputeEmbedding?: (modelType: string) => Promise<void>;
+  /** Passed straight through to ``CellposeConfigDialogProps`` — see that
+   *  prop's doc. */
+  embeddedModelTypes?: string[];
+  /** Passed straight through to ``CellposeConfigDialogProps`` — see that
+   *  prop's doc. */
+  embeddedModelTypesLoading?: boolean;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -935,6 +959,8 @@ export function useCellposeConfig(opts?: {
       onMeasureDiameter={opts?.onMeasureDiameter ? handleMeasureDiameter : undefined}
       onCancelRun={opts?.onCancelRun}
       onRecomputeEmbedding={opts?.onRecomputeEmbedding}
+      embeddedModelTypes={opts?.embeddedModelTypes}
+      embeddedModelTypesLoading={opts?.embeddedModelTypesLoading}
     />
   );
 
