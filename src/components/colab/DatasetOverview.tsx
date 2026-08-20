@@ -680,10 +680,12 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   }, [artifactManager, artifactId, selectedStem, selectedLabel, canManage, refreshTick]);
 
   // --- Raw image URL for the selected image ---
-  // Round 35: `imageUrl` is deliberately never cleared while this fetch is
-  // in flight (only on a real miss/error), so the previously-selected
-  // image stays visible the whole time; `imageLoading` drives an overlay
-  // spinner on top of it instead of a jarring blank state.
+  // `imageUrl` is left holding the previous selection's URL while a new fetch
+  // is in flight (only cleared on a real miss/error) purely so a fetch that
+  // resolves after the user has already switched away doesn't need extra
+  // bookkeeping to ignore it. Round 35b: `ImagePreview` itself never renders
+  // this stale value while `imageLoading` is true, so the display always
+  // shows the loading placeholder rather than the outgoing image.
   useEffect(() => {
     if (!canManage || !selectedStem || !images) {
       setImageUrl('');

@@ -16,6 +16,18 @@ export const LABEL_PALETTE: Array<[number, number, number]> = [
   [244, 63, 94],
 ];
 
+// Round 35b: the placeholder shown while an image is loading, used both for
+// the annotation view below (its original home) and, since switching must
+// never leave a stale frame on screen, for the raw view too.
+const ImageLoadingPlaceholder: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex items-center justify-center bg-black/5 rounded-lg ${className}`} style={{ minHeight: '300px' }}>
+    <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+  </div>
+);
+
 // Recolors a label-id-encoded mask PNG (label id packed into the red/green
 // channels as `(r << 8) | g`) using a fixed palette, entirely client-side via
 // a canvas. Shared by ImageViewer (session dashboard) and the dataset
@@ -35,6 +47,10 @@ export const ColorizedMask = ({
 
   useEffect(() => {
     let active = true;
+    // Round 35b: clear the previously-colorized frame immediately on every
+    // src change, not just the first mount, so switching images never shows
+    // a stale colorized mask while the new one is being decoded.
+    setDataUrl(null);
 
     const loadAndColorize = () => {
       const img = new Image();
@@ -98,14 +114,7 @@ export const ColorizedMask = ({
   }, [src, onError]);
 
   if (!dataUrl) {
-    return (
-      <div className={`flex items-center justify-center bg-black/5 rounded-lg ${className}`} style={{ minHeight: '300px' }}>
-        <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      </div>
-    );
+    return <ImageLoadingPlaceholder className={className} />;
   }
 
   return <img src={dataUrl} alt={alt} className={className} />;
@@ -120,10 +129,10 @@ const ANNOTATION_FALLBACK_SVG =
 export interface ImagePreviewProps {
   viewMode: 'raw' | 'annotated';
   imageUrl: string;
-  // Round 35: true while the raw-image URL for the current selection is being
-  // fetched. `imageUrl` itself keeps showing the previously-selected image
-  // during this window, so this only drives an overlay spinner on top of it
-  // rather than a blank/placeholder state.
+  // True while the raw-image URL for the current selection is being fetched.
+  // Round 35b: switching images must not leave the previous one on screen,
+  // so while this is true the placeholder renders instead of `imageUrl`
+  // even if a (now-stale) URL from the prior selection is still set.
   imageLoading?: boolean;
   annotationUrl: string;
   hasAnnotation: boolean;
@@ -184,32 +193,22 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
       }
     : {};
 
+  if (viewMode === 'raw' && imageLoading) {
+    return <ImageLoadingPlaceholder className="w-full h-full" />;
+  }
+
   if (viewMode === 'raw' && imageUrl) {
     return (
       <div className="group relative max-w-full max-h-full" {...holdHandlers}>
         <img
           src={imageUrl}
           alt={alt}
-          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg transition-opacity duration-150 ${
-            imageLoading ? 'opacity-60' : 'opacity-100'
-          } ${holdableClass}`}
+          className={`max-w-full max-h-full object-contain rounded-lg shadow-lg ${holdableClass}`}
           onError={(e) => {
             (e.target as HTMLImageElement).src = IMAGE_FALLBACK_SVG;
           }}
         />
-        {imageLoading && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <svg className="w-8 h-8 animate-spin text-white drop-shadow" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
-              <path
-                className="opacity-90"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-          </div>
-        )}
-        {onHoldChange && !imageLoading && (
+        {onHoldChange && (
           <span className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/60 text-white text-xs opacity-100 transition-opacity duration-150 pointer-events-none">
             {hint}
           </span>
