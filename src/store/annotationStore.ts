@@ -209,13 +209,18 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     persistBrushRadius(clamped);
     set({ brushRadius: clamped });
   },
+  // The runtime typeof guard (not just the default) matters: passing these
+  // straight to onClick hands them a MouseEvent as `step`, and
+  // radius + event = NaN, which clamp then propagates.
   increaseBrushRadius: (step = BRUSH_RADIUS_STEP) => set((state) => {
-    const clamped = clampBrushRadius(state.brushRadius + step);
+    const s = typeof step === 'number' && Number.isFinite(step) ? step : BRUSH_RADIUS_STEP;
+    const clamped = clampBrushRadius(state.brushRadius + s);
     persistBrushRadius(clamped);
     return { brushRadius: clamped };
   }),
   decreaseBrushRadius: (step = BRUSH_RADIUS_STEP) => set((state) => {
-    const clamped = clampBrushRadius(state.brushRadius - step);
+    const s = typeof step === 'number' && Number.isFinite(step) ? step : BRUSH_RADIUS_STEP;
+    const clamped = clampBrushRadius(state.brushRadius - s);
     persistBrushRadius(clamped);
     return { brushRadius: clamped };
   }),

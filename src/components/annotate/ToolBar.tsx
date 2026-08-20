@@ -402,7 +402,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       }}>
                         <IconButton
                           size="small"
-                          onClick={decreaseBrushRadius}
+                          onClick={() => decreaseBrushRadius()}
                           disabled={brushRadius <= MIN_BRUSH_RADIUS}
                           aria-label="Decrease brush radius"
                           sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
@@ -414,7 +414,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         </Typography>
                         <IconButton
                           size="small"
-                          onClick={increaseBrushRadius}
+                          onClick={() => increaseBrushRadius()}
                           disabled={brushRadius >= MAX_BRUSH_RADIUS}
                           aria-label="Increase brush radius"
                           sx={{ ...floatingBtnSx(), width: 26, height: 26 }}
