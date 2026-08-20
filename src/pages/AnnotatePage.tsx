@@ -216,6 +216,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // decodes with. Chosen via the model-selection dialog, persisted in the store.
   const samBoxModelType = useAnnotationStore((s) => s.samBoxModelType);
   const setSamBoxModelType = useAnnotationStore((s) => s.setSamBoxModelType);
+  const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
   const [samBoxConfigOpen, setSamBoxConfigOpen] = useState(false);
 
   // In-browser μSAM box decoder: fetches the ONNX decoder once the current
@@ -237,9 +238,12 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // GET urls expire, so only the "is it stored" promise is cached here; a fresh
   // download url is fetched on each use.
   const ensuredEmbeddingRef = useRef<Map<string, Promise<void>>>(new Map());
-  // Set to the image stem once its embedding is confirmed stored (12A: drives
-  // the AI Box tool's "ready" state, distinct from the service being reachable).
-  const [embeddingReadyStem, setEmbeddingReadyStem] = useState<string | null>(null);
+  // Set to `${stem}:${modelType}` once that pair's embedding is confirmed
+  // stored (12A: drives the AI Box tool's "ready" state, distinct from the
+  // service being reachable). Keyed on the model too, not just the image,
+  // so switching models on the same image doesn't read stale-true from the
+  // previous model's completed embedding (round 34 rework).
+  const [embeddingReadyKey, setEmbeddingReadyKey] = useState<string | null>(null);
 
   // Ensure the μSAM embedding for `imageStem`+`modelType` is computed and
   // stored in the session artifact, then return a fresh presigned GET url for
@@ -307,7 +311,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
         if (modelType === samBoxModelType) {
           resetSamDecoder();
           ensureStoredEmbedding(stem, modelType)
-            .then(() => setEmbeddingReadyStem(stem))
+            .then(() => setEmbeddingReadyKey(`${stem}:${modelType}`))
             .catch((e) => {
               console.warn('[AnnotatePage] μSAM re-embedding after recompute failed:', e?.message || e);
             });
@@ -796,11 +800,11 @@ print('CLAHE packages ready')
     const modelType = samBoxModelType;
     // Already computing/computed for this image+model: skip the banner
     // flicker, but still await the (already-memoized) promise so
-    // embeddingReadyStem catches up.
+    // embeddingReadyKey catches up.
     const alreadyEnsured = ensuredEmbeddingRef.current.has(`${stem}:${modelType}`);
     const bannerId = alreadyEnsured ? null : addBanner('Preparing μSAM...', 'loading', 0);
     ensureStoredEmbedding(stem, modelType)
-      .then(() => setEmbeddingReadyStem(stem))
+      .then(() => setEmbeddingReadyKey(`${stem}:${modelType}`))
       .catch((e) => {
         // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
         console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
@@ -1585,12 +1589,15 @@ print("CLAHE_RESULT:" + result_b64)
     );
   }
 
-  // AI Box readiness (12A): the service being reachable (microSamAvailable) is
-  // not enough to draw a useful box — the ONNX decoder and this image's stored
-  // embedding both need to finish warming up first. ToolBar shows a spinner
-  // for the gap between "available" and "ready"; AnnotationViewer only installs
-  // the box-draw interaction once actually ready.
-  const embeddingReady = embeddingReadyStem !== null && embeddingReadyStem === currentImageStem;
+  // AI Box readiness (12A, keyed per-model since round 34): the service being
+  // reachable (microSamAvailable) is not enough to draw a useful box — the
+  // ONNX decoder and this image's stored embedding both need to finish
+  // warming up first, for the specific model currently selected. Comparing
+  // the full `${stem}:${modelType}` key (not just the stem) means switching
+  // models on the same image correctly falls back to not-ready instead of
+  // reading stale-true from the previous model's completed embedding.
+  const embeddingReady = !!currentImageStem
+    && embeddingReadyKey === `${currentImageStem}:${samBoxModelType}`;
   const aiBoxReady = microSamAvailable && embeddingReady && decoderReady;
 
   // Model types with a stored embedding for the current image (round 34's
@@ -1765,7 +1772,9 @@ print("CLAHE_RESULT:" + result_b64)
             onImageLayerReady={handleImageLayerReady}
             onMapReady={handleMapReady}
             onSamBox={handleSamBox}
-            microSamAvailable={aiBoxReady}
+            microSamAvailable={microSamAvailable}
+            aiBoxReady={aiBoxReady}
+            onOpenSamBoxConfig={() => setSamBoxConfigOpen(true)}
           />
         )}
 
@@ -2040,6 +2049,11 @@ print("CLAHE_RESULT:" + result_b64)
         microSamAvailable={microSamAvailable}
         embeddedModelTypes={embeddedModelTypes}
         onRecomputeEmbedding={handleRecomputeEmbedding}
+        ready={aiBoxReady}
+        onStartAnnotating={() => {
+          setSamBoxConfigOpen(false);
+          setActiveTool('sambox');
+        }}
       />
 
       <CLAHEDialog

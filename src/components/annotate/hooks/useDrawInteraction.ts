@@ -542,9 +542,19 @@ export interface DrawInteractionOptions {
    *  pixels) when the user finishes drawing an AI-box. The page owns the
    *  μSAM decode, undo snapshot, and committed feature. */
   onSamBox?: (extent: number[]) => void;
-  /** Whether the μSAM box tool is usable. Gates its keyboard shortcut and
-   *  the box interaction so a disabled tool cannot be activated. */
+  /** Whether the μSAM service itself is reachable. When false the box tool
+   *  is fully inert (its shortcut is a no-op) since opening the model
+   *  dialog would not help. */
   microSamAvailable?: boolean;
+  /** True once the decoder and this image's embedding are both ready for the
+   *  currently selected model. The box-draw interaction only installs, and
+   *  the shortcut only activates the tool directly, once this is true
+   *  (round 34 rework: interactive segmentation is impossible until ready). */
+  aiBoxReady?: boolean;
+  /** Opens the Interactive Segmentation model dialog. Invoked by the
+   *  keyboard shortcut instead of activating the tool when the service is
+   *  available but not yet `aiBoxReady`. */
+  onOpenSamBoxConfig?: () => void;
 }
 
 export function useDrawInteraction(
@@ -568,6 +578,10 @@ export function useDrawInteraction(
   onSamBoxRef.current = options?.onSamBox;
   const microSamAvailableRef = useRef<boolean>(!!options?.microSamAvailable);
   microSamAvailableRef.current = !!options?.microSamAvailable;
+  const aiBoxReadyRef = useRef<boolean>(!!options?.aiBoxReady);
+  aiBoxReadyRef.current = !!options?.aiBoxReady;
+  const onOpenSamBoxConfigRef = useRef<DrawInteractionOptions['onOpenSamBoxConfig']>(options?.onOpenSamBoxConfig);
+  onOpenSamBoxConfigRef.current = options?.onOpenSamBoxConfig;
 
   const selectedFeaturesRef = useRef<Collection<Feature<Geometry>>>(new Collection());
 
@@ -634,8 +648,18 @@ export function useDrawInteraction(
       };
       const tool = shortcutMap[key];
       if (tool) {
-        // The AI-box tool is unusable when μSAM is offline; do not activate it.
-        if (tool === 'sambox' && !microSamAvailableRef.current) return;
+        if (tool === 'sambox') {
+          // The AI-box tool is fully unusable when μSAM is offline; do nothing.
+          if (!microSamAvailableRef.current) return;
+          // Reachable but the decoder + this image's embedding aren't ready
+          // yet: open the model dialog (where preparation happens) instead
+          // of silently activating a tool that can't respond to a box.
+          if (!aiBoxReadyRef.current) {
+            e.preventDefault();
+            onOpenSamBoxConfigRef.current?.();
+            return;
+          }
+        }
         e.preventDefault();
         setActiveTool(tool);
       }
@@ -949,8 +973,12 @@ export function useDrawInteraction(
       case 'sambox': {
         // Box-prompt tool: draw a rectangle, hand its extent to the page for a
         // local μSAM ONNX decode. No `source` so the box itself is transient
-        // (the page adds the resulting mask feature). Gated on availability.
-        if (!microSamAvailableRef.current) break;
+        // (the page adds the resulting mask feature). Defense in depth: only
+        // installs once the decoder + this image's embedding are ready, even
+        // if `activeTool` became 'sambox' through some path other than the
+        // shortcut/click guards above (round 34: must be impossible, not
+        // just discouraged, to draw a box before the tool can respond).
+        if (!aiBoxReadyRef.current) break;
         const draw = new Draw({
           type: 'Circle',
           geometryFunction: createBox(),

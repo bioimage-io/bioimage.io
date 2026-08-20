@@ -37,12 +37,18 @@ interface SamBoxModelDialogProps {
    *  unknown (no dataset index loaded yet, or no current image). */
   embeddedModelTypes: string[];
   onRecomputeEmbedding: (modelType: string) => Promise<void>;
+  /** True once the decoder and this image's embedding are both ready for the
+   *  selected model, so "Start annotating" can be enabled. */
+  ready: boolean;
+  /** Closes the dialog and activates the box tool. Only reachable once `ready`. */
+  onStartAnnotating: () => void;
 }
 
 /** Model-selection dialog for the Interactive Segmentation (sambox) tool.
- *  Selecting a model here only updates the persisted preference: the ONNX
- *  decoder download and the image embedding compute both stay lazy and only
- *  happen on the first box drawn with that model (see useMicroSamDecoder). */
+ *  Selecting a model here immediately triggers the ONNX decoder download and
+ *  the current image's embedding compute for that model, if not already
+ *  done (see useMicroSamDecoder). "Start annotating" stays disabled until
+ *  both finish. */
 const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
   open,
   onClose,
@@ -52,6 +58,8 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
   microSamAvailable,
   embeddedModelTypes,
   onRecomputeEmbedding,
+  ready,
+  onStartAnnotating,
 }) => {
   const [recomputingType, setRecomputingType] = useState<string | null>(null);
 
@@ -101,7 +109,7 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
             <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main', flexShrink: 0 }} />
           </Tooltip>
         ) : (
-          <Tooltip title="Decoder downloads on first use with this model">
+          <Tooltip title="Selecting this model downloads its decoder">
             <CloudDownloadOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
           </Tooltip>
         )}
@@ -135,9 +143,9 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
       <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Interactive Segmentation Model</DialogTitle>
       <DialogContent dividers sx={{ pt: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-          Choose which μSAM generalist decodes the boxes you draw. Switching models downloads
-          nothing here. The decoder and the image embedding load the first time you draw a box
-          with that model.
+          Choose which μSAM generalist decodes the boxes you draw. Selecting a model downloads
+          its decoder and computes this image's embedding right away. "Start annotating"
+          unlocks once both are ready.
         </Typography>
         {!microSamAvailable && (
           <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
@@ -159,18 +167,24 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.25 }}>
-        <Button
-          onClick={onClose}
-          variant="contained"
-          size="small"
-          sx={{
-            textTransform: 'none', borderRadius: 2,
-            transition: 'transform 160ms ease-out',
-            '&:active': { transform: 'scale(0.97)' },
-          }}
-        >
-          Done
-        </Button>
+        <Tooltip title={ready ? '' : "Waiting for the decoder and this image's embedding to finish"}>
+          <span>
+            <Button
+              onClick={onStartAnnotating}
+              disabled={!ready}
+              variant="contained"
+              size="small"
+              startIcon={ready ? undefined : <CircularProgress size={14} color="inherit" />}
+              sx={{
+                textTransform: 'none', borderRadius: 2,
+                transition: 'transform 160ms ease-out',
+                '&:active': { transform: 'scale(0.97)' },
+              }}
+            >
+              Start annotating
+            </Button>
+          </span>
+        </Tooltip>
       </DialogActions>
     </Dialog>
   );

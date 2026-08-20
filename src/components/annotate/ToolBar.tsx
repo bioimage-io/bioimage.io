@@ -186,7 +186,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {TOOLS.map((tool) => {
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
             const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
-            const toolDisabled = toolUnavailable || toolPending;
+            // Only truly offline is fully inert. "Pending" stays clickable so
+            // the click can open the model dialog instead of being a no-op.
+            const toolDisabled = toolUnavailable;
             const isPolygon = tool.id === 'polygon';
             const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
             return (
@@ -195,7 +197,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   title={toolUnavailable
                     ? `${tool.name} unavailable (the micro-sam segmentation service is offline)`
                     : toolPending
-                    ? `${tool.name} is warming up...`
+                    ? `${tool.name}: click to prepare the model`
                     : `${tool.name} (${tool.shortcut})`}
                   placement={tooltipPlacement}
                 >
@@ -203,7 +205,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     <IconButton
                       size={btnSize}
                       data-tool={tool.id}
-                      onClick={() => setActiveTool(tool.id)}
+                      onClick={() => (toolPending ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       disabled={toolDisabled}
                       aria-label={tool.name}
@@ -316,7 +318,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
             const active = activeTool === tool.id;
             const toolUnavailable = !!tool.requiresMicroSam && !microSamAvailable;
             const toolPending = !!tool.requiresMicroSam && microSamAvailable && !aiBoxReady;
-            const toolDisabled = toolUnavailable || toolPending;
+            // Only truly offline is fully inert. "Pending" stays clickable so
+            // the click can open the model dialog instead of being a no-op.
+            const toolDisabled = toolUnavailable;
             const isPolygon = tool.id === 'polygon';
             const toolIcon = isPolygon && drawMode === 'brush' ? <BrushIcon fontSize="small" /> : tool.icon;
             const toolDescription = isPolygon
@@ -327,13 +331,13 @@ const ToolBar: React.FC<ToolBarProps> = ({
             return (
               <React.Fragment key={tool.id}>
                 <Tooltip
-                  title={toolUnavailable ? 'The micro-sam segmentation service is currently offline' : toolPending ? 'Warming up (loading embedding + decoder)...' : ''}
+                  title={toolUnavailable ? 'The micro-sam segmentation service is currently offline' : toolPending ? 'Click to prepare the model before drawing a box' : ''}
                   placement="right"
-                  disableHoverListener={!toolDisabled}
+                  disableHoverListener={!toolUnavailable && !toolPending}
                 >
                   <span style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ButtonBase
-                      onClick={() => setActiveTool(tool.id)}
+                      onClick={() => (toolPending ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       data-tool={tool.id}
                       disabled={toolDisabled}
