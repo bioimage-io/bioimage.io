@@ -22,6 +22,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
+import SettingsIcon from '@mui/icons-material/Settings';
 import {
   useAnnotationStore,
   AnnotationTool,
@@ -72,6 +73,10 @@ const aiTintSx = (active: boolean, dim = false) => ({
 
 export interface ToolBarProps {
   onOpenCellposeConfig: () => void;
+  /** Opens the Interactive Segmentation model-selection dialog. Pressing the
+   *  tool's shortcut (B) only activates it with the current model; this is
+   *  the dedicated configure affordance on the tool row. */
+  onOpenSamBoxConfig: () => void;
   /** True while the Full Image Segmentation dialog is open, used to mark
    *  the AI pair "active" the same way a selected tool is. */
   cellposeConfigOpen?: boolean;
@@ -90,6 +95,7 @@ export interface ToolBarProps {
 
 const ToolBar: React.FC<ToolBarProps> = ({
   onOpenCellposeConfig,
+  onOpenSamBoxConfig,
   cellposeConfigOpen = false,
   cellposeAvailable = false, microSamAvailable = false,
   aiBoxReady = false,
@@ -193,7 +199,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     : `${tool.name} (${tool.shortcut})`}
                   placement={tooltipPlacement}
                 >
-                  <span>
+                  <span style={tool.id === 'sambox' ? { position: 'relative', display: 'inline-flex' } : undefined}>
                     <IconButton
                       size={btnSize}
                       data-tool={tool.id}
@@ -210,6 +216,27 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     >
                       {toolPending ? <ToolSpinner size={isCompact ? 20 : 18} /> : toolIcon}
                     </IconButton>
+                    {tool.id === 'sambox' && (
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenSamBoxConfig();
+                        }}
+                        aria-label="Configure Interactive Segmentation model"
+                        sx={{
+                          position: 'absolute', bottom: -4, right: -4, p: 0,
+                          width: 16, height: 16, minWidth: 16,
+                          bgcolor: 'background.paper', color: 'text.secondary',
+                          border: '1px solid rgba(0,0,0,0.12)',
+                          transition: 'transform 140ms ease-out',
+                          '&:hover': { bgcolor: 'background.paper' },
+                          '&:active': { transform: 'scale(0.9)' },
+                        }}
+                      >
+                        <SettingsIcon sx={{ fontSize: 10 }} />
+                      </IconButton>
+                    )}
                   </span>
                 </Tooltip>
 
@@ -304,7 +331,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   placement="right"
                   disableHoverListener={!toolDisabled}
                 >
-                  <span style={{ width: '100%' }}>
+                  <span style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ButtonBase
                       onClick={() => setActiveTool(tool.id)}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
@@ -313,7 +340,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                       aria-label={tool.name}
                       sx={{
                         display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 1,
-                        px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, width: '100%', textAlign: 'left',
+                        px: 1, py: isCompact ? 1 : 0.7, borderRadius: 1.5, flex: 1, minWidth: 0, textAlign: 'left',
                         bgcolor: active ? (tool.id === 'sambox' ? 'rgba(156,39,176,0.14)' : 'rgba(25,118,210,0.10)')
                           : tool.id === 'sambox' ? 'rgba(156,39,176,0.06)' : 'transparent',
                         border: '1px solid',
@@ -351,6 +378,25 @@ const ToolBar: React.FC<ToolBarProps> = ({
                         </Typography>
                       </Box>
                     </ButtonBase>
+                    {tool.id === 'sambox' && (
+                      <Tooltip title="Configure Interactive Segmentation model" placement="right">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenSamBoxConfig();
+                          }}
+                          aria-label="Configure Interactive Segmentation model"
+                          sx={{
+                            flexShrink: 0, color: 'text.secondary',
+                            transition: 'transform 140ms ease-out',
+                            '&:active': { transform: 'scale(0.9)' },
+                          }}
+                        >
+                          <SettingsIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </span>
                 </Tooltip>
 
