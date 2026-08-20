@@ -21,6 +21,61 @@ export interface UndoSnapshot {
 
 const MAX_UNDO = 10;
 
+// Round 33: brush painting mode. 'lasso' is the existing freehand-outline
+// behavior for the polygon/expander/eraser tools; 'brush' swaps it for a
+// circular painting cursor performing the same new/add/remove mask ops.
+export type DrawMode = 'lasso' | 'brush';
+
+export const MIN_BRUSH_RADIUS = 5;
+export const MAX_BRUSH_RADIUS = 150;
+export const BRUSH_RADIUS_STEP = 5;
+const DEFAULT_BRUSH_RADIUS = 20;
+
+function clampBrushRadius(radius: number): number {
+  return Math.min(MAX_BRUSH_RADIUS, Math.max(MIN_BRUSH_RADIUS, radius));
+}
+
+// Round 33: mask color is a single hue applied uniformly to every mask
+// (existing + future), saturation/lightness held fixed. The default hue
+// matches the previous default mask color (#0084ff) so nothing changes
+// visually until a user opens the mask color dialog.
+export const DEFAULT_MASK_HUE = 209;
+export const MASK_COLOR_SATURATION = 100;
+export const MASK_COLOR_LIGHTNESS = 50;
+
+const MASK_HUE_STORAGE_KEY = 'bioimage-annotation-mask-hue';
+
+function readStoredMaskHue(): number {
+  try {
+    const raw = window.localStorage.getItem(MASK_HUE_STORAGE_KEY);
+    if (raw === null) return DEFAULT_MASK_HUE;
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.min(360, Math.max(0, n)) : DEFAULT_MASK_HUE;
+  } catch {
+    return DEFAULT_MASK_HUE;
+  }
+}
+
+function persistMaskHue(hue: number) {
+  try {
+    window.localStorage.setItem(MASK_HUE_STORAGE_KEY, String(hue));
+  } catch {
+    // localStorage unavailable (private mode); the in-memory value still
+    // applies for the rest of this session, it just won't survive reload.
+  }
+}
+
+/** HSL (hue in degrees, saturation/lightness in percent) -> `#rrggbb`. */
+export function hslToHex(h: number, s: number, l: number): string {
+  const sat = s / 100;
+  const light = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sat * Math.min(light, 1 - light);
+  const f = (n: number) => light - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (n: number) => Math.round(f(n) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(0)}${toHex(8)}${toHex(4)}`;
+}
+
 export interface AnnotationState {
   activeTool: AnnotationTool;
   setActiveTool: (tool: AnnotationTool) => void;
@@ -47,6 +102,20 @@ export interface AnnotationState {
   pushUndo: (snapshot: UndoSnapshot) => void;
   popUndo: () => UndoSnapshot | undefined;
   canUndo: boolean;
+
+  drawMode: DrawMode;
+  setDrawMode: (mode: DrawMode) => void;
+
+  brushRadius: number;
+  setBrushRadius: (radius: number) => void;
+  increaseBrushRadius: () => void;
+  decreaseBrushRadius: () => void;
+
+  /** Single hue (0-360) applied to every mask's fill/stroke. Persisted so it
+   *  survives reload. */
+  maskHue: number;
+  setMaskHue: (hue: number) => void;
+  resetMaskHue: () => void;
 }
 
 export const useAnnotationStore = create<AnnotationState>((set, get) => ({
@@ -84,5 +153,24 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     const snapshot = stack.pop()!;
     set({ undoStack: stack, canUndo: stack.length > 0 });
     return snapshot;
+  },
+
+  drawMode: 'lasso',
+  setDrawMode: (mode) => set({ drawMode: mode }),
+
+  brushRadius: DEFAULT_BRUSH_RADIUS,
+  setBrushRadius: (radius) => set({ brushRadius: clampBrushRadius(radius) }),
+  increaseBrushRadius: () => set((state) => ({ brushRadius: clampBrushRadius(state.brushRadius + BRUSH_RADIUS_STEP) })),
+  decreaseBrushRadius: () => set((state) => ({ brushRadius: clampBrushRadius(state.brushRadius - BRUSH_RADIUS_STEP) })),
+
+  maskHue: readStoredMaskHue(),
+  setMaskHue: (hue) => {
+    const clamped = Math.min(360, Math.max(0, hue));
+    persistMaskHue(clamped);
+    set({ maskHue: clamped });
+  },
+  resetMaskHue: () => {
+    persistMaskHue(DEFAULT_MASK_HUE);
+    set({ maskHue: DEFAULT_MASK_HUE });
   },
 }));

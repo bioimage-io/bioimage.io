@@ -2,13 +2,15 @@ import { useEffect, useRef, MutableRefObject } from 'react';
 import Map from 'ol/Map';
 import MapBrowserEvent from 'ol/MapBrowserEvent';
 import VectorSource from 'ol/source/Vector';
+import VectorLayer from 'ol/layer/Vector';
 import Draw, { createBox } from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
+import DragPan from 'ol/interaction/DragPan';
 import { Style, Fill, Stroke } from 'ol/style';
 import Feature from 'ol/Feature';
 import Collection from 'ol/Collection';
 import GeoJSON from 'ol/format/GeoJSON';
-import { Geometry, Polygon as OlPolygon, LineString as OlLineString } from 'ol/geom';
+import { Geometry, Polygon as OlPolygon, LineString as OlLineString, Circle as OlCircle } from 'ol/geom';
 import * as turf from '@turf/turf';
 import { useAnnotationStore, AnnotationTool } from '../../../store/annotationStore';
 
@@ -151,6 +153,111 @@ function clipToImageBounds(
     if (best) return turf.polygon(best);
   }
   return null;
+}
+
+/** True when a keydown's target is a text-entry element, so global keyboard
+ *  shortcuts (zoom, brush radius) don't fire while the user is typing. */
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const target = e.target as HTMLElement | null;
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+/**
+ * Build a circular polygon in pixel space (the same coordinate system as the
+ * rest of this file's turf helpers). Manual ring generation, not
+ * turf.circle, since turf.circle assumes geographic-degree units.
+ */
+function createPixelCircle(cx: number, cy: number, radius: number, segments = 32): turf.Feature<turf.Polygon> {
+  const coords: number[][] = [];
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * 2 * Math.PI;
+    coords.push([cx + radius * Math.cos(theta), cy + radius * Math.sin(theta)]);
+  }
+  return turf.polygon([coords]);
+}
+
+/** Reduce a Polygon/MultiPolygon down to its largest single ring. */
+function largestPolygon(geometry: turf.Polygon | turf.MultiPolygon): turf.Feature<turf.Polygon> | null {
+  if (geometry.type === 'Polygon') return turf.polygon(geometry.coordinates);
+  let maxArea = 0;
+  let best: number[][][] | null = null;
+  for (const coords of geometry.coordinates) {
+    const p = turf.polygon(coords);
+    const a = turf.area(p);
+    if (a > maxArea) { maxArea = a; best = coords; }
+  }
+  return best ? turf.polygon(best) : null;
+}
+
+type MapPointerEvents = {
+  on: (type: string, listener: (e: MapBrowserEvent<UIEvent>) => void) => void;
+  un: (type: string, listener: (e: MapBrowserEvent<UIEvent>) => void) => void;
+};
+
+/**
+ * Wire up circular brush painting on the map: a cursor circle that follows
+ * the pointer at the current brush radius, and dabs fired on drag
+ * (pointerdown starts a stroke, pointermove while held keeps dabbing,
+ * pointerup ends it). DragPan is temporarily disabled so a brush stroke
+ * doesn't pan the map. Returns a cleanup function undoing all of it.
+ */
+function setupBrushPainting(
+  map: Map,
+  radiusRef: MutableRefObject<number>,
+  cursorStyle: Style,
+  onStrokeStart: () => void,
+  onDab: (coord: number[]) => void,
+  onStrokeEnd?: () => void,
+): () => void {
+  const dragPan = map.getInteractions().getArray().find((i) => i instanceof DragPan) as DragPan | undefined;
+  dragPan?.setActive(false);
+
+  const cursorSource = new VectorSource();
+  const cursorFeature = new Feature(new OlCircle([0, 0], radiusRef.current));
+  cursorFeature.setStyle(cursorStyle);
+  cursorSource.addFeature(cursorFeature);
+  const cursorLayer = new VectorLayer({ source: cursorSource });
+  map.addLayer(cursorLayer);
+
+  let painting = false;
+
+  const updateCursor = (coord: number[]) => {
+    const geom = cursorFeature.getGeometry() as OlCircle;
+    geom.setCenter(coord);
+    geom.setRadius(radiusRef.current);
+  };
+
+  const rawMap = map as unknown as MapPointerEvents;
+
+  const onDown = (e: MapBrowserEvent<UIEvent>) => {
+    painting = true;
+    onStrokeStart();
+    onDab(e.coordinate);
+    updateCursor(e.coordinate);
+  };
+  const onMove = (e: MapBrowserEvent<UIEvent>) => {
+    updateCursor(e.coordinate);
+    if (painting) onDab(e.coordinate);
+  };
+  const onUp = () => {
+    if (!painting) return;
+    painting = false;
+    onStrokeEnd?.();
+  };
+
+  rawMap.on('pointerdown', onDown);
+  map.on('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+
+  return () => {
+    rawMap.un('pointerdown', onDown);
+    map.un('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    map.removeLayer(cursorLayer);
+    dragPan?.setActive(true);
+  };
 }
 
 function saveSnapshot(vectorSource: VectorSource): string {
@@ -440,6 +547,13 @@ export function useDrawInteraction(
   const pushUndo = useAnnotationStore((s) => s.pushUndo);
   const popUndo = useAnnotationStore((s) => s.popUndo);
 
+  const drawMode = useAnnotationStore((s) => s.drawMode);
+  const brushRadius = useAnnotationStore((s) => s.brushRadius);
+  const brushRadiusRef = useRef(brushRadius);
+  brushRadiusRef.current = brushRadius;
+  const increaseBrushRadius = useAnnotationStore((s) => s.increaseBrushRadius);
+  const decreaseBrushRadius = useAnnotationStore((s) => s.decreaseBrushRadius);
+
   // Undo handler (Ctrl+Z)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -486,6 +600,48 @@ export function useDrawInteraction(
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [setActiveTool]);
+
+  // Keyboard zoom: +/= (or numpad +) zooms in, - (or numpad -) zooms out, 0
+  // recenters to fit the whole image, matching the zoom buttons and reset
+  // view action.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isTypingTarget(e)) return;
+      const map = mapRef.current;
+      if (!map) return;
+      const view = map.getView();
+
+      if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        view.animate({ zoom: (view.getZoom() ?? 0) + 1, duration: 200 });
+      } else if (e.key === '-' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        view.animate({ zoom: (view.getZoom() ?? 0) - 1, duration: 200 });
+      } else if (e.key === '0' && imageWidth > 0 && imageHeight > 0) {
+        e.preventDefault();
+        view.fit([0, 0, imageWidth, imageHeight], { padding: [40, 40, 40, 40], duration: 300 });
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [mapRef, imageWidth, imageHeight]);
+
+  // Brush radius arrow keys, active only while in brush mode.
+  useEffect(() => {
+    if (drawMode !== 'brush') return;
+    const handler = (e: KeyboardEvent) => {
+      if (isTypingTarget(e)) return;
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        increaseBrushRadius();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        decreaseBrushRadius();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [drawMode, increaseBrushRadius, decreaseBrushRadius]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -576,6 +732,65 @@ export function useDrawInteraction(
       }
 
       case 'polygon': {
+        if (drawMode === 'brush') {
+          let strokeUnion: turf.Feature<turf.Polygon | turf.MultiPolygon> | null = null;
+          let liveFeature: Feature<OlPolygon> | null = null;
+
+          const updateLivePreview = () => {
+            if (!strokeUnion) return;
+            const poly = largestPolygon(strokeUnion.geometry);
+            if (!poly) return;
+            const olGeom = geojsonFormat.readGeometry(poly.geometry) as OlPolygon;
+            if (!liveFeature) {
+              liveFeature = new Feature<OlPolygon>(olGeom);
+              liveFeature.setStyle(HIGHLIGHT_STYLE);
+              vectorSource.addFeature(liveFeature);
+            } else {
+              liveFeature.setGeometry(olGeom);
+            }
+          };
+
+          const finalizeStroke = () => {
+            if (!strokeUnion) return;
+            const label = activeLabelRef.current;
+            let poly = largestPolygon(strokeUnion.geometry);
+            if (poly && imageWidth > 0 && imageHeight > 0) {
+              poly = clipToImageBounds(poly, imageWidth, imageHeight) || poly;
+            }
+            if (liveFeature) {
+              vectorSource.removeFeature(liveFeature);
+              liveFeature = null;
+            }
+            if (poly) {
+              const newFeature = turfFeatureToOl(poly, {
+                label: label.id,
+                edge_color: label.color,
+                face_color: label.color,
+                edge_width: 2,
+              });
+              vectorSource.addFeature(newFeature);
+              trimExistingMasks(newFeature.getGeometry() as OlPolygon, vectorSource, newFeature);
+              console.log('[Draw] Brush-created polygon with label:', label.id);
+            }
+            strokeUnion = null;
+          };
+
+          (refs as any)._cleanupBrush = setupBrushPainting(
+            map,
+            brushRadiusRef,
+            HIGHLIGHT_STYLE,
+            saveUndo,
+            (coord) => {
+              const dab = createPixelCircle(coord[0], coord[1], brushRadiusRef.current);
+              strokeUnion = strokeUnion
+                ? (turf.union(turf.featureCollection([strokeUnion, dab])) as typeof strokeUnion) ?? strokeUnion
+                : dab;
+              updateLivePreview();
+            },
+            finalizeStroke,
+          );
+          break;
+        }
         const draw = new Draw({
           source: vectorSource,
           type: 'Polygon',
@@ -663,6 +878,20 @@ export function useDrawInteraction(
       }
 
       case 'eraser': {
+        if (drawMode === 'brush') {
+          (refs as any)._cleanupBrush = setupBrushPainting(
+            map,
+            brushRadiusRef,
+            ERASER_STYLE,
+            saveUndo,
+            (coord) => {
+              const dab = createPixelCircle(coord[0], coord[1], brushRadiusRef.current);
+              const olPoly = geojsonFormat.readGeometry(dab.geometry) as OlPolygon;
+              applyEraser(olPoly, vectorSource);
+            },
+          );
+          break;
+        }
         const draw = new Draw({
           type: 'Polygon',
           freehand: true,
@@ -680,6 +909,20 @@ export function useDrawInteraction(
       }
 
       case 'expander': {
+        if (drawMode === 'brush') {
+          (refs as any)._cleanupBrush = setupBrushPainting(
+            map,
+            brushRadiusRef,
+            EXPANDER_STYLE,
+            saveUndo,
+            (coord) => {
+              const dab = createPixelCircle(coord[0], coord[1], brushRadiusRef.current);
+              const olPoly = geojsonFormat.readGeometry(dab.geometry) as OlPolygon;
+              applyExpander(olPoly, vectorSource, imageWidth, imageHeight);
+            },
+          );
+          break;
+        }
         const draw = new Draw({
           type: 'Polygon',
           freehand: true,
@@ -701,12 +944,13 @@ export function useDrawInteraction(
       if (refs.draw) { map.removeInteraction(refs.draw); refs.draw = null; }
       if (refs.modify) { map.removeInteraction(refs.modify); refs.modify = null; }
       if ((refs as any)._cleanupClick) { (refs as any)._cleanupClick(); (refs as any)._cleanupClick = null; }
+      if ((refs as any)._cleanupBrush) { (refs as any)._cleanupBrush(); (refs as any)._cleanupBrush = null; }
       if (keyHandler) document.removeEventListener('keydown', keyHandler);
       // Clear selection styles on cleanup
       selectedFeatures.forEach((f) => f.setStyle(undefined as any));
       selectedFeatures.clear();
     };
-  }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight]);
+  }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight, drawMode]);
 
   return { selectedFeatures: selectedFeaturesRef };
 }
