@@ -107,7 +107,44 @@ test('round 35: browse spinner and refresh spin cycles', async ({ page }) => {
   expect(refreshHits).toBeGreaterThan(0);
   await page.screenshot({ path: `${OUT}/2-after-refresh.png` });
 
-  // --- (2b) auto-poll: the refresh button spins again with no user action ---
+  // --- (2b) the spinner outlives the availability check: at no frame may the
+  // refresh spinner have stopped while the per-image annotation checkmarks
+  // haven't (re)reached their final count, and existing checkmarks never
+  // flicker away mid-refresh. ---
+  await page.evaluate(() => {
+    const w: any = ((window as any).__r35 = (window as any).__r35 || {});
+    w.checks = { frames: [], done: false };
+    const spinSel = 'button[title="Refresh image list"] svg.animate-spin';
+    const checkSel = 'svg.text-emerald-500 path[d="M5 13l4 4L19 7"]';
+    const sample = () => {
+      if (w.checks.done) return;
+      w.checks.frames.push({
+        spin: !!document.querySelector(spinSel),
+        checks: document.querySelectorAll(checkSel).length,
+      });
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await refreshBtn.click();
+  await expect(refreshBtn).toBeDisabled();
+  await expect(refreshBtn).toBeEnabled({ timeout: 60000 });
+  await page.waitForTimeout(300);
+  const checkFrames: Array<{ spin: boolean; checks: number }> = await page.evaluate(() => {
+    const w: any = (window as any).__r35;
+    w.checks.done = true;
+    return w.checks.frames;
+  });
+  const finalChecks = checkFrames[checkFrames.length - 1].checks;
+  console.log(
+    `[r35] checkmark frames: ${checkFrames.length}, spinning: ${checkFrames.filter((f) => f.spin).length}, final checkmarks: ${finalChecks}`
+  );
+  expect(finalChecks).toBeGreaterThan(0);
+  expect(checkFrames.some((f) => f.spin)).toBe(true);
+  expect(checkFrames.every((f) => f.spin || f.checks >= finalChecks)).toBe(true);
+  expect(checkFrames.every((f) => f.checks > 0)).toBe(true);
+
+  // --- (2c) auto-poll: the refresh button spins again with no user action ---
   await armWatcher(
     page,
     'autoSpin',
