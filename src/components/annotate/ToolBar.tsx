@@ -92,6 +92,11 @@ export interface ToolBarProps {
    * blocks interaction so it reads as non-interactive rather than just
    * being covered up. */
   disabled?: boolean;
+  /** Routes the Expand-Mask tool button through the selection-aware merge
+   *  handler (merges 2+ selected masks instead of switching tools) so the
+   *  button matches the "A" shortcut's behavior. Falls back to the normal
+   *  setActiveTool switch when not provided. */
+  onExpanderClick?: () => void;
 }
 
 const ToolBar: React.FC<ToolBarProps> = ({
@@ -102,6 +107,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   aiBoxReady = false,
   isRunningCellpose,
   disabled = false,
+  onExpanderClick,
 }) => {
   const activeTool = useAnnotationStore((s) => s.activeTool);
   const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
@@ -205,7 +211,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     <IconButton
                       size={btnSize}
                       data-tool={tool.id}
-                      onClick={() => (isSambox ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
+                      onClick={() => (isSambox ? onOpenSamBoxConfig() : tool.id === 'expander' && onExpanderClick ? onExpanderClick() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       disabled={toolDisabled}
                       aria-label={tool.name}
@@ -317,7 +323,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 >
                   <span style={{ width: '100%', display: 'flex' }}>
                     <ButtonBase
-                      onClick={() => (isSambox ? onOpenSamBoxConfig() : setActiveTool(tool.id))}
+                      onClick={() => (isSambox ? onOpenSamBoxConfig() : tool.id === 'expander' && onExpanderClick ? onExpanderClick() : setActiveTool(tool.id))}
                       onDoubleClick={isPolygon ? () => setDrawMode(drawMode === 'brush' ? 'lasso' : 'brush') : undefined}
                       data-tool={tool.id}
                       disabled={toolDisabled}
