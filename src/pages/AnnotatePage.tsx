@@ -391,10 +391,17 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
       } catch (e) {
         throw new Error(describeSamBoxPrepareError(e));
       }
+      if (service) {
+        try {
+          setDatasetIndex(await service.getDatasetIndex());
+        } catch {
+          // Non-fatal: the dialog's Recompute badge just won't refresh until the next poll.
+        }
+      }
       setSamBoxConfigOpen(false);
       setActiveTool('sambox');
     },
-    [samBoxModelType, ensureSession, ensureStoredEmbedding, setActiveTool],
+    [samBoxModelType, ensureSession, ensureStoredEmbedding, setActiveTool, service],
   );
 
   // Cache for the network's raw (dP, cellprob). One entry per unique

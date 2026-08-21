@@ -103,61 +103,68 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
     const hasEmbedding = embeddedModelTypes.includes(option.modelType);
     const isRecomputing = recomputingType === option.modelType;
     return (
-      <ButtonBase
+      <Box
         key={option.modelType}
-        onClick={() => {
-          setError(null);
-          onSelectModelType(option.modelType);
-        }}
-        disabled={!microSamAvailable}
         sx={{
           display: 'flex', alignItems: 'center', gap: 1, width: '100%',
-          px: 1.25, py: 0.85, borderRadius: 1.5, textAlign: 'left',
+          borderRadius: 1.5,
           bgcolor: selected ? 'rgba(156,39,176,0.12)' : 'transparent',
           border: '1px solid', borderColor: selected ? 'rgba(156,39,176,0.35)' : 'transparent',
-          '&:hover': { bgcolor: selected ? 'rgba(156,39,176,0.16)' : 'action.hover' },
-          transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
-          '&:active': { transform: 'scale(0.98)' },
           opacity: microSamAvailable ? 1 : 0.5,
         }}
       >
-        <Box sx={{
-          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-          bgcolor: selected ? 'secondary.main' : 'action.disabledBackground',
-        }} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" fontWeight={selected ? 700 : 500} color={selected ? 'secondary.main' : 'text.primary'}>
-            {option.label}
-          </Typography>
-        </Box>
-        {isLoaded ? (
-          <Tooltip title="Decoder currently loaded">
-            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main', flexShrink: 0 }} />
-          </Tooltip>
-        ) : (
-          <Tooltip title="Start annotating downloads this model's decoder if needed">
-            <CloudDownloadOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
-          </Tooltip>
-        )}
-        {selected && embeddedModelTypesLoading && (
-          <CircularProgress size={14} sx={{ flexShrink: 0 }} />
-        )}
+        <ButtonBase
+          onClick={() => {
+            setError(null);
+            onSelectModelType(option.modelType);
+          }}
+          disabled={!microSamAvailable}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0,
+            px: 1.25, py: 0.85, borderRadius: 1.5, textAlign: 'left',
+            '&:hover': { bgcolor: selected ? 'rgba(156,39,176,0.16)' : 'action.hover' },
+            transition: 'background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1)',
+            '&:active': { transform: 'scale(0.98)' },
+          }}
+        >
+          <Box sx={{
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+            bgcolor: selected ? 'secondary.main' : 'action.disabledBackground',
+          }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={selected ? 700 : 500} color={selected ? 'secondary.main' : 'text.primary'}>
+              {option.label}
+            </Typography>
+          </Box>
+          {isLoaded ? (
+            <Tooltip title="Decoder currently loaded">
+              <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main', flexShrink: 0 }} />
+            </Tooltip>
+          ) : (
+            <Tooltip title="Start annotating downloads this model's decoder if needed">
+              <CloudDownloadOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
+            </Tooltip>
+          )}
+          {selected && embeddedModelTypesLoading && (
+            <CircularProgress size={14} sx={{ flexShrink: 0 }} />
+          )}
+        </ButtonBase>
         {selected && !embeddedModelTypesLoading && hasEmbedding && (
           <Tooltip title="Recompute embedding. Clears the cached image encoding and computes it again on the next run.">
-            <span>
+            <span style={{ flexShrink: 0, marginRight: 6 }}>
               <IconButton
                 size="small"
                 onClick={(e) => handleRecompute(e, option.modelType)}
                 disabled={isRecomputing || !microSamAvailable}
                 aria-label={`Recompute embedding for ${option.label}`}
-                sx={{ p: 0.4, flexShrink: 0 }}
+                sx={{ p: 0.4 }}
               >
                 {isRecomputing ? <CircularProgress size={14} /> : <ReplayIcon sx={{ fontSize: 15 }} />}
               </IconButton>
             </span>
           </Tooltip>
         )}
-      </ButtonBase>
+      </Box>
     );
   };
 

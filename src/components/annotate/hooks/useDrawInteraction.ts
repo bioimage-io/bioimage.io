@@ -1093,7 +1093,7 @@ export function useDrawInteraction(
       selectedFeatures.forEach((f) => f.setStyle(undefined as any));
       selectedFeatures.clear();
     };
-  }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight, drawMode]);
+  }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight, drawMode, options?.aiBoxReady]);
 
   return { selectedFeatures: selectedFeaturesRef };
 }
