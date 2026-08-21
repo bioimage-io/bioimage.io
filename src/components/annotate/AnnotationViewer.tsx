@@ -17,7 +17,8 @@ interface AnnotationViewerProps {
   onMapReady?: (getMap: () => Map | null) => void;
   /** Fired with an OL-space box extent when the AI-box tool finishes a draw. */
   onSamBox?: (extent: number[]) => void;
-  /** Whether the μSAM box tool is usable (gates its shortcut + interaction). */
+  /** Whether the μSAM service itself is reachable, independent of decoder /
+   *  embedding readiness for the current model + image. */
   microSamAvailable?: boolean;
   /** Short message for a brief toast, e.g. when a merge attempt fails silently
    *  because the selected masks don't touch. */
@@ -25,6 +26,15 @@ interface AnnotationViewerProps {
   /** Fired once with the Expand-Mask/merge handler so the parent can wire the
    *  toolbar button to the same selection-aware logic as the "A" shortcut. */
   onExpanderActionReady?: (attemptExpanderOrMerge: () => void) => void;
+  /** True once the decoder and this image's embedding are both ready for the
+   *  currently selected model, so the box tool can actually respond to a
+   *  drawn box (round 34 rework: interactive segmentation is gated on this,
+   *  not just on `microSamAvailable`). */
+  aiBoxReady?: boolean;
+  /** Opens the Interactive Segmentation model dialog. Invoked instead of
+   *  activating the tool when the shortcut/click fires while not yet
+   *  `aiBoxReady`. */
+  onOpenSamBoxConfig?: () => void;
 }
 
 const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
@@ -39,6 +49,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   microSamAvailable,
   onToast,
   onExpanderActionReady,
+  aiBoxReady,
+  onOpenSamBoxConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { map, vectorSource, imageLayerRef } = useAnnotationMap(
@@ -51,6 +63,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
     onSamBox,
     microSamAvailable,
     onToast,
+    aiBoxReady,
+    onOpenSamBoxConfig,
   });
 
   // Expose the selection-aware Expand-Mask/merge handler to the parent so the

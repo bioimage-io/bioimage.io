@@ -13,6 +13,7 @@ import { useSharedKernelIfAvailable } from '../components/colab/KernelContext';
 import MaskFilterDialog from '../components/annotate/MaskFilterDialog';
 import MaskColorDialog from '../components/annotate/MaskColorDialog';
 import HelpTutorial from '../components/annotate/HelpTutorial';
+import SamBoxModelDialog from '../components/annotate/SamBoxModelDialog';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
 import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
 import { toArtifactId } from '../components/colab/datasetApi';
@@ -34,6 +35,25 @@ import { Polygon as OlPolygon } from 'ol/geom';
 
 interface AnnotatePageProps {
   backTo?: string;
+}
+
+// Round 34b: classify a failure from the Start-annotating prep step (decoder
+// download + embedding compute) into an actionable message. The broker's
+// role check raises `PermissionError(f"User '{who}' has role '{role}' on
+// '{artifact_id}'; '{minimum}' or higher is required.")`, which hypha-rpc
+// wires through as an Error whose message is `"RemoteError: " + str(exc)`.
+// A silently-anonymous connection (expired/missing token) surfaces here as
+// `who === 'anonymous'`, which is the exact bug Nils hit as an infinite
+// spinner before this rework surfaced prep failures at all.
+function describeSamBoxPrepareError(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (message.includes('or higher is required')) {
+    if (message.includes("User 'anonymous'")) {
+      return 'Sign in with annotation access to prepare this image.';
+    }
+    return 'Your account does not have annotation access to this dataset.';
+  }
+  return message || 'Failed to prepare the interactive segmentation model.';
 }
 
 const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
@@ -113,6 +133,10 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const { banners, addBanner, removeBanner } = useBanners();
   const runCellposeRef = React.useRef<(config: CellposeConfig) => void>(() => {});
   const showPreviewRef = React.useRef<(config: CellposeConfig) => Promise<void>>(async () => {});
+  // Forward-referenced (see the runCellposeRef/showPreviewRef comment above):
+  // handleRecomputeEmbedding depends on `service`/`ensureStoredEmbedding`/
+  // `resetSamDecoder`, all declared after useCellposeConfig's call site below.
+  const handleRecomputeEmbeddingRef = React.useRef<(modelType: string) => Promise<void>>(async () => {});
   const [isRunningCellpose, setIsRunningCellpose] = useState(false);
   const [livePreviewReady, setLivePreviewReady] = useState(false);
   // True after ANY successful Cellpose run, local Pyodide flows path or full
@@ -128,6 +152,21 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // Declared ahead of its usual position (alongside the other CLAHE state
   // below) so it can be passed into useCellposeConfig's opts here.
   const [isCLAHEActive, setIsCLAHEActive] = useState(false);
+
+  // Also declared ahead of their usual position, for the same reason: the
+  // Recompute-embedding button's visibility (round 34b) needs to know which
+  // model types have a stored embedding for the current image, which needs
+  // both of these.
+  const [currentImageStem, setCurrentImageStem] = useState<string | null>(null);
+  const [datasetIndex, setDatasetIndex] = useState<DatasetIndex | null>(null);
+  // Model types with a stored embedding for the current image (round 34's
+  // SamBoxModelDialog badge, round 34b's CellposeConfigDialog Recompute
+  // button). `model_types` is annotation-broker 0.9.0+; a missing field
+  // (0.8.0 back-compat) means only `model_type` is known.
+  const currentImageEmbeddingEntry = currentImageStem ? datasetIndex?.embeddings?.[currentImageStem] : undefined;
+  const embeddedModelTypes = currentImageEmbeddingEntry
+    ? currentImageEmbeddingEntry.model_types ?? [currentImageEmbeddingEntry.model_type]
+    : [];
 
   // Aborts the in-flight cellpose4-runner request (flows path or plain
   // server fallback) when the user cancels out of the dialog mid-run. Null
@@ -150,6 +189,9 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     claheActive: isCLAHEActive,
     onShowPreview: (config) => showPreviewRef.current(config),
     onCancelRun: () => cellposeAbortRef.current?.abort(),
+    onRecomputeEmbedding: (modelType: string) => handleRecomputeEmbeddingRef.current(modelType),
+    embeddedModelTypes,
+    embeddedModelTypesLoading: !datasetIndex,
     onMeasureDiameter: (currentConfig, onMeasured) => {
       setCellposeConfig(currentConfig);
       measureCallbackRef.current = (px: number) => {
@@ -202,20 +244,29 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const maskGen = useCellposeMaskGen(executeCode, kernelReady);
 
   // Declared ahead of its usual position (alongside the other
-  // useAnnotationStore selectors below) so useMicroSamDecoder can gate its
-  // ONNX decoder download on "an image has actually rendered" rather than
-  // firing as soon as the service connects (see the hook's own comment).
+  // useAnnotationStore selectors below) since several effects further down
+  // (CLAHE, embedding invalidation, kernel sync) key off it.
   const imageUrl = useAnnotationStore((s) => s.imageUrl);
+  // Which of the 6 uSAM generalists the Interactive Segmentation (sambox) tool
+  // decodes with. Chosen via the model-selection dialog, persisted in the store.
+  const samBoxModelType = useAnnotationStore((s) => s.samBoxModelType);
+  const setSamBoxModelType = useAnnotationStore((s) => s.setSamBoxModelType);
+  const setActiveTool = useAnnotationStore((s) => s.setActiveTool);
+  const [samBoxConfigOpen, setSamBoxConfigOpen] = useState(false);
 
-  // In-browser μSAM box decoder: fetches the ONNX decoder once the current
-  // image has rendered, embeds each image once, decodes each drawn box
-  // locally. See handleSamBox below.
+  // In-browser μSAM box decoder: fetches the ONNX decoder, embeds each image
+  // once, decodes each drawn box locally. See handleSamBox below. Round 34b:
+  // nothing downloads or encodes on its own; `ensureSession` is called
+  // imperatively from handleStartAnnotating below, only once the user clicks
+  // "Start annotating" in the model dialog.
   const {
     decodeBox: decodeSamBox,
     reset: resetSamDecoder,
     setEmbeddingLoader,
     decoderReady,
-  } = useMicroSamDecoder(service, !!imageUrl);
+    loadedModelType,
+    ensureSession,
+  } = useMicroSamDecoder(service);
   // Guards against overlapping box decodes (dev-rule #10).
   const samDecodeInFlightRef = useRef(false);
   // Mirror of currentImageStem for use inside stable callbacks/effects.
@@ -225,44 +276,132 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // GET urls expire, so only the "is it stored" promise is cached here; a fresh
   // download url is fetched on each use.
   const ensuredEmbeddingRef = useRef<Map<string, Promise<void>>>(new Map());
-  // Set to the image stem once its embedding is confirmed stored (12A: drives
-  // the AI Box tool's "ready" state, distinct from the service being reachable).
-  const [embeddingReadyStem, setEmbeddingReadyStem] = useState<string | null>(null);
+  // Set to `${stem}:${modelType}` once that pair's embedding is confirmed
+  // stored (12A: drives the AI Box tool's "ready" state, distinct from the
+  // service being reachable). Keyed on the model too, not just the image,
+  // so switching models on the same image doesn't read stale-true from the
+  // previous model's completed embedding (round 34 rework).
+  const [embeddingReadyKey, setEmbeddingReadyKey] = useState<string | null>(null);
 
-  // Ensure the μSAM embedding for `imageName` is computed and stored in the
-  // session artifact (once per image, keyed by stem + model server-side), then
-  // return a fresh presigned GET url for the stored `.npz`. The expensive
-  // encode+upload is memoized; the GET url is re-fetched each call because
-  // presigned urls expire. Both the box decoder and AIS pre-seg read the same
-  // `.npz` this produces.
+  // Ensure the μSAM embedding for `imageStem`+`modelType` is computed and
+  // stored in the session artifact, then return a fresh presigned GET url for
+  // the stored `.npz`. The expensive encode+upload is memoized (keyed on
+  // stem+model); the GET url is re-fetched each call because presigned urls
+  // expire. Both the box decoder and AIS pre-seg read the same `.npz` this
+  // produces.
+  //
+  // Stale-embedding guard (round 34, see project memory on the embedding
+  // cache-poisoning incident): the encode source and target dimensions are
+  // never taken from a closure-captured value (an earlier `sourceUrl` param
+  // did exactly that, reading `originalImageUrl || imageUrl`, which can be
+  // stale relative to `imageStem` during a fast image switch since
+  // `currentImageStem` updates before those store fields catch up). Instead
+  // the encode always reads `urls.image_read_url`, minted by the SAME
+  // `get_embedding_urls` call as the upload target, and the target
+  // dimensions are read fresh from the store right before the compute call.
+  // In-flight requests are tagged with their stem and their result is
+  // discarded (never uploaded) if the active image changes mid-flight.
   const ensureStoredEmbedding = useCallback(
-    async (
-      imageStem: string,
-      sourceUrl: string,
-      width: number,
-      height: number,
-    ): Promise<string> => {
+    async (imageStem: string, modelType: string): Promise<string> => {
       if (!service) throw new Error('The micro-sam segmentation service is unavailable');
       const cache = ensuredEmbeddingRef.current;
-      let stored = cache.get(imageStem);
+      const cacheKey = `${imageStem}:${modelType}`;
+      let stored = cache.get(cacheKey);
       if (!stored) {
         stored = (async () => {
-          const urls = await service.getEmbeddingUrls(imageStem);
+          const urls = await service.getEmbeddingUrls(imageStem, modelType);
           if (urls.exists) return;
-          await service.computeMicroSamEmbeddingToArtifact(sourceUrl, width, height, urls.embedding_put_url);
+          if (currentImageStemRef.current !== imageStem) {
+            throw new Error('Active image changed before the embedding could be computed');
+          }
+          const { imageWidth: w, imageHeight: h } = useAnnotationStore.getState();
+          await service.computeMicroSamEmbeddingToArtifact(
+            urls.image_read_url, w, h, urls.embedding_put_url, modelType,
+          );
         })().catch((e) => {
           // Drop the entry so a later box/AIS request retries the encode+upload.
-          cache.delete(imageStem);
+          cache.delete(cacheKey);
           throw e;
         });
-        cache.set(imageStem, stored);
+        cache.set(cacheKey, stored);
       }
       await stored;
-      const urls = await service.getEmbeddingUrls(imageStem);
+      const urls = await service.getEmbeddingUrls(imageStem, modelType);
       if (!urls.exists) throw new Error('μSAM embedding is unavailable after upload');
       return urls.read_url;
     },
     [service],
+  );
+
+  // Clear the stored μSAM embedding for `modelType` on the current image
+  // (round 34's per-model "Recompute embedding" action, surfaced from both
+  // SamBoxModelDialog and CellposeConfigDialog). If `modelType` is the model
+  // currently in use for the sambox tool, also evict the in-memory decoder
+  // embedding and re-encode immediately so the next box draw isn't left
+  // waiting on a cold cache.
+  const handleRecomputeEmbedding = useCallback(
+    async (modelType: string) => {
+      const stem = currentImageStemRef.current;
+      if (!service || !stem) return;
+      try {
+        await service.removeMicroSamEmbedding(stem, modelType);
+        ensuredEmbeddingRef.current.delete(`${stem}:${modelType}`);
+        if (modelType === samBoxModelType) {
+          resetSamDecoder();
+          ensureStoredEmbedding(stem, modelType)
+            .then(() => setEmbeddingReadyKey(`${stem}:${modelType}`))
+            .catch((e) => {
+              console.warn('[AnnotatePage] μSAM re-embedding after recompute failed:', e?.message || e);
+            });
+        }
+        try {
+          setDatasetIndex(await service.getDatasetIndex());
+        } catch {
+          // Non-fatal: the dialogs' badges just won't refresh until the next poll.
+        }
+      } catch (e: any) {
+        addBanner('Failed to recompute embedding', 'error', 6000, e?.message || String(e));
+        throw e;
+      }
+    },
+    [service, samBoxModelType, resetSamDecoder, ensureStoredEmbedding, addBanner],
+  );
+
+  useEffect(() => {
+    handleRecomputeEmbeddingRef.current = handleRecomputeEmbedding;
+  }, [handleRecomputeEmbedding]);
+
+  // Round 34b: preparation only starts here, when the user clicks "Start
+  // annotating" in the model dialog. Downloads the decoder and computes (or
+  // reuses) this image's embedding for `modelType`, then activates the box
+  // tool. Throws with a `describeSamBoxPrepareError`-friendly message on
+  // failure; the dialog is responsible for catching it and staying open.
+  const handleStartAnnotating = useCallback(
+    async () => {
+      const stem = currentImageStemRef.current;
+      if (!stem) throw new Error('No image is loaded yet');
+      const modelType = samBoxModelType;
+      try {
+        await Promise.all([
+          ensureSession(modelType),
+          ensureStoredEmbedding(stem, modelType).then(() =>
+            setEmbeddingReadyKey(`${stem}:${modelType}`),
+          ),
+        ]);
+      } catch (e) {
+        throw new Error(describeSamBoxPrepareError(e));
+      }
+      if (service) {
+        try {
+          setDatasetIndex(await service.getDatasetIndex());
+        } catch {
+          // Non-fatal: the dialog's Recompute badge just won't refresh until the next poll.
+        }
+      }
+      setSamBoxConfigOpen(false);
+      setActiveTool('sambox');
+    },
+    [samBoxModelType, ensureSession, ensureStoredEmbedding, setActiveTool, service],
   );
 
   // Cache for the network's raw (dP, cellprob). One entry per unique
@@ -315,7 +454,6 @@ print('CLAHE packages ready')
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [currentImageStem, setCurrentImageStem] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [maskFilterOpen, setMaskFilterOpen] = useState(false);
   const [maskColorOpen, setMaskColorOpen] = useState(false);
@@ -396,10 +534,6 @@ print('CLAHE packages ready')
   const [allAnnotatedInfo, setAllAnnotatedInfo] = useState<AllAnnotatedResult | null>(null);
   const [noImagesInfo, setNoImagesInfo] = useState<NoImagesResult | null>(null);
 
-  // Full broker-index snapshot for this dataset: every image plus this
-  // user's own latest annotation per (label, stem). Drives image picking
-  // and the always-available image browser (colab-rework-plan.md F5).
-  const [datasetIndex, setDatasetIndex] = useState<DatasetIndex | null>(null);
   // Timestamp of the last successful index fetch, used to decide whether a
   // tab refocus should silently refetch (colab-rework-plan.md §14b item 4).
   const lastIndexFetchAtRef = useRef<number>(0);
@@ -737,41 +871,14 @@ print('CLAHE packages ready')
     currentImageStemRef.current = currentImageStem;
   }, [currentImageStem]);
 
-  // Eagerly compute + store the μSAM embedding as soon as an image is ready so
-  // the first box draw and the first AIS run reuse it instead of each encoding
-  // from scratch. Memoization (ensuredEmbeddingRef) makes CLAHE toggles and
-  // reloads of the same image a no-op, so this only fires once per image.
-  useEffect(() => {
-    if (!microSamAvailable || !service) return;
-    if (!currentImageStem || imageWidth <= 0 || imageHeight <= 0) return;
-    const sourceUrl = originalImageUrl || imageUrl;
-    if (!sourceUrl) return;
-    const stem = currentImageStem;
-    // Already computing/computed for this image: skip the banner flicker, but
-    // still await the (already-memoized) promise so embeddingReadyStem catches up.
-    const alreadyEnsured = ensuredEmbeddingRef.current.has(stem);
-    const bannerId = alreadyEnsured ? null : addBanner('Preparing μSAM...', 'loading', 0);
-    ensureStoredEmbedding(stem, sourceUrl, imageWidth, imageHeight)
-      .then(() => setEmbeddingReadyStem(stem))
-      .catch((e) => {
-        // Non-fatal: the box and AIS tools retry on demand. Keep it quiet.
-        console.warn('[AnnotatePage] micro-sam embedding precompute failed:', e?.message || e);
-      })
-      .finally(() => { if (bannerId) removeBanner(bannerId); });
-    return () => { if (bannerId) removeBanner(bannerId); };
-  }, [
-    microSamAvailable, service, currentImageStem, imageWidth, imageHeight,
-    imageUrl, originalImageUrl, ensureStoredEmbedding, addBanner, removeBanner,
-  ]);
-
   // Feed the in-browser box decoder from the shared stored embedding instead of
   // letting it encode inline, so the box tool and AIS pre-seg reuse one encode.
   useEffect(() => {
     if (!service) return;
-    setEmbeddingLoader(async (url, width, height) => {
+    setEmbeddingLoader(async (url, width, height, modelType) => {
       const stem = currentImageStemRef.current;
       if (!stem) throw new Error('no active image for μSAM');
-      const npzUrl = await ensureStoredEmbedding(stem, url, width, height);
+      const npzUrl = await ensureStoredEmbedding(stem, modelType);
       return service.loadMicroSamEmbedding(npzUrl);
     });
     return () => setEmbeddingLoader(null);
@@ -788,7 +895,7 @@ print('CLAHE packages ready')
       const sourceUrl = originalImageUrl || imageUrl;
       const bannerId = addBanner('Decoding box with μSAM...', 'loading', 0);
       try {
-        const polygons = await decodeSamBox(extent, imageWidth, imageHeight, sourceUrl);
+        const polygons = await decodeSamBox(extent, imageWidth, imageHeight, sourceUrl, samBoxModelType);
         removeBanner(bannerId);
         if (!polygons || polygons.length === 0) {
           addBanner('No mask found in that box', 'warning', 4000);
@@ -836,7 +943,7 @@ print('CLAHE packages ready')
       }
     },
     [
-      service, imageUrl, originalImageUrl, imageWidth, imageHeight,
+      service, imageUrl, originalImageUrl, imageWidth, imageHeight, samBoxModelType,
       decodeSamBox, getVectorSource, pushUndo, activeLabel, addBanner, removeBanner,
     ],
   );
@@ -1023,9 +1130,7 @@ print('CLAHE packages ready')
             // pixels, since this embedding is memoized for the whole session.
             const npzUrl = await ensureStoredEmbedding(
               currentImageStem ?? imageUrl,
-              imageUrl,
-              imageWidth,
-              imageHeight,
+              cfg.microSamModelType,
             );
             masks = await service.runMicroSamFromEmbedding(npzUrl, imageWidth, imageHeight, {
               min_mask_area: cfg.min_mask_area,
@@ -1539,12 +1644,15 @@ print("CLAHE_RESULT:" + result_b64)
     );
   }
 
-  // AI Box readiness (12A): the service being reachable (microSamAvailable) is
-  // not enough to draw a useful box — the ONNX decoder and this image's stored
-  // embedding both need to finish warming up first. ToolBar shows a spinner
-  // for the gap between "available" and "ready"; AnnotationViewer only installs
-  // the box-draw interaction once actually ready.
-  const embeddingReady = embeddingReadyStem !== null && embeddingReadyStem === currentImageStem;
+  // AI Box readiness (12A, keyed per-model since round 34): the service being
+  // reachable (microSamAvailable) is not enough to draw a useful box — the
+  // ONNX decoder and this image's stored embedding both need to finish
+  // warming up first, for the specific model currently selected. Comparing
+  // the full `${stem}:${modelType}` key (not just the stem) means switching
+  // models on the same image correctly falls back to not-ready instead of
+  // reading stale-true from the previous model's completed embedding.
+  const embeddingReady = !!currentImageStem
+    && embeddingReadyKey === `${currentImageStem}:${samBoxModelType}`;
   const aiBoxReady = microSamAvailable && embeddingReady && decoderReady;
 
   // Determine the status message for the overlay
@@ -1679,6 +1787,7 @@ print("CLAHE_RESULT:" + result_b64)
         isRunningCellpose={isRunningCellpose}
         disabled={!!permissionDenied}
         onExpanderClick={handleExpanderClick}
+        onOpenSamBoxConfig={() => setSamBoxConfigOpen(true)}
       />
       <ActionPanel
         onSave={handleSave}
@@ -1711,9 +1820,11 @@ print("CLAHE_RESULT:" + result_b64)
             onImageLayerReady={handleImageLayerReady}
             onMapReady={handleMapReady}
             onSamBox={handleSamBox}
-            microSamAvailable={aiBoxReady}
+            microSamAvailable={microSamAvailable}
             onToast={handleMergeToast}
             onExpanderActionReady={handleExpanderActionReady}
+            aiBoxReady={aiBoxReady}
+            onOpenSamBoxConfig={() => setSamBoxConfigOpen(true)}
           />
         )}
 
@@ -1978,6 +2089,19 @@ print("CLAHE_RESULT:" + result_b64)
       />
 
       {cellposeDialogElement}
+
+      <SamBoxModelDialog
+        open={samBoxConfigOpen}
+        onClose={() => setSamBoxConfigOpen(false)}
+        modelType={samBoxModelType}
+        onSelectModelType={setSamBoxModelType}
+        loadedModelType={loadedModelType}
+        microSamAvailable={microSamAvailable}
+        embeddedModelTypes={embeddedModelTypes}
+        embeddedModelTypesLoading={!datasetIndex}
+        onRecomputeEmbedding={handleRecomputeEmbedding}
+        onStartAnnotating={handleStartAnnotating}
+      />
 
       <CLAHEDialog
         open={claheDialogOpen}

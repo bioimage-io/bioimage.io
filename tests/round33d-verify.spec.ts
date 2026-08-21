@@ -13,9 +13,20 @@ test.use({ baseURL: 'http://localhost:5199' });
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round33d-verify';
 
+// Hash only the central image region: the canvas element's bounding box
+// extends under the floating toolbar/actions panels, whose animated bits
+// (e.g. the Interactive Segmentation readiness spinner) would otherwise leak
+// frame-dependent pixels into the comparison.
 async function canvasHash(page: import('@playwright/test').Page): Promise<string> {
   const canvas = page.locator('canvas').first();
-  const buf = await canvas.screenshot();
+  const box = (await canvas.boundingBox())!;
+  const clip = {
+    x: box.x + box.width / 2 - 250,
+    y: box.y + box.height / 2 - 250,
+    width: 500,
+    height: 500,
+  };
+  const buf = await page.screenshot({ clip });
   return crypto.createHash('md5').update(buf).digest('hex');
 }
 
