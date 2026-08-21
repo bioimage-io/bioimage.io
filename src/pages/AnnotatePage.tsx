@@ -367,6 +367,22 @@ print('CLAHE packages ready')
     setGetOlMap(() => fn);
   }, []);
 
+  // Selection-aware Expand-Mask/merge handler exposed by AnnotationViewer, so
+  // the toolbar button can trigger the same logic as the "A" shortcut.
+  const attemptExpanderOrMergeRef = useRef<(() => void) | null>(null);
+  const handleExpanderActionReady = useCallback((fn: () => void) => {
+    attemptExpanderOrMergeRef.current = fn;
+  }, []);
+  const handleExpanderClick = useCallback(() => {
+    attemptExpanderOrMergeRef.current?.();
+  }, []);
+  const handleMergeToast = useCallback(
+    (message: string) => {
+      addBanner(message, 'warning', 4000);
+    },
+    [addBanner],
+  );
+
   const handleZoomIn = useCallback(() => {
     const view = getOlMap?.()?.getView();
     if (view) view.animate({ zoom: (view.getZoom() ?? 0) + 1, duration: 200 });
@@ -1662,6 +1678,7 @@ print("CLAHE_RESULT:" + result_b64)
         aiBoxReady={aiBoxReady}
         isRunningCellpose={isRunningCellpose}
         disabled={!!permissionDenied}
+        onExpanderClick={handleExpanderClick}
       />
       <ActionPanel
         onSave={handleSave}
@@ -1695,6 +1712,8 @@ print("CLAHE_RESULT:" + result_b64)
             onMapReady={handleMapReady}
             onSamBox={handleSamBox}
             microSamAvailable={aiBoxReady}
+            onToast={handleMergeToast}
+            onExpanderActionReady={handleExpanderActionReady}
           />
         )}
 

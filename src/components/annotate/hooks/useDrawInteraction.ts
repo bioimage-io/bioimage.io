@@ -1,4 +1,4 @@
-import { useEffect, useRef, MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import Map from 'ol/Map';
 import MapBrowserEvent from 'ol/MapBrowserEvent';
 import VectorSource from 'ol/source/Vector';
@@ -545,6 +545,9 @@ export interface DrawInteractionOptions {
   /** Whether the μSAM box tool is usable. Gates its keyboard shortcut and
    *  the box interaction so a disabled tool cannot be activated. */
   microSamAvailable?: boolean;
+  /** Invoked with a short message when a user action fails silently and
+   *  needs a brief toast (e.g. merging masks that don't touch). */
+  onToast?: (message: string) => void;
 }
 
 export function useDrawInteraction(
@@ -568,6 +571,8 @@ export function useDrawInteraction(
   onSamBoxRef.current = options?.onSamBox;
   const microSamAvailableRef = useRef<boolean>(!!options?.microSamAvailable);
   microSamAvailableRef.current = !!options?.microSamAvailable;
+  const onToastRef = useRef<DrawInteractionOptions['onToast']>(options?.onToast);
+  onToastRef.current = options?.onToast;
 
   const selectedFeaturesRef = useRef<Collection<Feature<Geometry>>>(new Collection());
 
@@ -596,6 +601,56 @@ export function useDrawInteraction(
   }, [brushRadius]);
   const increaseBrushRadius = useAnnotationStore((s) => s.increaseBrushRadius);
   const decreaseBrushRadius = useAnnotationStore((s) => s.decreaseBrushRadius);
+
+  // Pressing Expand Mask (button or "A") with 2+ masks selected merges them
+  // via geometric union instead of switching into the expander tool. Reads
+  // `selectedFeaturesRef` directly rather than `activeTool`, since only the
+  // select tool ever populates it and every other tool switch clears it (see
+  // the tool-switch effect below) — so a length >= 2 is already proof the
+  // user is mid-selection. A `turf.union` over disjoint polygons yields a
+  // MultiPolygon, which doubles as the touching check: no separate adjacency
+  // pass needed.
+  const attemptExpanderOrMerge = useCallback(() => {
+    const selectedFeatures = selectedFeaturesRef.current;
+    const vectorSource = vectorSourceRef.current;
+
+    if (selectedFeatures.getLength() >= 2 && vectorSource) {
+      const features = selectedFeatures.getArray().slice();
+      const turfPolys = features
+        .map((f) => olFeatureToTurf(f))
+        .filter((p): p is turf.Feature<turf.Polygon> => !!p);
+      if (turfPolys.length !== features.length) return;
+
+      let unioned: turf.Feature<turf.Polygon | turf.MultiPolygon> | null = null;
+      try {
+        unioned = turf.union(turf.featureCollection(turfPolys));
+      } catch (err) {
+        console.warn('[Expander] Merge failed:', err);
+        return;
+      }
+      if (!unioned) return;
+
+      if (unioned.geometry.type === 'MultiPolygon') {
+        onToastRef.current?.('Selected masks do not touch, so they cannot be merged.');
+        return;
+      }
+
+      pushUndo({ geojson: saveSnapshot(vectorSource) });
+
+      const props = features[0].getProperties();
+      delete props.geometry;
+      features.forEach((f) => vectorSource.removeFeature(f));
+      const mergedFeature = turfFeatureToOl(unioned as turf.Feature<turf.Polygon>, props);
+      vectorSource.addFeature(mergedFeature);
+      mergedFeature.setStyle(HIGHLIGHT_STYLE);
+      selectedFeatures.clear();
+      selectedFeatures.push(mergedFeature);
+      console.log('[Expander] Merged', features.length, 'selected masks');
+      return;
+    }
+
+    setActiveTool('expander');
+  }, [pushUndo, setActiveTool, vectorSourceRef]);
 
   // Undo handler (Ctrl+Z)
   useEffect(() => {
@@ -637,12 +692,16 @@ export function useDrawInteraction(
         // The AI-box tool is unusable when μSAM is offline; do not activate it.
         if (tool === 'sambox' && !microSamAvailableRef.current) return;
         e.preventDefault();
-        setActiveTool(tool);
+        if (tool === 'expander') {
+          attemptExpanderOrMerge();
+        } else {
+          setActiveTool(tool);
+        }
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [setActiveTool]);
+  }, [setActiveTool, attemptExpanderOrMerge]);
 
   // Keyboard zoom: +/= (or numpad +) zooms in, - (or numpad -) zooms out, 0
   // recenters to fit the whole image, matching the zoom buttons and reset
@@ -1067,5 +1126,5 @@ export function useDrawInteraction(
     };
   }, [activeTool, mapRef, vectorSourceRef, pushUndo, imageWidth, imageHeight, drawMode]);
 
-  return { selectedFeatures: selectedFeaturesRef };
+  return { selectedFeatures: selectedFeaturesRef, attemptExpanderOrMerge };
 }
