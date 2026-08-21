@@ -11,7 +11,7 @@ import fs from 'fs';
 // 2. LabelManager shows an info icon next to each label badge whose tooltip
 //    reveals the label's description, or "No description provided" if unset.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';
