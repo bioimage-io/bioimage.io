@@ -17,8 +17,18 @@ interface AnnotationViewerProps {
   onMapReady?: (getMap: () => Map | null) => void;
   /** Fired with an OL-space box extent when the AI-box tool finishes a draw. */
   onSamBox?: (extent: number[]) => void;
-  /** Whether the μSAM box tool is usable (gates its shortcut + interaction). */
+  /** Whether the μSAM service itself is reachable, independent of decoder /
+   *  embedding readiness for the current model + image. */
   microSamAvailable?: boolean;
+  /** True once the decoder and this image's embedding are both ready for the
+   *  currently selected model, so the box tool can actually respond to a
+   *  drawn box (round 34 rework: interactive segmentation is gated on this,
+   *  not just on `microSamAvailable`). */
+  aiBoxReady?: boolean;
+  /** Opens the Interactive Segmentation model dialog. Invoked instead of
+   *  activating the tool when the shortcut/click fires while not yet
+   *  `aiBoxReady`. */
+  onOpenSamBoxConfig?: () => void;
 }
 
 const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
@@ -31,6 +41,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   onMapReady,
   onSamBox,
   microSamAvailable,
+  aiBoxReady,
+  onOpenSamBoxConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { map, vectorSource, imageLayerRef } = useAnnotationMap(
@@ -39,7 +51,7 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
     imageWidth,
     imageHeight,
   );
-  useDrawInteraction(map, vectorSource, { onSamBox, microSamAvailable });
+  useDrawInteraction(map, vectorSource, { onSamBox, microSamAvailable, aiBoxReady, onOpenSamBoxConfig });
 
   // Expose map getter to parent (for coordinate conversion, e.g. diameter measurement)
   useEffect(() => {

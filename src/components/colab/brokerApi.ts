@@ -74,6 +74,11 @@ export interface DatasetIndexImage {
 
 export interface DatasetIndexEmbedding {
   model_type: string;
+  // annotation-broker 0.9.0+: every model type that currently has a stored
+  // embedding for this stem. Absent means only `model_type` is known
+  // (0.8.0 back-compat) -- treat a missing field as a single-entry list of
+  // `model_type`, not as "no embeddings."
+  model_types?: string[];
 }
 
 export interface DatasetIndexAnnotation {
@@ -476,6 +481,28 @@ export async function getEmbeddingUrls(
 ): Promise<EmbeddingUrls> {
   return callBroker(server, (broker) =>
     broker.get_embedding_urls({
+      artifact_id: artifactId,
+      image_stem: imageStem,
+      model_type: modelType,
+      _rkwargs: true,
+    }),
+  );
+}
+
+/**
+ * Clear a stem's cached μSAM embedding(s) (annotation-broker 0.9.1+,
+ * `remove_embedding`). Passing `modelType` clears only that model's cached
+ * `.npz`; omitting it clears every known model type plus the legacy
+ * suffix-less file. Annotator role.
+ */
+export async function removeEmbedding(
+  server: any,
+  artifactId: string,
+  imageStem: string,
+  modelType?: string,
+): Promise<{ removed: string[] }> {
+  return callBroker(server, (broker) =>
+    broker.remove_embedding({
       artifact_id: artifactId,
       image_stem: imageStem,
       model_type: modelType,

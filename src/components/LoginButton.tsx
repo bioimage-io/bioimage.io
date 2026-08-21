@@ -293,13 +293,18 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   // the backlog without opening the account menu. Non-reviewers never get a
   // count they could act on, so the badge is gated on canAccessReview too.
   const reviewCount = canAccessReview ? pendingReviewCount : 0;
+  // The annotate page has its own compact floating header (round 34b): a red
+  // pill fighting for attention there reads as an annotation alert, not a
+  // review backlog, so the badge is suppressed on that route. The count stays
+  // available in the account menu once opened.
+  const isAnnotatePage = location.pathname.startsWith('/colab/annotate');
   // The connection dot already owns the top-right corner and wins outright: two
   // red markers on a 24px avatar read as noise, and while the socket is down the
   // store cannot refresh the count anyway, so it would be showing a stale number
   // next to the very indicator saying the data is stale. The count stays in the
   // accessible name and the tooltip, and the visible badge returns once the
   // connection recovers.
-  const showReviewBadge = reviewCount > 0 && !showConnectionIssue;
+  const showReviewBadge = reviewCount > 0 && !showConnectionIssue && !isAnnotatePage;
   const reviewLabel = reviewCount > 0
     ? `${reviewCount} model${reviewCount === 1 ? '' : 's'} awaiting review`
     : null;
