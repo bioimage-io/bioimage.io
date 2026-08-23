@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS } from '../utils/microSamService';
 
 export type AnnotationTool = 'move' | 'select' | 'polygon' | 'cutter' | 'eraser' | 'expander' | 'sambox';
 
@@ -37,6 +38,27 @@ function clampBrushRadius(radius: number): number {
 
 const DRAW_MODE_STORAGE_KEY = 'bioimage-annotation-draw-mode';
 const BRUSH_RADIUS_STORAGE_KEY = 'bioimage-annotation-brush-radius';
+const SAMBOX_MODEL_STORAGE_KEY = 'bioimage-annotation-sambox-model-type';
+
+const SAMBOX_MODEL_TYPES = MICRO_SAM_MODEL_OPTIONS.map((o) => o.modelType);
+
+function readStoredSamBoxModelType(): string {
+  try {
+    const raw = window.localStorage.getItem(SAMBOX_MODEL_STORAGE_KEY);
+    if (raw && SAMBOX_MODEL_TYPES.includes(raw)) return raw;
+    return MICRO_SAM_MODEL_TYPE;
+  } catch {
+    return MICRO_SAM_MODEL_TYPE;
+  }
+}
+
+function persistSamBoxModelType(modelType: string) {
+  try {
+    window.localStorage.setItem(SAMBOX_MODEL_STORAGE_KEY, modelType);
+  } catch {
+    // localStorage unavailable (private mode); falls back to session-only.
+  }
+}
 
 function readStoredDrawMode(): DrawMode {
   try {
@@ -159,6 +181,14 @@ export interface AnnotationState {
   maskHue: number;
   setMaskHue: (hue: number) => void;
   resetMaskHue: () => void;
+
+  /** Which of the 6 uSAM generalists the Interactive Segmentation (sambox)
+   *  tool uses. Persisted since it's a deliberate, infrequent choice made via
+   *  the model-selection dialog, not per-session state. Selecting a model
+   *  here downloads nothing; the decoder and embedding are fetched lazily on
+   *  first use. */
+  samBoxModelType: string;
+  setSamBoxModelType: (modelType: string) => void;
 }
 
 export const useAnnotationStore = create<AnnotationState>((set, get) => ({
@@ -235,5 +265,11 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   resetMaskHue: () => {
     persistMaskHue(DEFAULT_MASK_HUE);
     set({ maskHue: DEFAULT_MASK_HUE });
+  },
+
+  samBoxModelType: readStoredSamBoxModelType(),
+  setSamBoxModelType: (modelType) => {
+    persistSamBoxModelType(modelType);
+    set({ samBoxModelType: modelType });
   },
 }));

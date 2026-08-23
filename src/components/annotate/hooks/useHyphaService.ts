@@ -15,6 +15,7 @@ import {
   getMyAnnotationUrl as brokerGetMyAnnotationUrl,
   getSaveUrls as brokerGetSaveUrls,
   getEmbeddingUrls as brokerGetEmbeddingUrls,
+  removeEmbedding as brokerRemoveEmbedding,
   requestAccess as brokerRequestAccess,
   withRetry,
 } from '../../colab/brokerApi';
@@ -124,10 +125,17 @@ export interface AnnotationDataService {
    *  annotation pair for `imageStem` under this session's label. Every
    *  save is a new timestamped pair; nothing is overwritten. */
   getSaveUrls: (imageStem: string) => Promise<BrokerSaveUrls>;
-  /** Presigned urls for the stored μSAM embedding of `imageStem` (pinned
-   *  model type): either a GET url if it already exists, or a PUT url to
-   *  upload a freshly computed one. */
-  getEmbeddingUrls: (imageStem: string) => Promise<EmbeddingUrls>;
+  /** Presigned urls for the stored μSAM embedding of `imageStem`: either a
+   *  GET url if it already exists, or a PUT url to upload a freshly computed
+   *  one. Defaults to the session's pinned model type; ``modelType``, when
+   *  given, overrides it for this call only (bypasses the fine-tuned-session
+   *  cache-key suffix, since a per-generalist embedding is not tied to any
+   *  particular training session). */
+  getEmbeddingUrls: (imageStem: string, modelType?: string) => Promise<EmbeddingUrls>;
+  /** Clear a stem's cached μSAM embedding(s) (annotation-broker 0.9.1+).
+   *  ``modelType`` clears only that model's cached ``.npz``; omitted clears
+   *  every known model type plus the legacy suffix-less file. */
+  removeMicroSamEmbedding: (imageStem: string, modelType?: string) => Promise<{ removed: string[] }>;
   /** ``params.diameter``, if set, rescales the image client-side (Cellpose
    *  convention: target ~30 px object diameter) before it is sent. When
    *  ``signal`` aborts while the request is queued/running, polling stops
@@ -139,21 +147,23 @@ export interface AnnotationDataService {
    *  response), so it returns the same ``CellposeMask[]`` polygons. Only
    *  ``min_mask_area`` from ``params`` is honoured; μSAM AIS ignores the
    *  Cellpose-specific knobs (flow/cellprob, niter). ``modelType``, when
-   *  given, overrides the interactive session's model_type for this call
-   *  only (the Full Image Segmentation picker's own choice) — every other
-   *  μSAM call (embedding, decoder, box tool) stays pinned to the session's
-   *  model_type regardless of what this argument is. */
+   *  given, overrides the pinned session model_type for this call only. The
+   *  same override is available on ``getEmbeddingUrls``, ``getMicroSamOnnxModel``,
+   *  ``computeMicroSamEmbedding`` and ``computeMicroSamEmbeddingToArtifact``,
+   *  so the Interactive Segmentation model-selection dialog can drive every
+   *  μSAM call with the chosen generalist. */
   runMicroSam: (imageUrl: string, width: number, height: number, params?: CellposeParams, modelType?: string) => Promise<CellposeMask[]>;
   /** Fetch the quantized μSAM ONNX prompt-decoder bytes for the in-browser box
-   *  tool. One round-trip per page; the decoder hook caches the ort session. */
-  getMicroSamOnnxModel: () => Promise<Uint8Array>;
+   *  tool. One round-trip per page; the decoder hook caches the ort session,
+   *  one at a time, keyed on ``modelType`` (default: the pinned session type). */
+  getMicroSamOnnxModel: (modelType?: string) => Promise<Uint8Array>;
   /** Run the μSAM image encoder once for the interactive box tool. Returns the
    *  encoder features plus the geometry the ONNX decoder needs. Cached per
-   *  image URL by the decoder hook. */
-  computeMicroSamEmbedding: (imageUrl: string, width: number, height: number) => Promise<MicroSamEmbedding>;
+   *  image URL and ``modelType`` by the decoder hook. */
+  computeMicroSamEmbedding: (imageUrl: string, width: number, height: number, modelType?: string) => Promise<MicroSamEmbedding>;
   /** Run the μSAM encoder and have the service write the ``.npz`` straight into
    *  the session artifact via ``embedding_upload_url``. No features returned. */
-  computeMicroSamEmbeddingToArtifact: (imageUrl: string, width: number, height: number, uploadUrl: string) => Promise<void>;
+  computeMicroSamEmbeddingToArtifact: (imageUrl: string, width: number, height: number, uploadUrl: string, modelType?: string) => Promise<void>;
   /** Download + unzip a stored ``.npz`` embedding into the decoder-ready shape
    *  (reconstructs the same ``MicroSamEmbedding`` the inline encode returned). */
   loadMicroSamEmbedding: (npzUrl: string) => Promise<MicroSamEmbedding>;
@@ -649,8 +659,17 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             withRetry(() => brokerGetMyAnnotationUrl(server, artifactId, config.label, imageStem)),
           getSaveUrls: async (imageStem: string) =>
             withRetry(() => brokerGetSaveUrls(server, artifactId, config.label, imageStem)),
-          getEmbeddingUrls: async (imageStem: string) =>
-            withRetry(() => brokerGetEmbeddingUrls(server, artifactId, imageStem, microSamEmbeddingCacheKey)),
+          getEmbeddingUrls: async (imageStem: string, modelType?: string) =>
+            withRetry(() =>
+              brokerGetEmbeddingUrls(
+                server,
+                artifactId,
+                imageStem,
+                modelType !== undefined ? modelType : microSamEmbeddingCacheKey,
+              ),
+            ),
+          removeMicroSamEmbedding: async (imageStem: string, modelType?: string) =>
+            withRetry(() => brokerRemoveEmbedding(server, artifactId, imageStem, modelType)),
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
@@ -751,16 +770,17 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             console.log('[useHyphaService] micro-sam converted to', polygons.length, 'polygons');
             return polygons;
           },
-          getMicroSamOnnxModel: async (): Promise<Uint8Array> => {
+          getMicroSamOnnxModel: async (modelType?: string): Promise<Uint8Array> => {
             const microSamService = await resolveMicroSamService(server);
             console.log('[useHyphaService] Fetching micro-sam ONNX decoder');
             // No session_id here: the micro-sam service exports the ONNX
             // prompt decoder per base model_type only, fine-tuning does not
             // produce a per-session decoder. Still uses microSamModelType so
             // the decoder always matches the family of whatever encoder
-            // produced the embedding (base or fine-tuned).
+            // produced the embedding (base or fine-tuned), unless the caller
+            // overrides it (the Interactive Segmentation model dialog).
             const bytes = await microSamService.get_onnx_model({
-              model_type: microSamModelType,
+              model_type: modelType ?? microSamModelType,
               quantize: true,
               _rkwargs: true,
             });
@@ -774,6 +794,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             imageUrl: string,
             width: number,
             height: number,
+            modelType?: string,
           ): Promise<MicroSamEmbedding> => {
             const microSamService = await resolveMicroSamService(server);
             console.log('[useHyphaService] Computing micro-sam image embedding');
@@ -791,8 +812,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
 
             const emb = await microSamService.compute_embedding({
               inputs: inputArray,
-              model_type: microSamModelType,
-              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              model_type: modelType ?? microSamModelType,
+              ...(modelType === undefined && microSamSessionId ? { session_id: microSamSessionId } : {}),
               _rkwargs: true,
             });
             if (!emb || !emb.features || emb.features._rtype !== 'ndarray') {
@@ -818,6 +839,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             width: number,
             height: number,
             uploadUrl: string,
+            modelType?: string,
           ): Promise<void> => {
             const microSamService = await resolveMicroSamService(server);
             console.log('[useHyphaService] Computing micro-sam embedding -> session artifact');
@@ -839,8 +861,8 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             };
             await microSamService.compute_embedding({
               inputs: inputArray,
-              model_type: microSamModelType,
-              ...(microSamSessionId ? { session_id: microSamSessionId } : {}),
+              model_type: modelType ?? microSamModelType,
+              ...(modelType === undefined && microSamSessionId ? { session_id: microSamSessionId } : {}),
               embedding_upload_url: uploadUrl,
               _rkwargs: true,
             });
