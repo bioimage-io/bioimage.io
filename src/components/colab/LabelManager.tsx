@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import Tooltip from '@mui/material/Tooltip';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { DatasetLabelRef, LabelTotals } from './datasetApi';
 import { createLabel } from './brokerApi';
 import { LABEL_PALETTE } from './ImagePreview';
@@ -122,6 +124,16 @@ const LabelManager: React.FC<LabelManagerProps> = ({
                     style={{ backgroundColor: rgb(LABEL_PALETTE[i % LABEL_PALETTE.length]) }}
                   />
                   <span className="text-sm font-medium text-gray-800 truncate">{label.name}</span>
+                  <Tooltip
+                    title={label.description?.trim() || 'No description provided'}
+                    placement="top"
+                    arrow
+                  >
+                    <InfoOutlinedIcon
+                      sx={{ fontSize: '0.9rem', color: 'text.disabled', cursor: 'help', flexShrink: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Tooltip>
                   {totals && (
                     <span className="text-xs text-gray-400 shrink-0">
                       {totals.totalAnnotations} · {pct}%

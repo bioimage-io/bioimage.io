@@ -29,6 +29,12 @@ interface AnnotationViewerProps {
    *  activating the tool when the shortcut/click fires while not yet
    *  `aiBoxReady`. */
   onOpenSamBoxConfig?: () => void;
+  /** Short message for a brief toast, e.g. when a merge attempt fails silently
+   *  because the selected masks don't touch. */
+  onToast?: (message: string) => void;
+  /** Fired once with the Expand-Mask/merge handler so the parent can wire the
+   *  toolbar button to the same selection-aware logic as the "A" shortcut. */
+  onExpanderActionReady?: (attemptExpanderOrMerge: () => void) => void;
 }
 
 const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
@@ -43,6 +49,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
   microSamAvailable,
   aiBoxReady,
   onOpenSamBoxConfig,
+  onToast,
+  onExpanderActionReady,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { map, vectorSource, imageLayerRef } = useAnnotationMap(
@@ -51,7 +59,19 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
     imageWidth,
     imageHeight,
   );
-  useDrawInteraction(map, vectorSource, { onSamBox, microSamAvailable, aiBoxReady, onOpenSamBoxConfig });
+  const { attemptExpanderOrMerge } = useDrawInteraction(map, vectorSource, {
+    onSamBox,
+    microSamAvailable,
+    aiBoxReady,
+    onOpenSamBoxConfig,
+    onToast,
+  });
+
+  // Expose the selection-aware Expand-Mask/merge handler to the parent so the
+  // toolbar button can trigger the same logic as the "A" shortcut.
+  useEffect(() => {
+    onExpanderActionReady?.(attemptExpanderOrMerge);
+  }, [attemptExpanderOrMerge, onExpanderActionReady]);
 
   // Expose map getter to parent (for coordinate conversion, e.g. diameter measurement)
   useEffect(() => {

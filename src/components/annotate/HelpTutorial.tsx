@@ -25,9 +25,9 @@ interface TutorialStep {
 const STEPS: TutorialStep[] = [
   { text: 'Welcome to the BioImage.IO Annotation Tool. The Tools and Actions sidebars already label what each button does, so this guide only covers gestures, shortcuts, and gotchas that aren\'t shown there. Click Next to go through it, or Skip Guide to jump straight in.' },
   { text: 'Move (M): scroll to zoom in and out, click and drag to pan.', highlightSelector: '[data-tool="move"]' },
-  { text: 'Select (S): dragging from an already-selected mask edits its shape instead of starting a new selection box.', highlightSelector: '[data-tool="select"]' },
+  { text: 'Select (S): dragging from an already-selected mask edits its shape instead of starting a new selection box. Select two or more masks and press Expand Mask (A) to merge them into one.', highlightSelector: '[data-tool="select"]' },
   { text: 'Draw Mask (D): the lasso/brush toggle (double-click the button) also applies to Eraser and Expand Mask. In brush mode, ArrowUp and ArrowDown resize the brush, holding either key speeds up the change after about a second.', highlightSelector: '[data-tool="polygon"]' },
-  { text: 'Expand Mask (A): the painted area is clipped to the image edges automatically.', highlightSelector: '[data-tool="expander"]' },
+  { text: 'Expand Mask (A): the painted area is clipped to the image edges automatically. If you have two or more masks selected with the Select tool, pressing this button or A instead merges the selected masks into one. If the selected masks do not touch, nothing is merged and a message tells you why.', highlightSelector: '[data-tool="expander"]' },
   { text: 'Full Image Segmentation: any AI mask that overlaps a mask you already have is trimmed automatically, so accepted results never overlap your existing work.', highlightSelector: '[data-tool="cellpose"]' },
   { text: "Interactive Segmentation (B): pick a model and click Start annotating to prepare it (downloads the decoder, computes this image's embedding), then draw a box around a cell for a single AI mask. Once ready, B activates the tool directly instead of reopening this dialog.", highlightSelector: '[data-tool="sambox"]' },
   { text: 'Fit to Image: press 0 to reset the view without reaching for the button.', highlightSelector: '[data-tool="fit"]' },
