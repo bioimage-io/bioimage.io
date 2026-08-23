@@ -187,6 +187,12 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     cellposeAvailable,
     onDialogOpen: probeAvailability,
     claheActive: isCLAHEActive,
+    // Counted fresh at click time (not cached in state) so a mask drawn or
+    // AI-generated while the dialog is open (it stays open across runs) is
+    // reflected immediately. Preview features aren't committed masks yet, so
+    // they don't count toward "existing masks" for the warning gate.
+    getExistingMaskCount: () =>
+      (getVectorSource?.()?.getFeatures().filter((f) => !f.get('_cellpose_preview')).length) ?? 0,
     onShowPreview: (config) => showPreviewRef.current(config),
     onCancelRun: () => cellposeAbortRef.current?.abort(),
     onRecomputeEmbedding: (modelType: string) => handleRecomputeEmbeddingRef.current(modelType),

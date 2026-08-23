@@ -27,6 +27,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import ReplayIcon from '@mui/icons-material/Replay';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import InputAdornment from '@mui/material/InputAdornment';
 import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS } from '../../utils/microSamService';
 
@@ -195,6 +196,13 @@ interface CellposeConfigDialogProps {
    *  loaded yet, so the Recompute affordance shows a spinner instead of
    *  guessing there's nothing to recompute. */
   embeddedModelTypesLoading?: boolean;
+  /** Called at click time (not cached) to check whether the current image
+   *  already has at least one mask. When it returns a count above zero,
+   *  clicking Run Segmentation / Compute Flow Field / Re-run on Server shows
+   *  a blocking inline warning instead of running immediately, since full
+   *  image segmentation covers the whole image and trims new masks against
+   *  whatever is already there. */
+  getExistingMaskCount?: () => number;
 }
 
 /** Collapsible section header: click to toggle, chevron shows current state. */
@@ -249,9 +257,11 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   onRecomputeEmbedding,
   embeddedModelTypes,
   embeddedModelTypesLoading,
+  getExistingMaskCount,
 }) => {
   const [config, setConfig] = useState<CellposeConfig>(initialConfig);
   const [recomputingEmbedding, setRecomputingEmbedding] = useState(false);
+  const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
 
   const handleRecomputeEmbedding = async () => {
     if (!onRecomputeEmbedding || recomputingEmbedding) return;
@@ -266,6 +276,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   useEffect(() => {
     if (open) {
       setConfig(initialConfig);
+    } else {
+      setShowOverwriteWarning(false);
     }
   }, [open, initialConfig]);
 
@@ -311,6 +323,29 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   const handleApply = () => {
     onApply(config);
   };
+
+  // Full image segmentation covers the whole image and trims new masks
+  // against whatever is already there, which can leave unwanted artifacts
+  // where they overlap. Gate the click behind a blocking inline warning
+  // whenever the image already has at least one mask, rather than running
+  // straight away.
+  const handleRunClick = useCallback(() => {
+    const existingMaskCount = getExistingMaskCount ? getExistingMaskCount() : 0;
+    if (existingMaskCount > 0) {
+      setShowOverwriteWarning(true);
+      return;
+    }
+    handleApply();
+    onRun?.(config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getExistingMaskCount, config, onRun]);
+
+  const handleRunAnyway = useCallback(() => {
+    setShowOverwriteWarning(false);
+    handleApply();
+    onRun?.(config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, onRun]);
 
   const handleMeasure = () => {
     if (!onMeasureDiameter) return;
@@ -454,6 +489,40 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
     >
       <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Full Image Segmentation</DialogTitle>
       <DialogContent dividers>
+        {showOverwriteWarning ? (
+          <Box data-testid="overwrite-warning" sx={{ px: 1, py: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, mb: 2.5 }}>
+              <WarningAmberIcon color="warning" sx={{ mt: 0.25, flexShrink: 0 }} />
+              <Box>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                  This image already has masks
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Full image segmentation covers the whole image. New masks are trimmed against
+                  existing ones, which can produce unwanted mask artifacts where they overlap.
+                </Typography>
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+              <Button
+                data-testid="warning-cancel-button"
+                onClick={() => setShowOverwriteWarning(false)}
+                color="inherit"
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="run-anyway-button"
+                onClick={handleRunAnyway}
+                variant="contained"
+                color="warning"
+                disabled={isRunning}
+              >
+                Run Anyway
+              </Button>
+            </Box>
+          </Box>
+        ) : (
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
 
           {/* Backend selector — always visible, not part of either section */}
@@ -484,7 +553,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                   }
                   const option = MICRO_SAM_MODEL_OPTIONS.find((o) => o.modelType === value);
                   const label = option ? option.label.replace(' (default)', '') : value;
-                  return microSamAvailable ? `μSAM (${label})` : `μSAM (${label}, unavailable)`;
+                  const marker = option?.group === 'em_organelles' ? 'EM' : 'LM';
+                  return microSamAvailable
+                    ? `μSAM ${label} (${marker})`
+                    : `μSAM ${label} (${marker}, unavailable)`;
                 }}
                 sx={{ fontSize: '0.8rem', fontWeight: 700, ml: 'auto', minWidth: 150 }}
               >
@@ -496,16 +568,20 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                     <ListSubheader key={`header-${group}`} sx={{ fontSize: '0.75rem', lineHeight: '2rem' }}>
                       {MICRO_SAM_GROUP_LABELS[group]}
                     </ListSubheader>,
-                    ...optionsInGroup.map((option) => (
-                      <MenuItem
-                        key={option.modelType}
-                        value={option.modelType}
-                        disabled={!microSamAvailable}
-                        sx={{ fontSize: '0.8rem' }}
-                      >
-                        {option.label}
-                      </MenuItem>
-                    )),
+                    ...optionsInGroup.map((option) => {
+                      const shortLabel = option.label.replace(' (default)', '');
+                      const marker = option.group === 'em_organelles' ? 'EM' : 'LM';
+                      return (
+                        <MenuItem
+                          key={option.modelType}
+                          value={option.modelType}
+                          disabled={!microSamAvailable}
+                          sx={{ fontSize: '0.8rem' }}
+                        >
+                          {`${shortLabel} (${marker})`}
+                        </MenuItem>
+                      );
+                    }),
                   ];
                 })}
                 <Divider sx={{ my: 0.5 }} />
@@ -587,7 +663,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
               )}
               {onRun && (
                 <Button
-                  onClick={() => { handleApply(); onRun(config); }}
+                  onClick={handleRunClick}
                   variant="contained"
                   color="secondary"
                   disabled={isRunning || bothUnavailable}
@@ -711,7 +787,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
                     {onRun && (
                       <Button
-                        onClick={() => { handleApply(); onRun(config); }}
+                        onClick={handleRunClick}
                         variant="contained"
                         color="secondary"
                         disabled={isRunning || bothUnavailable}
@@ -841,23 +917,26 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
           )}
 
         </Grid>
-      </DialogContent>
-      <DialogActions>
-        {showReset && (
-          <Button onClick={handleReset} color="inherit" sx={{ mr: 'auto' }}>
-            Reset to Default
-          </Button>
         )}
-        <Button
-          onClick={handleDone}
-          color={isResultReady ? 'primary' : 'inherit'}
-          variant={isResultReady ? 'outlined' : 'text'}
-          disabled={postprocessing}
-          startIcon={postprocessing && isResultReady ? <CircularProgress size={16} /> : undefined}
-        >
-          {isResultReady ? 'Done' : 'Cancel'}
-        </Button>
-      </DialogActions>
+      </DialogContent>
+      {!showOverwriteWarning && (
+        <DialogActions>
+          {showReset && (
+            <Button onClick={handleReset} color="inherit" sx={{ mr: 'auto' }}>
+              Reset to Default
+            </Button>
+          )}
+          <Button
+            onClick={handleDone}
+            color={isResultReady ? 'primary' : 'inherit'}
+            variant={isResultReady ? 'outlined' : 'text'}
+            disabled={postprocessing}
+            startIcon={postprocessing && isResultReady ? <CircularProgress size={16} /> : undefined}
+          >
+            {isResultReady ? 'Done' : 'Cancel'}
+          </Button>
+        </DialogActions>
+      )}
     </Dialog>
   );
 };
@@ -902,6 +981,9 @@ export function useCellposeConfig(opts?: {
   /** Passed straight through to ``CellposeConfigDialogProps`` — see that
    *  prop's doc. */
   embeddedModelTypesLoading?: boolean;
+  /** Passed straight through to ``CellposeConfigDialogProps`` — see that
+   *  prop's doc. */
+  getExistingMaskCount?: () => number;
 }): {
   config: CellposeConfig;
   openDialog: () => void;
@@ -961,6 +1043,7 @@ export function useCellposeConfig(opts?: {
       onRecomputeEmbedding={opts?.onRecomputeEmbedding}
       embeddedModelTypes={opts?.embeddedModelTypes}
       embeddedModelTypesLoading={opts?.embeddedModelTypesLoading}
+      getExistingMaskCount={opts?.getExistingMaskCount}
     />
   );
 
