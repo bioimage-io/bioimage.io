@@ -74,6 +74,11 @@ test.describe('Full Image Segmentation (Cellpose-SAM)', () => {
     const runButton = dialog.getByRole('button', { name: 'Compute Flow Field', exact: true });
     await expect(runButton).toBeEnabled({ timeout: 10000 });
     await runButton.click();
+    // Round 37 (#87) added a blocking warning when the image already carries
+    // masks. Harmless no-op on a clean image, required to reach the run
+    // otherwise.
+    const runAnyway = page.getByRole('button', { name: /Run Anyway/i });
+    if (await runAnyway.count()) await runAnyway.first().click();
 
     // Wait for the run to finish: either a success banner with a mask count,
     // or the "no masks" warning banner (the bug's exact reported symptom).

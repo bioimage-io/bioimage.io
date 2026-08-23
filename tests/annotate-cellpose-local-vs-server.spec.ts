@@ -106,6 +106,11 @@ async function runCellposeSAM(page: import('@playwright/test').Page) {
   const runButton = dialog.getByRole('button', { name: 'Compute Flow Field', exact: true });
   await expect(runButton).toBeEnabled({ timeout: 10000 });
   await runButton.click();
+  // Round 37 (#87) added a blocking warning when the image already carries
+  // masks. Harmless no-op on a clean image, required to reach the run
+  // otherwise.
+  const runAnyway = page.getByRole('button', { name: /Run Anyway/i });
+  if (await runAnyway.count()) await runAnyway.first().click();
 
   const resultBanner = page.getByText(/Added \d+ masks? from Cellpose|No masks detected by Cellpose/);
   await expect(resultBanner).toBeVisible({ timeout: 120000 });
