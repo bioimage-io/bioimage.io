@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID } from '../utils/bioengineService';
+import { BIOIMAGEIO_CELLPOSE3_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 
-export interface UseCellpose4RunnerResult {
+export interface UseCellpose3RunnerResult {
   /** `true` once the supported-model list has been fetched successfully. */
   available: boolean;
   /** `true` until the first probe attempt has settled, successfully or not. */
   loading: boolean;
-  /** The KTH-only cellpose4-runner service id. Always this value, no deNBI counterpart. */
+  /** The cellpose3-runner service id. */
   serviceId: string;
-  /** Whether the given model id is in cellpose4-runner's supported list. `false` until the list is known. */
+  /** Whether the given model id is in cellpose3-runner's supported list. `false` until the list is known. */
   isSupported: (modelId?: string | null) => boolean;
 }
 
@@ -19,8 +19,15 @@ const PROBE_TIMEOUT_MS = 15000;
 // Hypha exposes every service method over plain HTTP as well, so the list can
 // be read with a single unauthenticated GET instead of opening an RPC
 // websocket. That is both faster and independent of the login state.
+//
+// `_mode` is required, not optional: the service id is unqualified, and once
+// more than one worker registers cellpose3-runner an unmoded GET answers 400
+// ("Multiple services found") instead of picking one. `first` rather than the
+// `select:min:get_load` the inference calls use, because every replica returns
+// the same static list and skipping the load query keeps the probe cheap.
 const SUPPORTED_MODELS_URL =
-  `${HYPHA_SERVER_URL}/${BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID.replace('/', '/services/')}/list_supported_models`;
+  `${HYPHA_SERVER_URL}/${BIOIMAGEIO_CELLPOSE3_RUNNER_SERVICE_ID.replace('/', '/services/')}`
+  + '/list_supported_models?_mode=first';
 
 // In-memory only, deliberately: the list lives for the life of the tab and a
 // reload re-fetches it, so a newly supported model shows up without anyone
@@ -49,7 +56,7 @@ async function fetchSupportedModels(signal: AbortSignal): Promise<string[]> {
   // detail page has finished rendering, so the Test Run button never has to
   // show a wrong status first.
   const res = await fetch(SUPPORTED_MODELS_URL, { signal });
-  if (!res.ok) throw new Error(`cellpose4-runner responded ${res.status}`);
+  if (!res.ok) throw new Error(`cellpose3-runner responded ${res.status}`);
   const models = await res.json();
   return Array.isArray(models) ? models : [];
 }
@@ -63,7 +70,7 @@ async function runProbe(): Promise<void> {
     // Worker down, still starting, or offline. Keep retrying in the
     // background so a page opened before the cluster is reachable picks the
     // route up without a reload.
-    console.warn(`[cellpose4-runner] probe failed, retrying in ${RETRY_INTERVAL_MS / 1000}s:`, err);
+    console.warn(`[cellpose3-runner] probe failed, retrying in ${RETRY_INTERVAL_MS / 1000}s:`, err);
     scheduleRetry();
   } finally {
     clearTimeout(deadline);
@@ -76,7 +83,7 @@ async function runProbe(): Promise<void> {
  * Kick off the background probe. Safe to call any number of times; only the
  * first call starts it.
  */
-export function startCellpose4Probe(): void {
+export function startCellpose3Probe(): void {
   if (probeStarted) return;
   probeStarted = true;
   void runProbe();
@@ -84,13 +91,13 @@ export function startCellpose4Probe(): void {
 
 // Start as soon as the bundle evaluates rather than on first mount, so the
 // list is already in flight while the page is still loading.
-startCellpose4Probe();
+startCellpose3Probe();
 
-export function useCellpose4Runner(): UseCellpose4RunnerResult {
+export function useCellpose3Runner(): UseCellpose3RunnerResult {
   const [, forceUpdate] = useState(0);
 
   useEffect(() => {
-    startCellpose4Probe();
+    startCellpose3Probe();
     const listener = () => forceUpdate((n) => n + 1);
     listeners.add(listener);
     return () => {
@@ -98,6 +105,9 @@ export function useCellpose4Runner(): UseCellpose4RunnerResult {
     };
   }, []);
 
+  // cellpose3-runner's allow-list accepts both the bare alias and the
+  // fully-qualified `bioimage-io/<name>` form, and answers with bare aliases.
+  // Callers pass the bare alias, so compare on that.
   const isSupported = (modelId?: string | null): boolean => {
     if (!supportedModels || !modelId) return false;
     return supportedModels.includes(modelId);
@@ -106,7 +116,7 @@ export function useCellpose4Runner(): UseCellpose4RunnerResult {
   return {
     available: supportedModels !== null,
     loading: !firstAttemptSettled,
-    serviceId: BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID,
+    serviceId: BIOIMAGEIO_CELLPOSE3_RUNNER_SERVICE_ID,
     isSupported,
   };
 }

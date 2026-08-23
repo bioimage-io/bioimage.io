@@ -35,10 +35,17 @@ export const BIOIMAGEIO_WORKER_SERVICE_ID =
 // per-site via useModelRunners().
 export const BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID = BIOIMAGEIO_KTH_MODEL_RUNNER_SERVICE_ID;
 
-// The Cellpose-4 runner (Cellpose-SAM etc.) is a KTH-only companion app to
-// model-runner — there is no deNBI deployment.
-export const BIOIMAGEIO_KTH_CELLPOSE4_RUNNER_SERVICE_ID =
-  `bioimage-io/${BIOIMAGEIO_KTH_WORKER_CLIENT_GLOB}:cellpose4-runner`;
+// Workspace-scoped model-runner, deliberately NOT client-qualified so it
+// load-balances across every `bioimage-io` worker that registers the app.
+// Used by callers that always want "whichever worker is free" rather than a
+// user-selected site — currently the Annotate page's Cellpose-SAM path.
+// The per-site ids above stay in use for the Run Model site toggle.
+export const BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID = 'bioimage-io/model-runner';
+
+// The Cellpose-3 runner serves the handful of zoo models whose architecture
+// needs a Cellpose 3.x runtime; model-runner's own runtime ships Cellpose 4
+// and rejects them. Unqualified for the same reason as above.
+export const BIOIMAGEIO_CELLPOSE3_RUNNER_SERVICE_ID = 'bioimage-io/cellpose3-runner';
 
 export type RunnerSite = 'kth' | 'denbi';
 

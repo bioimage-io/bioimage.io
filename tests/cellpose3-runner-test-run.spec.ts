@@ -1,24 +1,27 @@
 import { test, expect } from '@playwright/test';
 
-// Verifies that Cellpose-4 models (which model-runner can never run, and so
-// never get a passing bioengineStatus test-report) still get a working
-// "Test Run Model" button, routed to the KTH-only cellpose4-runner instead of
-// model-runner, with the KTH/deNBI toggle locked to KTH.
+// Verifies that Cellpose-3 models (which model-runner 2.0.0 refuses on infer,
+// because its runtime ships Cellpose 4 and those architectures were dropped)
+// still get a working "Test Run Model" button, routed to cellpose3-runner
+// instead of model-runner.
 //
-// Flow: detail page -> "Test Run Model" enabled despite no bioengineStatus ->
-// open Advanced Options -> deNBI disabled / KTH selected -> "Load Sample
-// Image" -> "Run Model" -> (RUN_GPU=1) inference completes successfully.
+// Flow: detail page -> "Test Run Model" enabled -> open Advanced Options ->
+// the KTH/deNBI site toggle is absent (the cellpose3-runner service id is
+// unqualified, so the cluster is picked by load, not by the user) and the
+// Service ID field advertises cellpose3-runner -> "Load Sample Image" ->
+// "Run Model" -> (RUN_GPU=1) inference completes successfully.
 //
-// Target: idealistic-eagle (Cellpose-SAM), currently the only model reported
-// by cellpose4-runner.list_supported_models() on KTH.
+// Target: philosophical-panda, one of the five ids reported by
+// cellpose3-runner.list_supported_models(). It runs CPU-only, ~1 min.
 //
 // Requires: HYPHA_TOKEN env var; dev server (pnpm start).
 
-const MODEL_URL_ID = 'idealistic-eagle';
+const MODEL_URL_ID = 'philosophical-panda';
+const CELLPOSE3_SERVICE_ID = 'bioimage-io/cellpose3-runner';
 const injectToken = (token: string) => ({ tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 
-test.describe('Cellpose-4 runner routing', () => {
-  test('Test Run Model works for a cellpose4-runner-supported model, KTH locked', async ({ page }) => {
+test.describe('Cellpose-3 runner routing', () => {
+  test('Test Run Model works for a cellpose3-runner-supported model', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -44,23 +47,17 @@ test.describe('Cellpose-4 runner routing', () => {
     }
     expect(loaded, 'model detail page never resolved the artifact').toBe(true);
 
-    // The decisive routing assertion: enabled despite this model never
-    // passing (or even being scored by) the model-runner-based bioengineStatus
-    // check, because cellpose4-runner support overrides that gate.
     await expect(testRun).toBeEnabled({ timeout: 60000 });
     await testRun.click();
 
-    // ---- KTH/deNBI lock assertion ----
+    // ---- Routing assertions ----
     await page.getByRole('button', { name: 'Advanced Options' }).click();
-    const kth = page.getByRole('radio', { name: 'KTH' });
-    const denbi = page.getByRole('radio', { name: 'deNBI' });
-    await expect(kth).toHaveAttribute('aria-checked', 'true', { timeout: 30000 });
-    await expect(denbi).toBeDisabled();
-    await expect(denbi).toHaveAttribute(
-      'title',
-      /Cellpose-4 models .* only run on the KTH cluster/
-    );
-    await page.screenshot({ path: 'outputs/pw/cellpose4-kth-locked.png', fullPage: false });
+    // The site toggle is hidden for these models: an unqualified service id
+    // means the toggle could not steer anything, so showing it would mislead.
+    await expect(page.getByRole('radio', { name: 'KTH' })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: 'deNBI' })).toHaveCount(0);
+    // The Service ID field advertises the runner the next init() will use.
+    await expect(page.getByPlaceholder(CELLPOSE3_SERVICE_ID)).toBeVisible({ timeout: 30000 });
     await page.keyboard.press('Escape');
 
     // ---- Run flow ----
@@ -77,7 +74,6 @@ test.describe('Cellpose-4 runner routing', () => {
       await runModel.click();
       await expect(page.getByText('Model Inference in Progress')).toBeVisible({ timeout: 30000 });
       await expect(page.getByText('Model execution completed successfully!')).toBeVisible({ timeout: 300000 });
-      await page.screenshot({ path: 'outputs/pw/cellpose4-run-complete.png', fullPage: false });
     }
   });
 });
