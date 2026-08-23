@@ -16,6 +16,22 @@ export const LABEL_PALETTE: Array<[number, number, number]> = [
   [244, 63, 94],
 ];
 
+// Round 35b (amended): a skeleton box with a picture-frame icon and loading
+// text, used for the annotation view below (its original home), the raw view
+// while switching, and the true-empty-state fallback at the bottom of this
+// file, so all three loading states look identical.
+const ImageLoadingPlaceholder: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div
+    className={`flex flex-col items-center justify-center bg-black/5 rounded-lg animate-pulse text-gray-400 ${className}`}
+    style={{ minHeight: '300px' }}
+  >
+    <svg className="w-16 h-16 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+    <p className="text-sm">Loading image...</p>
+  </div>
+);
+
 // Recolors a label-id-encoded mask PNG (label id packed into the red/green
 // channels as `(r << 8) | g`) using a fixed palette, entirely client-side via
 // a canvas. Shared by ImageViewer (session dashboard) and the dataset
@@ -35,6 +51,10 @@ export const ColorizedMask = ({
 
   useEffect(() => {
     let active = true;
+    // Round 35b: clear the previously-colorized frame immediately on every
+    // src change, not just the first mount, so switching images never shows
+    // a stale colorized mask while the new one is being decoded.
+    setDataUrl(null);
 
     const loadAndColorize = () => {
       const img = new Image();
@@ -98,14 +118,7 @@ export const ColorizedMask = ({
   }, [src, onError]);
 
   if (!dataUrl) {
-    return (
-      <div className={`flex items-center justify-center bg-black/5 rounded-lg ${className}`} style={{ minHeight: '300px' }}>
-        <svg className="w-8 h-8 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      </div>
-    );
+    return <ImageLoadingPlaceholder className={className} />;
   }
 
   return <img src={dataUrl} alt={alt} className={className} />;
@@ -120,6 +133,11 @@ const ANNOTATION_FALLBACK_SVG =
 export interface ImagePreviewProps {
   viewMode: 'raw' | 'annotated';
   imageUrl: string;
+  // True while the raw-image URL for the current selection is being fetched.
+  // Round 35b: switching images must not leave the previous one on screen,
+  // so while this is true the placeholder renders instead of `imageUrl`
+  // even if a (now-stale) URL from the prior selection is still set.
+  imageLoading?: boolean;
   annotationUrl: string;
   hasAnnotation: boolean;
   alt: string;
@@ -140,6 +158,7 @@ export interface ImagePreviewProps {
 export const ImagePreview: React.FC<ImagePreviewProps> = ({
   viewMode,
   imageUrl,
+  imageLoading,
   annotationUrl,
   hasAnnotation,
   alt,
@@ -177,6 +196,10 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         style: { touchAction: 'none' as const },
       }
     : {};
+
+  if (viewMode === 'raw' && imageLoading) {
+    return <ImageLoadingPlaceholder className="w-full h-full" />;
+  }
 
   if (viewMode === 'raw' && imageUrl) {
     return (
@@ -221,12 +244,5 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
     );
   }
 
-  return (
-    <div className="text-center text-gray-400">
-      <svg className="w-16 h-16 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-      <p>Loading image...</p>
-    </div>
-  );
+  return <ImageLoadingPlaceholder className="w-full h-full" />;
 };
