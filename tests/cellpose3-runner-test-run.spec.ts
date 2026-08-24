@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 // the KTH/deNBI site toggle is absent (the cellpose3-runner service id is
 // unqualified, so the cluster is picked by load, not by the user) and the
 // Service ID field advertises cellpose3-runner -> "Load Sample Image" ->
-// "Run Model" -> (RUN_GPU=1) inference completes successfully.
+// "Run Model" -> (RUN_INFERENCE=1) inference completes successfully.
 //
 // Target: philosophical-panda, one of the five ids reported by
 // cellpose3-runner.list_supported_models(). It runs CPU-only, ~1 min.
@@ -69,8 +69,9 @@ test.describe('Cellpose-3 runner routing', () => {
     const runModel = page.getByRole('button', { name: 'Run Model' });
     await expect(runModel).toBeEnabled({ timeout: 60000 });
 
-    const runGpu = process.env.RUN_GPU === '1';
-    if (runGpu) {
+    // Gate is about wall-clock, not hardware: cellpose3-runner is CPU-only.
+    const runInference = process.env.RUN_INFERENCE === '1';
+    if (runInference) {
       await runModel.click();
       await expect(page.getByText('Model Inference in Progress')).toBeVisible({ timeout: 30000 });
       await expect(page.getByText('Model execution completed successfully!')).toBeVisible({ timeout: 300000 });
