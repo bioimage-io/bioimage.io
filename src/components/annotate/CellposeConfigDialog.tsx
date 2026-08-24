@@ -33,7 +33,7 @@ import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS }
 
 /** Which segmentation backend the Full Image Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
- *  the published 'idealistic-eagle' model via cellpose4-runner.
+ *  the published 'idealistic-eagle' model via model-runner.
  *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs). */
 export type SegBackend = 'cellpose' | 'microsam';
 
@@ -162,7 +162,7 @@ interface CellposeConfigDialogProps {
   /** Whether the μSAM backend is reachable. Gates the μSAM option in the
    *  backend selector. */
   microSamAvailable?: boolean;
-  /** Whether the Cellpose-SAM backend (cellpose4-runner) is reachable. Gates
+  /** Whether the Cellpose-SAM backend (model-runner) is reachable. Gates
    *  the Cellpose-SAM option in the backend selector. */
   cellposeAvailable?: boolean;
   /** Fires once whenever the dialog transitions to open, so the caller can
@@ -958,7 +958,7 @@ export function useCellposeConfig(opts?: {
   completedRunId?: number;
   onShowPreview?: (config: CellposeConfig) => Promise<void>;
   microSamAvailable?: boolean;
-  /** Whether the Cellpose-SAM backend (cellpose4-runner) is reachable. */
+  /** Whether the Cellpose-SAM backend (model-runner) is reachable. */
   cellposeAvailable?: boolean;
   /** Fires whenever the dialog opens, for a cheap availability re-check. */
   onDialogOpen?: () => void;

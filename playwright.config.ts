@@ -11,7 +11,9 @@ export default defineConfig({
   testDir: './tests',
   timeout: 30000,
   use: {
-    baseURL: 'http://localhost:3000',
+    // Override with E2E_BASE_URL when the dev server is on another port,
+    // e.g. a second checkout running alongside the default one.
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
     headless: true,
   },
 });

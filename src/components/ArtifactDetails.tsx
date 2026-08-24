@@ -48,7 +48,7 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { useCellpose4Runner } from '../hooks/useCellpose4Runner';
+import { useCellpose3Runner } from '../hooks/useCellpose3Runner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
 // The BioEngine inference-check status is derived from the model's test-report
@@ -103,13 +103,15 @@ const ArtifactDetails = () => {
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
   const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
-  // Cellpose-4 models (e.g. Cellpose-SAM) never pass the model-runner-based
-  // bioengineStatus check (model-runner can't run them at all), so their Test
-  // Run Model routes to the KTH-only cellpose4-runner instead once supported.
-  const cellpose4 = useCellpose4Runner();
+  // Cellpose-3 models can't be run by model-runner at all, so their Run Model
+  // routes to cellpose3-runner instead once supported. Their bioengineStatus
+  // comes from `test`, which still accepts them (it runs in each model's own
+  // conda env), so it normally passes on its own; the isCellpose3Model escape
+  // hatch keeps the button live even when that report is stale or failed.
+  const cellpose3 = useCellpose3Runner();
   const modelId = selectedResource?.id ? selectedResource.id.split('/').pop() : undefined;
-  const isCellpose4Model = cellpose4.isSupported(modelId);
-  const canTestRun = bioengineStatus?.status === 'passed' || isCellpose4Model;
+  const isCellpose3Model = cellpose3.isSupported(modelId);
+  const canTestRun = bioengineStatus?.status === 'passed' || isCellpose3Model;
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -794,7 +796,7 @@ const ArtifactDetails = () => {
                   // button's HintTooltip.
                   const testRunHint = !isLoggedIn
                     ? 'Please log in to test run models'
-                    : (!bioengineStatus && !isCellpose4Model)
+                    : (!bioengineStatus && !isCellpose3Model)
                       ? 'This model has not been validated on the BioEngine yet.'
                       : undefined;
                   return (
@@ -805,13 +807,13 @@ const ArtifactDetails = () => {
                       data-highlight-login={!isLoggedIn && isTestButtonHovered ? 'true' : 'false'}
                     >
                       <Button
-                        // Stay disabled until the cellpose4-runner probe settles.
-                        // A Cellpose-4 model can carry a FAILED bioengineStatus
+                        // Stay disabled until the cellpose3-runner probe settles.
+                        // A Cellpose-3 model can carry a FAILED bioengineStatus
                         // (model-runner cannot run it), which alone enables the
-                        // button. Clicking in that window reads isCellpose4Model
+                        // button. Clicking in that window reads isCellpose3Model
                         // as false and raises the BioEngine failure dialog
-                        // instead of routing to cellpose4-runner.
-                        disabled={(!bioengineStatus && !isCellpose4Model) || !isLoggedIn || cellpose4.loading}
+                        // instead of routing to cellpose3-runner.
+                        disabled={(!bioengineStatus && !isCellpose3Model) || !isLoggedIn || cellpose3.loading}
                         onClick={() => {
                           if (canTestRun) {
                             handleRunModel();
@@ -830,9 +832,9 @@ const ArtifactDetails = () => {
                               <CheckCircleIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
-                        ) : (bioengineStatus && !cellpose4.loading) ? (
-                          // Held back while the cellpose4-runner probe is in
-                          // flight: a Cellpose-4 model always carries a FAILED
+                        ) : (bioengineStatus && !cellpose3.loading) ? (
+                          // Held back while the cellpose3-runner probe is in
+                          // flight: a Cellpose-3 model can carry a FAILED
                           // bioengineStatus, so showing the failure icon here
                           // would flash a wrong status before flipping to the
                           // passing one a moment later.

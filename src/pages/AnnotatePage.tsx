@@ -168,7 +168,7 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
     ? currentImageEmbeddingEntry.model_types ?? [currentImageEmbeddingEntry.model_type]
     : [];
 
-  // Aborts the in-flight cellpose4-runner request (flows path or plain
+  // Aborts the in-flight model-runner request (flows path or plain
   // server fallback) when the user cancels out of the dialog mid-run. Null
   // whenever no Cellpose run is in flight, so calling .abort() unconditionally
   // from the dialog's Cancel button is always safe.
@@ -1095,7 +1095,7 @@ print('CLAHE packages ready')
     // A fresh controller per run. The Cancel button on the config dialog
     // calls .abort() unconditionally (it's a no-op once cellposeAbortRef is
     // cleared below), so cancelling mid-run stops polling and discards any
-    // late cellpose4-runner result instead of applying it.
+    // late model-runner result instead of applying it.
     const abortController = new AbortController();
     cellposeAbortRef.current = abortController;
     const { signal } = abortController;

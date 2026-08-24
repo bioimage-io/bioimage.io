@@ -1,5 +1,5 @@
 // Round-31 (colab-rework-plan.md, 2026-08-18): the deployed segmentation
-// backend (cellpose4-runner) has a 256x256 input minimum. Since main commit
+// backend (model-runner) has a 256x256 input minimum. Since main commit
 // 4e84090 the client upsamples undersized images to that floor so they still
 // work, just with reduced quality. This module is the single place the
 // 256px threshold and its user-facing copy are defined, so the annotate view

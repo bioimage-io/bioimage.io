@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { hyphaWebsocketClient } from 'hypha-rpc';
-import { resolveCellpose4RunnerService, pollCellpose4Infer, CELLPOSE4_RUNNER_MODEL_ID } from '../../../utils/cellpose4RunnerService';
+import { resolveRunnerService, pollRunnerInfer, singleOutput } from '../../../utils/runnerService';
+import { BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID } from '../../../utils/bioengineService';
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
 import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
 import { HYPHA_SERVER_URL } from '../../../config/hypha';
@@ -63,13 +64,14 @@ export interface CellposeParams {
   min_mask_area?: number;
   /** Representative object diameter in display-space pixels. When set, the
    *  image is rescaled (frontend-only, before the network call) so objects
-   *  match Cellpose-SAM's expected ~30 px working diameter. cellpose4-runner
+   *  match Cellpose-SAM's expected ~30 px working diameter. model-runner
    *  has no diameter parameter of its own; the server never sees this value,
    *  only the already-rescaled pixels. Ignored by the μSAM path. */
   diameter?: number | null;
-  /** Cellpose-SAM only. Forwarded to the runner's infer() call: runs the
-   *  model twice, feeding the first pass's raw flow field back in as input
-   *  to the second pass, whose output is what gets postprocessed. */
+  /** Cellpose-SAM only. Runs the model twice, feeding the first pass's raw
+   *  flow field back in as input to the second pass, whose output is what
+   *  gets postprocessed. Implemented as two infer() calls (see
+   *  runCellposeInfer); the runner has no server-side flag for it. */
   two_pass?: boolean;
 }
 
@@ -175,7 +177,7 @@ export interface AnnotationDataService {
   runMicroSamFromEmbedding: (npzUrl: string, width: number, height: number, params?: CellposeParams) => Promise<CellposeMask[]>;
   /** Fetch raw (dP, cellprob) for client-side mask-gen tuning. The network
    *  output only depends on the image (always the published 'idealistic-eagle'
-   *  model via cellpose4-runner); ``params`` mask-gen knobs are ignored here
+   *  model via model-runner); ``params`` mask-gen knobs are ignored here
    *  and consumed by the client-side compute_masks_np instead. */
   runCellposeFlows: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeFlowsResult>;
   /** Ask the broker for a role on this dataset (colab-rework-plan.md §13).
@@ -222,7 +224,7 @@ function decodeLabelMask(maskResult: any): {
   let buffer = maskResult._rvalue;
   let shape = maskResult._rshape as number[];
   const dtype = maskResult._rdtype as string;
-  // cellpose4-runner returns a leading batch axis, e.g. (1, 1, H, W) instead
+  // The runner returns a leading batch axis, e.g. (1, 1, H, W) instead
   // of the bare (H, W) this function used to assume. Drop leading singleton
   // dims so w/h always read the real trailing spatial dims; without this,
   // w and h silently read as 1 and every mask decodes to zero polygons with
@@ -257,13 +259,85 @@ function decodeLabelMask(maskResult: any): {
  *  512 gives 5-15 min for the same images (too slow for interactive use). */
 const CELLPOSE_MAX_DIM = 256;
 
-/** Hard minimum for BOTH dimensions of the image sent to cellpose4-runner:
+/** Hard minimum for BOTH dimensions of the image sent to the runner:
  *  the served model's input axes declare min 256 on y and x, and the server
  *  rejects anything smaller. This floor overrides both the CELLPOSE_MAX_DIM
  *  soft cap (a non-square image downsampled to long side 256 would land
  *  below 256 on the short side) and the diameter-driven rescale (a large
  *  measured diameter can otherwise shrink the image below the minimum). */
 const CELLPOSE_MIN_DIM = 256;
+
+/** The published Cellpose-SAM model the Annotate page always runs. Pinned
+ *  because the page deliberately offers no model picker on this path. */
+const ANNOTATE_CELLPOSE_MODEL_ID = 'idealistic-eagle';
+
+/** Op id of the Cellpose flow-dynamics step in the model's RDF postprocessing
+ *  chain. Passing a dict for it overrides that step's kwargs; passing `null`
+ *  drops the step, so the runner hands back the raw 3-channel flow field
+ *  (dy, dx, cellprob) rather than an integer label mask. */
+const CELLPOSE_FLOW_DYNAMICS_OP = 'cellpose_flow_dynamics';
+
+/**
+ * Run one Cellpose-SAM inference on model-runner, optionally as a two-pass run.
+ *
+ * Two-pass used to be a server-side flag. model-runner has no equivalent, so
+ * it is reproduced here the way the server did it: run the model once with
+ * flow dynamics dropped, then feed the raw flow field back through the full
+ * pipeline as the second pass's input.
+ *
+ * @param postprocessing Override dict for the final pass, or undefined to run
+ *   the RDF's postprocessing chain as declared.
+ */
+async function runCellposeInfer(
+  service: any,
+  inputArray: any,
+  postprocessing: Record<string, any> | undefined,
+  twoPass: boolean,
+  signal?: AbortSignal,
+): Promise<any> {
+  const call = async (inputs: any, pp?: Record<string, any>) => {
+    // The runner takes a single `inputs` value (not a list) and has no
+    // model/diameter/niter knobs of its own.
+    const args: Record<string, any> = {
+      model_id: ANNOTATE_CELLPOSE_MODEL_ID,
+      inputs,
+      _rkwargs: true,
+    };
+    if (pp) args.postprocessing = pp;
+    // infer() returns a request_id immediately; poll until the job completes.
+    const requestId = await service.infer(args);
+    console.log('[useHyphaService] model-runner request submitted:', requestId);
+    return pollRunnerInfer(service, requestId, signal, 'model-runner');
+  };
+
+  if (!twoPass) return call(inputArray, postprocessing);
+
+  const first = await call(inputArray, { [CELLPOSE_FLOW_DYNAMICS_OP]: null });
+  const flowField = singleOutput(first, 'labels');
+  if (!flowField || flowField._rtype !== 'ndarray') {
+    throw new Error('Two-pass Cellpose failed: the first pass returned no flow field.');
+  }
+  // Re-send the returned buffer as-is, only reshaped: the runner tags the
+  // output with a leading batch axis, while the second pass takes the same
+  // bare (C, H, W) layout the first pass was given. Nothing is decoded and
+  // re-encoded in between.
+  let shape = flowField._rshape as number[];
+  while (shape.length > 3 && shape[0] === 1) {
+    shape = shape.slice(1);
+  }
+  // _rvalue arrives as a Uint8Array or a bare ArrayBuffer depending on the
+  // transport; msgpack only serializes the former as binary.
+  const raw = flowField._rvalue;
+  return call(
+    {
+      _rtype: 'ndarray',
+      _rvalue: raw instanceof Uint8Array ? raw : new Uint8Array(raw),
+      _rshape: shape,
+      _rdtype: flowField._rdtype,
+    },
+    postprocessing,
+  );
+}
 
 /** Long-side pixel cap for the μSAM image encoder. SAM resizes its input to
  *  1024 internally, so 1024 is the quality sweet spot (256 loses detail); the
@@ -531,7 +605,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   microSamAvailable: boolean;
   /** Tear down and re-run the connect flow from scratch (same config). */
   retry: () => void;
-  /** Re-check cellpose4-runner and micro-sam reachability without reconnecting. */
+  /** Re-check model-runner and micro-sam reachability without reconnecting. */
   probeAvailability: () => void;
 } {
   const [service, setService] = useState<AnnotationDataService | null>(null);
@@ -604,7 +678,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           console.log('[useHyphaService] Using fine-tuned micro-sam session:', microSamSessionId, microSamModelType);
         }
 
-        // Cellpose (cellpose4-runner) and micro-sam availability: probed at
+        // Cellpose (model-runner) and micro-sam availability: probed at
         // connect time, but fired as non-blocking promises rather than
         // awaited. Neither probe gates anything `wrappedService`'s methods
         // actually need at call time — `resolveCellposeService` below and
@@ -616,26 +690,28 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         // start as soon as the single `connectToServer` round-trip above
         // completes.
         //
-        // cellpose4-runner is stateless across replicas (its resident-model
+        // model-runner is stateless across replicas (its resident-pipeline
         // cache is a performance optimization, not per-session state), so
         // unlike cellpose-finetuning there is nothing to pin — see
-        // utils/cellpose4RunnerService.ts.
-        resolveCellpose4RunnerService(server)
+        // utils/runnerService.ts. The service id is deliberately unqualified
+        // so the call lands on whichever worker is least loaded.
+        resolveRunnerService(server, BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID)
           .then(() => {
-            console.log('[useHyphaService] cellpose4-runner reachable');
+            console.log('[useHyphaService] model-runner reachable');
             if (!cancelled) setCellposeAvailable(true);
           })
           .catch((err) => {
-            console.warn('[useHyphaService] cellpose4-runner not reachable:', err);
+            console.warn('[useHyphaService] model-runner not reachable:', err);
             if (!cancelled) setCellposeAvailable(false);
           });
 
-        /** Resolve a fresh handle to the cellpose4-runner service per call.
+        /** Resolve a fresh handle to the model-runner service per call.
          *  Hypha service handles expire after a few minutes of inactivity;
          *  the symptom is ``Method expired or not found`` on the next
          *  infer. Cheap to resolve (one websocket round-trip) so we
          *  re-resolve unconditionally instead of caching + retrying. */
-        const resolveCellposeService = async () => resolveCellpose4RunnerService(server);
+        const resolveCellposeService = async () =>
+          resolveRunnerService(server, BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID);
 
         // micro-sam (μSAM) service probe. Unlike cellpose-finetuning there
         // is nothing to pin (μSAM is stateless across replicas), so both
@@ -673,7 +749,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           runCellpose: async (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose4-runner inference with params:', p);
+            console.log('[useHyphaService] Running model-runner Cellpose inference with params:', p);
 
             // Get image pixels as CHW RGB uint8 array (cellpose expects C,H,W format).
             // Images are rescaled to CELLPOSE_MAX_DIM (or by p.diameter, capped
@@ -690,27 +766,23 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            // cellpose4-runner always targets the published 'idealistic-eagle'
-            // model and takes a single `inputs` value (not a list). It has no
-            // model/diameter/niter knobs.
-            const inferArgs: Record<string, any> = {
-              model_id: CELLPOSE4_RUNNER_MODEL_ID,
-              inputs: inputArray,
-              _rkwargs: true,
-            };
-            if (p.flow_threshold != null) inferArgs.flow_threshold = p.flow_threshold;
-            if (p.cellprob_threshold != null) inferArgs.cellprob_threshold = p.cellprob_threshold;
-            if (p.two_pass) inferArgs.two_pass = true;
+            // The mask-gen thresholds are kwarg overrides on the RDF's
+            // flow-dynamics postprocessing step. Knobs the user left unset are
+            // omitted rather than sent as null, so the RDF defaults apply.
+            const dynamics: Record<string, any> = {};
+            if (p.flow_threshold != null) dynamics.flow_threshold = p.flow_threshold;
+            if (p.cellprob_threshold != null) dynamics.cellprob_threshold = p.cellprob_threshold;
+            const postprocessing = Object.keys(dynamics).length
+              ? { [CELLPOSE_FLOW_DYNAMICS_OP]: dynamics }
+              : undefined;
 
-            // infer() returns a request_id immediately; poll until the job
-            // completes.
-            const requestId = await cellposeService.infer(inferArgs);
-            console.log('[useHyphaService] cellpose4-runner request submitted:', requestId);
-            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
+            const result = await runCellposeInfer(
+              cellposeService, inputArray, postprocessing, !!p.two_pass, signal,
+            );
 
-            const maskResult = result?.labels;
+            const maskResult = singleOutput(result, 'labels');
             if (!maskResult || maskResult._rtype !== 'ndarray') {
-              console.warn('[useHyphaService] No labels ndarray in cellpose4-runner result:', result);
+              console.warn('[useHyphaService] No labels ndarray in model-runner result:', result);
               return [];
             }
 
@@ -943,7 +1015,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           ): Promise<CellposeFlowsResult> => {
             const cellposeService = await resolveCellposeService();
             const p = params || {};
-            console.log('[useHyphaService] Running cellpose4-runner flows-only inference:', p);
+            console.log('[useHyphaService] Running model-runner flows-only inference:', p);
 
             const { chw, scaledW, scaledH } = await getImagePixelsCHW(imageUrl, width, height, CELLPOSE_MAX_DIM, p.diameter);
             const inputArray = {
@@ -953,23 +1025,21 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
               _rdtype: 'uint8',
             };
 
-            const inferArgs: Record<string, any> = {
-              model_id: CELLPOSE4_RUNNER_MODEL_ID,
-              inputs: inputArray,
-              return_flows: true,
-              _rkwargs: true,
-            };
-            if (p.two_pass) inferArgs.two_pass = true;
+            // Dropping the flow-dynamics step leaves the 2 flow components +
+            // cell probability as a single 3-channel ndarray. It still arrives
+            // under the model's declared output id, not a renamed member.
+            const result = await runCellposeInfer(
+              cellposeService,
+              inputArray,
+              { [CELLPOSE_FLOW_DYNAMICS_OP]: null },
+              !!p.two_pass,
+              signal,
+            );
 
-            const requestId = await cellposeService.infer(inferArgs);
-            const result = await pollCellpose4Infer(cellposeService, requestId, signal);
-
-            // return_flows=True collapses the 2 flow components + cell
-            // probability into a single 3-channel ndarray, member "flows".
-            const flows = result?.flows;
+            const flows = singleOutput(result, 'labels');
             if (!flows || flows._rtype !== 'ndarray') {
               throw new Error(
-                'cellpose4-runner did not return a flows payload (expected result.flows).',
+                'model-runner did not return a flow field for the flows-only request.',
               );
             }
 
@@ -983,7 +1053,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             }
             const data = new Float32Array(buffer);
 
-            // cellpose4-runner returns a leading batch axis, e.g. (1, 3, H, W)
+            // The runner returns a leading batch axis, e.g. (1, 3, H, W)
             // instead of the bare (3, H, W) this guard used to require, which
             // made it throw on every real response and always fall back to
             // the all-server masks path.
@@ -1056,7 +1126,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   const probeAvailability = useCallback(() => {
     const server = serverRef.current;
     if (!server) return;
-    resolveCellpose4RunnerService(server)
+    resolveRunnerService(server, BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID)
       .then(() => setCellposeAvailable(true))
       .catch(() => setCellposeAvailable(false));
     resolveMicroSamService(server)

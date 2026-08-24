@@ -9,7 +9,7 @@ import fs from 'fs';
 // gen in useHyphaService.ts's runCellposeFlows / runCellposeFlowsPipeline in
 // AnnotatePage.tsx) reportedly produced a dense periodic tiling of tiny
 // identical polygons, completely decoupled from the actual cells, while the
-// SERVER path (service.runCellpose, return_flows=False) on the same image
+// SERVER path (service.runCellpose, postprocessing left on) on the same image
 // was fine.
 //
 // This drives both paths against the same image and label and asserts the
@@ -72,9 +72,9 @@ async function gotoAnnotate(page: import('@playwright/test').Page, token: string
 
 async function runCellposeSAM(page: import('@playwright/test').Page) {
   const openDialogButton = page.locator('[data-tool="cellpose"]');
-  // The frontend's own cellpose4-runner reachability probe can fail once and
-  // retry on a 30s backoff (see "[warning] [cellpose4-runner] probe failed,
-  // retrying in 30s" -- a direct hypha-rpc client resolves the service fine,
+  // The frontend's own model-runner reachability probe can fail once and
+  // retry (see "[warning] [useHyphaService] model-runner not reachable"
+  // -- a direct hypha-rpc client resolves the service fine,
   // this is just registry-propagation lag right after page load), so allow
   // more than one retry cycle before concluding the tool is stuck disabled.
   await expect(openDialogButton).toBeEnabled({ timeout: 150000 });
@@ -106,6 +106,11 @@ async function runCellposeSAM(page: import('@playwright/test').Page) {
   const runButton = dialog.getByRole('button', { name: 'Compute Flow Field', exact: true });
   await expect(runButton).toBeEnabled({ timeout: 10000 });
   await runButton.click();
+  // Round 37 (#87) added a blocking warning when the image already carries
+  // masks. Harmless no-op on a clean image, required to reach the run
+  // otherwise.
+  const runAnyway = page.getByRole('button', { name: /Run Anyway/i });
+  if (await runAnyway.count()) await runAnyway.first().click();
 
   const resultBanner = page.getByText(/Added \d+ masks? from Cellpose|No masks detected by Cellpose/);
   await expect(resultBanner).toBeVisible({ timeout: 120000 });
@@ -186,7 +191,7 @@ test.describe('Cellpose-SAM local vs server mask-count sanity', () => {
 
     // --- Run 1: server path. Kernel is not ready yet this early, so
     // handleRunCellpose's `if (kernelReady)` gate is false and it goes
-    // straight to service.runCellpose (return_flows=False).
+    // straight to service.runCellpose (postprocessing left on).
     const serverBannerText = await runCellposeSAM(page);
     const serverMaskCount = parseMaskCount(serverBannerText);
     expect(serverMaskCount, `server run detected no masks: "${serverBannerText}"`).toBeGreaterThan(0);

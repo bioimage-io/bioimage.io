@@ -6,7 +6,7 @@ import fs from 'fs';
 //
 // Regression test for colab-rework-plan.md §18.6: "Cellpose-SAM detects no
 // masks". Root cause was a leading batch dimension (e.g. (1,1,H,W) instead
-// of (H,W)) in the ndarrays cellpose4-runner returns, silently misread by
+// of (H,W)) in the ndarrays the runner returns, silently misread by
 // decodeLabelMask (useHyphaService.ts) as a 1x1 image, producing zero
 // polygons with no error. This drives the actual "Full Image Segmentation"
 // dialog end to end against the live backend and asserts the resulting
@@ -36,7 +36,7 @@ test.describe('Full Image Segmentation (Cellpose-SAM)', () => {
       return;
     }
 
-    // Generous timeout: cellpose4-runner inference alone can take 30-60s on
+    // Generous timeout: the Cellpose inference alone can take 30-60s on
     // a 256px HPA crop, on top of connect + image load + kernel boot.
     test.setTimeout(240000);
 
@@ -74,6 +74,11 @@ test.describe('Full Image Segmentation (Cellpose-SAM)', () => {
     const runButton = dialog.getByRole('button', { name: 'Compute Flow Field', exact: true });
     await expect(runButton).toBeEnabled({ timeout: 10000 });
     await runButton.click();
+    // Round 37 (#87) added a blocking warning when the image already carries
+    // masks. Harmless no-op on a clean image, required to reach the run
+    // otherwise.
+    const runAnyway = page.getByRole('button', { name: /Run Anyway/i });
+    if (await runAnyway.count()) await runAnyway.first().click();
 
     // Wait for the run to finish: either a success banner with a mask count,
     // or the "no masks" warning banner (the bug's exact reported symptom).
