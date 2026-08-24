@@ -2,7 +2,7 @@
 
 Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io) models. Runs on remote BioEngine workers — no local GPU required.
 
-> **Cellpose-4 is served elsewhere.** This runner ships Cellpose-3 and cannot run Cellpose-4 models (Cellpose-SAM / Cellpose-DINO). For those, use the [Cellpose-4 Runner](../cellpose4-runner.md) app (`bioimage-io/cellpose4-runner`) and resolve its accepted ids at call time via `list_supported_models()`.
+> **Cellpose-3 is served elsewhere.** Since model-runner 2.0.0 this runner serves Cellpose-4 (Cellpose-SAM / Cellpose-DINO) and micro-SAM natively, and its runtime ships Cellpose 4 — so it can no longer load the **Cellpose-3-and-earlier** architectures. For those, use the [Cellpose-3 Runner](../cellpose3-runner.md) app (`bioimage-io/cellpose3-runner`) and resolve its accepted ids at call time via `list_supported_models()`.
 
 ## Use this skill when
 
@@ -223,7 +223,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 
 ```text
 - [ ] Step 1: Clarify task type (segmentation / denoising / restoration / detection)
-- [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose4-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
 - [ ] Step 5: Run all suitable models on the same input — loop `await run_infer(mr, model_id, <url>)` (submit+poll wrapper; see § Async job API)
@@ -239,7 +239,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 The screening pool is the **union** of two model sources; gather both before scoring:
 
 1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
-2. **Cellpose-4 models** from the Cellpose-4 Runner — call `cellpose4-runner.list_supported_models()` (see [apps/cellpose4-runner.md](../cellpose4-runner.md)). model-runner cannot run these; route each Cellpose-4 id to `cellpose4-runner.infer` instead of `mr.infer`. Both apps share the same async submit/poll result shape, so one scoring loop covers both.
+2. **Cellpose-3 models** from the Cellpose-3 Runner — call `cellpose3-runner.list_supported_models()` (see [apps/cellpose3-runner.md](../cellpose3-runner.md)). model-runner cannot run these; route each Cellpose-3 id to `cellpose3-runner.infer` instead of `mr.infer`. Both apps share the same async submit/poll result shape, so one scoring loop covers both — but that leg runs on CPU, so budget extra wall-clock for it.
 
 ```python
 # Run multiple models and save all outputs.
@@ -465,7 +465,7 @@ Use this when the user has unlabelled images and wants to rank candidate models 
 
 ```text
 - [ ] Step 1: Clarify task type (currently only semantic-segmentation models supported; instance models need v2)
-- [ ] Step 2: Gather candidates from both sources — search_models(ignore_checks=False) (or test-reports score ≥ 3) ∪ cellpose4-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from both sources — search_models(ignore_checks=False) (or test-reports score ≥ 3) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README, exclude domain mismatches
 - [ ] Step 4: Run all suitable models on each image, both clean and perturbed — 2·K·N infer() calls
 - [ ] Step 5: Compute per-(model, image) CMR-NHD; aggregate as median across images per model
@@ -869,6 +869,41 @@ out_key = rdf["outputs"][0]["id"]
 result = await run_infer(mr, model_id, image)   # submit + poll; see § Async job API
 masks = np.asarray(result[out_key])
 ```
+
+## Per-request pre/postprocessing overrides
+
+Since **model-runner 2.0.0**, `infer()` takes two optional dicts that patch the model's declared
+processing ops for that one call, shaped `{op_id: {kwarg: value}}`:
+
+| Argument | Effect |
+|---|---|
+| `preprocessing={"scale_range": {"min_percentile": 1.0, "max_percentile": 99.0}}` | Patch the kwargs of a declared preprocessing op. |
+| `postprocessing={"cellpose_flow_dynamics": {"flow_threshold": 0.4, "cellprob_threshold": 0.0, "min_size": 15}}` | Patch a declared postprocessing op. |
+| `postprocessing={"cellpose_flow_dynamics": None}` | **Drop** the op — returns the model's raw output, here the Cellpose flow field instead of instance masks. |
+
+Rules that bite:
+
+- The overrides are applied to an **in-memory copy of the RDF**. The published artifact is never modified, and nothing leaks into the next request.
+- **An op id the model does not declare is an error**, not a no-op. Read `rdf["outputs"][i]["postprocessing"]` before guessing an id.
+- A *changed override set* reloads the resident pipeline, so alternating override sets on a hot model costs a reload each time. Keep one set per screening pass.
+- Dropping the instance-segmentation step changes the **shape** of the result, not its key: the output member keeps its RDF id (e.g. `labels`), it just now carries the raw head.
+- `postprocessing={"microsam_watershed": ...}` is the one **extra key that is not a declared op** — it configures the micro-SAM instance-segmentation watershed, and setting it to `None` returns the AIS distance maps.
+
+```python
+# Instance masks with a looser flow threshold
+masks = await run_infer(
+    mr, model_id, image,
+    postprocessing={"cellpose_flow_dynamics": {"flow_threshold": 0.6}},
+)
+
+# Raw flow field — do the flow dynamics yourself (or on a second call)
+flows = await run_infer(
+    mr, model_id, image,
+    postprocessing={"cellpose_flow_dynamics": None},
+)
+```
+
+The same two arguments exist on [cellpose3-runner](../cellpose3-runner.md) with identical semantics, so one client code path drives both apps. In practice the Cellpose-3 zoo models declare no processing ops at all, so there is nothing to override there.
 
 ## Deploying and updating the model-runner app
 

@@ -15,7 +15,7 @@ Everything below works against the deployed production stack today (annotation i
 - [ ] Step 4: Register the dataset with the annotation-broker and create ONE generic label
 - [ ] Step 5: Hand the user the annotation URL and wait for them to annotate
 - [ ] Step 6: Read the image + label-mask pairs back from the artifact
-- [ ] Step 7: Run the standard screening workflow against these masks (segmentation candidates = model-runner ∪ cellpose4-runner, scored with mAP/F1 as documented there)
+- [ ] Step 7: Run the standard screening workflow against these masks (segmentation candidates = model-runner ∪ cellpose3-runner, scored with mAP/F1 as documented there)
 ```
 
 ## Step 1 — collect images
@@ -167,6 +167,6 @@ The matching raw image for each stem is `images/<stem>.png` (fetch the same way 
 
 ## Step 7 — screen models against the annotations
 
-You now have `(image, instance_label_mask)` pairs. Run the standard screening workflow from [apps/model-runner/model-runner.md](../apps/model-runner/model-runner.md#model-screening--comparison-workflow) with these pairs as the ground truth: candidates are the union of model-runner segmentation models and the cellpose4-runner pool, every candidate runs on the same images, and scoring is mAP/F1 over IoU thresholds against these masks exactly as documented there. Restrict the candidate pool to **segmentation models** — the ground truth is instance masks and supports nothing else.
+You now have `(image, instance_label_mask)` pairs. Run the standard screening workflow from [apps/model-runner/model-runner.md](../apps/model-runner/model-runner.md#model-screening--comparison-workflow) with these pairs as the ground truth: candidates are the union of model-runner segmentation models and the cellpose3-runner pool, every candidate runs on the same images, and scoring is mAP/F1 over IoU thresholds against these masks exactly as documented there. Restrict the candidate pool to **segmentation models** — the ground truth is instance masks and supports nothing else.
 
 If only some images were annotated, screen on the annotated subset and say so in the report rather than waiting indefinitely; more annotations can always be added later (re-run Step 6 to pick them up).

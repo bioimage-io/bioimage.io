@@ -6,7 +6,7 @@ metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
   app-skills:
     - apps/model-runner/model-runner.md
-    - apps/cellpose4-runner.md
+    - apps/cellpose3-runner.md
     - apps/cellpose-finetuning.md
 ---
 
@@ -677,8 +677,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 | Service | Subskill | Load when |
 |---|---|---|
-| Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models (Cellpose-3 and earlier) |
-| Cellpose-4 Runner | [apps/cellpose4-runner.md](apps/cellpose4-runner.md) | Running Cellpose-4 / Cellpose-SAM models — which model-runner cannot serve |
+| Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
+| Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | Running the Cellpose-3-and-earlier zoo models — which model-runner cannot serve |
 | Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
 
 > **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
