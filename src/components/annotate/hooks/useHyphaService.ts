@@ -144,6 +144,14 @@ export interface AnnotationDataService {
    *  and the promise rejects with an ``AbortError`` instead of resolving
    *  with a late result. */
   runCellpose: (imageUrl: string, width: number, height: number, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeMask[]>;
+  /** CellposeDINO auto instance segmentation (round 38). Unlike ``runCellpose``,
+   *  the served RDF expects a batched, normalized-server-side float32 input
+   *  (``{input: ndarray[1,3,H,W]}``) and returns a label mask matching the
+   *  input's spatial size exactly (fully convolutional, halo-based
+   *  architecture), so no cellpose-specific knobs apply here, only
+   *  ``min_mask_area`` from ``params`` is honoured, mirroring ``runMicroSam``.
+   *  ``modelId`` selects which of the two DINO_MODEL_OPTIONS entries runs. */
+  runDinoModel: (imageUrl: string, width: number, height: number, modelId: string, params?: CellposeParams, signal?: AbortSignal) => Promise<CellposeMask[]>;
   /** μSAM automatic-instance-segmentation drop-in. Wire-compatible with
    *  ``runCellpose`` (same CHW uint8 input, same ``[{output: int32 [H,W]}]``
    *  response), so it returns the same ``CellposeMask[]`` polygons. Only
@@ -388,6 +396,56 @@ function getImagePixelsCHW(
         chw[i] = rgba[i * 4];                    // R plane
         chw[numPixels + i] = rgba[i * 4 + 1];    // G plane
         chw[numPixels * 2 + i] = rgba[i * 4 + 2]; // B plane
+      }
+      resolve({ chw, scaledW, scaledH });
+    };
+    img.onerror = () => reject(new Error('Failed to load image for pixel extraction'));
+    img.src = imageUrl;
+  });
+}
+
+/** CellposeDINO's RDF declares y/x axes with min 64, step 8: the served
+ *  input tensor's spatial dims must be at least 64 and an exact multiple of
+ *  8. Unlike Cellpose-SAM's fixed min (CELLPOSE_MIN_DIM), the working
+ *  resolution here is rounded to the nearest step-8 value rather than
+ *  clamped up to a single fixed floor. */
+const DINO_MIN_DIM = 64;
+const DINO_DIM_STEP = 8;
+
+/** Extract image pixel data as a float32 CHW RGB array (3, H, W) for
+ *  CellposeDINO. Unlike getImagePixelsCHW (uint8, fixed CELLPOSE_MIN_DIM
+ *  floor), the model-runner normalizes server-side and the working
+ *  resolution must land on a multiple of DINO_DIM_STEP. */
+function getImagePixelsCHWFloat32(
+  imageUrl: string,
+  width: number,
+  height: number,
+  maxDim: number = CELLPOSE_MAX_DIM,
+): Promise<{ chw: Float32Array; scaledW: number; scaledH: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const capScale = Math.min(1, maxDim / Math.max(width, height));
+      const floorScale = DINO_MIN_DIM / Math.min(width, height);
+      const scale = Math.max(capScale, floorScale);
+      const roundToStep = (v: number) => Math.max(DINO_MIN_DIM, Math.round(v / DINO_DIM_STEP) * DINO_DIM_STEP);
+      const scaledW = roundToStep(width * scale);
+      const scaledH = roundToStep(height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = scaledW;
+      canvas.height = scaledH;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, scaledW, scaledH);
+      const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
+      const rgba = imageData.data;
+      const numPixels = scaledW * scaledH;
+      const chw = new Float32Array(numPixels * 3);
+      for (let i = 0; i < numPixels; i++) {
+        chw[i] = rgba[i * 4];
+        chw[numPixels + i] = rgba[i * 4 + 1];
+        chw[numPixels * 2 + i] = rgba[i * 4 + 2];
       }
       resolve({ chw, scaledW, scaledH });
     };
@@ -792,6 +850,39 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
             // to display-space coordinates.
             const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
             console.log('[useHyphaService] Converted mask to', polygons.length, 'polygons (scale %dx%d → %dx%d)', scaledW, scaledH, width, height);
+            return polygons;
+          },
+          runDinoModel: async (imageUrl: string, width: number, height: number, modelId: string, params?: CellposeParams, signal?: AbortSignal) => {
+            const runnerService = await resolveCellposeService();
+            const p = params || {};
+            console.log('[useHyphaService] Running CellposeDINO inference:', modelId);
+
+            const { chw, scaledW, scaledH } = await getImagePixelsCHWFloat32(imageUrl, width, height);
+            const inputArray = {
+              _rtype: 'ndarray',
+              _rvalue: new Uint8Array(chw.buffer, chw.byteOffset, chw.byteLength),
+              _rshape: [1, 3, scaledH, scaledW],
+              _rdtype: 'float32',
+            };
+
+            const requestId = await runnerService.infer({
+              model_id: modelId,
+              inputs: { input: inputArray },
+              _rkwargs: true,
+            });
+            console.log('[useHyphaService] CellposeDINO request submitted:', requestId);
+            const result = await pollRunnerInfer(runnerService, requestId, signal, 'CellposeDINO');
+
+            const maskResult = singleOutput(result, 'labels');
+            if (!maskResult || maskResult._rtype !== 'ndarray') {
+              console.warn('[useHyphaService] No labels ndarray in CellposeDINO result:', result);
+              return [];
+            }
+
+            const { maskData, w, h } = decodeLabelMask(maskResult);
+            console.log('[useHyphaService] CellposeDINO mask ndarray: dtype=%s, [%d, %d]', maskResult._rdtype, h, w);
+            const polygons = maskDataToPolygons(maskData, w, h, width, height, p.min_mask_area ?? 0);
+            console.log('[useHyphaService] CellposeDINO converted to', polygons.length, 'polygons');
             return polygons;
           },
           runMicroSam: async (imageUrl: string, width: number, height: number, params?: CellposeParams, modelType?: string) => {
