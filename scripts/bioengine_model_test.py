@@ -23,9 +23,60 @@ DEFAULT_SERVICE_ID = "bioimage-io/model-runner"
 TEST_TIMEOUT_SECONDS = 300
 TEST_POLL_INTERVAL_SECONDS = 3
 
+# Models that must be tested in the environment declared by their own RDF
+# (``weights.<format>.dependencies.source``) rather than in the model-runner's
+# serving runtime.
+#
+# The default is the serving runtime, deliberately: that is the interpreter the
+# website actually runs inference in, so a pass there is the signal that matters
+# to users. A model belongs on this list only when it genuinely cannot run in
+# the serving runtime and is expected to be consumed through its own
+# environment instead.
+#
+# Note that the runner silently downgrades the request to the serving runtime
+# for any model that declares no dependencies, so listing such a model has no
+# effect. Keep the list to models that really declare an environment.
+CUSTOM_ENV_MODEL_IDS = {
+    # Cellpose 3.x models. The serving runtime ships Cellpose 4, whose API
+    # dropped the modules these models import, so they only test green in the
+    # conda-forge ``cellpose=3.1.0`` environment pinned into each artifact.
+    # Inference for these is served by the separate cellpose3-runner app.
+    "famous-fish",
+    "happy-elephant",
+    "merry-gorilla",
+    "thoughtful-chipmunk",
+    # micro-sam / Segment Anything models. Their published packages need
+    # ``micro_sam`` (and ``mobile_sam`` for the vit_t variants), which the
+    # serving runtime does not carry.
+    "diplomatic-bug",
+    "faithful-chicken",
+    "greedy-whale",
+    "humorous-crab",
+    "idealistic-rat",
+    "noisy-ox",
+}
+
+
+def wants_custom_env(model_id: str, environment: str = "auto") -> bool:
+    """Decide which environment a model's test should run in.
+
+    Args:
+        model_id: Bare model alias, e.g. ``famous-fish``.
+        environment: ``auto`` consults ``CUSTOM_ENV_MODEL_IDS``; ``custom`` and
+            ``standard`` force the choice for every model in the run.
+
+    Returns:
+        True to run the test in the model's own declared environment.
+    """
+    if environment == "custom":
+        return True
+    if environment == "standard":
+        return False
+    return model_id in CUSTOM_ENV_MODEL_IDS
+
 
 async def run_test(
-    runner: ObjectProxy, model_id: str, skip_cache: bool
+    runner: ObjectProxy, model_id: str, skip_cache: bool, custom_environment: bool
 ) -> dict:
     """Submit a model test and wait for the report via the async runner API.
 
@@ -38,7 +89,10 @@ async def run_test(
     ``TEST_TIMEOUT_SECONDS``.
     """
     run_id = await runner.test(
-        model_id=model_id, stage=False, cache="skip" if skip_cache else "check"
+        model_id=model_id,
+        stage=False,
+        cache="skip" if skip_cache else "check",
+        custom_environment=custom_environment,
     )
 
     # Legacy synchronous runners returned the report dict directly instead of a
@@ -64,6 +118,7 @@ async def test_bmz_models(
     reports_dir: Optional[Path] = None,
     skip_cache: bool = False,
     service_id: str = DEFAULT_SERVICE_ID,
+    environment: str = "auto",
 ) -> None:
     """Test BioImage.IO models and generate test reports.
 
@@ -77,6 +132,7 @@ async def test_bmz_models(
         reports_dir: Directory where per-model JSON test reports are written.
         skip_cache: Whether to skip cache during model testing.
         service_id: Fully-qualified id of the model-runner service to use.
+        environment: ``auto``, ``custom`` or ``standard``. See wants_custom_env.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
@@ -125,10 +181,16 @@ async def test_bmz_models(
     for model_id in model_ids:
         model_start_time = time.time()
 
+        custom_environment = wants_custom_env(model_id, environment)
+
         try:
-            print(f"Testing model '{model_id}'...")
+            env_label = "custom" if custom_environment else "standard"
+            print(f"Testing model '{model_id}' ({env_label} environment)...")
             test_report = await run_test(
-                model_runner, model_id=model_id, skip_cache=skip_cache
+                model_runner,
+                model_id=model_id,
+                skip_cache=skip_cache,
+                custom_environment=custom_environment,
             )
 
             model_execution_time = time.time() - model_start_time
@@ -430,6 +492,21 @@ def main():
         help="Skip cache during model testing",
     )
     parser.add_argument(
+        "--environment",
+        choices=["auto", "custom", "standard"],
+        default="auto",
+        help="Test environment: 'auto' (default) runs the models listed in "
+        "CUSTOM_ENV_MODEL_IDS in their own declared environment and everything "
+        "else in the model-runner's serving runtime; 'custom' and 'standard' "
+        "force one choice for every model in the run. Forcing does NOT "
+        "currently bypass the report cache: if a current report exists the "
+        "runner returns it unchanged, recorded environment included, so the "
+        "force is silently inert. Pair it with --skip-cache to actually "
+        "re-test. Once environment-aware cache reuse lands the force will "
+        "miss the cache on its own, re-test, and overwrite the single report "
+        "slot for that (model, stage). Neither behaviour is a dry run",
+    )
+    parser.add_argument(
         "--service-id",
         default=DEFAULT_SERVICE_ID,
         help=f"Model-runner service id to test against (default: {DEFAULT_SERVICE_ID})",
@@ -457,6 +534,7 @@ def main():
                 reports_dir=reports_dir,
                 skip_cache=args.skip_cache,
                 service_id=args.service_id,
+                environment=args.environment,
             )
         )
 

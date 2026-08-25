@@ -19,6 +19,15 @@ on:
         description: 'Model-runner service id (leave empty for bioimage-io/model-runner)'
         required: false
         type: string
+      environment:
+        description: 'Test environment: auto (per-model policy), or force custom / standard. Forcing alone is inert on models with a current cached report - tick skip_cache to actually re-test and overwrite the published report'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - custom
+          - standard
 
 jobs:
   test-bioimageio-models:
@@ -60,6 +69,7 @@ jobs:
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
         SKIP_CACHE="${{ github.event.inputs.skip_cache || 'false' }}"
         SERVICE_ID="${{ github.event.inputs.service_id || '' }}"
+        ENVIRONMENT="${{ github.event.inputs.environment || 'auto' }}"
 
         # Build command arguments
         ARGS=""
@@ -75,6 +85,10 @@ jobs:
 
         if [ -n "$SERVICE_ID" ]; then
           ARGS="$ARGS --service-id $SERVICE_ID"
+        fi
+
+        if [ -n "$ENVIRONMENT" ] && [ "$ENVIRONMENT" != "auto" ]; then
+          ARGS="$ARGS --environment $ENVIRONMENT"
         fi
 
         echo "Running: python -u bioengine_model_test.py $ARGS"
