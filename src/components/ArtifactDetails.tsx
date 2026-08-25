@@ -365,7 +365,15 @@ const ArtifactDetails = () => {
     fetchBioengineStatus();
   }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
 
-  // Validation function to check if parsed JSON is a valid test report
+  // Validation function to check if parsed JSON is a valid test report.
+  //
+  // `id` is deliberately NOT required. It mirrors the RDF's optional top-level
+  // `id` field, so bioimageio emits `id: null` for any model whose rdf.yaml
+  // omits it (e.g. the CellposeDINO models). Requiring it here discarded
+  // otherwise-passing reports, which surfaced as "not tested" in the
+  // Compatibilities section while the Edit page showed the same report as
+  // passed. Nothing rendered from this report needs the id: the compatibility
+  // row reads `status` and `env`, and TestDetailsDialog already guards it.
   const isValidTestReport = (data: any): data is DetailedTestReport => {
     return (
       data &&
@@ -375,7 +383,6 @@ const ArtifactDetails = () => {
       typeof data.source_name === 'string' &&
       typeof data.type === 'string' &&
       typeof data.format_version === 'string' &&
-      typeof data.id === 'string' &&
       Array.isArray(data.details)
     );
   };

@@ -61,7 +61,8 @@ export interface TestDetail {
 export interface DetailedTestReport {
   name: string;
   source_name: string;
-  id: string;
+  /** Mirrors the RDF's optional top-level `id`; absent for models that omit it. */
+  id?: string;
   type: string;
   format_version: string;
   status: 'passed' | 'failed' | 'valid-format';
