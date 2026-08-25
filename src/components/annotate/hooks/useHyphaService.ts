@@ -76,11 +76,13 @@ export interface CellposeParams {
 }
 
 /**
- * Raw network outputs returned by the cellpose-finetuning service when
- * called with ``return_flows_only=True`` (>= 0.1.5). The annotate page
- * caches this so mask-gen parameters (flow_threshold, cellprob_threshold,
- * niter, min_mask_area) can be tuned client-side via Pyodide without a
- * GPU round-trip. See public/cellpose_mask_gen.py for the local compute.
+ * Raw network outputs from a model-runner inference with the
+ * ``cellpose_flow_dynamics`` postprocessing step dropped, so the runner
+ * returns the flow field instead of a label mask (see runCellposeInfer).
+ * The annotate page caches this so mask-gen parameters (flow_threshold,
+ * cellprob_threshold, niter, min_mask_area) can be tuned client-side via
+ * Pyodide without a GPU round-trip. See public/cellpose_mask_gen.py for
+ * the local compute.
  */
 export interface CellposeFlowsResult {
   /** Flat float32 buffer of length ``2 * scaledH * scaledW`` (dy plane then dx plane). */
