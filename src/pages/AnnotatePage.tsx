@@ -1102,7 +1102,11 @@ print('CLAHE packages ready')
 
     setIsRunningCellpose(true);
     const bannerId = addBanner(
-      cfg.backend === 'microsam' ? 'Running μSAM segmentation...' : 'Running Cellpose segmentation...',
+      cfg.backend === 'microsam'
+        ? 'Running μSAM segmentation...'
+        : cfg.backend === 'dino'
+        ? 'Running CellposeDINO segmentation...'
+        : 'Running Cellpose segmentation...',
       'loading',
       0,
     );
@@ -1176,6 +1180,50 @@ print('CLAHE packages ready')
           const msg = msErr?.message || 'Unknown error';
           console.error('[AnnotatePage] micro-sam failed:', msg);
           addBanner('μSAM segmentation failed', 'error', 8000, msg);
+        }
+        return;
+      }
+
+      if (cfg.backend === 'dino') {
+        try {
+          const masks = await service.runDinoModel(
+            sourceUrl,
+            imageWidth,
+            imageHeight,
+            cfg.dinoModelId,
+            { min_mask_area: cfg.min_mask_area },
+            signal,
+          );
+          let n = 0;
+          if (masks && masks.length > 0) {
+            const vs = getVectorSource?.();
+            if (vs) {
+              const GeoJSON = (await import('ol/format/GeoJSON')).default;
+              const fmt = new GeoJSON();
+              pushUndo({ geojson: fmt.writeFeatures(vs.getFeatures()) });
+              n = applyPolygonsAsPreview(vs, masks);
+            }
+          }
+          removeBanner(bannerId);
+          if (n === 0) {
+            addBanner('No masks detected by CellposeDINO', 'warning', 5000);
+          } else {
+            console.log('[AnnotatePage] CellposeDINO added', n, 'masks');
+            addBanner(`Added ${n} mask${n !== 1 ? 's' : ''} from CellposeDINO`, 'success', 5000);
+          }
+          // CellposeDINO has no tunable sliders, so there's nothing left to do
+          // in the dialog once a run completes: masks are already applied
+          // above, so close it the same way the Done button would.
+          closeCellposeConfig();
+        } catch (dinoErr: any) {
+          if (dinoErr?.name === 'AbortError') {
+            removeBanner(bannerId);
+            return;
+          }
+          removeBanner(bannerId);
+          const msg = dinoErr?.message || 'Unknown error';
+          console.error('[AnnotatePage] CellposeDINO failed:', msg);
+          addBanner('CellposeDINO segmentation failed', 'error', 8000, msg);
         }
         return;
       }
