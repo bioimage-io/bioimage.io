@@ -30,12 +30,15 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import InputAdornment from '@mui/material/InputAdornment';
 import { MICRO_SAM_MODEL_TYPE, MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS } from '../../utils/microSamService';
+import { DINO_MODEL_OPTIONS } from '../../utils/dinoModelService';
 
 /** Which segmentation backend the Full Image Segmentation dialog runs.
  *  ``cellpose`` = Cellpose-SAM (the flows + Pyodide mask-gen path), always
  *  the published 'idealistic-eagle' model via model-runner.
- *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs). */
-export type SegBackend = 'cellpose' | 'microsam';
+ *  ``microsam`` = μSAM automatic instance segmentation (server-side, no knobs).
+ *  ``dino`` = CellposeDINO auto instance segmentation (server-side, no
+ *  knobs) — see DINO_MODEL_OPTIONS for the two selectable model ids. */
+export type SegBackend = 'cellpose' | 'microsam' | 'dino';
 
 export interface CellposeConfig {
   backend: SegBackend;
@@ -44,6 +47,9 @@ export interface CellposeConfig {
    *  only value for which the embedding fast-path (stored per-image
    *  embeddings, no fresh encode) is valid. */
   microSamModelType: string;
+  /** Dino only. Which DINO_MODEL_OPTIONS entry to run (e.g.
+   *  'passionate-bug' = ViT-B). Ignored when ``backend`` is not 'dino'. */
+  dinoModelId: string;
   flow_threshold: number;
   cellprob_threshold: number;
   niter: number | null;
@@ -66,6 +72,7 @@ export interface CellposeConfig {
 export const DEFAULT_CELLPOSE_CONFIG: CellposeConfig = {
   backend: 'microsam',
   microSamModelType: MICRO_SAM_MODEL_TYPE,
+  dinoModelId: DINO_MODEL_OPTIONS[0].modelId,
   flow_threshold: 0.4,
   cellprob_threshold: -1.0,
   niter: null,
@@ -82,11 +89,13 @@ function loadConfig(): CellposeConfig {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // backend, microSamModelType, and useEnhancedImage are never persisted
-      // going forward (see saveConfig) — strip them here too, in case a save
-      // from before this change left one behind, so the default always wins.
+      // backend, microSamModelType, dinoModelId, and useEnhancedImage are
+      // never persisted going forward (see saveConfig) — strip them here too,
+      // in case a save from before this change left one behind, so the
+      // default always wins.
       delete parsed.backend;
       delete parsed.microSamModelType;
+      delete parsed.dinoModelId;
       delete parsed.useEnhancedImage;
       return { ...DEFAULT_CELLPOSE_CONFIG, ...parsed };
     }
@@ -98,10 +107,11 @@ function loadConfig(): CellposeConfig {
 
 function saveConfig(config: CellposeConfig): void {
   try {
-    // useEnhancedImage, backend, and microSamModelType are intentionally
-    // excluded so they always start at their defaults (unchecked / μSAM /
-    // MICRO_SAM_MODEL_TYPE) next session, even if left changed here.
-    const { useEnhancedImage, backend, microSamModelType, ...persisted } = config;
+    // useEnhancedImage, backend, microSamModelType, and dinoModelId are
+    // intentionally excluded so they always start at their defaults
+    // (unchecked / μSAM / MICRO_SAM_MODEL_TYPE / first dino option) next
+    // session, even if left changed here.
+    const { useEnhancedImage, backend, microSamModelType, dinoModelId, ...persisted } = config;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch {
     // ignore storage errors
@@ -303,7 +313,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       if (prev.backend === 'microsam' && microSamAvailable === false && cellposeAvailable !== false) {
         return { ...prev, backend: 'cellpose' };
       }
-      if (prev.backend === 'cellpose' && cellposeAvailable === false && microSamAvailable !== false) {
+      if ((prev.backend === 'cellpose' || prev.backend === 'dino') && cellposeAvailable === false && microSamAvailable !== false) {
         return { ...prev, backend: 'microsam' };
       }
       return prev;
@@ -317,7 +327,12 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const handleReset = () => {
-    setConfig((prev) => ({ ...DEFAULT_CELLPOSE_CONFIG, backend: prev.backend, microSamModelType: prev.microSamModelType }));
+    setConfig((prev) => ({
+      ...DEFAULT_CELLPOSE_CONFIG,
+      backend: prev.backend,
+      microSamModelType: prev.microSamModelType,
+      dinoModelId: prev.dinoModelId,
+    }));
   };
 
   const handleApply = () => {
@@ -354,6 +369,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
   };
 
   const isMicroSam = config.backend === 'microsam';
+  const isDino = config.backend === 'dino';
   const showReset = configDiffersFromDefault(config);
 
   // Section 1 ("Run") starts open and Section 2 ("Refine Results") starts
@@ -453,7 +469,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
 
   const handleDone = useCallback(async () => {
     if (isResultReady) {
-      if (!isMicroSam && livePreviewReady && onShowPreview && !postprocessing) {
+      if (!isMicroSam && !isDino && livePreviewReady && onShowPreview && !postprocessing) {
         setPostprocessing(true);
         try {
           await onShowPreview(config);
@@ -470,7 +486,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
       onClose();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isResultReady, isMicroSam, livePreviewReady, onShowPreview, postprocessing, config]);
+  }, [isResultReady, isMicroSam, isDino, livePreviewReady, onShowPreview, postprocessing, config]);
 
   return (
     <Dialog
@@ -538,11 +554,19 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 size="small"
                 variant="standard"
                 disableUnderline
-                value={config.backend === 'microsam' ? config.microSamModelType : 'cellpose'}
+                value={
+                  config.backend === 'microsam'
+                    ? config.microSamModelType
+                    : config.backend === 'dino'
+                    ? config.dinoModelId
+                    : 'cellpose'
+                }
                 onChange={(e) => {
                   const value = e.target.value;
                   if (value === 'cellpose') {
                     update('backend', 'cellpose');
+                  } else if (DINO_MODEL_OPTIONS.some((o) => o.modelId === value)) {
+                    setConfig((prev) => ({ ...prev, backend: 'dino', dinoModelId: value }));
                   } else {
                     setConfig((prev) => ({ ...prev, backend: 'microsam', microSamModelType: value }));
                   }
@@ -550,6 +574,10 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 renderValue={(value) => {
                   if (value === 'cellpose') {
                     return cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)';
+                  }
+                  const dinoOption = DINO_MODEL_OPTIONS.find((o) => o.modelId === value);
+                  if (dinoOption) {
+                    return cellposeAvailable ? dinoOption.label : `${dinoOption.label} (unavailable)`;
                   }
                   const option = MICRO_SAM_MODEL_OPTIONS.find((o) => o.modelType === value);
                   const label = option ? option.label.replace(' (default)', '') : value;
@@ -585,24 +613,34 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                   ];
                 })}
                 <Divider sx={{ my: 0.5 }} />
+                <ListSubheader sx={{ fontSize: '0.75rem', lineHeight: '2rem' }}>Cellpose</ListSubheader>
                 <MenuItem value="cellpose" disabled={!cellposeAvailable} sx={{ fontSize: '0.8rem' }}>
                   {cellposeAvailable ? 'Cellpose-SAM' : 'Cellpose-SAM (unavailable)'}
                 </MenuItem>
+                {DINO_MODEL_OPTIONS.map((option) => (
+                  <MenuItem key={option.modelId} value={option.modelId} disabled={!cellposeAvailable} sx={{ fontSize: '0.8rem' }}>
+                    {cellposeAvailable ? option.label : `${option.label} (unavailable)`}
+                  </MenuItem>
+                ))}
               </Select>
             </Box>
             {bothUnavailable ? (
               <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
                 Segmentation services are currently unavailable. Please try again shortly.
               </Typography>
-            ) : isMicroSam && (
+            ) : isMicroSam ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
                 μSAM segments every object automatically.
               </Typography>
-            )}
+            ) : isDino ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, px: 0.5 }}>
+                CellposeDINO segments every object automatically.
+              </Typography>
+            ) : null}
           </Grid>
 
-          {/* ── μSAM: single field, no sections (nothing here is tunable after a run) ── */}
-          {isMicroSam && (
+          {/* ── μSAM / Dino: single field, no sections (nothing here is tunable after a run) ── */}
+          {(isMicroSam || isDino) && (
             <Grid item xs={12}>
               {claheActive && (
                 <FormControlLabel
@@ -637,12 +675,13 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                 }}
                 slotProps={{ input: { inputProps: { min: 0 } } }}
               />
-              {onRecomputeEmbedding && embeddedModelTypesLoading && (
+              {isMicroSam && onRecomputeEmbedding && embeddedModelTypesLoading && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1 }}>
                   <CircularProgress size={14} />
                 </Box>
               )}
-              {onRecomputeEmbedding
+              {isMicroSam
+                && onRecomputeEmbedding
                 && !embeddedModelTypesLoading
                 && embeddedModelTypes?.includes(config.microSamModelType) && (
                 <Tooltip title="Clears the cached image encoding and computes it again on the next run.">
@@ -676,8 +715,8 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
             </Grid>
           )}
 
-          {/* ── Cellpose: two collapsible sections ── */}
-          {!isMicroSam && (
+          {/* ── Cellpose-SAM: two collapsible sections ── */}
+          {!isMicroSam && !isDino && (
             <>
               {/* Section 1: Compute Flow Field — collapses once flows come back from the server */}
               <Grid item xs={12}>
