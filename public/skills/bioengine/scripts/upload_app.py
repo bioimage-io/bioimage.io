@@ -102,11 +102,12 @@ async def main() -> None:
     else:  # --release
         if base in existing:
             sys.exit(f"ERROR: {base} already exists — bump manifest.yaml version for the next release.")
-        await worker.upload_app(files=_set_files_version(files, base))
-        print(f"published release {artifact_id}@{base}")
-        # Drop the throwaway pre-releases (they have no consumers; never delete
-        # a released version). Prefer the worker API — worker.delete_app_version
-        # only permits versions tagged '…dev…' — and fall back to the artifact
+        # Drop the throwaway pre-releases BEFORE publishing. Deleting a version
+        # re-points every later version at the preceding slot's payload, so
+        # deleting afterwards makes the release silently serve the dev bundle.
+        # The pre-releases are the newest versions here, so nothing follows
+        # them to shift. Prefer the worker API — worker.delete_app_version only
+        # permits versions tagged '…dev…' — and fall back to the artifact
         # manager for workers that predate that method.
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
         am = None
@@ -121,6 +122,8 @@ async def main() -> None:
                 print(f"  deleted pre-release {v}")
             except Exception as e:
                 print(f"  could not delete {v}: {str(e)[:80]}")
+        await worker.upload_app(files=_set_files_version(files, base))
+        print(f"published release {artifact_id}@{base}")
         try:
             await worker.stop_app(application_id=f"{app_id}-dev")
             print(f"  stopped {app_id}-dev")
