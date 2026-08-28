@@ -1487,6 +1487,13 @@ const ArtifactDetails = () => {
                               )?.[1] || 'unknown';
 
                               const isPassed = entry.data?.status === 'passed';
+                              // A pass earned only inside the model's own declared conda
+                              // environment is a QUALIFIED pass: the model is not compatible
+                              // with the standard model-runner environment. Mark it here so the
+                              // distinction is visible without opening the detailed report.
+                              // Colour token matches TestDetailsDialog's custom-environment chip.
+                              const isCustomEnvPass =
+                                isPassed && entry.data?.test_environment === 'custom';
                               
                               return (
                                 <>
@@ -1574,33 +1581,45 @@ const ArtifactDetails = () => {
                                     </Link>
                                     {hasReport ? (
                                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1 }}>
-                                        <Chip
-                                          label={bioimageioCoreVersion}
-                                          size="small"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            fetchDetailedTestReport();
-                                          }}
-                                          sx={{
-                                            height: '20px',
-                                            backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                            color: isPassed ? '#16a34a' : '#dc2626',
-                                            borderRadius: '4px',
-                                            fontWeight: 600,
-                                            fontSize: '0.65rem',
-                                            border: isPassed ? '1.5px solid #22c55e' : '1.5px solid #ef4444',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            '& .MuiChip-label': {
-                                              px: 0.75,
-                                              py: 0
-                                            },
-                                            '&:hover': {
-                                              backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
-                                              transform: 'scale(1.05)',
-                                            }
-                                          }}
-                                        />
+                                        <Tooltip
+                                          title={
+                                            isCustomEnvPass
+                                              ? 'Passed only inside this model\'s own declared environment, so it is not compatible with the standard model-runner environment. Click for the full report.'
+                                              : 'Click for the full test report.'
+                                          }
+                                        >
+                                          <Chip
+                                            label={bioimageioCoreVersion}
+                                            size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              fetchDetailedTestReport();
+                                            }}
+                                            sx={{
+                                              height: '20px',
+                                              backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                              color: isPassed ? '#16a34a' : '#dc2626',
+                                              borderRadius: '4px',
+                                              fontWeight: 600,
+                                              fontSize: '0.65rem',
+                                              border: isCustomEnvPass
+                                                ? '1.5px solid #f97316'
+                                                : isPassed
+                                                ? '1.5px solid #22c55e'
+                                                : '1.5px solid #ef4444',
+                                              cursor: 'pointer',
+                                              transition: 'all 0.2s ease',
+                                              '& .MuiChip-label': {
+                                                px: 0.75,
+                                                py: 0
+                                              },
+                                              '&:hover': {
+                                                backgroundColor: isPassed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                                                transform: 'scale(1.05)',
+                                              }
+                                            }}
+                                          />
+                                        </Tooltip>
                                       </Box>
                                     ) : (
                                       <Box sx={{ flex: 1 }}>
