@@ -407,13 +407,15 @@ A committed artifact version is **immutable** and its content is exactly what a 
 - **Never delete-and-recreate a committed version to change its code, and never deploy a staged (uncommitted) version** — deploy pinned, committed versions only.
 - Upload only through the worker (`upload_app` / `scripts/upload_app.py`): it uploads the **whole folder** and rejects any `manifest.yaml` version that isn't strictly greater than every existing one (PEP 440).
 
-To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then publish the verified bundle **once** as `X.Y.Z` and delete the `-dev*` pre-releases. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers). The helper does exactly this:
+To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
+
+**Order matters: delete the pre-releases BEFORE uploading the release.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift. The helper does exactly this:
 
 ```bash
 # iterate — uploads <version>-devN (auto), deploys <app>-dev; test, fix, repeat
 python scripts/upload_app.py ./my-app --worker <worker_service_id> --dev [--disable-gpu]
 
-# publish — uploads the SAME folder as the clean release <version>, deletes the -dev* pre-releases
+# publish — deletes the -dev* pre-releases, THEN uploads the SAME folder as the clean release <version>
 python scripts/upload_app.py ./my-app --worker <worker_service_id> --release
 ```
 

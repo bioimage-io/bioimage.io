@@ -15,8 +15,9 @@ Workflow
   python upload_app.py ./my-app --worker <worker_service_id> --dev
   # ... test the -dev deployment, fix, repeat ...
 
-  # publish — upload the SAME folder as the clean release <version>,
-  # then delete the throwaway -dev* pre-releases
+  # publish — delete the throwaway -dev* pre-releases, THEN upload the
+  # SAME folder as the clean release <version> (deleting after publishing
+  # would re-point the release at a dev bundle)
   python upload_app.py ./my-app --worker <worker_service_id> --release
 
 `<version>` is read from manifest.yaml; the local manifest is never modified
@@ -74,7 +75,7 @@ async def main() -> None:
     ap.add_argument("--disable-gpu", action="store_true", help="deploy the -dev instance CPU-only")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dev", action="store_true", help="upload next <version>-devN + deploy <app>-dev")
-    mode.add_argument("--release", action="store_true", help="upload clean <version> + delete -dev* pre-releases")
+    mode.add_argument("--release", action="store_true", help="delete -dev* pre-releases + upload clean <version>")
     args = ap.parse_args()
 
     manifest = _read_manifest(args.directory)
