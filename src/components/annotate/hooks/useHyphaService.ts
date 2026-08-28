@@ -5,6 +5,7 @@ import { BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID } from '../../../utils/b
 import { resolveMicroSamService, MICRO_SAM_MODEL_TYPE } from '../../../utils/microSamService';
 import { parseEmbeddingNpz } from '../../../utils/npzEmbedding';
 import { HYPHA_SERVER_URL } from '../../../config/hypha';
+import { useHyphaStore } from '../../../store/hyphaStore';
 import {
   DatasetIndex,
   EmbeddingUrls,
@@ -657,6 +658,23 @@ function filterByArea(masks: CellposeMask[], minArea?: number): CellposeMask[] {
   });
 }
 
+/** The user's auth token from localStorage, or undefined when logged out or
+ *  expired. Logged-in users connect into their own Hypha workspace
+ *  (ws-user-<id>); anonymous visitors connect without a token and the broker
+ *  only allows unauthenticated reads/writes on public datasets
+ *  (colab-rework-plan.md §8). */
+function readStoredAuthToken(): string | undefined {
+  try {
+    const t = window.localStorage.getItem('token');
+    const expiryRaw = window.localStorage.getItem('tokenExpiry');
+    const stillValid = !expiryRaw || new Date(expiryRaw).getTime() > Date.now();
+    return t && stillValid ? t : undefined;
+  } catch {
+    // localStorage may be unavailable in private modes; carry on anonymous.
+    return undefined;
+  }
+}
+
 export function useHyphaService(config: AnnotationServiceConfig | null): {
   service: AnnotationDataService | null;
   loading: boolean;
@@ -676,6 +694,26 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
   const [retryNonce, setRetryNonce] = useState(0);
   const serverRef = useRef<any>(null);
 
+  // Rebuild the connection when the signed-in identity changes. Without this
+  // the page keeps whatever connection it opened on mount: a visitor who
+  // lands logged out gets an ANONYMOUS connection, and the SPA login flow
+  // (LoginButton stores the token, then redirects back to the stored path)
+  // never remounts this hook, so every later broker call still runs as
+  // 'anonymous' and a private dataset answers with PermissionError until the
+  // user manually reloads.
+  //
+  // The store's `user` is the trigger rather than localStorage directly,
+  // because localStorage writes are not reactive. LoginButton writes the
+  // token before calling the store's connect(), so by the time `user`
+  // changes the token is already readable. Mirroring it into state keeps the
+  // effect below from tearing down a healthy connection on unrelated store
+  // updates: setState bails out when the token string is unchanged.
+  const authUserId = useHyphaStore((state) => state.user?.id ?? null);
+  const [authToken, setAuthToken] = useState<string | undefined>(readStoredAuthToken);
+  useEffect(() => {
+    setAuthToken(readStoredAuthToken());
+  }, [authUserId]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -690,22 +728,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
       setError(null);
 
       try {
-        // Pull the user's auth token from localStorage so logged-in users
-        // connect into their own Hypha workspace (ws-user-<id>). Anonymous
-        // visitors connect without a token; the broker only allows
-        // unauthenticated reads/writes on public datasets
-        // (colab-rework-plan.md §8).
-        let storedToken: string | undefined;
-        try {
-          const t = window.localStorage.getItem('token');
-          const expiryRaw = window.localStorage.getItem('tokenExpiry');
-          const stillValid = !expiryRaw || new Date(expiryRaw).getTime() > Date.now();
-          if (t && stillValid) storedToken = t;
-        } catch {
-          // localStorage may be unavailable in private modes; carry on anonymous.
-        }
+        // Connect with the token this effect run was keyed on, not a fresh
+        // localStorage read, so the live connection always matches `authToken`.
         const connectCfg: any = { server_url: HYPHA_SERVER_URL };
-        if (storedToken) connectCfg.token = storedToken;
+        if (authToken) connectCfg.token = authToken;
         const server = await hyphaWebsocketClient.connectToServer(connectCfg);
         if (cancelled) {
           await server.disconnect();
@@ -1208,7 +1234,7 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
         serverRef.current = null;
       }
     };
-  }, [config?.artifactId, config?.label, config?.microSamSession?.sessionId, config?.microSamSession?.modelType, retryNonce]);
+  }, [config?.artifactId, config?.label, config?.microSamSession?.sessionId, config?.microSamSession?.modelType, retryNonce, authToken]);
 
   const retry = () => setRetryNonce((n) => n + 1);
 
