@@ -60,7 +60,8 @@ result = status["result"]
 
 **Optional `infer` arguments:**
 - `preprocessing` / `postprocessing` — per-request overrides of the model's declared ops, shaped `{op_id: {kwarg: value}}`; a value of `None` drops the op entirely. Applied to an in-memory copy of the RDF, so the published artifact is never touched. **An op id the model does not declare is an error** — and the current Cellpose-3 zoo models declare *no* pre- or postprocessing at all, so on this app both dicts are normally left unset. The mechanism is documented here only because it is the same call surface as model-runner's (see [model-runner § Per-request pre/postprocessing overrides](model-runner/model-runner.md#per-request-prepostprocessing-overrides)), where it is actually useful.
-- `weights_format` / `device` / `default_blocksize_parameter` / `sample_id` — as on model-runner.
+- `weights_format` / `default_blocksize_parameter` / `sample_id` — as on model-runner.
+- `device` — `"cuda"` / `"cpu"`, auto-selecting when unset. **This app only.** model-runner dropped its `device` parameter in 2.7.0 (inference there moved into a subprocess, so it had stopped meaning anything), so do not cross-reference model-runner for it.
 - `return_download_url=True` — return each output as a presigned S3 `.npy` URL (1-hour TTL) instead of the raw array.
 - `cache` — model-cache policy, same values and meaning as model-runner's `infer` (there is **no** `skip_cache` alias here): `"check"` (default) does a real freshness round-trip to the model artifact and reloads the resident pipeline only if it changed; `"skip"` forces a full reload even if the model is resident; `"reuse"` trusts the resident pipeline with no round-trip. A reload's timing surfaces in the `model_download` stage of `get_infer_status` (a genuine warm reuse reports it as skipped).
 

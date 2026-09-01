@@ -228,11 +228,9 @@ Run inference on a bioimage.io model.
 | `inputs` | `ndarray \| str \| dict` | **Yes** | — | Input: numpy array (RPC only), file path from `get_upload_url`, or HTTP/S URL |
 | `return_download_url` | `bool` | No | `false` | Return download URLs instead of arrays |
 | `weights_format` | `str \| null` | No | `null` | Preferred weights format |
-| `device` | `"cuda" \| "cpu" \| null` | No | `null` | Computation device (auto if null) |
 | `default_blocksize_parameter` | `int \| null` | No | `null` | Override tiling block size |
 | `sample_id` | `str` | No | `"sample"` | Request identifier for logging |
 | `cache` | `"skip" \| "check" \| "reuse"` | No | `"check"` | Model-cache policy. `check` (default) does a freshness round-trip to the model artifact and reloads only if it changed; `skip` forces a full re-download/reload even if warm; `reuse` trusts the local cache / warm model with no round-trip. Reload timing surfaces in the `model_download` stage of `get_infer_status`. |
-| `skip_cache` | `bool \| null` | No | `null` | **Deprecated** alias for `cache` — `true`→`skip`, `false`→`check`. Prefer `cache`. |
 
 ### Input Types
 
@@ -339,7 +337,6 @@ Run the official bioimage.io test suite on a model.
 | `model_id` | `str` | **Yes** | — | Model identifier |
 | `stage` | `bool` | No | `false` | Test the staged version instead of the published one; report lands in the `staged/` slot |
 | `cache` | `"skip" \| "check" \| "reuse"` | No | `"check"` | Model-cache policy (same values as `infer`). `check` (default) re-downloads only if the artifact changed and re-runs the test; `skip` forces a fresh download + re-test, bypassing cached results; `reuse` trusts the cached package and any cached report. |
-| `skip_cache` | `bool \| null` | No | `null` | **Deprecated** alias for `cache` — `true`→`skip`, `false`→`check`. Prefer `cache`. |
 | `custom_environment` | `bool` | No | `false` | If `true`, run inside the conda env declared by the model's own weights `dependencies` (built via `mamba`, **cached** on the shared PVC and LRU-evicted — not deleted per call). Test-only: `infer()` always uses the shared venv. If `false`, run in the RuntimeApp's shared venv — the same one that serves `infer()`. |
 
 ### Usage

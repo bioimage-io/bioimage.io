@@ -401,7 +401,7 @@ async def run_bioengine_test(artifact_id: str, token: str):
         test_run_id = await runner.test(
             model_id=model_id,
             stage=True,        # load from staging, not the published collection
-            skip_cache=True,   # force a fresh package download + re-test
+            cache="skip",      # force a fresh package download + re-test
         )
 
         # Poll until terminal. queue_position == 0 (completed_at set) means done;
