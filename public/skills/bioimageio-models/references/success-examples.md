@@ -393,6 +393,160 @@ weights:
     # NO architecture: field — TorchScript embeds the computation graph
 ```
 
+## U2OS concept LoRA-MoE (SAM 3) — 2026-09-03
+
+- **Source**: local training checkpoints (not a public release); backbone is
+  Meta's SAM 3 image model, pinned by commit and fetched at environment-build time
+- **Artifact ID**: `bioimage-io/naked-rabbit`
+- **Weight format**: `pytorch_state_dict` (3.15 GiB), custom conda environment via
+  `dependencies: environment.yaml`
+- **Framework version**: PyTorch 2.8.0+cu128, Python 3.11, format_version 0.5.12
+- **Input shape**: two inputs — `image` `[1, 1, 1008, 1008]` uint8, and a scalar
+  `selector` `[1]` int64 with `values: [0, 1, 2, 3, 4]` choosing the concept
+- **Output shape**: `instance_labels` `[1, y, x]` uint16 — an integer instance-label
+  map, axes sized by reference to the input
+
+### Key challenges
+
+1. **Five concepts, one artifact.** The model is five rank-8 LoRA experts over a
+   shared frozen backbone. Rather than five models, it ships as one, with an extra
+   scalar input tensor selecting the expert. A discrete-valued input with an
+   explicit `values:` list is the clean way to express a mode switch:
+
+   ```yaml
+   inputs:
+     - id: selector
+       axes: [{id: index, type: index, size: 1}]
+       data: {type: int64, values: [0, 1, 2, 3, 4]}
+   ```
+
+   Note that `bioimageio`'s `_validate_sample_tensor` reads sample tensors with
+   `imread`, so a scalar selector cannot have a `sample_tensor` — the resulting
+   validation warning is expected and worth explaining in the model card.
+
+2. **The packager cannot write a >2 GiB member.** `bioimageio package` aborts with
+   `RuntimeError: File size too large, try using force_zip64` (`zip.open(name, "w")`
+   in `bioimageio/spec/_internal/io_utils.py`) and leaves a truncated archive
+   behind. Still present in 0.5.14.1. Workaround: monkeypatch `ZipFile.open` to
+   force ZIP64 for write-mode members around the official packaging call, and
+   delete any previous archive first so a truncated one can't be mistaken for good.
+
+3. **The BioEngine worker cannot `git clone` from github.com.** Two Phase 6a runs
+   failed with `exit code: 128` / `fatal: could not read Username for
+   'https://github.com': terminal prompts disabled`. Fixed by keeping the exact same
+   source bytes but changing the transport — a PEP 508 direct reference to an HTTPS
+   source archive with an integrity pin:
+
+   ```yaml
+   - sam3 @ https://github.com/facebookresearch/sam3/archive/<sha>.tar.gz#sha256=<digest>
+   ```
+
+   Prefer this form over `git+https://` for any BioEngine-tested model.
+
+4. **Not bit-reproducible across GPUs — declare a tolerance, don't regenerate the
+   test tensors.** Bit-exact locally, but 437 of 1 016 064 elements (430.1 ppm)
+   differed on the worker: fp16 autocast accumulation order moves some instance
+   boundaries by a pixel. Reproduced locally at 459.6 ppm with
+   `torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False`,
+   and confirmed structurally identical (same instance count, same label set, every
+   differing pixel adjacent to a boundary). The fix is a scoped tolerance:
+
+   ```yaml
+   config:
+     bioimageio:
+       reproducibility_tolerance:
+         - output_ids: [instance_labels]
+           weights_formats: [pytorch_state_dict]
+           mismatched_elements_per_million: 500
+   ```
+
+   For an integer label map, `relative_tolerance` / `absolute_tolerance` are inert
+   (a boundary pixel flipping 0→23 is arbitrarily far in both), so `ppm` is the only
+   meaningful knob — leave the other two at their defaults. Justify the number
+   structurally: 500 ppm is 508 px of 1 016 064, below the 2 907 px smallest
+   instance, so it cannot conceal a gained, lost, split or merged instance.
+   `_get_tolerance` takes the **first** matching entry, so list specific entries
+   before any catch-all; the ppm field is capped at 5000.
+
+5. **`put_file` does not update the stored manifest.** After changing
+   `environment.yaml` and `README.md` and re-uploading them plus the regenerated
+   `rdf.yaml`, static validation and the BioEngine test both stayed green — they
+   read the *file* — while the artifact's stored *manifest* record was three leaves
+   stale (missing `reproducibility_tolerance`; two `sha256` values pointing at the
+   pre-change files). Reviewers read the manifest. Always follow a file change with
+   `am.edit(artifact_id=…, stage=True, manifest=<regenerated rdf.yaml>)`, and assert
+   equality before requesting review.
+
+6. **`inference_check: failed` is normal for a custom-environment model.** With
+   `custom_environment=True` the five report checks ran in the model's conda env and
+   passed 5/5, but the separate `inference_check` field failed with
+   `ModuleNotFoundError` — the runner attempts a plain `infer()` in its own Ray
+   serving runtime. It does not affect the report status.
+
+### What worked
+
+- **Generate the architecture file from the accepted inference code by AST
+  extraction**, with a `--check` mode that fails if the extracted file has drifted
+  from its source. That makes "the packaged model is the model we validated" a
+  build-time invariant rather than a claim.
+- **Bit-exact parity harness** comparing the packaged model against the original
+  native bundle across all five selectors, run from an unrelated working directory
+  in an environment built only from the shipped `environment.yaml`. This caught
+  path-dependence that validation alone would not.
+- **Hash-chained build order** — architecture → weights → test tensors → cover →
+  `rdf.yaml`, with `make_rdf.py` hashing whatever is on disk. Re-running the last
+  step after any documentation edit keeps the digests honest for free.
+- Phase 6a run `tj-2ab958d88c17`: `passed`, 5/5.
+
+### Issues filed
+
+- spec-bioimage-io [#769](https://github.com/bioimage-io/spec-bioimage-io/issues/769) — `package()` cannot write a member over 2 GiB
+- spec-bioimage-io [#770](https://github.com/bioimage-io/spec-bioimage-io/issues/770) — `reproducibility_tolerance` semantics and limits undocumented
+- core-bioimage-io-python [#502](https://github.com/bioimage-io/core-bioimage-io-python/issues/502) — reproduce-check diagnostics for integer-label outputs
+- bioimage.io [#92](https://github.com/bioimage-io/bioimage.io/issues/92) — upload buffers the whole file; `put_file` leaves the stored manifest stale
+- bioimage.io [#93](https://github.com/bioimage-io/bioimage.io/issues/93) — worker cannot `git clone`; `inference_check` in the shared runtime
+- bioimage.io [#94](https://github.com/bioimage-io/bioimage.io/issues/94) — skill gaps and two items stale vs spec 0.5.12
+
+Full narrative: `report-2026-09-03-bioimageio-models-large-custom-env-model` in the
+`bioimage-io/skill-issues` collection.
+
+### rdf.yaml snippet (mode selector + integer-output tolerance)
+
+```yaml
+inputs:
+  - id: image
+    axes:
+      - {type: batch, size: 1}
+      - {type: channel, channel_names: [brightfield]}
+      - {id: y, type: space, size: 1008}
+      - {id: x, type: space, size: 1008}
+    data: {type: uint8}
+  - id: selector
+    axes: [{id: index, type: index, size: 1}]
+    data: {type: int64, values: [0, 1, 2, 3, 4]}
+
+outputs:
+  - id: instance_labels
+    axes:
+      - {type: batch, size: 1}
+      - {id: y, type: space, size: {tensor_id: image, axis_id: y}}
+      - {id: x, type: space, size: {tensor_id: image, axis_id: x}}
+    data: {type: uint16}
+
+weights:
+  pytorch_state_dict:
+    source: weights.pt
+    architecture: {source: sam3_lora_moe_arch.py, sha256: ..., callable: load_model}
+    dependencies: {source: environment.yaml, sha256: ...}   # custom conda env
+
+config:
+  bioimageio:
+    reproducibility_tolerance:
+      - output_ids: [instance_labels]
+        weights_formats: [pytorch_state_dict]
+        mismatched_elements_per_million: 500
+```
+
 ---
 
 <!-- Template for new entries:
