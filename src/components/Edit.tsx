@@ -772,7 +772,16 @@ const Edit: React.FC = () => {
     }
   };
 
-  const handleFileSelect = async (file: FileNode) => {
+  /**
+   * Load a file into the editor.
+   *
+   * `preserveTab` loads the file WITHOUT switching to the Files tab. The
+   * review panel derives its state (validation, unsaved changes, the Test
+   * Model gate) from the loaded RDF file, so the RDF has to be read even when
+   * the user asked for the Review tab. Rewriting the tab param there is what
+   * made `?tab=review` deep links bounce into the editor.
+   */
+  const handleFileSelect = async (file: FileNode, options?: { preserveTab?: boolean }) => {
     // First check if the file still exists in our files array
     const fileExists = files.some(f => f.path === file.path);
     if (!fileExists) {
@@ -785,7 +794,7 @@ const Edit: React.FC = () => {
 
     // Only update URL if it's different from current selection
     const currentPath = searchParams.get('tab')?.substring(1);
-    if (currentPath !== file.path) {
+    if (!options?.preserveTab && currentPath !== file.path) {
       handleTabChange('files', file.path);
     }
     
@@ -1755,13 +1764,18 @@ const Edit: React.FC = () => {
           handleFileSelect(fileToSelect);
         }
       } else {
-        setActiveTab(tabParam as 'files' | 'review' || 'files');
-        
-        // If no specific file is selected and the RDF spec file exists, select it
+        const tab = (tabParam as 'files' | 'review') || 'files';
+        setActiveTab(tab);
+
+        // If no specific file is selected and the RDF spec file exists, select it.
+        // On the Review tab keep the tab param: the review panel needs the RDF
+        // loaded for its validation and test gates, but selecting a file the
+        // normal way rewrites `tab` to `@rdf.yaml` and drops the user into the
+        // editor, so a `?tab=review` link could never open the review view.
         if (!selectedFile) {
           const rdfFile = files.find(file => endsWithRdfFileName(file.path));
           if (rdfFile) {
-            handleFileSelect(rdfFile);
+            handleFileSelect(rdfFile, { preserveTab: tab === 'review' });
           }
         }
       }
