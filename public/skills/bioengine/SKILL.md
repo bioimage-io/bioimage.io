@@ -181,7 +181,10 @@ class MyDeployment:
         The `context` parameter is auto-injected by Hypha and hidden from
         the public schema — clients can't supply or spoof it.
         """
-        return context["user"]["id"]
+        user = context["user"]
+        # NOT user["id"] — that is per-token, not per-human. See "Identifying
+        # the caller" below before you store this anywhere.
+        return user.get("email") or user.get("parent") or user["id"]
 ```
 
 ### Key rules
@@ -222,6 +225,8 @@ class MyDeployment:
 - Lifecycle hooks are decorators with **free method names**: `@bioengine.async_init`, `@bioengine.smoke_test`, `@bioengine.health_check`. The reserved names `async_init` / `test_deployment` / `check_health` no longer work as plain methods.
 - **Model caching is app-managed** — there is no framework model cache. `@bioengine.cached` / `bioengine.cache` were **removed in bioengine 0.11.24 (no shim)** because their torch-only GPU cleanup couldn't reclaim TensorFlow / onnxruntime VRAM. To keep model variants warm, hold them in your own instance dict and load on miss (see `references/model_serving.md`); for guaranteed cross-framework VRAM release run inference in a subprocess, as the built-in `model-runner` app does.
 - API methods: `@bioengine.method` (basic) or `@bioengine.method(context=True)` (opt-in caller-context injection — the user method must declare a `context` parameter; arrives as a plain dict, never a Hypha proxy).
+- **Identifying the caller — `context["user"]["id"]` is not a stable identity.** It is a *per-token synthetic account*. Measured with two API tokens of the same person: `id` was `blossom-account-33066105` on one and `glacier-gojirasaurus-34123849` on the other, while `parent` was `github|49943582` and the email was identical on both. `context["ws"]` is no better — it is the workspace the caller's **token** was minted for, so the same human reports `ws-user-github|49943582` on a personal token and `bioimage-io` on an org one. If you store a record keyed on `id`, its owner cannot reach it after they mint a new token. Derive the key as `email` → `parent` → `id`, first non-empty; `parent` sits ahead of `id` so that a user with no email on their account still gets a stable key rather than a per-token one.
+- **Changing that key later is a data migration, so get it right the first time.** Every record already on disk is keyed under the old computation, and a new derivation matches none of them — the people locked out are the legitimate owners, reporting "this says it belongs to someone else" about data they wrote. If you must change it, do it on the **read** side as a key *set*: compare the stored owner against every key the caller may hold (`email`, `parent`, `id`) and treat a match on any as ownership, while writing only the stable key going forward. That regresses nothing and fixes new records. Whether to bound that compatibility window depends on where the old key came from: bound it (honour legacy keys only for records predating the change) if the old key was **self-asserted by the client**, since the bound is what stops a forged key being honoured; leave it unbounded if the old key was **server-derived**, where there is nothing forgeable to exclude and an age window only strands records that nothing else will ever clear.
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.
 - **GPU is requested in megabytes of VRAM, not in device counts.** `gpu_memory_mb=8192` asks for 8 GB, `gpu_memory_mb=-1` claims a whole GPU, and **CPU-only is expressed by omitting the kwarg** — `gpu_memory_mb=0` is hard-rejected, so "zero means no GPU" does not carry over. `num_gpus` was replaced by `gpu_memory_mb` in bioengine 0.15.0 and is no longer accepted on `@bioengine.app`. Sizing in MB is what makes several small models share one device safely: two 8 GB apps fit a 24 GB card and the third waits, whereas the old fractional `num_gpus=0.25` divided the device without enforcing any VRAM limit.
 - Entry/orchestrator deployments in composition apps: `num_cpus=0` and no `gpu_memory_mb` — they route calls and hold no compute.
@@ -701,6 +706,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `bioengine apps stop` then immediately redeploy → `Insufficient resources` | Stop does not release resources synchronously. Observed still held 5 s later. Poll `bioengine cluster status` until the resource is back before redeploying |
 | `apps deploy` printed no `Uploading…` line | It still uploaded. The line is not emitted on every path, so its absence is not evidence that the artifact was unchanged. Verify with the artifact version, not the console output |
 | `nvml_compute_processes` PIDs match nothing you can see | They are **host** PIDs. Inside the container `os.getpid()` is in a different namespace (7167 against an NVML pid of 2846561), so matching them is not a valid way to find your own process |
+| A user cannot delete/see their own records after minting a new API token | You keyed ownership on `context["user"]["id"]`, which is per-token, not per-human. Match against the key set `{email, parent, id}` and write `email`-or-`parent` going forward |
 | Long cold start on first request | `min_replicas: 1`; preload model in `async_init()` |
 | Blocking inference stalls event loop | `await asyncio.get_event_loop().run_in_executor(None, fn)` |
 | `Multiple services found` error | Use `connect_service()` from `bioengine.cli.utils` |
