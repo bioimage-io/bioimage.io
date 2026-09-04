@@ -580,7 +580,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                     return cellposeAvailable ? dinoOption.label : `${dinoOption.label} (unavailable)`;
                   }
                   const option = MICRO_SAM_MODEL_OPTIONS.find((o) => o.modelType === value);
-                  const label = option ? option.label.replace(' (default)', '') : value;
+                  const label = option ? option.label : value;
                   const marker = option?.group === 'em_organelles' ? 'EM' : 'LM';
                   return microSamAvailable
                     ? `μSAM ${label} (${marker})`
@@ -597,7 +597,7 @@ const CellposeConfigDialog: React.FC<CellposeConfigDialogProps> = ({
                       {MICRO_SAM_GROUP_LABELS[group]}
                     </ListSubheader>,
                     ...optionsInGroup.map((option) => {
-                      const shortLabel = option.label.replace(' (default)', '');
+                      const shortLabel = option.label;
                       const marker = option.group === 'em_organelles' ? 'EM' : 'LM';
                       return (
                         <MenuItem

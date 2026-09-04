@@ -1,6 +1,12 @@
 import React from 'react';
 import { SplitDoc, SplitSummary } from './brokerApi';
-import { MICRO_SAM_TRAINABLE_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
+import { MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
+import {
+  TrainingCapabilities,
+  describeTrainingGpu,
+  findModelCapability,
+  isModelTrainable,
+} from '../../utils/trainingCapabilities';
 
 export interface FinetuneViewRow {
   stem: string;
@@ -35,6 +41,12 @@ export interface FinetuneViewProps {
   onSaveSplit: () => void;
   modelType: string;
   onModelTypeChange: (value: string) => void;
+  // Live per-model "can this trainer fit it?" verdict from the pinned
+  // model-finetune replica. `null` means no verdict yet (still loading, or the
+  // call failed), in which case every base model stays selectable and the
+  // backend rejects an unfit one with a readable error.
+  trainingCapabilities: TrainingCapabilities | null;
+  trainingCapabilitiesLoading: boolean;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
   nEpochs: number;
@@ -109,6 +121,8 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   onSaveSplit,
   modelType,
   onModelTypeChange,
+  trainingCapabilities,
+  trainingCapabilitiesLoading,
   showAdvanced,
   onToggleAdvanced,
   nEpochs,
@@ -150,6 +164,14 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   const effectiveModelType = isCheckpointed ? activeSplit!.checkpoint!.model_type : modelType;
   const trainingSteps = nEpochs * Math.max(trainCount, 100);
   const durationEstimate = formatDurationEstimate(trainingSteps, effectiveModelType);
+
+  // Only explain the greying when there is something greyed out. With no
+  // capabilities yet (loading, or the call failed) nothing is disabled, so
+  // this is false and the note stays hidden.
+  const hasUnfitModel = MICRO_SAM_MODEL_OPTIONS.some(
+    (o) => !isModelTrainable(trainingCapabilities, o.modelType),
+  );
+  const trainerGpuLabel = describeTrainingGpu(trainingCapabilities, 'microsam');
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 h-full flex flex-col overflow-y-auto">
@@ -258,30 +280,55 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Base model</label>
             <div className="mb-3 space-y-2">
               {(['lm', 'em_organelles'] as const).map((group) => {
-                const optionsInGroup = MICRO_SAM_TRAINABLE_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
+                const optionsInGroup = MICRO_SAM_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
                 if (optionsInGroup.length === 0) return null;
                 return (
                   <div key={group}>
                     <p className="text-[0.65rem] font-medium text-gray-400 mb-1">{MICRO_SAM_GROUP_LABELS[group]}</p>
                     <div className="flex gap-2">
-                      {optionsInGroup.map((opt: MicroSamModelOption) => (
-                        <button
-                          key={opt.modelType}
-                          onClick={() => onModelTypeChange(opt.modelType)}
-                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                            modelType === opt.modelType
-                              ? 'bg-purple-50 border-purple-300 text-purple-700'
-                              : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+                      {optionsInGroup.map((opt: MicroSamModelOption) => {
+                        // Every model is listed. The ones this trainer's GPU
+                        // cannot fit are rendered disabled with the backend's
+                        // own reason attached, rather than omitted, so "we
+                        // don't offer it" and "your hardware can't run it"
+                        // stop looking identical.
+                        const enabled = isModelTrainable(trainingCapabilities, opt.modelType);
+                        const reason = findModelCapability(trainingCapabilities, opt.modelType)?.reason;
+                        return (
+                          <button
+                            key={opt.modelType}
+                            onClick={() => onModelTypeChange(opt.modelType)}
+                            disabled={!enabled}
+                            title={enabled ? undefined : reason || 'This model is not trainable on the current GPU'}
+                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out ${
+                              !enabled
+                                ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed'
+                                : modelType === opt.modelType
+                                ? 'bg-purple-50 border-purple-300 text-purple-700 active:scale-[0.97]'
+                                : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200 active:scale-[0.97]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
               })}
             </div>
+            {trainingCapabilitiesLoading ? (
+              <p className="text-[0.65rem] text-gray-400 -mt-2 mb-3">
+                Checking which models this trainer's GPU can fit...
+              </p>
+            ) : (
+              hasUnfitModel && (
+                <p className="text-[0.65rem] text-gray-400 -mt-2 mb-3">
+                  Greyed-out models need more memory than {trainerGpuLabel ?? 'the training GPU'} has.
+                  Hover one to see how much.
+                </p>
+              )
+            )}
           </>
         )}
 

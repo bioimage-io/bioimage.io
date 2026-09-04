@@ -45,16 +45,18 @@ export const MICRO_SAM_SERVICE_ID = 'bioimage-io/model-finetune';
 // generated the embedding. ('vit_b_lm' is the lighter fallback if ever needed.)
 export const MICRO_SAM_MODEL_TYPE = 'vit_l_lm';
 
-/** One selectable μSAM generalist in the Full Image Segmentation model
- *  picker. ``group`` drives which subheader an option renders under.
- *  ``trainableOnT4`` is fine-tuning-specific: serving (segmentation/
- *  annotation) never reads it, only MICRO_SAM_TRAINABLE_MODEL_OPTIONS
- *  filters on it. */
+/** One selectable μSAM generalist. Shared by the Full Image Segmentation
+ *  picker, the box-prompt picker, and the fine-tuning base-model picker.
+ *  ``group`` drives which subheader an option renders under.
+ *
+ *  This list owns presentation only (display label, grouping, order), because
+ *  the backend carries neither. Whether a model can actually be fine-tuned is
+ *  NOT recorded here: it depends on the training GPU, so it is read live from
+ *  ``get_training_capabilities`` (see utils/trainingCapabilities.ts). */
 export interface MicroSamModelOption {
   modelType: string;
   group: 'lm' | 'em_organelles';
   label: string;
-  trainableOnT4: boolean;
 }
 
 /** Human-readable subheader per group, in display order. Only groups that
@@ -70,27 +72,22 @@ export const MICRO_SAM_GROUP_LABELS: Record<MicroSamModelOption['group'], string
 // groups by `group` generically, so this array is the single place either
 // group's membership is defined.
 //
-// trainableOnT4: false on both "Large" entries per colab-rework-plan.md §20.2
-// and confirmed again on 0.10.0 (round-30, 2026-08-17, keen-puma relaying
-// live-kudu's 0.8.5 test): vit_l_* OOMs the deNBI T4 during fine-tuning,
-// serving is unaffected. Flip to true here once a backend fix lands. This is
-// training-only: the segmentation/annotation selector ignores this flag and
-// keeps offering all 6.
+// 2026-09-04: this list used to carry a `trainableOnT4` flag, and the Finetune
+// page filtered on it via a `MICRO_SAM_TRAINABLE_MODEL_OPTIONS` derived array,
+// which is why the "Large" entries silently never appeared there. The flag was
+// a one-off measurement against de.NBI's T4 and had no way to notice a GPU
+// upgrade or a second training site. model-finetune 0.14.0's
+// `get_training_capabilities` answers it live instead, so all 6 are listed
+// unconditionally here and the picker greys out whatever the trainer reports
+// it cannot fit. See utils/trainingCapabilities.ts.
 export const MICRO_SAM_MODEL_OPTIONS: MicroSamModelOption[] = [
-  { modelType: 'vit_t_lm', group: 'lm', label: 'Tiny', trainableOnT4: true },
-  { modelType: 'vit_b_lm', group: 'lm', label: 'Base', trainableOnT4: true },
-  { modelType: 'vit_l_lm', group: 'lm', label: 'Large (default)', trainableOnT4: false },
-  { modelType: 'vit_t_em_organelles', group: 'em_organelles', label: 'Tiny', trainableOnT4: true },
-  { modelType: 'vit_b_em_organelles', group: 'em_organelles', label: 'Base', trainableOnT4: true },
-  { modelType: 'vit_l_em_organelles', group: 'em_organelles', label: 'Large', trainableOnT4: false },
+  { modelType: 'vit_t_lm', group: 'lm', label: 'Tiny' },
+  { modelType: 'vit_b_lm', group: 'lm', label: 'Base' },
+  { modelType: 'vit_l_lm', group: 'lm', label: 'Large' },
+  { modelType: 'vit_t_em_organelles', group: 'em_organelles', label: 'Tiny' },
+  { modelType: 'vit_b_em_organelles', group: 'em_organelles', label: 'Base' },
+  { modelType: 'vit_l_em_organelles', group: 'em_organelles', label: 'Large' },
 ];
-
-/** Subset of MICRO_SAM_MODEL_OPTIONS safe to offer as a fine-tuning base
- *  model. Use this (not MICRO_SAM_MODEL_OPTIONS) for the Finetune page's
- *  base-model picker; the Full Image Segmentation / annotation picker should
- *  keep using the full list. */
-export const MICRO_SAM_TRAINABLE_MODEL_OPTIONS: MicroSamModelOption[] =
-  MICRO_SAM_MODEL_OPTIONS.filter((o) => o.trainableOnT4);
 
 /**
  * Resolve a fresh handle to the BioImageIO Fine-tune service. Cheap (one
