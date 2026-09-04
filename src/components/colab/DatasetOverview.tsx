@@ -41,6 +41,7 @@ import {
   updateSplit,
 } from './brokerApi';
 import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
+import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
 import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
 import FinetuneView from './FinetuneView';
@@ -289,6 +290,12 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [splitSaveError, setSplitSaveError] = useState<string | null>(null);
   const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
   const [ftModelType, setFtModelType] = useState<string>('vit_t_lm');
+  // Which base models the pinned model-finetune replica's GPU can actually
+  // fit. Fetched here rather than in FinetuneView because that panel is
+  // presentational and has no `server`; see utils/trainingCapabilities.ts for
+  // why this must come from the same pinned replica that runs the training.
+  const { capabilities: trainingCapabilities, loading: trainingCapabilitiesLoading } =
+    useTrainingCapabilities(finetuneViewOpen ? server : null);
   const [ftShowAdvanced, setFtShowAdvanced] = useState(false);
   const [ftNEpochs, setFtNEpochs] = useState(5);
   const [ftNObjectsPerBatch, setFtNObjectsPerBatch] = useState(8);
@@ -1893,6 +1900,8 @@ print("Service registered successfully", end='')
                 onSaveSplit={handleSaveSplit}
                 modelType={ftModelType}
                 onModelTypeChange={setFtModelType}
+                trainingCapabilities={trainingCapabilities}
+                trainingCapabilitiesLoading={trainingCapabilitiesLoading}
                 showAdvanced={ftShowAdvanced}
                 onToggleAdvanced={() => setFtShowAdvanced((v) => !v)}
                 nEpochs={ftNEpochs}

@@ -20,6 +20,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import {
   MICRO_SAM_MODEL_OPTIONS,
   MICRO_SAM_GROUP_LABELS,
+  MICRO_SAM_MODEL_TYPE,
   MicroSamModelOption,
 } from '../../utils/microSamService';
 
@@ -132,8 +133,12 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
             bgcolor: selected ? 'secondary.main' : 'action.disabledBackground',
           }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
+            {/* "(default)" is a property of THIS dialog, not of the model:
+                MICRO_SAM_MODEL_TYPE is the box-prompt default only. Marking it
+                on the shared option label instead would leak it into the
+                fine-tuning picker, whose default is a different model. */}
             <Typography variant="body2" fontWeight={selected ? 700 : 500} color={selected ? 'secondary.main' : 'text.primary'}>
-              {option.label}
+              {option.modelType === MICRO_SAM_MODEL_TYPE ? `${option.label} (default)` : option.label}
             </Typography>
           </Box>
           {isLoaded ? (
