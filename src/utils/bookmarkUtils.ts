@@ -1,8 +1,11 @@
+import { FileRef } from '../types/artifact';
+
 export interface BookmarkedArtifact {
   id: string;
   name: string;
   description: string;
-  covers?: string[];
+  /** Same string-or-FileDescr union the RDF carries; resolve with resolveHyphaUrl. */
+  covers?: FileRef[];
   icon?: string;
 }
 
