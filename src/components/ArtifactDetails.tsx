@@ -28,7 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
 import HintTooltip from './HintTooltip';
-import { resolveHyphaUrl, resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl, extractFilePath, resolveArtifactRouteId } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -169,7 +169,9 @@ const ArtifactDetails = () => {
 
   useEffect(() => {
     if (id) {
-      fetchResource(`bioimage-io/${id}`, version);
+      // The id can arrive bare or workspace-qualified, see resolveArtifactRouteId.
+      const resolved = resolveArtifactRouteId(id, version);
+      fetchResource(resolved.artifactId, resolved.version);
     }
   }, [id, fetchResource, version]);
 
