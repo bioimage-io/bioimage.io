@@ -1,4 +1,5 @@
 import { HYPHA_SERVER_URL } from '../config/hypha';
+import { FileRef } from '../types/artifact';
 
 /**
  * bioimageio.spec 0.5.11 changed several fields from plain string paths to
@@ -7,9 +8,15 @@ import { HYPHA_SERVER_URL } from '../config/hypha';
  * ones it's a descriptor. Normalize both shapes here so every consumer
  * (covers, documentation, etc.) can pass the raw value straight through.
  */
-type FileLike = string | { source?: string } | null | undefined;
+type FileLike = FileRef | null | undefined;
 
-const extractPath = (input: FileLike): string => {
+/**
+ * Returns the relative path a manifest field points at, for both shapes.
+ * Use this instead of touching the field directly: rendering a FileDescr as a
+ * React child throws ("objects are not valid as a React child"), and comparing
+ * one to a filename silently never matches.
+ */
+export const extractFilePath = (input: FileLike): string => {
   if (!input) return '';
   if (typeof input === 'string') return input;
   return typeof input.source === 'string' ? input.source : '';
@@ -23,7 +30,7 @@ const extractPath = (input: FileLike): string => {
  */
 
 export const resolveHyphaUrl = (path: FileLike, resourceId: string, use_proxy: boolean = false): string => {
-  const source = extractPath(path);
+  const source = extractFilePath(path);
   if (!source) return '';
 
   // If the source is already a full URL, return it as is

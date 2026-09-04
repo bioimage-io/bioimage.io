@@ -98,8 +98,8 @@ export interface ArtifactInfo {
     id_emoji?: string | null;
     tags?: string[];
     badges?: Badge[];
-    covers?: string[];
-    documentation?: string;
+    covers?: FileRef[];
+    documentation?: FileRef;
     authors?: Author[];
     maintainers?: Maintainer[];
     cite?: Citation[];
@@ -109,7 +109,7 @@ export interface ArtifactInfo {
       label: string;
     }[];
     git_repo?: string;
-    license?: string;
+    license?: FileRef;
     uploader: Uploader;
     status?: string;
   };
@@ -133,6 +133,20 @@ export interface ArtifactInfo {
   description?: string; // From manifest
   _id?: string; // Internal ID
 }
+
+/**
+ * bioimageio.spec 0.5.11 turned several path-valued RDF fields into a union:
+ * either the plain relative path they always were, or a FileDescr object
+ * carrying the path plus its checksum. `license` is the same union with one
+ * extra member, a bare SPDX identifier, which is a string but NOT a path.
+ * Anything reading these fields must normalize first (see utils/urlHelpers).
+ */
+export interface FileDescr {
+  source: string;
+  sha256?: string;
+}
+
+export type FileRef = string | FileDescr;
 
 export interface Documentation {
   url?: string;

@@ -28,7 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningIcon from '@mui/icons-material/Warning';
 import ModelRunner from './ModelRunner';
 import HintTooltip from './HintTooltip';
-import { resolveHyphaUrl, resolveTestReportUrl } from '../utils/urlHelpers';
+import { resolveHyphaUrl, resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
 import { BIOIMAGEIO_YAML, RDF_YAML } from '../utils/rdfFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
@@ -2140,7 +2140,25 @@ const ArtifactDetails = () => {
                 <GavelIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 License
               </Typography>
-              <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>{manifest.license}</Typography>
+              {/* `license` is either an SPDX identifier or, since spec 0.5.11, a
+                  FileDescr pointing at a custom license file. Render the
+                  identifier as text and the file as a link to it, never the
+                  raw descriptor: a bare object here throws and blanks the page. */}
+              {manifest.license && typeof manifest.license !== 'string' ? (
+                <Link
+                  href={resolveHyphaUrl(manifest.license, selectedResource.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ color: '#2563eb', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                >
+                  {extractFilePath(manifest.license)}
+                  <OpenInNewIcon sx={{ fontSize: 16 }} />
+                </Link>
+              ) : (
+                <Typography variant="body1" sx={{ color: '#4b5563', fontWeight: 500 }}>
+                  {manifest.license || 'Not specified'}
+                </Typography>
+              )}
             </CardContent>
           </Card>
         </Grid>

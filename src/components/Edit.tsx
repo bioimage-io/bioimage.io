@@ -18,7 +18,7 @@ import { getArtifactRights, getIsReviewer, buildContributorPermissions } from '.
 import { isInternalArtifactFile } from '../utils/internalFiles';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRdfFileName } from '../utils/rdfFile';
 import { HYPHA_SERVER_URL } from '../config/hypha';
-import { resolveTestReportUrl } from '../utils/urlHelpers';
+import { resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 
 // Helper function to extract weight file paths from manifest
@@ -1488,8 +1488,11 @@ const Edit: React.FC = () => {
       const fileType = selectedFile.name.split('.').pop()?.toUpperCase() || 'Unknown';
       
       // Check if this is a cover image
+      // covers entries are plain paths on older models and FileDescr objects on
+      // spec 0.5.11+ ones; comparing the raw entry never matches the latter, so
+      // the oversized-cover warning silently stopped firing for new models.
       const isCoverImage = artifactInfo?.manifest?.covers?.some(
-        cover => cover === selectedFile.name
+        cover => extractFilePath(cover) === selectedFile.name
       );
       
       // Determine warning status for cover images
