@@ -117,10 +117,12 @@ Data served by the worker's own data server is reached through `bioengine.datase
 ```python
 import bioengine
 
-store = await bioengine.datasets.get_file("blood-atlas", file_name="image.ome.zarr")
+store = await bioengine.datasets.get_file("blood-atlas", file_path="image.ome.zarr")
 ```
 
-`get_file` returns an `HttpZarrStore` for any `.zarr` path (raw `bytes` for anything else), so the navigation code above is unchanged. Access control is handled for you: the client sends the app's Hypha token as a Bearer header, and a dataset the caller may not read comes back as a 401 rather than data.
+`get_file` returns an `HttpZarrStore` for any `.zarr` path (raw `bytes` for anything else), so the navigation code above is unchanged.
+
+**Know which identity is being checked.** With no `token=`, the client sends the *app's* Hypha token as a Bearer header, and the data server authorizes that token against the dataset's `authorized_users`. The question answered is "may this app read it", not "may the caller read it". That is correct when your app owns the data it serves, and it is a confused deputy the moment a caller chooses `dataset_id` — any caller can then name any dataset the app can reach. In that case, either check the caller's own permissions first (a `context=True` method receives `context["user"]["scope"]["workspaces"]`, a map of workspace to permission letter) or have the caller supply their token and forward it: `get_file(dataset_id, file_path, token=...)`. An unauthorized token gets a 403; a missing or invalid one, a 401.
 
 `bioengine.datasets.list_datasets()` and `list_files(dataset_id, dir_path=..., recursive=...)` cover discovery when you don't already know the path.
 
@@ -129,7 +131,7 @@ store = await bioengine.datasets.get_file("blood-atlas", file_name="image.ome.za
 OME-Zarr declares every child path in its metadata, so reading one never enumerates the store. A plain zarr group declares nothing — the only way to learn what is in it is to list it, and that requires a store that can enumerate keys:
 
 ```python
-store = await bioengine.datasets.get_file("blood-atlas", file_name="unknown.zarr")
+store = await bioengine.datasets.get_file("blood-atlas", file_path="unknown.zarr")
 group = zarr.open_group(store, mode="r")
 
 print(sorted(group.array_keys()))   # ['alpha', 'beta']
