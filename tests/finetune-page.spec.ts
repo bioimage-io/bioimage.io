@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var (falls back to /data/nmechtel/bioengine/.env).
-// Requires: dev server at http://localhost:3012.
+// Requires: dev server at E2E_BASE_URL (default http://localhost:3000).
 //
 // What this tests:
 // - §23.2/§23.4 (colab-rework-plan.md): the dataset overview's Finetune
@@ -28,7 +29,7 @@ import fs from 'fs';
 // shared infra is out of scope for an automated check — keen-puma/Nils run
 // that e2e pass by hand once this lands.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 
@@ -136,7 +137,9 @@ test.describe('Finetune training-sessions page (monitoring-only, direct URL)', (
     // still reached by direct URL and is monitoring-only now: no start
     // form, training runs are kicked off from the finetune view.
     await page.goto(`/#/colab/${encodeURIComponent(DATASET_ALIAS)}/finetune`);
-    await expect(page.getByRole('heading', { name: 'Fine-tune μSAM' })).toBeVisible({ timeout: 30000 });
+    // The page covers both backends since Cellpose and micro-SAM training were
+    // unified behind model-finetune, so the heading is no longer μSAM-specific.
+    await expect(page.getByRole('heading', { name: 'Fine-tune a model' })).toBeVisible({ timeout: 30000 });
 
     // Guard passed (manager role) -> the sessions list is visible, not an
     // access-denied card.
@@ -146,7 +149,9 @@ test.describe('Finetune training-sessions page (monitoring-only, direct URL)', (
     // The old start form is gone entirely from this page.
     await expect(page.getByRole('heading', { name: 'Start a new session' })).not.toBeVisible();
     await expect(page.getByRole('button', { name: 'Start fine-tuning' })).not.toBeVisible();
-    await expect(page.getByText("Start new training runs from a dataset's finetune view", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("Pick a split and a starting model in the dataset's finetune view", { exact: false }),
+    ).toBeVisible();
   });
 
   test('"Use for annotation" is gated on a checkpoint-ready session (§20 item 2)', async ({ page }) => {
