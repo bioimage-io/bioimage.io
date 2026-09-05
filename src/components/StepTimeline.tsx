@@ -71,7 +71,8 @@ const formatDurationSec = (sec: number): string =>
  *               timer reflects the real execution start even if the two clocks
  *               disagree;
  *   - done    → the frozen duration to one decimal ("2.4s");
- *   - skipped → an em dash (a later step started while this one never did);
+ *   - skipped → the word "Skipped" (a later step started while this one never
+ *               did);
  *   - not yet reached → blank.
  */
 const StepTimeline: React.FC<StepTimelineProps> = ({ submittedAt, startedLabel = 'Test started', fallbackQueuePosition, steps, completedAt }) => {

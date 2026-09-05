@@ -15,8 +15,10 @@ import { test, expect } from '@playwright/test';
 //     inline in each step's right-hand cell as an amber "#N" pill while queued
 //     (queue_position > 0), not as a separate always-on queue-position row.
 //   - The three step rows (Preparing model / Environment setup / Running) show
-//     each step's duration (mm:ss), a dash when skipped, and the live-ticking
-//     duration for the step currently running.
+//     each step's duration, "Skipped" when the step never ran, and the
+//     live-ticking elapsed time for the step currently running. Durations are
+//     seconds, not mm:ss: a running step ticks whole seconds ("17s") and a
+//     finished one freezes to one decimal ("2.4s").
 //   - On completion the dialog stays on the timeline ("Model Test Complete")
 //     with a "View Test Report" button; the report opens only when clicked.
 
@@ -77,8 +79,9 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     await expect(page.getByText('Environment setup')).toBeVisible();
     await expect(page.getByText('Running')).toBeVisible();
 
-    // Step 7: The right-hand cell shows each step's duration (mm:ss).
-    await expect(page.locator('text=/^\\d{2}:\\d{2}$/').first()).toBeVisible({ timeout: 240000 });
+    // Step 7: The right-hand cell shows each step's duration in seconds —
+    // "17s" while a step is running, "2.4s" once it has frozen.
+    await expect(page.locator('text=/^\\d+([.,]\\d)?s$/').first()).toBeVisible({ timeout: 240000 });
 
     // Step 8: On completion the dialog stays on the timeline (title "Model Test
     // Complete") and offers a "View Test Report" button — the report does NOT
@@ -96,7 +99,7 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test('Edit page: skipped step renders an em dash', async ({ page }) => {
+  test('Edit page: skipped step is labelled Skipped', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -128,15 +131,15 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // Enable "Skip cache" (second checkbox) so the run actually downloads and
     // runs rather than returning instantly from cache — that gives the
     // in-progress timeline a stable window to observe. With no custom
-    // environment, the Environment setup step is skipped and its start-time
-    // cell must render an em dash once the Running step has started.
+    // environment, the Environment setup step is skipped and its right-hand
+    // cell must read "Skipped" once the Running step has started.
     await optionsDialog.locator('input[type="checkbox"]').nth(1).check();
     await optionsDialog.getByRole('button', { name: 'Run Test' }).click();
 
     await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
     // Once the Running step has a start time, Environment setup is skipped and
-    // shows an em dash. Poll for it while the run is in its (real) running phase.
+    // says so. Poll for it while the run is in its (real) running phase.
     await expect(page.getByText('Running')).toBeVisible({ timeout: 240000 });
-    await expect(page.getByText('—').first()).toBeVisible({ timeout: 120000 });
+    await expect(page.getByText('Skipped').first()).toBeVisible({ timeout: 120000 });
   });
 });
