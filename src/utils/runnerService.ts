@@ -12,7 +12,7 @@
 //                                      runtime.
 //
 // Like micro-sam (see utils/microSamService.ts) and unlike cellpose-finetuning
-// (see utils/cellposeServicePin.ts), neither runner keeps per-session state on
+// (whose retired UI pinned one replica), neither runner keeps per-session state on
 // a replica's local disk — the resident-pipeline cache they maintain (model_id
 // + pre/postprocessing overrides) is a pure performance optimization, not a
 // correctness dependency. So there is nothing to pin: every call re-resolves a

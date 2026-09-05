@@ -13,7 +13,7 @@
  *
  * Which GPU is being described
  * ----------------------------
- * Deliberately resolved through `resolvePinnedMicroSamTrainingService`, NOT
+ * Deliberately resolved through `resolvePinnedTrainingService`, NOT
  * the load-balanced `resolveMicroSamService`. A fine-tuning session's state
  * (checkpoints, status.json) lives on one replica's local disk, so every
  * training call is already pinned to a single worker for the tab's lifetime.
@@ -33,7 +33,7 @@
  * experience than a button that flickers with someone else's load. Never gate
  * the UI on `free_mb`.
  */
-import { resolvePinnedMicroSamTrainingService } from './microSamTrainingPin';
+import { resolvePinnedTrainingService } from './trainingServicePin';
 
 /** Per-backend GPU report. `available: false` means that runtime is down. */
 export interface TrainingGpuInfo {
@@ -57,11 +57,43 @@ export interface TrainingModelCapability {
   trainable: boolean | null;
   /** Human-readable, e.g. 'fits' or 'needs ~24000 MB, GPU has 14912 MB'. */
   reason?: string;
+  /**
+   * Which weight family the model belongs to, e.g. 'lm', 'em_organelles',
+   * 'sam', 'cpsam', 'cpdino'. This is the picker's grouping key. Absent on
+   * model-finetune 0.14.0, where the frontend falls back to a static map.
+   */
+  family?: string;
+  /** 'tiny' | 'base' | 'large' | 'huge'. Absent on 0.14.0, as with `family`. */
+  size?: string;
+}
+
+/**
+ * One `start_training` parameter, as the backend derives it from its own
+ * signature. `min`/`max` are real bounds, `null` meaning unbounded on that
+ * side; a `default` of `null` means the backend picks the value when the
+ * parameter is omitted.
+ */
+export interface TrainingParameterInfo {
+  name: string;
+  /** Backends that accept this parameter, e.g. ['microsam', 'cellpose']. */
+  applies_to: string[];
+  type: string;
+  default: number | null;
+  min?: number | null;
+  max?: number | null;
+  description?: string;
 }
 
 export interface TrainingCapabilities {
   gpus: Record<string, TrainingGpuInfo>;
   models: TrainingModelCapability[];
+  /**
+   * The tunable `start_training` parameters. Added in model-finetune 0.15.0
+   * and absent before it, which is also the signal the frontend uses to decide
+   * whether the replica understands `init_checkpoint` (the two shipped in the
+   * same release). See `trainingModels.ts`.
+   */
+  parameters?: TrainingParameterInfo[];
 }
 
 /**
@@ -87,7 +119,7 @@ export function resetTrainingCapabilitiesCache(): void {
 export async function fetchTrainingCapabilities(server: any): Promise<TrainingCapabilities> {
   if (!capabilitiesPromise) {
     capabilitiesPromise = (async () => {
-      const svc = await resolvePinnedMicroSamTrainingService(server);
+      const svc = await resolvePinnedTrainingService(server);
       const caps = await svc.get_training_capabilities();
       if (!caps || !Array.isArray(caps.models)) {
         throw new Error('get_training_capabilities returned an unexpected shape');

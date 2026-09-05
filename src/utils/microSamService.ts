@@ -27,7 +27,7 @@
 // changes. The old service stays registered until every frontend deploy has
 // switched, then retires.
 //
-// Unlike cellpose-finetuning (see utils/cellposeServicePin.ts), this service
+// Unlike fine-tuning (see utils/trainingServicePin.ts), this service
 // is stateless across replicas for segmentation calls, so there is nothing to
 // pin: every call re-resolves a fresh handle (Hypha handles expire after a
 // few minutes of inactivity) and load-balances to the least-busy worker.

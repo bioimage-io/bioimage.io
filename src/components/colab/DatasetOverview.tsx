@@ -33,18 +33,18 @@ import {
   getDataset,
   getDatasetIndex,
   getSplit,
-  getTrainingUrls,
   listSplits,
   resetBrokerServiceCache,
-  setSplitCheckpoint,
   splitDocToSummary,
   updateSplit,
 } from './brokerApi';
-import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
+import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
 import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
-import FinetuneView from './FinetuneView';
+import FinetuneView, { CheckpointSource, ResumableSession } from './FinetuneView';
+import { ExportedCheckpoint, listExportedCheckpoints } from '../../utils/finetuneCheckpoints';
+import { supportsInitCheckpoint } from '../../utils/trainingModels';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
 import ShareModal from './ShareModal';
@@ -288,22 +288,22 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [assignment, setAssignment] = useState<Record<string, 'train' | 'test' | 'unused'>>({});
   const [isSavingSplit, setIsSavingSplit] = useState(false);
   const [splitSaveError, setSplitSaveError] = useState<string | null>(null);
-  const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
   const [ftModelType, setFtModelType] = useState<string>('vit_t_lm');
+  // Which of the three starting points the run uses. See FinetuneView's
+  // "Start from" control and the CheckpointSource doc comment there.
+  const [ftCheckpointSource, setFtCheckpointSource] = useState<CheckpointSource>('base');
+  const [ftResumeSessionId, setFtResumeSessionId] = useState<string | null>(null);
+  const [ftExportedCheckpointId, setFtExportedCheckpointId] = useState<string | null>(null);
+  const [resumableSessions, setResumableSessions] = useState<ResumableSession[]>([]);
+  const [resumableSessionsLoading, setResumableSessionsLoading] = useState(false);
+  const [exportedCheckpoints, setExportedCheckpoints] = useState<ExportedCheckpoint[]>([]);
+  const [exportedCheckpointsLoading, setExportedCheckpointsLoading] = useState(false);
   // Which base models the pinned model-finetune replica's GPU can actually
   // fit. Fetched here rather than in FinetuneView because that panel is
   // presentational and has no `server`; see utils/trainingCapabilities.ts for
   // why this must come from the same pinned replica that runs the training.
   const { capabilities: trainingCapabilities, loading: trainingCapabilitiesLoading } =
     useTrainingCapabilities(finetuneViewOpen ? server : null);
-  const [ftShowAdvanced, setFtShowAdvanced] = useState(false);
-  const [ftNEpochs, setFtNEpochs] = useState(5);
-  const [ftNObjectsPerBatch, setFtNObjectsPerBatch] = useState(8);
-  const [ftPatchSize, setFtPatchSize] = useState(512);
-  const [ftBatchSize, setFtBatchSize] = useState(1);
-  const [ftLearningRate, setFtLearningRate] = useState(1e-5);
-  const [isStartingTraining, setIsStartingTraining] = useState(false);
-  const [startTrainingError, setStartTrainingError] = useState<string | null>(null);
   // A cloud image that's a member of some split, blocking delete (§23.4
   // supersedes §20 item 4's "remove from split and delete": splits are
   // add-only now, so there's no clean removal path, only a block).
@@ -486,6 +486,104 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [server, artifactId, canManage, finetuneViewOpen, selectedLabel, activeSplitName]);
+
+  // A split that has already been trained defaults to continuing from its own
+  // run, which is what "train some more on this split" means. Still only a
+  // default: the picker can switch back to the base model. Skipped when that
+  // run is not on the pinned replica, since resume_session_id would not find
+  // it there.
+  useEffect(() => {
+    const recorded = activeSplit?.checkpoint?.session_id ?? null;
+    if (recorded && resumableSessions.some((s) => s.session_id === recorded)) {
+      setFtResumeSessionId(recorded);
+      setFtCheckpointSource('session');
+      return;
+    }
+    setFtResumeSessionId(null);
+    setFtCheckpointSource((prev) => (prev === 'session' ? 'base' : prev));
+  }, [activeSplit, resumableSessions]);
+
+  // Switching source picks that source's newest entry, so the select and the
+  // Continue button are never left pointing at nothing.
+  const handleCheckpointSourceChange = (next: CheckpointSource) => {
+    setFtCheckpointSource(next);
+    if (next === 'session' && !ftResumeSessionId) {
+      setFtResumeSessionId(resumableSessions[0]?.session_id ?? null);
+    }
+    if (next === 'exported' && !ftExportedCheckpointId) {
+      setFtExportedCheckpointId(exportedCheckpoints[0]?.artifactId ?? null);
+    }
+  };
+
+  // --- Checkpoints the user can continue training from ---
+  // Only the pinned replica's own finished sessions qualify: `resume_session_id`
+  // resolves against that worker's local disk, so a run from another replica is
+  // not reachable no matter what its id says. Failure is silent on purpose,
+  // "Base model" stays available and is the common case.
+  useEffect(() => {
+    if (!canManage || !finetuneViewOpen || !server) {
+      setResumableSessions([]);
+      return;
+    }
+    let active = true;
+    setResumableSessionsLoading(true);
+    (async () => {
+      try {
+        const svc = await resolvePinnedTrainingService(server);
+        const all = await svc.list_training_sessions({ _rkwargs: true });
+        if (!active) return;
+        const mine = Object.values(all || {})
+          .filter((s: any) => s?.checkpoint_available && s?.status === 'COMPLETED')
+          .sort((a: any, b: any) => (b?.end_time ?? 0) - (a?.end_time ?? 0)) as ResumableSession[];
+        setResumableSessions(mine);
+      } catch (err) {
+        if (active) {
+          console.warn('[DatasetOverview] Could not list resumable checkpoints:', err);
+          setResumableSessions([]);
+        }
+      } finally {
+        if (active) setResumableSessionsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [server, canManage, finetuneViewOpen]);
+
+  // The durable counterpart to the sessions above: models the user exported to
+  // bioimage.io that carry resumable weights. Only asked for once the trainer
+  // is known to accept `init_checkpoint`, since the listing walks the whole
+  // collection's staged children (staged artifacts are not server-side
+  // indexed, so there is no cheaper query) and there is no point paying for
+  // that when the answer cannot be used.
+  useEffect(() => {
+    if (!canManage || !finetuneViewOpen || !artifactManager || !user) {
+      setExportedCheckpoints([]);
+      return;
+    }
+    if (!supportsInitCheckpoint(trainingCapabilities)) {
+      setExportedCheckpoints([]);
+      return;
+    }
+    let active = true;
+    setExportedCheckpointsLoading(true);
+    (async () => {
+      try {
+        const found = await listExportedCheckpoints(artifactManager, user);
+        if (active) setExportedCheckpoints(found);
+      } catch (err) {
+        if (active) {
+          console.warn('[DatasetOverview] Could not list exported checkpoints:', err);
+          setExportedCheckpoints([]);
+        }
+      } finally {
+        if (active) setExportedCheckpointsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [artifactManager, user, canManage, finetuneViewOpen, trainingCapabilities]);
 
   // --- Labels + per-label annotated counts ---
   const reloadLabels = useCallback(async () => {
@@ -1152,58 +1250,35 @@ print("Service registered successfully", end='')
     }
   };
 
-  const handleStartTraining = async (skipEmptyTestWarning = false) => {
+  // Step 1 ends here. The training page owns the parameters, the actual
+  // start_training call and the monitoring, so this only hands over what was
+  // chosen: which label, which split, which architecture, and which checkpoint
+  // to start from. Everything travels in the URL so the page survives a
+  // reload and the link can be shared.
+  const handleContinueToTraining = () => {
     if (!activeSplitName) return;
-    if (!skipEmptyTestWarning && (activeSplit?.test.length ?? 0) === 0) {
-      setShowEmptyTestWarning(true);
-      return;
+    const resumeSession =
+      ftCheckpointSource === 'session' && ftResumeSessionId
+        ? resumableSessions.find((s) => s.session_id === ftResumeSessionId)
+        : undefined;
+    const exported =
+      ftCheckpointSource === 'exported' && ftExportedCheckpointId
+        ? exportedCheckpoints.find((c) => c.artifactId === ftExportedCheckpointId)
+        : undefined;
+    const params = new URLSearchParams({
+      label: selectedLabel,
+      split: activeSplitName,
+      // A checkpoint dictates its own architecture, so it wins over whatever
+      // the base-model picker last had selected.
+      model: resumeSession?.model_type ?? exported?.modelType ?? ftModelType,
+    });
+    if (resumeSession) params.set('resume', resumeSession.session_id);
+    if (exported) {
+      params.set('initArtifact', exported.artifactId);
+      params.set('initFile', exported.checkpointFile);
+      if (exported.staged) params.set('initStaged', '1');
     }
-    setShowEmptyTestWarning(false);
-    setIsStartingTraining(true);
-    setStartTrainingError(null);
-    try {
-      const urls = await getTrainingUrls(server, artifactId, selectedLabel, activeSplitName);
-      if (urls.train.length === 0) {
-        setStartTrainingError(`Split "${activeSplitName}" has no training images yet.`);
-        return;
-      }
-      // A checkpointed split resumes from its prior session and is locked to
-      // that session's model type — the server rejects a mismatched
-      // model_type, so this can't drift from what start_training was
-      // actually trained with.
-      const modelType = activeSplit?.checkpoint ? activeSplit.checkpoint.model_type : ftModelType;
-      const params: any = {
-        train_images: urls.train.map((e) => e.image_url),
-        train_labels: urls.train.map((e) => e.geojson_url),
-        model_type: modelType,
-        n_epochs: ftNEpochs,
-        n_objects_per_batch: ftNObjectsPerBatch,
-        patch_size: ftPatchSize,
-        batch_size: ftBatchSize,
-        learning_rate: ftLearningRate,
-        label: `${toAlias(artifactId)}/${selectedLabel}`,
-        _rkwargs: true,
-      };
-      if (urls.test.length > 0) {
-        params.val_images = urls.test.map((e) => e.image_url);
-        params.val_labels = urls.test.map((e) => e.geojson_url);
-      }
-      if (activeSplit?.checkpoint) {
-        params.resume_session_id = activeSplit.checkpoint.session_id;
-      }
-      const svc = await resolvePinnedMicroSamTrainingService(server);
-      const status = await svc.start_training(params);
-      const updated = await setSplitCheckpoint(server, artifactId, selectedLabel, activeSplitName, {
-        session_id: status.session_id,
-        model_type: modelType,
-      });
-      setExistingSplits((prev) => prev.map((s) => (s.name === updated.name ? splitDocToSummary(updated) : s)));
-      setActiveSplit(updated);
-    } catch (err) {
-      setStartTrainingError((err as Error).message || 'Failed to start training.');
-    } finally {
-      setIsStartingTraining(false);
-    }
+    navigate(`/colab/${toAlias(artifactId)}/finetune?${params.toString()}`);
   };
 
   // colab-rework-plan.md §23.4 item 3: split-assignment badge shown per row
@@ -1902,24 +1977,18 @@ print("Service registered successfully", end='')
                 onModelTypeChange={setFtModelType}
                 trainingCapabilities={trainingCapabilities}
                 trainingCapabilitiesLoading={trainingCapabilitiesLoading}
-                showAdvanced={ftShowAdvanced}
-                onToggleAdvanced={() => setFtShowAdvanced((v) => !v)}
-                nEpochs={ftNEpochs}
-                onNEpochsChange={setFtNEpochs}
-                nObjectsPerBatch={ftNObjectsPerBatch}
-                onNObjectsPerBatchChange={setFtNObjectsPerBatch}
-                patchSize={ftPatchSize}
-                onPatchSizeChange={setFtPatchSize}
-                batchSize={ftBatchSize}
-                onBatchSizeChange={setFtBatchSize}
-                learningRate={ftLearningRate}
-                onLearningRateChange={setFtLearningRate}
-                isStartingTraining={isStartingTraining}
-                startTrainingError={startTrainingError}
-                onStartTraining={() => handleStartTraining()}
-                showEmptyTestWarning={showEmptyTestWarning}
-                onDismissEmptyTestWarning={() => setShowEmptyTestWarning(false)}
-                onConfirmStartWithEmptyTest={() => handleStartTraining(true)}
+                checkpointSource={ftCheckpointSource}
+                onCheckpointSourceChange={handleCheckpointSourceChange}
+                resumableSessions={resumableSessions}
+                resumableSessionsLoading={resumableSessionsLoading}
+                resumeSessionId={ftResumeSessionId}
+                onResumeSessionIdChange={setFtResumeSessionId}
+                exportedCheckpoints={exportedCheckpoints}
+                exportedCheckpointsLoading={exportedCheckpointsLoading}
+                exportedCheckpointId={ftExportedCheckpointId}
+                onExportedCheckpointIdChange={setFtExportedCheckpointId}
+                initCheckpointSupported={supportsInitCheckpoint(trainingCapabilities)}
+                onContinueToTraining={handleContinueToTraining}
               />
             ) : (
               <LabelManager

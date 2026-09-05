@@ -13,6 +13,7 @@ import {
   fetchTrainingCapabilities,
   TrainingCapabilities,
 } from '../utils/trainingCapabilities';
+import { subscribeTrainingServiceOverride } from '../utils/trainingServicePin';
 
 export interface UseTrainingCapabilitiesResult {
   capabilities: TrainingCapabilities | null;
@@ -29,6 +30,12 @@ export function useTrainingCapabilities(server: any | null): UseTrainingCapabili
   const [capabilities, setCapabilities] = useState<TrainingCapabilities | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Capabilities describe whichever replica answered, so pointing the UI at a
+  // different service invalidates them. Refetch instead of leaving the picker
+  // greying models against a GPU that is no longer the one training.
+  const [serviceNonce, setServiceNonce] = useState(0);
+
+  useEffect(() => subscribeTrainingServiceOverride(() => setServiceNonce((n) => n + 1)), []);
 
   useEffect(() => {
     if (!server) return;
@@ -54,7 +61,7 @@ export function useTrainingCapabilities(server: any | null): UseTrainingCapabili
     return () => {
       cancelled = true;
     };
-  }, [server]);
+  }, [server, serviceNonce]);
 
   return { capabilities, loading, error };
 }
