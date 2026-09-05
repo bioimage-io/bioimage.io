@@ -122,6 +122,12 @@ interface DeploymentCardProps {
       num_gpus?: number;
       memory?: number;
     };
+    // `not disable_gpu` on the worker (apps/manager.py). True whenever the app
+    // was not explicitly deployed CPU-only, which covers both whole-GPU apps
+    // (num_gpus > 0) and apps that ask for a slice by VRAM instead, where
+    // num_gpus stays 0. It is the only GPU signal the worker reports for the
+    // latter: application_resources.VRAM_MB is 0 on every app today.
+    gpu_enabled?: boolean;
     service_ids?: {  // New: independent service IDs
       websocket_service_id?: string;
       webrtc_service_id?: string;
@@ -164,6 +170,12 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
   };
 
   const resources = deployment.resources ?? null;
+
+  // An app can hold a GPU without reserving a whole one: asking by VRAM
+  // (gpu_memory_mb) leaves num_gpus at 0, so gating the badge on the count
+  // alone made every partial-GPU app read as CPU-only on the card.
+  const wholeGpus = resources?.num_gpus != null && resources.num_gpus > 0 ? resources.num_gpus : 0;
+  const showsGpuBadge = wholeGpus > 0 || deployment.gpu_enabled === true;
 
   // Get MCP URL from websocket service ID
   const getMcpUrl = (): string | null => {
@@ -418,15 +430,14 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
             </div>
           )}
 
-          {resources && (
+          {(showsGpuBadge || (resources && (
             (resources.num_cpus != null && resources.num_cpus > 0) ||
-            (resources.num_gpus != null && resources.num_gpus > 0) ||
             (resources.memory != null && resources.memory > 0)
-          ) && (
+          ))) && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Resources:</p>
               <div className="flex flex-wrap gap-2">
-                {resources.num_cpus != null && resources.num_cpus > 0 && (
+                {resources?.num_cpus != null && resources.num_cpus > 0 && (
                   <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -434,15 +445,20 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
                     {resources.num_cpus} CPU{resources.num_cpus !== 1 ? 's' : ''}
                   </span>
                 )}
-                {resources.num_gpus != null && resources.num_gpus > 0 && (
-                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                {showsGpuBadge && (
+                  <span
+                    className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200"
+                    title={wholeGpus > 0
+                      ? undefined
+                      : 'This app runs with GPU access but does not reserve a whole device.'}
+                  >
                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    {resources.num_gpus} GPU{resources.num_gpus !== 1 ? 's' : ''}
+                    {wholeGpus > 0 ? `${wholeGpus} GPU${wholeGpus !== 1 ? 's' : ''}` : 'Shared GPU'}
                   </span>
                 )}
-                {resources.memory != null && resources.memory > 0 && (
+                {resources?.memory != null && resources.memory > 0 && (
                   <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-200">
                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
