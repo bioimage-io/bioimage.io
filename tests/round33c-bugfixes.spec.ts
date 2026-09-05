@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-33c bug fixes reported by Nils during live dev-server testing:
 //
@@ -19,7 +20,7 @@ import fs from 'fs';
 // painted immediately, across several radius changes and both brush
 // entry points (button steppers and arrow keys).
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 

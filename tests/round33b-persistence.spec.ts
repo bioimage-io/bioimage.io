@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-33 follow-up: drawMode + brushRadius persist across reload (like
 // maskHue), and holding ArrowUp/ArrowDown accelerates after ~1s of
@@ -8,7 +9,7 @@ import fs from 'fs';
 // detected here via the radius stepper's visibility instead of a
 // "Brush Painting" / "Lasso Drawing" label.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 

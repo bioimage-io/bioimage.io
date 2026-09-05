@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-33b independent acceptance (keen-puma): drawMode + brushRadius
 // persistence across reload, and hold-acceleration on ArrowUp/ArrowDown.
@@ -8,7 +9,7 @@ import fs from 'fs';
 // the handler keys its hold tracking on. Round 33c replaced the standalone
 // brush-mode toggle row with a double-click gesture on the Draw Mask button.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round33b-verify';

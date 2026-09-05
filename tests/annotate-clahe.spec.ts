@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var (falls back to /data/nmechtel/bioengine/.env).
-// Requires: dev server at http://localhost:3012.
+// Requires: dev server at E2E_BASE_URL (default http://localhost:3000).
 //
 // Regression coverage for colab-rework-plan.md §19c item 1: the CLAHE dialog
 // used to hang forever on "Python kernel is starting up...", because nothing
@@ -12,7 +13,7 @@ import fs from 'fs';
 // This asserts the dialog's kernel-starting state actually resolves and
 // Apply produces an enhanced image within a bounded time.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

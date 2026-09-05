@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round 35 (colab-rework-plan.md, DatasetOverview loading UX), amended by
 // round 35b:
@@ -19,7 +20,7 @@ import fs from 'fs';
 // confirms the spinner affordances actually appear/disappear across a
 // manual refresh and an image switch, and that nothing throws.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

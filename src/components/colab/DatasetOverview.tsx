@@ -1316,12 +1316,14 @@ print("Service registered successfully", end='')
     const value = assignment[row.stem] ?? 'unused';
     return (
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           cycleAssignment(row.stem);
         }}
         className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize transition-colors shrink-0 ${splitBadgeClass(value)}`}
         title="Click to cycle: train, test, unused"
+        aria-label={`${row.stem} is ${value}. Click to cycle: train, test, unused`}
       >
         {value}
       </button>
@@ -1335,9 +1337,23 @@ print("Service registered successfully", end='')
         ref={(el) => { imageRowRefs.current[row.stem] = el; }}
         className="group relative"
       >
-        <button
+        {/* The row carries its own controls (upload, and the split pill while
+            the finetune view is open), so it cannot itself be a <button> —
+            a button inside a button is invalid markup that the browser
+            reparses into something the code never described. Keep the
+            whole-row click target with an explicit role and key handling
+            instead. */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => handleSelectImage(row)}
-          className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleSelectImage(row);
+            }
+          }}
+          className={`w-full cursor-pointer text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors ${
             selectedStem === row.stem
               ? 'bg-purple-50 border-l-2 border-purple-500'
               : 'hover:bg-gray-50 border-l-2 border-transparent'
@@ -1351,18 +1367,20 @@ print("Service registered successfully", end='')
             ) : uploadingStems.has(row.stem) ? (
               <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
             ) : (
-              <div
+              <button
+                type="button"
                 className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
                   uploadSingleImage({ stem: row.stem, format: row.format! });
                 }}
                 title="Upload to the dataset"
+                aria-label="Upload to the dataset"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-              </div>
+              </button>
             )}
             <span className="text-sm text-gray-700 truncate">{row.stem}</span>
             {isSmallImageDims(row.width ?? 0, row.height ?? 0) && (
@@ -1399,7 +1417,7 @@ print("Service registered successfully", end='')
               </svg>
             )
           )}
-        </button>
+        </div>
         {row.isCloud && (
           <button
             onClick={(e) => handleDeleteCloudImage(row.stem, e)}

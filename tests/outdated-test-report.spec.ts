@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var (same token the user stores in localStorage after login).
-// Requires: dev server running at http://localhost:3000.
+// Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // What this tests: when the artifact's last_modified is more recent than the
 // latest_remote_modified timestamp embedded in the test report, Edit.tsx

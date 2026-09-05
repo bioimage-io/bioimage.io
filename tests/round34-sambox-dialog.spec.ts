@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round 34: Interactive Segmentation model-selection dialog. Coverage is
 // deliberately read-only (open dialog, assert content, close) — clicking a
@@ -8,7 +9,7 @@ import fs from 'fs';
 // remove_embedding RPC and mutate the shared dataset's cached embeddings, so
 // both paths are left for a live end-to-end pass rather than exercised here.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round34-sambox-dialog';

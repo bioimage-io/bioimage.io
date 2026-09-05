@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-34b independent acceptance (keen-puma): the click-time preparation
 // flow for Interactive Segmentation.
@@ -12,7 +13,7 @@ import fs from 'fs';
 //   the embedding file exists (after an existence check with its own spinner).
 //   Anonymous users get a surfaced error instead of an infinite spinner.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round34b-verify';

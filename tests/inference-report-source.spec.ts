@@ -1,25 +1,31 @@
 import { test, expect } from '@playwright/test';
 
 // Verifies the ArtifactDetails "Test Run Model" badge reads its pass/fail state
-// from the NEW inference-report artifact
-// (bioimage-io/inference-report/files/inference_report.json) rather than the
-// former collection.manifest.bioengine_inference field.
+// from the per-model test-report artifact (bioimage-io/test-report-<id>) rather
+// than the former collection.manifest.bioengine_inference field.
 //
-// This asserts against the REAL published artifact rather than a fixture. Two
+// This asserts against the REAL published artifacts rather than a fixture. Two
 // facts make that a decisive check of the source switch:
-//   - affable-shark is recorded "passed" and affectionate-cow "failed" in the
-//     new artifact; the badge must reflect both.
-//   - affectionate-cow's failure carries its FULL runtime traceback
-//     (ml_collections / usplit_wrapper.py). That text is far longer than 20
-//     chars, so it can only come from the new report — the old manifest field
-//     stored message[:20]. Seeing it in the failure dialog proves both the new
-//     source and the removal of the message[:20] truncation, end to end.
+//   - affable-shark scores in the inference-passing band and affectionate-cow
+//     does not; the badge must reflect both.
+//   - affectionate-cow's failure carries its FULL runtime traceback. The old
+//     manifest field stored message[:20], so seeing any of that text past the
+//     first 20 characters proves both the new source and the removal of the
+//     truncation, end to end.
+//
+// The expected failure text is read from the live report at run time rather
+// than hardcoded. The traceback changes whenever the model is re-tested, and
+// what this test is about is that the dialog shows the WHOLE message, not that
+// the message says any particular thing.
 //
 // Requires:
 //   HYPHA_TOKEN env var — auto-login makes the (login-gated) badge interactive.
 //   Dev server running: pnpm start
-//   The inference-report artifact populated for these two models
+//   The test-reports collection populated for these two models
 //   (scripts/bioengine_model_infer.py --model-ids affable-shark affectionate-cow).
+
+const REPORT_URL = (alias: string) =>
+  `https://hypha.aicell.io/bioimage-io/artifacts/test-report-${alias}/files/published/test_report.json?use_proxy=true`;
 
 const injectToken = (token: string) => ({
   tok: token,
@@ -32,7 +38,7 @@ const gotoArtifact = async (page: import('@playwright/test').Page, alias: string
   await page.goto(`/#/artifacts/${alias}`);
 };
 
-test.describe('ArtifactDetails BioEngine badge reads the inference-report artifact', () => {
+test.describe('ArtifactDetails BioEngine badge reads the test-report artifact', () => {
   test('passed model → green check badge, enabled Test Run Model button', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
@@ -85,7 +91,19 @@ test.describe('ArtifactDetails BioEngine badge reads the inference-report artifa
     // fire its onClick, not wait for MUI actionability to settle.
     await testButton.click({ force: true });
     await expect(page.getByText('BioEngine Test Run Failed')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('usplit_wrapper.py', { exact: false })).toBeVisible();
-    await expect(page.getByText('ml_collections', { exact: false })).toBeVisible();
+
+    // The longest line of the recorded traceback: it renders as one contiguous
+    // run inside the dialog's <pre>, and it is far longer than the 20 characters
+    // the old source would have kept.
+    const report = await (await fetch(REPORT_URL('affectionate-cow'))).json();
+    const recorded: string = report?.inference_check?.error ?? '';
+    const longest = recorded
+      .split('\n')
+      .map((line: string) => line.trim().replace(/^\|\s*/, ''))
+      .sort((a: string, b: string) => b.length - a.length)[0];
+    expect(longest.length).toBeGreaterThan(20);
+
+    const dialogText = await page.getByRole('dialog').innerText();
+    expect(dialogText).toContain(longest);
   });
 });

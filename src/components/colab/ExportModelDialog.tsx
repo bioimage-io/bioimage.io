@@ -14,8 +14,9 @@ export interface ExportModelDialogProps {
   datasetArtifactId: string;
   annotationLabel: string;
   session: { session_id: string; model_type?: string };
-  splitName: string;
-  existingCheckpoint: { session_id: string; model_type: string; [key: string]: any };
+  /** Omitted when the run could not be attributed to a split, see
+   * Finetune.tsx's resolveExportSplit. The export runs either way. */
+  splitName?: string;
   onExported: (exportedModelId: string) => void;
 }
 
@@ -77,7 +78,6 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
   annotationLabel,
   session,
   splitName,
-  existingCheckpoint,
   onExported,
 }) => {
   const [name, setName] = useState('');
@@ -125,7 +125,7 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
         provenance: {
           dataset_artifact_id: datasetArtifactId,
           label: annotationLabel,
-          split_name: splitName,
+          ...(splitName ? { split_name: splitName } : {}),
           session_lineage: [session.session_id],
         },
         _rkwargs: true,

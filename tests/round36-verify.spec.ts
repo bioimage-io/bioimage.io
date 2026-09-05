@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-36 independent acceptance (keen-puma): merging touching masks.
 //   Two overlapping brush masks, box-selected, merge into ONE via the A
@@ -7,7 +8,7 @@ import fs from 'fs';
 //   Two separated masks no-op with the exact warning toast.
 //   The guide documents the merge gesture.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round36-verify';

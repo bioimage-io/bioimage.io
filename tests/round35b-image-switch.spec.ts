@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-35b independent acceptance (keen-puma): switching images in the
 // dataset overview removes the previous image IMMEDIATELY and shows the
@@ -7,7 +8,7 @@ import fs from 'fs';
 // new image renders. The same skeleton is reused when loading the next
 // annotation. Supersedes the round-35 dim-old-image-with-overlay design.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round35b-verify';

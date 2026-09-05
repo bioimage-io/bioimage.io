@@ -10,6 +10,7 @@ import {
   getTrainingUrls,
   listSplits,
   setSplitCheckpoint,
+  SplitSummary,
 } from './brokerApi';
 import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
@@ -93,6 +94,36 @@ export const Spinner: React.FC<{ className?: string }> = ({ className = 'w-8 h-8
 // by prefix among everything else running on the same pinned worker.
 const sessionTag = (alias: string, annotationLabel: string) => `${alias}/${annotationLabel}`;
 
+export type ResolvedExportSplit = { split: SplitSummary; exact: boolean } | null;
+
+/**
+ * Pick the data split a finished run trained on, for the exported model's
+ * provenance.
+ *
+ * A split records only its most recent run, and it records it when the run is
+ * submitted rather than when it finishes. So the instant a second run starts,
+ * nothing points back at the first one any more, and a run that is stopped or
+ * fails leaves the split pointing at a session that has no checkpoint to
+ * export. Attribution is therefore best-effort: fall back through
+ * progressively weaker evidence, and treat "no idea" as a gap in provenance
+ * rather than a reason to refuse the export.
+ */
+export const resolveExportSplit = (splits: SplitSummary[], sessionId: string): ResolvedExportSplit => {
+  const current = splits.find((sp) => sp.checkpoint?.session_id === sessionId);
+  if (current) return { split: current, exact: true };
+  // Runs started after the history fix carry their predecessors along, so an
+  // overwritten pointer is still recoverable.
+  const historic = splits.find((sp) => {
+    const history = sp.checkpoint?.session_history;
+    return Array.isArray(history) && history.includes(sessionId);
+  });
+  if (historic) return { split: historic, exact: false };
+  // A label almost always has exactly one split, in which case there is only
+  // one thing the run can have trained on regardless of what the pointer says.
+  if (splits.length === 1) return { split: splits[0], exact: false };
+  return null;
+};
+
 // Step 2 of the fine-tuning flow. The dataset's finetune view (step 1) picks
 // the split, the architecture and the checkpoint to start from, then hands
 // those over in the query string. Everything about HOW to train lives here:
@@ -117,10 +148,15 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   const [exportTarget, setExportTarget] = useState<{
     session: TrainingSessionStatus;
     annotationLabel: string;
-    splitName: string;
-    checkpoint: { session_id: string; model_type: string; [key: string]: any };
+    // Undefined when the run could not be attributed to a split. The export
+    // still runs, it just carries no split name in its provenance.
+    splitName?: string;
+    // True only while the split still points at THIS run, which is the one
+    // case where stamping the exported model onto it cannot clobber a newer
+    // run's pointer.
+    ownsSplitPointer: boolean;
+    checkpoint: Record<string, any> | null;
   } | null>(null);
-  const [exportResolveError, setExportResolveError] = useState<{ sessionId: string; message: string } | null>(null);
   const [resolvingExportSessionId, setResolvingExportSessionId] = useState<string | null>(null);
 
   // --- New run, configured from step 1's query string ---
@@ -226,9 +262,22 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
 
       const svc = await resolvePinnedTrainingService(server);
       const status = await svc.start_training(call);
+      // The split holds one pointer, so starting this run displaces whatever
+      // ran before it. Carry the displaced session along, otherwise every
+      // earlier run on this split loses the only link back to the data it was
+      // trained on (see resolveExportSplit).
+      const prior = urls.split?.checkpoint;
+      const priorHistory: string[] = Array.isArray(prior?.session_history) ? prior!.session_history : [];
+      const history =
+        prior?.session_id && !priorHistory.includes(prior.session_id)
+          ? [...priorHistory, prior.session_id]
+          : priorHistory;
       await setSplitCheckpoint(server, artifactId, pendingLabel, pendingSplit, {
         session_id: status.session_id,
         model_type: pendingModelType,
+        // Bounded so a split that is retrained many times cannot grow its
+        // record without limit.
+        ...(history.length > 0 ? { session_history: history.slice(-50) } : {}),
       });
       // Drop the handover parameters so a reload does not offer to start the
       // same run a second time.
@@ -242,27 +291,25 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   };
 
   const handleOpenExport = async (s: TrainingSessionStatus, annotationLabel: string) => {
-    setExportResolveError(null);
     setResolvingExportSessionId(s.session_id);
+    let resolved: ResolvedExportSplit = null;
     try {
       const splits = await listSplits(server, artifactId, annotationLabel);
-      const owner = splits.find((sp) => sp.checkpoint?.session_id === s.session_id);
-      if (!owner || !owner.checkpoint) {
-        setExportResolveError({
-          sessionId: s.session_id,
-          message: 'Could not determine the training split for this session, export is unavailable.',
-        });
-        return;
-      }
-      setExportTarget({ session: s, annotationLabel, splitName: owner.name, checkpoint: owner.checkpoint });
+      resolved = resolveExportSplit(splits, s.session_id);
     } catch (err) {
-      setExportResolveError({
-        sessionId: s.session_id,
-        message: (err as Error).message || 'Failed to resolve the training split for this session.',
-      });
+      // Attribution is provenance, not a precondition. A broker hiccup here
+      // must not cost the user a finished checkpoint.
+      console.error('resolveExportSplit: listSplits failed', err);
     } finally {
       setResolvingExportSessionId(null);
     }
+    setExportTarget({
+      session: s,
+      annotationLabel,
+      splitName: resolved?.split.name,
+      ownsSplitPointer: !!resolved?.exact,
+      checkpoint: resolved?.split.checkpoint ?? null,
+    });
   };
 
   const role: BrokerRole | undefined = dataset?.role;
@@ -628,9 +675,6 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                     )}
                   </div>
                 )}
-                {exportResolveError?.sessionId === s.session_id && (
-                  <div className="mt-2 text-xs text-red-600">{exportResolveError.message}</div>
-                )}
               </div>
             );
           })}
@@ -674,10 +718,16 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
           annotationLabel={exportTarget.annotationLabel}
           session={exportTarget.session}
           splitName={exportTarget.splitName}
-          existingCheckpoint={exportTarget.checkpoint}
           onExported={async (exportedModelId) => {
+            // Only stamp the export onto the split while the split still
+            // points at this run. Once a newer run owns the pointer, writing
+            // here would redirect step 1's "start from the previous run"
+            // default back onto the older session.
+            if (!exportTarget.splitName || !exportTarget.ownsSplitPointer) return;
             await setSplitCheckpoint(server, artifactId, exportTarget.annotationLabel, exportTarget.splitName, {
-              ...exportTarget.checkpoint,
+              ...(exportTarget.checkpoint || {}),
+              session_id: exportTarget.session.session_id,
+              model_type: exportTarget.session.model_type || exportTarget.checkpoint?.model_type || '',
               exported_model_id: exportedModelId,
             });
           }}
