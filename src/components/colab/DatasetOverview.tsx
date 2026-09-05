@@ -42,7 +42,9 @@ import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
 import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
-import FinetuneView, { ResumableSession } from './FinetuneView';
+import FinetuneView, { CheckpointSource, ResumableSession } from './FinetuneView';
+import { ExportedCheckpoint, listExportedCheckpoints } from '../../utils/finetuneCheckpoints';
+import { supportsInitCheckpoint } from '../../utils/trainingModels';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
 import ShareModal from './ShareModal';
@@ -287,11 +289,15 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   const [isSavingSplit, setIsSavingSplit] = useState(false);
   const [splitSaveError, setSplitSaveError] = useState<string | null>(null);
   const [ftModelType, setFtModelType] = useState<string>('vit_t_lm');
-  // null starts from the base foundation model; a session id continues from
-  // that run's checkpoint (see FinetuneView's "Start from" control).
+  // Which of the three starting points the run uses. See FinetuneView's
+  // "Start from" control and the CheckpointSource doc comment there.
+  const [ftCheckpointSource, setFtCheckpointSource] = useState<CheckpointSource>('base');
   const [ftResumeSessionId, setFtResumeSessionId] = useState<string | null>(null);
+  const [ftExportedCheckpointId, setFtExportedCheckpointId] = useState<string | null>(null);
   const [resumableSessions, setResumableSessions] = useState<ResumableSession[]>([]);
   const [resumableSessionsLoading, setResumableSessionsLoading] = useState(false);
+  const [exportedCheckpoints, setExportedCheckpoints] = useState<ExportedCheckpoint[]>([]);
+  const [exportedCheckpointsLoading, setExportedCheckpointsLoading] = useState(false);
   // Which base models the pinned model-finetune replica's GPU can actually
   // fit. Fetched here rather than in FinetuneView because that panel is
   // presentational and has no `server`; see utils/trainingCapabilities.ts for
@@ -488,14 +494,26 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
   // it there.
   useEffect(() => {
     const recorded = activeSplit?.checkpoint?.session_id ?? null;
-    if (!recorded) {
-      setFtResumeSessionId(null);
+    if (recorded && resumableSessions.some((s) => s.session_id === recorded)) {
+      setFtResumeSessionId(recorded);
+      setFtCheckpointSource('session');
       return;
     }
-    setFtResumeSessionId(
-      resumableSessions.some((s) => s.session_id === recorded) ? recorded : null,
-    );
+    setFtResumeSessionId(null);
+    setFtCheckpointSource((prev) => (prev === 'session' ? 'base' : prev));
   }, [activeSplit, resumableSessions]);
+
+  // Switching source picks that source's newest entry, so the select and the
+  // Continue button are never left pointing at nothing.
+  const handleCheckpointSourceChange = (next: CheckpointSource) => {
+    setFtCheckpointSource(next);
+    if (next === 'session' && !ftResumeSessionId) {
+      setFtResumeSessionId(resumableSessions[0]?.session_id ?? null);
+    }
+    if (next === 'exported' && !ftExportedCheckpointId) {
+      setFtExportedCheckpointId(exportedCheckpoints[0]?.artifactId ?? null);
+    }
+  };
 
   // --- Checkpoints the user can continue training from ---
   // Only the pinned replica's own finished sessions qualify: `resume_session_id`
@@ -531,6 +549,41 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       active = false;
     };
   }, [server, canManage, finetuneViewOpen]);
+
+  // The durable counterpart to the sessions above: models the user exported to
+  // bioimage.io that carry resumable weights. Only asked for once the trainer
+  // is known to accept `init_checkpoint`, since the listing walks the whole
+  // collection's staged children (staged artifacts are not server-side
+  // indexed, so there is no cheaper query) and there is no point paying for
+  // that when the answer cannot be used.
+  useEffect(() => {
+    if (!canManage || !finetuneViewOpen || !artifactManager || !user) {
+      setExportedCheckpoints([]);
+      return;
+    }
+    if (!supportsInitCheckpoint(trainingCapabilities)) {
+      setExportedCheckpoints([]);
+      return;
+    }
+    let active = true;
+    setExportedCheckpointsLoading(true);
+    (async () => {
+      try {
+        const found = await listExportedCheckpoints(artifactManager, user);
+        if (active) setExportedCheckpoints(found);
+      } catch (err) {
+        if (active) {
+          console.warn('[DatasetOverview] Could not list exported checkpoints:', err);
+          setExportedCheckpoints([]);
+        }
+      } finally {
+        if (active) setExportedCheckpointsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [artifactManager, user, canManage, finetuneViewOpen, trainingCapabilities]);
 
   // --- Labels + per-label annotated counts ---
   const reloadLabels = useCallback(async () => {
@@ -1204,14 +1257,27 @@ print("Service registered successfully", end='')
   // reload and the link can be shared.
   const handleContinueToTraining = () => {
     if (!activeSplitName) return;
+    const resumeSession =
+      ftCheckpointSource === 'session' && ftResumeSessionId
+        ? resumableSessions.find((s) => s.session_id === ftResumeSessionId)
+        : undefined;
+    const exported =
+      ftCheckpointSource === 'exported' && ftExportedCheckpointId
+        ? exportedCheckpoints.find((c) => c.artifactId === ftExportedCheckpointId)
+        : undefined;
     const params = new URLSearchParams({
       label: selectedLabel,
       split: activeSplitName,
-      model: ftResumeSessionId
-        ? resumableSessions.find((s) => s.session_id === ftResumeSessionId)?.model_type ?? ftModelType
-        : ftModelType,
+      // A checkpoint dictates its own architecture, so it wins over whatever
+      // the base-model picker last had selected.
+      model: resumeSession?.model_type ?? exported?.modelType ?? ftModelType,
     });
-    if (ftResumeSessionId) params.set('resume', ftResumeSessionId);
+    if (resumeSession) params.set('resume', resumeSession.session_id);
+    if (exported) {
+      params.set('initArtifact', exported.artifactId);
+      params.set('initFile', exported.checkpointFile);
+      if (exported.staged) params.set('initStaged', '1');
+    }
     navigate(`/colab/${toAlias(artifactId)}/finetune?${params.toString()}`);
   };
 
@@ -1911,10 +1977,17 @@ print("Service registered successfully", end='')
                 onModelTypeChange={setFtModelType}
                 trainingCapabilities={trainingCapabilities}
                 trainingCapabilitiesLoading={trainingCapabilitiesLoading}
+                checkpointSource={ftCheckpointSource}
+                onCheckpointSourceChange={handleCheckpointSourceChange}
                 resumableSessions={resumableSessions}
                 resumableSessionsLoading={resumableSessionsLoading}
                 resumeSessionId={ftResumeSessionId}
                 onResumeSessionIdChange={setFtResumeSessionId}
+                exportedCheckpoints={exportedCheckpoints}
+                exportedCheckpointsLoading={exportedCheckpointsLoading}
+                exportedCheckpointId={ftExportedCheckpointId}
+                onExportedCheckpointIdChange={setFtExportedCheckpointId}
+                initCheckpointSupported={supportsInitCheckpoint(trainingCapabilities)}
                 onContinueToTraining={handleContinueToTraining}
               />
             ) : (

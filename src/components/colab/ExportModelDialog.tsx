@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { buildReviewerPermissions } from '../../utils/roles';
+import { FINETUNE_RESUME_CONFIG_KEY } from '../../utils/finetuneCheckpoints';
 import { Spinner } from './Finetune';
 
 export interface ExportModelDialogProps {
@@ -32,8 +33,25 @@ type ExportStatus = {
   download_url?: string;
   size_bytes?: number;
   files?: { name: string; size: number }[];
+  /**
+   * The package member holding resumable weights, so a later run can start
+   * from this model. Added in model-finetune 0.15.0 and absent before it, in
+   * which case the draft is created without resume metadata and simply is not
+   * offered as a starting checkpoint.
+   */
+  resume_checkpoint_file?: string;
   error?: string;
 };
+
+/**
+ * micro-sam packages carry an AIS decoder and a prompt head, Cellpose packages
+ * are a plain pytorch state dict. Tagging every export as micro-sam was correct
+ * while that was the only backend and is not any more.
+ */
+const tagsForModel = (modelType?: string): string[] =>
+  modelType && modelType.startsWith('cp')
+    ? ['cellpose', 'instance-segmentation']
+    : ['micro-sam', 'prompt-free', 'instance-segmentation'];
 
 const findEmoji = (config: any, type: string, name: string): string => {
   const category = type === 'model' ? 'animal' : type === 'application' ? 'object' : type === 'dataset' ? 'fruit' : null;
@@ -141,16 +159,34 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
         description,
         authors: authors.filter((a) => a.name.trim().length > 0),
         license,
-        tags: ['micro-sam', 'prompt-free', 'instance-segmentation'],
+        tags: tagsForModel(session.model_type),
         uploader: { email: user?.email },
       };
+
+      // Record where the resumable weights sit inside the package, so this
+      // model can later be picked as a starting checkpoint for another run.
+      // The filename comes from the backend rather than a convention here, and
+      // the architecture comes with it because start_training rejects a resume
+      // whose model_type does not match the checkpoint. See
+      // utils/finetuneCheckpoints.ts, which is the only reader of this key.
+      const config: Record<string, any> = {
+        publish_to: 'sandbox_zenodo',
+        permissions: reviewerPermissions,
+      };
+      if (finalStatus.resume_checkpoint_file && session.model_type) {
+        config[FINETUNE_RESUME_CONFIG_KEY] = {
+          checkpoint_file: finalStatus.resume_checkpoint_file,
+          model_type: session.model_type,
+          session_id: session.session_id,
+        };
+      }
 
       const artifact = await artifactManager.create({
         parent_id: 'bioimage-io/bioimage.io',
         alias: '{animal_adjective}-{animal}',
         type: 'model',
         manifest,
-        config: { publish_to: 'sandbox_zenodo', permissions: reviewerPermissions },
+        config,
         stage: true,
         _rkwargs: true,
         overwrite: true,

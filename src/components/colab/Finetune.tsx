@@ -18,7 +18,9 @@ import {
   buildTrainingModelOptions,
   defaultTrainingParams,
   trainingParamsFor,
+  validateTrainingParams,
 } from '../../utils/trainingModels';
+import { resolveInitCheckpointUrl } from '../../utils/finetuneCheckpoints';
 import LoginButton from '../LoginButton';
 import ExportModelDialog from './ExportModelDialog';
 import TrainingServicePicker from './TrainingServicePicker';
@@ -127,26 +129,57 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   const pendingSplit = searchParams.get('split');
   const pendingModelType = searchParams.get('model');
   const pendingResumeId = searchParams.get('resume');
+  // An exported model to start from: the artifact holding it, the package
+  // member with the weights, and whether that artifact is still an unpublished
+  // draft. Set by the dataset's finetune view, see utils/finetuneCheckpoints.ts.
+  const pendingInitArtifact = searchParams.get('initArtifact');
+  const pendingInitFile = searchParams.get('initFile');
+  const pendingInitStaged = searchParams.get('initStaged') === '1';
   const hasPendingRun = !!(pendingLabel && pendingSplit && pendingModelType);
 
   const { capabilities: trainingCapabilities } = useTrainingCapabilities(hasPendingRun ? server : null);
   // Which parameters start_training accepts depends on the backend the chosen
   // architecture belongs to: micro-sam takes n_objects_per_batch and
-  // patch_size, Cellpose takes diam_mean, the rest are shared. See
-  // utils/trainingModels.ts, which is the single place that mapping lives.
+  // patch_size, Cellpose takes diam_mean, the rest are shared. The trainer
+  // reports that mapping itself; utils/trainingModels.ts adapts it into form
+  // fields and falls back to a static table on an older replica.
   const pendingBackend = pendingModelType
     ? backendOfModel(buildTrainingModelOptions(trainingCapabilities), pendingModelType)
     : undefined;
-  const paramSpecs = trainingParamsFor(pendingBackend);
+  const paramSpecs = trainingParamsFor(trainingCapabilities, pendingBackend);
 
-  const [params, setParams] = useState<Record<string, number>>(() => defaultTrainingParams());
+  // Held as strings so a field can be cleared, which is how "let the backend
+  // decide" is expressed for a parameter with no default. Empty fields are
+  // dropped from the call rather than sent as zero.
+  const [params, setParams] = useState<Record<string, string>>(() => defaultTrainingParams(paramSpecs));
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
 
+  // Capabilities land after the first render, so the real field list (and its
+  // defaults, which the backend owns) arrives late. Reseed when the set of
+  // fields changes, keeping anything the user already typed into a field that
+  // survived the change.
+  const paramSpecKey = paramSpecs.map((s) => s.name).join(',');
+  useEffect(() => {
+    setParams((prev) => {
+      const seeded = defaultTrainingParams(paramSpecs);
+      Object.keys(seeded).forEach((name) => {
+        if (prev[name] !== undefined) seeded[name] = prev[name];
+      });
+      return seeded;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramSpecKey]);
+
   const handleStartTraining = async (skipEmptyTestWarning = false) => {
     if (!pendingLabel || !pendingSplit || !pendingModelType) return;
     setStartError(null);
+    const parsed = validateTrainingParams(paramSpecs, params);
+    if (parsed.error) {
+      setStartError(parsed.error);
+      return;
+    }
     setStarting(true);
     try {
       const urls = await getTrainingUrls(server, artifactId, pendingLabel, pendingSplit);
@@ -164,14 +197,12 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
         train_labels: urls.train.map((e) => e.geojson_url),
         model_type: pendingModelType,
         label: sessionTag(artifactAlias, pendingLabel),
+        // Only what this backend accepts. Passing a foreign parameter is
+        // rejected outright, so the filtering paramSpecs did is what keeps one
+        // form usable for both backends.
+        ...parsed.values,
         _rkwargs: true,
       };
-      // Only send what this backend accepts. Passing a foreign parameter is
-      // rejected outright, so filtering here is what keeps one form usable for
-      // both backends.
-      paramSpecs.forEach((spec) => {
-        call[spec.name] = params[spec.name];
-      });
       if (urls.test.length > 0) {
         call.val_images = urls.test.map((e) => e.image_url);
         call.val_labels = urls.test.map((e) => e.geojson_url);
@@ -179,6 +210,19 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
       // Resuming is replica-local by construction, which is fine because every
       // call on this page goes through the same pin.
       if (pendingResumeId) call.resume_session_id = pendingResumeId;
+      // Starting from an exported model instead: sign a download URL for the
+      // weights here, with the user's own token, and hand the worker only the
+      // URL. Mutually exclusive with resume_session_id, which step 1 enforces
+      // by offering the two as separate sources.
+      if (!pendingResumeId && pendingInitArtifact && pendingInitFile) {
+        call.init_checkpoint = await resolveInitCheckpointUrl(artifactManager, {
+          artifactId: pendingInitArtifact,
+          name: pendingInitArtifact,
+          modelType: pendingModelType,
+          checkpointFile: pendingInitFile,
+          staged: pendingInitStaged,
+        });
+      }
 
       const svc = await resolvePinnedTrainingService(server);
       const status = await svc.start_training(call);
@@ -405,6 +449,11 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                 {' '}from the checkpoint of run{' '}
                 <span className="font-mono text-gray-700">{pendingResumeId.slice(0, 8)}</span>
               </>
+            ) : pendingInitArtifact ? (
+              <>
+                {' '}from the weights in{' '}
+                <span className="font-mono text-gray-700">{pendingInitArtifact.split('/').pop()}</span>
+              </>
             ) : (
               ' from its base weights'
             )}
@@ -418,10 +467,11 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                 <input
                   type="number"
                   step={spec.step}
-                  value={params[spec.name]}
-                  onChange={(e) =>
-                    setParams((prev) => ({ ...prev, [spec.name]: Number(e.target.value) }))
-                  }
+                  min={spec.min ?? undefined}
+                  max={spec.max ?? undefined}
+                  value={params[spec.name] ?? ''}
+                  placeholder={spec.default == null ? 'auto' : undefined}
+                  onChange={(e) => setParams((prev) => ({ ...prev, [spec.name]: e.target.value }))}
                   className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-purple-300"
                 />
                 {spec.help && <span className="block mt-0.5 text-[0.65rem] text-gray-400">{spec.help}</span>}

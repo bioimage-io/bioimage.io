@@ -14,6 +14,7 @@ import {
   findModelCapability,
   isModelTrainable,
 } from '../../utils/trainingCapabilities';
+import { ExportedCheckpoint } from '../../utils/finetuneCheckpoints';
 
 export interface FinetuneViewRow {
   stem: string;
@@ -54,16 +55,42 @@ export interface FinetuneViewProps {
   // backend rejects an unfit one with a readable error.
   trainingCapabilities: TrainingCapabilities | null;
   trainingCapabilitiesLoading: boolean;
+  // Which of the three starting points the run uses. See CheckpointSource.
+  checkpointSource: CheckpointSource;
+  onCheckpointSourceChange: (value: CheckpointSource) => void;
   // Finished runs on the pinned replica whose checkpoint can be trained on
   // further. `resume_session_id` resolves against that replica's local disk,
   // so this list is by definition replica-scoped.
   resumableSessions: ResumableSession[];
   resumableSessionsLoading: boolean;
-  // `null` starts from the base foundation model.
   resumeSessionId: string | null;
   onResumeSessionIdChange: (value: string | null) => void;
+  // Models the user already exported to bioimage.io that carry resumable
+  // weights. Unlike the sessions above these outlive the worker that trained
+  // them, because the trainer downloads them by URL.
+  exportedCheckpoints: ExportedCheckpoint[];
+  exportedCheckpointsLoading: boolean;
+  exportedCheckpointId: string | null;
+  onExportedCheckpointIdChange: (value: string | null) => void;
+  // False on a model-finetune replica older than 0.15.0, which has no
+  // `init_checkpoint` parameter. The exported-model source is then hidden
+  // rather than shown as a control that would fail on use.
+  initCheckpointSupported: boolean;
   onContinueToTraining: () => void;
 }
+
+/**
+ * Where the run's initial weights come from.
+ *
+ * 'base'     the foundation model's published weights, nothing to look up.
+ * 'session'  a finished run's checkpoint on the trainer's own disk, passed as
+ *            `resume_session_id`. Replica-local, so it disappears when the pod
+ *            restarts or the tab pins a different worker.
+ * 'exported' a model the user pushed to bioimage.io, passed as
+ *            `init_checkpoint` (a signed download URL). Durable and reachable
+ *            from any worker.
+ */
+export type CheckpointSource = 'base' | 'session' | 'exported';
 
 /** One prior run offered as a starting checkpoint. */
 export interface ResumableSession {
@@ -113,10 +140,17 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   onModelTypeChange,
   trainingCapabilities,
   trainingCapabilitiesLoading,
+  checkpointSource,
+  onCheckpointSourceChange,
   resumableSessions,
   resumableSessionsLoading,
   resumeSessionId,
   onResumeSessionIdChange,
+  exportedCheckpoints,
+  exportedCheckpointsLoading,
+  exportedCheckpointId,
+  onExportedCheckpointIdChange,
+  initCheckpointSupported,
   onContinueToTraining,
 }) => {
   const isNewSplit = activeSplitName === null;
@@ -138,13 +172,59 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
 
   const trainPoolEmpty = trainCount === 0;
 
-  // Resuming locks the architecture: start_training rejects a resume whose
-  // model_type differs from the one the checkpoint was trained with, so the
-  // picker follows the chosen run rather than letting the two drift apart.
-  const resumeSession = resumeSessionId
-    ? resumableSessions.find((s) => s.session_id === resumeSessionId) ?? null
-    : null;
-  const effectiveModelType = resumeSession?.model_type ?? modelType;
+  // Continuing from a checkpoint locks the architecture: start_training
+  // rejects weights whose model_type differs from the one they were trained
+  // with, so the architecture follows the chosen checkpoint rather than
+  // letting the two drift apart.
+  const resumeSession =
+    checkpointSource === 'session' && resumeSessionId
+      ? resumableSessions.find((s) => s.session_id === resumeSessionId) ?? null
+      : null;
+  const exportedCheckpoint =
+    checkpointSource === 'exported' && exportedCheckpointId
+      ? exportedCheckpoints.find((c) => c.artifactId === exportedCheckpointId) ?? null
+      : null;
+  const effectiveModelType =
+    resumeSession?.model_type ?? exportedCheckpoint?.modelType ?? modelType;
+
+  // The two checkpoint sources need a selection, the base model does not.
+  const checkpointChosen =
+    checkpointSource === 'base' ||
+    (checkpointSource === 'session' ? !!resumeSession : !!exportedCheckpoint);
+
+  // A source with nothing to offer stays visible but disabled, carrying the
+  // reason. Hiding it would leave the user wondering whether continuing from
+  // their own weights is possible at all.
+  const sourceButtons: Array<{
+    key: CheckpointSource;
+    label: string;
+    disabled?: boolean;
+    title?: string;
+  }> = [
+    { key: 'base', label: 'Base model' },
+    {
+      key: 'session',
+      label: 'Previous run',
+      disabled: resumableSessions.length === 0,
+      title:
+        resumableSessions.length === 0
+          ? 'No finished run on this trainer has a checkpoint to continue from yet.'
+          : undefined,
+    },
+  ];
+  // Older trainers have no init_checkpoint parameter, so there is nothing to
+  // offer and the source is left out entirely rather than shown as disabled.
+  if (initCheckpointSupported) {
+    sourceButtons.push({
+      key: 'exported',
+      label: 'Exported model',
+      disabled: exportedCheckpoints.length === 0,
+      title:
+        exportedCheckpoints.length === 0
+          ? 'None of your exported models carry weights that training can continue from.'
+          : undefined,
+    });
+  }
 
   // Every base model the trainer reports, across both backends (micro-sam and
   // Cellpose). Falls back to the static catalogue while capabilities load.
@@ -264,41 +344,33 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
       <div className="pt-3 border-t border-gray-100">
         <label className="block text-xs font-medium text-gray-500 mb-1.5">Start from</label>
         <div className="mb-3 flex gap-2">
-          <button
-            onClick={() => onResumeSessionIdChange(null)}
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
-              resumeSessionId === null
-                ? 'bg-purple-50 border-purple-300 text-purple-700'
-                : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'
-            }`}
-          >
-            Base model
-          </button>
-          <button
-            onClick={() => onResumeSessionIdChange(resumableSessions[0]?.session_id ?? null)}
-            disabled={resumableSessions.length === 0}
-            title={
-              resumableSessions.length === 0
-                ? 'No finished run on this trainer has a checkpoint to continue from yet.'
-                : undefined
-            }
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out ${
-              resumableSessions.length === 0
-                ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed'
-                : resumeSessionId !== null
-                ? 'bg-purple-50 border-purple-300 text-purple-700 active:scale-[0.97]'
-                : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200 active:scale-[0.97]'
-            }`}
-          >
-            My checkpoint
-          </button>
+          {sourceButtons.map((source) => {
+            const active = checkpointSource === source.key;
+            return (
+              <button
+                key={source.key}
+                onClick={() => onCheckpointSourceChange(source.key)}
+                disabled={source.disabled}
+                title={source.title}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out ${
+                  source.disabled
+                    ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed'
+                    : active
+                    ? 'bg-purple-50 border-purple-300 text-purple-700 active:scale-[0.97]'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200 active:scale-[0.97]'
+                }`}
+              >
+                {source.label}
+              </button>
+            );
+          })}
         </div>
 
-        {resumeSessionId !== null ? (
+        {checkpointSource === 'session' ? (
           <div className="mb-3">
             <select
-              value={resumeSessionId}
-              onChange={(e) => onResumeSessionIdChange(e.target.value)}
+              value={resumeSessionId ?? ''}
+              onChange={(e) => onResumeSessionIdChange(e.target.value || null)}
               className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
             >
               {resumableSessions.map((s) => (
@@ -311,6 +383,24 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
             <p className="mt-1 text-[0.65rem] text-gray-400">
               Continues training <span className="font-medium">{effectiveModelType}</span> from this run's
               checkpoint, which lives on the worker that produced it.
+            </p>
+          </div>
+        ) : checkpointSource === 'exported' ? (
+          <div className="mb-3">
+            <select
+              value={exportedCheckpointId ?? ''}
+              onChange={(e) => onExportedCheckpointIdChange(e.target.value || null)}
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+            >
+              {exportedCheckpoints.map((c) => (
+                <option key={c.artifactId} value={c.artifactId}>
+                  {c.name} {'\u00b7'} {c.modelType}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[0.65rem] text-gray-400">
+              Continues training <span className="font-medium">{effectiveModelType}</span> from the weights
+              in this model, which any worker can download.
             </p>
           </div>
         ) : (
@@ -370,15 +460,17 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
           </>
         )}
 
-        {resumableSessionsLoading && resumableSessions.length === 0 && (
-          <p className="mb-3 text-[0.65rem] text-gray-400">Looking for checkpoints on this trainer...</p>
-        )}
+        {(resumableSessionsLoading || exportedCheckpointsLoading) &&
+          resumableSessions.length === 0 &&
+          exportedCheckpoints.length === 0 && (
+            <p className="mb-3 text-[0.65rem] text-gray-400">Looking for checkpoints to continue from...</p>
+          )}
 
         <TrainingServicePicker className="mb-3" />
 
         <button
           onClick={onContinueToTraining}
-          disabled={isNewSplit || activeSplitLoading || trainPoolEmpty}
+          disabled={isNewSplit || activeSplitLoading || trainPoolEmpty || !checkpointChosen}
           title={
             isNewSplit
               ? 'Create the split first.'
@@ -386,6 +478,8 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
               ? 'Loading split details...'
               : trainPoolEmpty
               ? 'This split has no training images yet.'
+              : !checkpointChosen
+              ? 'Pick the checkpoint to start from.'
               : undefined
           }
           className="w-full px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
