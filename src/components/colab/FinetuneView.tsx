@@ -101,6 +101,32 @@ export interface ResumableSession {
   created_at?: number;
 }
 
+// Session ids are `YYYY-MM-DD-HHMMSS-xxxxxxxx`, so the distinguishing part is
+// the trailing segment, not the front. Slicing off the head yields the date
+// prefix, which every run of the same day shares.
+const shortSessionId = (sessionId: string): string => {
+  const tail = sessionId.split('-').pop();
+  return tail && tail.length >= 4 ? tail : sessionId;
+};
+
+/**
+ * One line for the "Previous run" picker. The list is every finished run on
+ * this trainer, not just this dataset's, because continuing from a run trained
+ * elsewhere is legitimate. That makes the origin the thing worth showing: a run
+ * from this dataset shows only its annotation label, a foreign one shows the
+ * whole `<dataset>/<label>` tag so it cannot be mistaken for a local one.
+ */
+export const describeResumableSession = (s: ResumableSession, alias: string): string => {
+  const parts = [s.model_type ?? 'model'];
+  const tag = s.label ?? '';
+  const local = alias && tag.startsWith(`${alias}/`);
+  const origin = local ? tag.slice(alias.length + 1) : tag;
+  if (origin) parts.push(origin);
+  if (s.end_time) parts.push(new Date(s.end_time * 1000).toLocaleDateString());
+  parts.push(shortSessionId(s.session_id));
+  return parts.join(' · ');
+};
+
 const badgeClass = (value: 'train' | 'test' | 'unused') =>
   value === 'train'
     ? 'bg-blue-100 text-blue-700'
@@ -375,8 +401,7 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
             >
               {resumableSessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>
-                  {(s.model_type ?? 'model')} {'\u00b7'} {s.session_id.slice(0, 8)}
-                  {s.end_time ? ` ${'\u00b7'} ${new Date(s.end_time * 1000).toLocaleDateString()}` : ''}
+                  {describeResumableSession(s, alias)}
                 </option>
               ))}
             </select>
