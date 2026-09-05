@@ -136,16 +136,32 @@ export async function resolveInitCheckpointUrl(
   artifactManager: any,
   checkpoint: ExportedCheckpoint,
 ): Promise<string> {
-  const url = await withStageRetry(() =>
-    artifactManager.get_file({
-      artifact_id: checkpoint.artifactId,
-      file_path: checkpoint.checkpointFile,
-      stage: checkpoint.staged,
-      _rkwargs: true,
-    }),
-  );
+  // A missing or unreadable weights file surfaces as a raw botocore traceback
+  // from the artifact manager, which then lands verbatim in the training page's
+  // error banner. Keep the original on the console and show the user the one
+  // fact they can act on: which file in which artifact could not be read.
+  let url: string | undefined;
+  try {
+    url = await withStageRetry(() =>
+      artifactManager.get_file({
+        artifact_id: checkpoint.artifactId,
+        file_path: checkpoint.checkpointFile,
+        stage: checkpoint.staged,
+        _rkwargs: true,
+      }),
+    );
+  } catch (err) {
+    console.error('resolveInitCheckpointUrl failed', checkpoint, err);
+    throw new Error(
+      `Could not read ${checkpoint.checkpointFile} from ${checkpoint.artifactId}. ` +
+        'The exported model may have been changed or deleted, pick another starting checkpoint.',
+    );
+  }
   if (!url) {
-    throw new Error(`Could not resolve ${checkpoint.checkpointFile} in ${checkpoint.artifactId}.`);
+    throw new Error(
+      `Could not read ${checkpoint.checkpointFile} from ${checkpoint.artifactId}. ` +
+        'The exported model may have been changed or deleted, pick another starting checkpoint.',
+    );
   }
   return url;
 }
