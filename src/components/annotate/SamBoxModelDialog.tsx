@@ -103,6 +103,12 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
     const isLoaded = option.modelType === loadedModelType;
     const hasEmbedding = embeddedModelTypes.includes(option.modelType);
     const isRecomputing = recomputingType === option.modelType;
+    // "(default)" is a property of THIS dialog, not of the model:
+    // MICRO_SAM_MODEL_TYPE is the box-prompt default only. Marking it on the
+    // shared option label instead would leak it into the fine-tuning picker,
+    // whose default is a different model.
+    const displayLabel =
+      option.modelType === MICRO_SAM_MODEL_TYPE ? `${option.label} (default)` : option.label;
     return (
       <Box
         key={option.modelType}
@@ -133,12 +139,8 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
             bgcolor: selected ? 'secondary.main' : 'action.disabledBackground',
           }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            {/* "(default)" is a property of THIS dialog, not of the model:
-                MICRO_SAM_MODEL_TYPE is the box-prompt default only. Marking it
-                on the shared option label instead would leak it into the
-                fine-tuning picker, whose default is a different model. */}
             <Typography variant="body2" fontWeight={selected ? 700 : 500} color={selected ? 'secondary.main' : 'text.primary'}>
-              {option.modelType === MICRO_SAM_MODEL_TYPE ? `${option.label} (default)` : option.label}
+              {displayLabel}
             </Typography>
           </Box>
           {isLoaded ? (
@@ -161,7 +163,11 @@ const SamBoxModelDialog: React.FC<SamBoxModelDialogProps> = ({
                 size="small"
                 onClick={(e) => handleRecompute(e, option.modelType)}
                 disabled={isRecomputing || !microSamAvailable}
-                aria-label={`Recompute embedding for ${option.label}`}
+                // The rendered label, not option.label: a control whose spoken
+                // name omits the "(default)" the row visibly carries reads as a
+                // different control to anyone matching what they see against
+                // what they hear.
+                aria-label={`Recompute embedding for ${displayLabel}`}
                 sx={{ p: 0.4 }}
               >
                 {isRecomputing ? <CircularProgress size={14} /> : <ReplayIcon sx={{ fontSize: 15 }} />}
