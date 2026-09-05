@@ -1,6 +1,12 @@
 import React from 'react';
 import { SplitDoc, SplitSummary } from './brokerApi';
-import { MICRO_SAM_MODEL_OPTIONS, MICRO_SAM_GROUP_LABELS, MicroSamModelOption } from '../../utils/microSamService';
+import {
+  buildTrainingModelOptions,
+  trainingGroupsOf,
+  trainingGroupLabel,
+  backendOfModel,
+  TrainingModelOption,
+} from '../../utils/trainingModels';
 import {
   TrainingCapabilities,
   describeTrainingGpu,
@@ -165,13 +171,24 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   const trainingSteps = nEpochs * Math.max(trainCount, 100);
   const durationEstimate = formatDurationEstimate(trainingSteps, effectiveModelType);
 
+  // Every base model the trainer reports, across both backends (micro-sam and
+  // Cellpose). Falls back to the static catalogue while capabilities load.
+  const modelOptions = buildTrainingModelOptions(trainingCapabilities);
+  const modelGroups = trainingGroupsOf(modelOptions);
+
   // Only explain the greying when there is something greyed out. With no
   // capabilities yet (loading, or the call failed) nothing is disabled, so
   // this is false and the note stays hidden.
-  const hasUnfitModel = MICRO_SAM_MODEL_OPTIONS.some(
+  const hasUnfitModel = modelOptions.some(
     (o) => !isModelTrainable(trainingCapabilities, o.modelType),
   );
-  const trainerGpuLabel = describeTrainingGpu(trainingCapabilities, 'microsam');
+  // Name the card belonging to the SELECTED model's backend. The two runtimes
+  // can sit on different hardware, so quoting one backend's GPU next to the
+  // other backend's greyed-out entry would misattribute the shortfall.
+  const selectedBackend = backendOfModel(modelOptions, effectiveModelType);
+  const trainerGpuLabel = selectedBackend
+    ? describeTrainingGpu(trainingCapabilities, selectedBackend)
+    : null;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 h-full flex flex-col overflow-y-auto">
@@ -279,14 +296,14 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
           <>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Base model</label>
             <div className="mb-3 space-y-2">
-              {(['lm', 'em_organelles'] as const).map((group) => {
-                const optionsInGroup = MICRO_SAM_MODEL_OPTIONS.filter((o: MicroSamModelOption) => o.group === group);
+              {modelGroups.map((group) => {
+                const optionsInGroup = modelOptions.filter((o: TrainingModelOption) => o.group === group);
                 if (optionsInGroup.length === 0) return null;
                 return (
                   <div key={group}>
-                    <p className="text-[0.65rem] font-medium text-gray-400 mb-1">{MICRO_SAM_GROUP_LABELS[group]}</p>
+                    <p className="text-[0.65rem] font-medium text-gray-400 mb-1">{trainingGroupLabel(group)}</p>
                     <div className="flex gap-2">
-                      {optionsInGroup.map((opt: MicroSamModelOption) => {
+                      {optionsInGroup.map((opt: TrainingModelOption) => {
                         // Every model is listed. The ones this trainer's GPU
                         // cannot fit are rendered disabled with the backend's
                         // own reason attached, rather than omitted, so "we
