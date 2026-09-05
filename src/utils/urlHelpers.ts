@@ -62,3 +62,35 @@ export const resolveTestReportUrl = (artifactId: string, staged: boolean): strin
   const slot = staged ? 'staged' : 'published';
   return `${HYPHA_SERVER_URL}/bioimage-io/artifacts/test-report-${modelId}/files/${slot}/test_report.json?use_proxy=true`;
 };
+/** The workspace every artifact on this site lives in. */
+const ARTIFACT_WORKSPACE = 'bioimage-io';
+
+/**
+ * Turn the `:id` / `:version` params of the detail routes into the
+ * workspace-qualified id `fetchResource` expects.
+ *
+ * Two URL shapes have to resolve to the same artifact: the short one the app
+ * links to itself (`#/resources/affable-shark`) and the workspace-qualified one
+ * that Hypha, the Edit page and the API docs hand out
+ * (`#/resources/bioimage-io%2Faffable-shark`). React Router matches on the raw
+ * path and only decodes `%2F` when handing over the param, so in the qualified
+ * form `:id` already carries the workspace. Prefixing it a second time produced
+ * `bioimage-io/bioimage-io/<alias>`, which addressed no artifact at all.
+ *
+ * An *unencoded* slash is a different story: the router splits on it while
+ * matching, so `#/artifacts/bioimage-io/affable-shark` lands the workspace in
+ * `:id` and the alias in `:version`. That shape is folded back together here
+ * too, since it is what a human types by hand.
+ */
+export const resolveArtifactRouteId = (
+  id: string,
+  version?: string,
+): { artifactId: string; version?: string } => {
+  if (id === ARTIFACT_WORKSPACE && version) {
+    return { artifactId: `${ARTIFACT_WORKSPACE}/${version}`, version: undefined };
+  }
+  return {
+    artifactId: id.includes('/') ? id : `${ARTIFACT_WORKSPACE}/${id}`,
+    version,
+  };
+};

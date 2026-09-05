@@ -585,9 +585,12 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
   fetchResource: async (id: string, version?: string) => {
     set({ isLoading: true, selectedResource: null, error: null });
     try {
-      const [workspace, artifactName] = id.includes('/')
-        ? id.split('/')
-        : ['bioimage-io', id];
+      // Split on the FIRST slash only. A plain `split('/')` silently dropped
+      // everything past the second segment, so a malformed id resolved to some
+      // other artifact's URL instead of failing.
+      const separator = id.indexOf('/');
+      const workspace = separator === -1 ? 'bioimage-io' : id.slice(0, separator);
+      const artifactName = separator === -1 ? id : id.slice(separator + 1);
 
       const url = `${HYPHA_SERVER_URL}/${workspace}/artifacts/${artifactName}` + (version ? `?version=${version}` : '');
 
