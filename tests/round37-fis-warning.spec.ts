@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-37 acceptance (keen-puma):
 //   1. Warn before Full Image Segmentation runs over existing masks. Clicking
@@ -11,7 +12,7 @@ import fs from 'fs';
 //      (e.g. "μSAM Large (LM)") so the choice is unambiguous even without the
 //      open dropdown's subheaders.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5301' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round37-verify';

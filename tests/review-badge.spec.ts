@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { BASE_URL } from './baseUrl';
 
 // Two screenshots, both taken against the dev server with a STUBBED Hypha
 // session. Nothing here talks to hypha.aicell.io and nothing here touches a
@@ -8,11 +9,11 @@ import { test, expect, Page } from '@playwright/test';
 // driven by fake data.
 //
 // Run against a dev server:
-//   PORT=3021 BROWSER=none pnpm start
-//   BASE_URL=http://localhost:3021 npx playwright test tests/review-badge.spec.ts
+//   BROWSER=none pnpm start
+//   npx playwright test tests/review-badge.spec.ts
 
 test.use({
-  baseURL: process.env.BASE_URL || 'http://localhost:3000',
+  baseURL: BASE_URL,
   viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 3,
   // The site registers a cleanup service worker on load. Left running, it owns
@@ -62,7 +63,7 @@ const TOY_ID = 'bioimage-io/stub-toy-in-revision';
  * (Playwright runs route handlers in reverse registration order).
  */
 async function blockExternalNetwork(page: Page) {
-  const origin = new URL(process.env.BASE_URL || 'http://localhost:3000').origin;
+  const origin = new URL(BASE_URL).origin;
   await page.route('**/*', async (route) => {
     const url = route.request().url();
     if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:')) {

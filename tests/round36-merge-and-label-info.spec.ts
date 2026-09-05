@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-36 acceptance (keen-puma, confirmed via svamp thread h5BkpX6uBC):
 // 1. Select 2+ masks with the Select tool, press Expand Mask (button or "A")
@@ -11,7 +12,7 @@ import fs from 'fs';
 // 2. LabelManager shows an info icon next to each label badge whose tooltip
 //    reveals the label's description, or "No description provided" if unset.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

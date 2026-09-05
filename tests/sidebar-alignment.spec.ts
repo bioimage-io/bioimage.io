@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var, falls back to /data/nmechtel/bioengine/.env.
-// Requires: dev server running at http://localhost:3012.
+// Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // Regression test for colab-rework-plan.md §18.1: every tool/action row's
 // title text in the expanded ToolBar and ActionPanel sidebars must share a
@@ -10,7 +11,7 @@ import fs from 'fs';
 // identical across rows). Reads each `data-testid="row-title"` element's
 // bounding box and asserts the left x is consistent within 1px, per sidebar.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

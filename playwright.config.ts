@@ -1,19 +1,28 @@
 import { defineConfig } from '@playwright/test';
 
-// Model-test integration specs run against the dev server and switch to the
-// deNBI v1.15.2 async model-runner (bioimage-io/bioengine-worker-denbi-*:model-runner)
-// by clicking the deNBI option in the Test Model options dialog. Start the
-// dev server, then run the tests:
-//   pnpm start
+// The suite drives a dev server, so start one first and point the suite at it:
+//   BROWSER=none pnpm start
 //   npx playwright test
+//
+// Every spec resolves its base URL through tests/baseUrl.ts, so a single
+// E2E_BASE_URL retargets all of them (e.g. a second checkout on another port).
+//
+// Several specs are live: they drive real BioEngine inference and rewrite real
+// test reports in the bioimage-io collection. Grep a spec's header before
+// running it in isolation.
 
 export default defineConfig({
   testDir: './tests',
+  // Verifies the base URL is actually serving this site before anything runs.
+  globalSetup: require.resolve('./tests/globalSetup'),
   timeout: 30000,
   use: {
-    // Override with E2E_BASE_URL when the dev server is on another port,
-    // e.g. a second checkout running alongside the default one.
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
     headless: true,
+    // This machine has no usable GPU for headless Chromium, and the site
+    // registers a cleanup service worker that would otherwise own the fetches
+    // the stubbing specs install with page.route().
+    launchOptions: { args: ['--disable-gpu', '--no-sandbox'] },
+    serviceWorkers: 'block',
   },
 });

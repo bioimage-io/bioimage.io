@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-35 independent acceptance (keen-puma) on a multi-image dataset:
 // (1) the Browse annotations button swaps to a spinner during the
@@ -12,7 +13,7 @@ import fs from 'fs';
 // BEFORE the triggering click, since the underlying fetches are hypha-rpc
 // websocket calls that HTTP route interception cannot delay.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round35-verify';

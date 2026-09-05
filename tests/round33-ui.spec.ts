@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-33 UI: brush/lasso mode switch (double-click Draw Mask, round 33c),
 // radius stepper, and Mask Color dialog. Confirms the controls render,
 // toggle, and don't throw.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 

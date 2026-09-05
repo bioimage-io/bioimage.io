@@ -1,11 +1,10 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var (same token the user stores in localStorage
 // after login), falls back to reading /data/nmechtel/bioengine/.env if unset.
-// Requires: dev server running at http://localhost:3012 (this worktree's
-// port; overridden below since playwright.config.ts's baseURL targets :3000
-// for the model-test integration specs).
+// Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // What this tests (colab-rework-plan.md §13): the reworked dataset overview
 // header/action row, the Share dialog's sharing + access-request + QR
@@ -22,7 +21,7 @@ import fs from 'fs';
 // match it via the broker's email fallback even if both tokens trace back
 // to the same underlying human in Hypha's auth backend.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

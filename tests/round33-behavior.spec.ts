@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import crypto from 'crypto';
+import { BASE_URL } from './baseUrl';
 
 // Round-33 supplementary acceptance (keen-puma): behavioral evidence beyond
 // control wiring — brush actually paints a mask (with undo), arrow keys move
 // the radius, +/-/0 drive the view, hue persists across reload and recolors
 // existing masks.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round33-verify';

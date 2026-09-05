@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-38 acceptance (keen-puma):
 //   1. The FIS backend/model select gets a 'Cellpose' group listing
@@ -10,7 +11,7 @@ import fs from 'fs';
 //      (they hide the same way the uSAM backend does).
 //   4. The Cellpose-SAM path is unchanged.
 
-test.use({ baseURL: process.env.DEV_BASE_URL || 'http://localhost:5302' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round38-dino-verify';

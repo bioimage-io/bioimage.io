@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Round-33c gap fills (keen-puma): the parts silver-crane flagged as not
 // live-tested — tutorial click-through with the new shortcut copy, the
 // threshold rows without numeric readouts, and the mode-dependent icons.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round33c-verify';

@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var (same token the user stores in localStorage
 // after login), falls back to reading /data/nmechtel/bioengine/.env if unset.
-// Requires: dev server running at http://localhost:3012 (this worktree's port,
+// Requires: dev server running at the dev server (
 // overridden below since playwright.config.ts's baseURL targets :3000 for the
 // model-test integration specs).
 //
@@ -20,7 +21,7 @@ import fs from 'fs';
 // bioimage-io collection workspace, never the connected user's own
 // workspace (useHyphaService.ts, fixed alongside toArtifactId reuse).
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

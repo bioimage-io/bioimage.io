@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var, falls back to /data/nmechtel/bioengine/.env.
-// Requires: dev server running at http://localhost:3012.
+// Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // Regression test for colab-rework-plan.md §18.6: "Cellpose-SAM detects no
 // masks". Root cause was a leading batch dimension (e.g. (1,1,H,W) instead
@@ -12,7 +13,7 @@ import fs from 'fs';
 // dialog end to end against the live backend and asserts the resulting
 // banner reports at least one detected mask.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

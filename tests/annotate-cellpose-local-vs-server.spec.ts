@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { BASE_URL } from './baseUrl';
 
 // Requires: HYPHA_TOKEN env var, falls back to /data/nmechtel/bioengine/.env.
-// Requires: dev server running at http://localhost:3012.
+// Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // Regression test for the round-27 production bug report: Cellpose-SAM full
 // image segmentation via the LOCAL path (kernel-warm flows + Pyodide mask
@@ -39,7 +40,7 @@ import fs from 'fs';
 // successfully" alone (an earlier version of this test did) never gates
 // the local path -- it always falls back to the server path silently.
 
-test.use({ baseURL: 'http://localhost:3012' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const LABEL = 'cells';

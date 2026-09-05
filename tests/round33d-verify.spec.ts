@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import crypto from 'crypto';
+import { BASE_URL } from './baseUrl';
 
 // Round-33d independent acceptance (keen-puma): brush-first default is covered
 // in round33b-verify; this spec covers the blue brush stroke (mid-stroke
@@ -8,7 +9,7 @@ import crypto from 'crypto';
 // space box-selects every touched mask instead of panning, Shift adds, Delete
 // removes, and an empty-area box neither pans nor errors.
 
-test.use({ baseURL: 'http://localhost:5199' });
+test.use({ baseURL: BASE_URL });
 
 const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round33d-verify';
