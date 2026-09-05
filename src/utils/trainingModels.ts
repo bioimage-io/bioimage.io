@@ -148,3 +148,81 @@ export function backendOfModel(
 ): string | undefined {
   return options.find((o) => o.modelType === modelType)?.backend;
 }
+
+/**
+ * Which `start_training` parameters apply to which backend.
+ *
+ * Deliberately one map in one file. model-finetune will derive this from
+ * `start_training`'s own Field metadata and return it from
+ * `get_training_capabilities` as `{name, applies_to, default, min, max,
+ * description}`, at which point the parameter form renders straight from the
+ * API and everything below is deleted. Keeping it in a single exported shape
+ * means that swap touches this file only, not the form.
+ */
+export interface TrainingParamSpec {
+  name: string;
+  label: string;
+  /** Backends this parameter is accepted by. */
+  appliesTo: string[];
+  default: number;
+  step?: number;
+  help?: string;
+}
+
+export const TRAINING_PARAM_SPECS: TrainingParamSpec[] = [
+  {
+    name: 'n_epochs',
+    label: 'Epochs',
+    appliesTo: ['microsam', 'cellpose'],
+    default: 5,
+  },
+  {
+    name: 'batch_size',
+    label: 'Batch size',
+    appliesTo: ['microsam', 'cellpose'],
+    default: 1,
+  },
+  {
+    name: 'learning_rate',
+    label: 'Learning rate',
+    appliesTo: ['microsam', 'cellpose'],
+    default: 1e-5,
+    step: 0.00001,
+  },
+  {
+    name: 'n_objects_per_batch',
+    label: 'Objects per batch',
+    appliesTo: ['microsam'],
+    default: 8,
+    help: 'How many annotated objects each training step samples.',
+  },
+  {
+    name: 'patch_size',
+    label: 'Patch size',
+    appliesTo: ['microsam'],
+    default: 512,
+    help: 'Edge length of the crops cut from each image.',
+  },
+  {
+    name: 'diam_mean',
+    label: 'Mean diameter',
+    appliesTo: ['cellpose'],
+    default: 30,
+    help: 'Typical object diameter in pixels, in the images you annotated.',
+  },
+];
+
+/** The parameters one backend accepts, in display order. */
+export function trainingParamsFor(backend: string | undefined): TrainingParamSpec[] {
+  if (!backend) return TRAINING_PARAM_SPECS;
+  return TRAINING_PARAM_SPECS.filter((p) => p.appliesTo.includes(backend));
+}
+
+/** Every parameter at its default, for seeding the form. */
+export function defaultTrainingParams(): Record<string, number> {
+  const out: Record<string, number> = {};
+  TRAINING_PARAM_SPECS.forEach((p) => {
+    out[p.name] = p.default;
+  });
+  return out;
+}

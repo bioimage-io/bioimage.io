@@ -5,7 +5,6 @@ import { KernelProvider, useSharedKernel } from './KernelContext';
 import ColabGuide from './ColabGuide';
 import DatasetList from './DatasetList';
 import DatasetOverview from './DatasetOverview';
-import TrainingPage from '../../pages/TrainingPage';
 import FinetunePage from '../../pages/FinetunePage';
 import AnnotatePage from '../../pages/AnnotatePage';
 import LoginButton, { hasSavedToken } from '../LoginButton';
@@ -212,20 +211,14 @@ const ColabPageContent: React.FC = () => {
 // Wrapper component that handles routing and kernel provider
 const ColabPage: React.FC = () => {
   const location = useLocation();
-  const isTrainingRoute = location.pathname.startsWith('/colab/training');
   const isAnnotateRoute = location.pathname.startsWith('/colab/annotate');
   const isFinetuneRoute = /^\/colab\/[^/]+\/finetune(\/.*)?$/.test(location.pathname);
 
   // Keep one shared kernel provider mounted for all /colab routes so
-  // navigating to training and back preserves the running kernel.
+  // navigating to a sub-page and back preserves the running kernel.
   return (
     <KernelProvider>
-      {isTrainingRoute ? (
-        <Routes>
-          <Route path="training" element={<TrainingPage />} />
-          <Route path="training/:sessionId" element={<TrainingPage />} />
-        </Routes>
-      ) : isAnnotateRoute ? (
+      {isAnnotateRoute ? (
         <AnnotatePage backTo="/colab" />
       ) : isFinetuneRoute ? (
         <Routes>

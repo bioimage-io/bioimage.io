@@ -11,7 +11,7 @@ const FinetunePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Same auth-gating pattern as TrainingPage: the global connection state is
+  // Auth-gating: the global connection state is
   // managed by LoginButton, we just wait for it to settle before deciding
   // whether to show a connection error.
   useEffect(() => {

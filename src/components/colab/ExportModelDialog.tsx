@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
+import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { buildReviewerPermissions } from '../../utils/roles';
 import { Spinner } from './Finetune';
 
@@ -97,7 +97,7 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
     try {
       setPhase('building');
       setStatusMessage('Requesting export...');
-      const svc = await resolvePinnedMicroSamTrainingService(server);
+      const svc = await resolvePinnedTrainingService(server);
       const { export_id } = await svc.export_model({
         session_id: session.session_id,
         name,

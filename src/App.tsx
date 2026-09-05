@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { HashRouter, Routes, Route, useLocation, Navigate, useParams } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import HyphaStatusBanner from './components/HyphaStatusBanner';
 import ErrorDialog from './components/ErrorDialog';
@@ -23,7 +23,6 @@ import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/bioengine/BioEngineHome';
 import BioEngineWorker from './components/bioengine/BioEngineWorker';
 import ColabPage from './components/colab/ColabPage';
-import TrainingPage from './pages/TrainingPage';
 import { useConnectionLiveness } from './hooks/useConnectionLiveness';
 
 // Add a utility function to check if footer should be hidden
@@ -51,12 +50,6 @@ const GlobalErrorDialog: React.FC = () => {
       onClose={clearError}
     />
   );
-};
-
-const TrainingRedirect: React.FC = () => {
-  const { sessionId } = useParams<{ sessionId?: string }>();
-  const location = useLocation();
-  return <Navigate to={sessionId ? `/colab/training/${sessionId}` : '/colab/training'} state={location.state} replace />;
 };
 
 // Create a wrapper component that uses Router hooks
@@ -131,8 +124,6 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
-          <Route path="/training" element={<TrainingRedirect />} />
-          <Route path="/training/:sessionId" element={<TrainingRedirect />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}

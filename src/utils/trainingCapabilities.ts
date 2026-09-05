@@ -13,7 +13,7 @@
  *
  * Which GPU is being described
  * ----------------------------
- * Deliberately resolved through `resolvePinnedMicroSamTrainingService`, NOT
+ * Deliberately resolved through `resolvePinnedTrainingService`, NOT
  * the load-balanced `resolveMicroSamService`. A fine-tuning session's state
  * (checkpoints, status.json) lives on one replica's local disk, so every
  * training call is already pinned to a single worker for the tab's lifetime.
@@ -33,7 +33,7 @@
  * experience than a button that flickers with someone else's load. Never gate
  * the UI on `free_mb`.
  */
-import { resolvePinnedMicroSamTrainingService } from './microSamTrainingPin';
+import { resolvePinnedTrainingService } from './trainingServicePin';
 
 /** Per-backend GPU report. `available: false` means that runtime is down. */
 export interface TrainingGpuInfo {
@@ -87,7 +87,7 @@ export function resetTrainingCapabilitiesCache(): void {
 export async function fetchTrainingCapabilities(server: any): Promise<TrainingCapabilities> {
   if (!capabilitiesPromise) {
     capabilitiesPromise = (async () => {
-      const svc = await resolvePinnedMicroSamTrainingService(server);
+      const svc = await resolvePinnedTrainingService(server);
       const caps = await svc.get_training_capabilities();
       if (!caps || !Array.isArray(caps.models)) {
         throw new Error('get_training_capabilities returned an unexpected shape');

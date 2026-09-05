@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { buildAnnotateQuery } from './datasetApi';
 import {
   BrokerAccessError,
@@ -7,12 +7,21 @@ import {
   BrokerRole,
   DatasetWithRole,
   getDataset,
+  getTrainingUrls,
   listSplits,
   setSplitCheckpoint,
 } from './brokerApi';
-import { resolvePinnedMicroSamTrainingService } from '../../utils/microSamTrainingPin';
+import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
+import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
+import {
+  backendOfModel,
+  buildTrainingModelOptions,
+  defaultTrainingParams,
+  trainingParamsFor,
+} from '../../utils/trainingModels';
 import LoginButton from '../LoginButton';
 import ExportModelDialog from './ExportModelDialog';
+import TrainingServicePicker from './TrainingServicePicker';
 
 export interface FinetuneProps {
   artifactId: string;
@@ -82,8 +91,14 @@ export const Spinner: React.FC<{ className?: string }> = ({ className = 'w-8 h-8
 // by prefix among everything else running on the same pinned worker.
 const sessionTag = (alias: string, annotationLabel: string) => `${alias}/${annotationLabel}`;
 
-// Training runs are started from a dataset's finetune view now
-// (colab-rework-plan.md §23.2); this page is monitoring-only.
+// Step 2 of the fine-tuning flow. The dataset's finetune view (step 1) picks
+// the split, the architecture and the checkpoint to start from, then hands
+// those over in the query string. Everything about HOW to train lives here:
+// the parameter form for the chosen backend, the start_training call, the
+// progress monitoring and the export to a bioimage.io draft.
+//
+// The handover travels in the URL rather than in router state so a reload
+// keeps the configuration and the link can be shared.
 const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, user, artifactManager }) => {
   const navigate = useNavigate();
 
@@ -105,6 +120,82 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   } | null>(null);
   const [exportResolveError, setExportResolveError] = useState<{ sessionId: string; message: string } | null>(null);
   const [resolvingExportSessionId, setResolvingExportSessionId] = useState<string | null>(null);
+
+  // --- New run, configured from step 1's query string ---
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pendingLabel = searchParams.get('label');
+  const pendingSplit = searchParams.get('split');
+  const pendingModelType = searchParams.get('model');
+  const pendingResumeId = searchParams.get('resume');
+  const hasPendingRun = !!(pendingLabel && pendingSplit && pendingModelType);
+
+  const { capabilities: trainingCapabilities } = useTrainingCapabilities(hasPendingRun ? server : null);
+  // Which parameters start_training accepts depends on the backend the chosen
+  // architecture belongs to: micro-sam takes n_objects_per_batch and
+  // patch_size, Cellpose takes diam_mean, the rest are shared. See
+  // utils/trainingModels.ts, which is the single place that mapping lives.
+  const pendingBackend = pendingModelType
+    ? backendOfModel(buildTrainingModelOptions(trainingCapabilities), pendingModelType)
+    : undefined;
+  const paramSpecs = trainingParamsFor(pendingBackend);
+
+  const [params, setParams] = useState<Record<string, number>>(() => defaultTrainingParams());
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
+
+  const handleStartTraining = async (skipEmptyTestWarning = false) => {
+    if (!pendingLabel || !pendingSplit || !pendingModelType) return;
+    setStartError(null);
+    setStarting(true);
+    try {
+      const urls = await getTrainingUrls(server, artifactId, pendingLabel, pendingSplit);
+      if (urls.train.length === 0) {
+        setStartError(`Split "${pendingSplit}" has no training images yet.`);
+        return;
+      }
+      if (!skipEmptyTestWarning && urls.test.length === 0) {
+        setShowEmptyTestWarning(true);
+        return;
+      }
+      setShowEmptyTestWarning(false);
+      const call: any = {
+        train_images: urls.train.map((e) => e.image_url),
+        train_labels: urls.train.map((e) => e.geojson_url),
+        model_type: pendingModelType,
+        label: sessionTag(artifactAlias, pendingLabel),
+        _rkwargs: true,
+      };
+      // Only send what this backend accepts. Passing a foreign parameter is
+      // rejected outright, so filtering here is what keeps one form usable for
+      // both backends.
+      paramSpecs.forEach((spec) => {
+        call[spec.name] = params[spec.name];
+      });
+      if (urls.test.length > 0) {
+        call.val_images = urls.test.map((e) => e.image_url);
+        call.val_labels = urls.test.map((e) => e.geojson_url);
+      }
+      // Resuming is replica-local by construction, which is fine because every
+      // call on this page goes through the same pin.
+      if (pendingResumeId) call.resume_session_id = pendingResumeId;
+
+      const svc = await resolvePinnedTrainingService(server);
+      const status = await svc.start_training(call);
+      await setSplitCheckpoint(server, artifactId, pendingLabel, pendingSplit, {
+        session_id: status.session_id,
+        model_type: pendingModelType,
+      });
+      // Drop the handover parameters so a reload does not offer to start the
+      // same run a second time.
+      setSearchParams({}, { replace: true });
+      await refreshSessions();
+    } catch (err) {
+      setStartError((err as Error).message || 'Failed to start training.');
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const handleOpenExport = async (s: TrainingSessionStatus, annotationLabel: string) => {
     setExportResolveError(null);
@@ -159,7 +250,7 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
 
   // --- Sessions list, polled while any tracked session is non-terminal ---
   const refreshSessions = useCallback(async (): Promise<Record<string, TrainingSessionStatus>> => {
-    const svc = await resolvePinnedMicroSamTrainingService(server);
+    const svc = await resolvePinnedTrainingService(server);
     const all: Record<string, TrainingSessionStatus> = await svc.list_training_sessions({ _rkwargs: true });
     const tag = sessionTag(artifactAlias, '');
     const mine: Record<string, TrainingSessionStatus> = {};
@@ -224,7 +315,7 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
     setConfirmStopId(null);
     setStoppingSessionId(sessionId);
     try {
-      const svc = await resolvePinnedMicroSamTrainingService(server);
+      const svc = await resolvePinnedTrainingService(server);
       const status: TrainingSessionStatus = await svc.stop_training({ session_id: sessionId, _rkwargs: true });
       setSessions((prev) => ({ ...prev, [sessionId]: status }));
     } catch (err) {
@@ -290,15 +381,81 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
           Back
         </button>
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Fine-tune μSAM</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Fine-tune a model</h1>
           <p className="text-sm text-gray-500">{dataset.name || artifactAlias}</p>
         </div>
       </div>
 
-      <p className="text-sm text-gray-500 mb-6">
-        Start new training runs from a dataset's finetune view. This page tracks progress and lets you use a
-        finished checkpoint for annotation.
-      </p>
+      {!hasPendingRun && (
+        <p className="text-sm text-gray-500 mb-6">
+          Pick a split and a starting model in the dataset's finetune view to set up a new run. This page
+          tracks progress and lets you use a finished checkpoint for annotation.
+        </p>
+      )}
+
+      {hasPendingRun && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">New training run</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Split <span className="font-medium text-gray-700">{pendingSplit}</span> of label{' '}
+            <span className="font-medium text-gray-700">{pendingLabel}</span>, training{' '}
+            <span className="font-medium text-gray-700">{pendingModelType}</span>
+            {pendingResumeId ? (
+              <>
+                {' '}from the checkpoint of run{' '}
+                <span className="font-mono text-gray-700">{pendingResumeId.slice(0, 8)}</span>
+              </>
+            ) : (
+              ' from its base weights'
+            )}
+            .
+          </p>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {paramSpecs.map((spec) => (
+              <label key={spec.name} className="text-xs text-gray-500">
+                {spec.label}
+                <input
+                  type="number"
+                  step={spec.step}
+                  value={params[spec.name]}
+                  onChange={(e) =>
+                    setParams((prev) => ({ ...prev, [spec.name]: Number(e.target.value) }))
+                  }
+                  className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-purple-300"
+                />
+                {spec.help && <span className="block mt-0.5 text-[0.65rem] text-gray-400">{spec.help}</span>}
+              </label>
+            ))}
+          </div>
+
+          <TrainingServicePicker className="mb-4" />
+
+          {startError && (
+            <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              {startError}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleStartTraining()}
+              disabled={starting}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {starting && <Spinner className="w-4 h-4 text-white" />}
+              Start training
+            </button>
+            <button
+              onClick={() => setSearchParams({}, { replace: true })}
+              disabled={starting}
+              className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Sessions list */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -429,6 +586,33 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
           })}
         </div>
       </div>
+      {showEmptyTestWarning && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
+          <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
+            <div className="p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Test split is empty</h3>
+              <p className="text-sm text-gray-500">
+                Training will fall back to an internal validation slice instead of your held-out images.
+                Start anyway?
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowEmptyTestWarning(false)}
+                className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleStartTraining(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all"
+              >
+                Start anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {exportTarget && (
         <ExportModelDialog
           open

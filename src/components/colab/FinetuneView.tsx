@@ -1,5 +1,6 @@
 import React from 'react';
 import { SplitDoc, SplitSummary } from './brokerApi';
+import TrainingServicePicker from './TrainingServicePicker';
 import {
   buildTrainingModelOptions,
   trainingGroupsOf,
@@ -53,42 +54,25 @@ export interface FinetuneViewProps {
   // backend rejects an unfit one with a readable error.
   trainingCapabilities: TrainingCapabilities | null;
   trainingCapabilitiesLoading: boolean;
-  showAdvanced: boolean;
-  onToggleAdvanced: () => void;
-  nEpochs: number;
-  onNEpochsChange: (value: number) => void;
-  nObjectsPerBatch: number;
-  onNObjectsPerBatchChange: (value: number) => void;
-  patchSize: number;
-  onPatchSizeChange: (value: number) => void;
-  batchSize: number;
-  onBatchSizeChange: (value: number) => void;
-  learningRate: number;
-  onLearningRateChange: (value: number) => void;
-  isStartingTraining: boolean;
-  startTrainingError: string | null;
-  onStartTraining: () => void;
-  showEmptyTestWarning: boolean;
-  onDismissEmptyTestWarning: () => void;
-  onConfirmStartWithEmptyTest: () => void;
+  // Finished runs on the pinned replica whose checkpoint can be trained on
+  // further. `resume_session_id` resolves against that replica's local disk,
+  // so this list is by definition replica-scoped.
+  resumableSessions: ResumableSession[];
+  resumableSessionsLoading: boolean;
+  // `null` starts from the base foundation model.
+  resumeSessionId: string | null;
+  onResumeSessionIdChange: (value: string | null) => void;
+  onContinueToTraining: () => void;
 }
 
-// Upper-bound seconds/step measured on the shared T4 (plan §23.7) for the two
-// original generalists; the displayed estimate rounds up so it reads as "at
-// most this long", not a promise. No measurement exists yet for vit_l_lm or
-// the EM organelles generalists (round-30 §30.1), so formatDurationEstimate
-// returns null for those rather than guessing a number.
-const SECONDS_PER_STEP: Record<string, number> = {
-  vit_t_lm: 0.8,
-  vit_b_lm: 1.8,
-};
-
-const formatDurationEstimate = (steps: number, modelType: string): string | null => {
-  const rate = SECONDS_PER_STEP[modelType];
-  if (rate === undefined) return null;
-  const minutes = Math.max(1, Math.ceil((steps * rate) / 60));
-  return `roughly ${minutes} min`;
-};
+/** One prior run offered as a starting checkpoint. */
+export interface ResumableSession {
+  session_id: string;
+  model_type?: string;
+  label?: string;
+  end_time?: number;
+  created_at?: number;
+}
 
 const badgeClass = (value: 'train' | 'test' | 'unused') =>
   value === 'train'
@@ -129,24 +113,11 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
   onModelTypeChange,
   trainingCapabilities,
   trainingCapabilitiesLoading,
-  showAdvanced,
-  onToggleAdvanced,
-  nEpochs,
-  onNEpochsChange,
-  nObjectsPerBatch,
-  onNObjectsPerBatchChange,
-  patchSize,
-  onPatchSizeChange,
-  batchSize,
-  onBatchSizeChange,
-  learningRate,
-  onLearningRateChange,
-  isStartingTraining,
-  startTrainingError,
-  onStartTraining,
-  showEmptyTestWarning,
-  onDismissEmptyTestWarning,
-  onConfirmStartWithEmptyTest,
+  resumableSessions,
+  resumableSessionsLoading,
+  resumeSessionId,
+  onResumeSessionIdChange,
+  onContinueToTraining,
 }) => {
   const isNewSplit = activeSplitName === null;
 
@@ -165,11 +136,15 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
     (!isNewSplit && !hasStagedChanges) ||
     (isNewSplit && stagedTrainCount === 0);
 
-  const isCheckpointed = !!activeSplit?.checkpoint;
   const trainPoolEmpty = trainCount === 0;
-  const effectiveModelType = isCheckpointed ? activeSplit!.checkpoint!.model_type : modelType;
-  const trainingSteps = nEpochs * Math.max(trainCount, 100);
-  const durationEstimate = formatDurationEstimate(trainingSteps, effectiveModelType);
+
+  // Resuming locks the architecture: start_training rejects a resume whose
+  // model_type differs from the one the checkpoint was trained with, so the
+  // picker follows the chosen run rather than letting the two drift apart.
+  const resumeSession = resumeSessionId
+    ? resumableSessions.find((s) => s.session_id === resumeSessionId) ?? null
+    : null;
+  const effectiveModelType = resumeSession?.model_type ?? modelType;
 
   // Every base model the trainer reports, across both backends (micro-sam and
   // Cellpose). Falls back to the static catalogue while capabilities load.
@@ -287,10 +262,56 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
       </div>
 
       <div className="pt-3 border-t border-gray-100">
-        {isCheckpointed ? (
-          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-800 mb-3">
-            Continuing from <span className="font-medium">{activeSplit!.checkpoint!.model_type}</span>{' '}
-            (session <span className="font-mono">{activeSplit!.checkpoint!.session_id}</span>).
+        <label className="block text-xs font-medium text-gray-500 mb-1.5">Start from</label>
+        <div className="mb-3 flex gap-2">
+          <button
+            onClick={() => onResumeSessionIdChange(null)}
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
+              resumeSessionId === null
+                ? 'bg-purple-50 border-purple-300 text-purple-700'
+                : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'
+            }`}
+          >
+            Base model
+          </button>
+          <button
+            onClick={() => onResumeSessionIdChange(resumableSessions[0]?.session_id ?? null)}
+            disabled={resumableSessions.length === 0}
+            title={
+              resumableSessions.length === 0
+                ? 'No finished run on this trainer has a checkpoint to continue from yet.'
+                : undefined
+            }
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-[background-color,border-color,color,transform] duration-150 ease-out ${
+              resumableSessions.length === 0
+                ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed'
+                : resumeSessionId !== null
+                ? 'bg-purple-50 border-purple-300 text-purple-700 active:scale-[0.97]'
+                : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200 active:scale-[0.97]'
+            }`}
+          >
+            My checkpoint
+          </button>
+        </div>
+
+        {resumeSessionId !== null ? (
+          <div className="mb-3">
+            <select
+              value={resumeSessionId}
+              onChange={(e) => onResumeSessionIdChange(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+            >
+              {resumableSessions.map((s) => (
+                <option key={s.session_id} value={s.session_id}>
+                  {(s.model_type ?? 'model')} {'\u00b7'} {s.session_id.slice(0, 8)}
+                  {s.end_time ? ` ${'\u00b7'} ${new Date(s.end_time * 1000).toLocaleDateString()}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[0.65rem] text-gray-400">
+              Continues training <span className="font-medium">{effectiveModelType}</span> from this run's
+              checkpoint, which lives on the worker that produced it.
+            </p>
           </div>
         ) : (
           <>
@@ -349,79 +370,15 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
           </>
         )}
 
-        <button
-          onClick={onToggleAdvanced}
-          className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2"
-        >
-          {showAdvanced ? 'Hide advanced parameters' : 'Show advanced parameters'}
-        </button>
-
-        {showAdvanced && (
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <label className="text-xs text-gray-500">
-              Epochs
-              <input
-                type="number"
-                value={nEpochs}
-                onChange={(e) => onNEpochsChange(Number(e.target.value))}
-                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-              />
-            </label>
-            <label className="text-xs text-gray-500">
-              Objects/batch
-              <input
-                type="number"
-                value={nObjectsPerBatch}
-                onChange={(e) => onNObjectsPerBatchChange(Number(e.target.value))}
-                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-              />
-            </label>
-            <label className="text-xs text-gray-500">
-              Patch size
-              <input
-                type="number"
-                value={patchSize}
-                onChange={(e) => onPatchSizeChange(Number(e.target.value))}
-                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-              />
-            </label>
-            <label className="text-xs text-gray-500">
-              Batch size
-              <input
-                type="number"
-                value={batchSize}
-                onChange={(e) => onBatchSizeChange(Number(e.target.value))}
-                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-              />
-            </label>
-            <label className="text-xs text-gray-500 col-span-2">
-              Learning rate
-              <input
-                type="number"
-                step="0.00001"
-                value={learningRate}
-                onChange={(e) => onLearningRateChange(Number(e.target.value))}
-                className="mt-0.5 w-full px-2 py-1 text-sm border border-gray-300 rounded-lg"
-              />
-            </label>
-          </div>
+        {resumableSessionsLoading && resumableSessions.length === 0 && (
+          <p className="mb-3 text-[0.65rem] text-gray-400">Looking for checkpoints on this trainer...</p>
         )}
 
-        {startTrainingError && (
-          <p className="mb-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            {startTrainingError}
-          </p>
-        )}
-
-        <p className="mb-2 text-xs text-gray-500">
-          {nEpochs} epoch{nEpochs === 1 ? '' : 's'} x {Math.max(trainCount, 100)} crops ={' '}
-          {trainingSteps} training steps
-          {durationEstimate ? `, ${durationEstimate}` : ''}
-        </p>
+        <TrainingServicePicker className="mb-3" />
 
         <button
-          onClick={onStartTraining}
-          disabled={isStartingTraining || isNewSplit || activeSplitLoading || trainPoolEmpty}
+          onClick={onContinueToTraining}
+          disabled={isNewSplit || activeSplitLoading || trainPoolEmpty}
           title={
             isNewSplit
               ? 'Create the split first.'
@@ -433,44 +390,12 @@ const FinetuneView: React.FC<FinetuneViewProps> = ({
           }
           className="w-full px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          {isStartingTraining && (
-            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          )}
-          Start training
+          Continue to training
         </button>
+        <p className="mt-1.5 text-[0.65rem] text-gray-400 text-center">
+          You pick the training parameters and start the run on the next page.
+        </p>
       </div>
-
-      {showEmptyTestWarning && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4">
-          <div className="bg-white rounded-2xl shadow-lg max-w-sm w-full border border-gray-100">
-            <div className="p-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-1">Test split is empty</h3>
-              <p className="text-sm text-gray-500">
-                {trainCount === 1
-                  ? 'This split has a single training image and no held-out test image. Validation will reuse the training image. Start anyway?'
-                  : 'Training will fall back to an internal validation slice instead of your held-out images. Start anyway?'}
-              </p>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                onClick={onDismissEmptyTestWarning}
-                className="px-3.5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={onConfirmStartWithEmptyTest}
-                className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all"
-              >
-                Start anyway
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
