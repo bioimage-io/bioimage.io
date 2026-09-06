@@ -1,6 +1,7 @@
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import {
   CAMPAIGN_SCHEMA_VERSION,
+  CampaignListResponse,
   CampaignRecord,
   CampaignSummary,
   JoinRequest,
@@ -89,10 +90,21 @@ async function postJson<T>(method: string, body: unknown): Promise<T> {
 }
 
 /**
- * A record whose schema version we do not recognise is refused rather than
+ * A response whose schema version we do not recognise is refused rather than
  * rendered optimistically. Field-by-field a mismatched record can look fine
  * while a renamed unit turns a byte count into a megabyte count, and this page
  * only has value if what it displays is exactly what was measured.
+ *
+ * This guards BOTH read paths. It once guarded only `get_campaign`, which left
+ * the index, the first thing anyone loads, with no version handshake at all.
+ *
+ * It is exercised in the failing direction by the schema-mismatch tests in
+ * tests/campaigns-page.spec.ts, and that is not a formality. Every assertion
+ * around this guard is negative ("no mismatched record renders"), and a
+ * negative assertion passes identically when the guard works and when it has
+ * been broken. Without a case that makes it throw, the green tick is the same
+ * tick either way. If you change this function, keep a test that proves it can
+ * still refuse something.
  */
 function assertSchema(record: { schema_version?: string }): void {
   const received = record.schema_version;
@@ -137,7 +149,12 @@ class CampaignService {
       const { FIXTURE_CAMPAIGN_SUMMARIES } = await import('./__fixtures__/campaigns');
       return FIXTURE_CAMPAIGN_SUMMARIES;
     }
-    const campaigns = await getJson<CampaignSummary[]>('list_campaigns');
+    const response = await getJson<CampaignListResponse>('list_campaigns');
+    // Checked BEFORE the array is touched. A drifted service that still
+    // happens to return a well-formed array is the case this exists for, so
+    // shape-looks-fine must not be allowed to stand in for version-agrees.
+    assertSchema(response);
+    const campaigns = response?.campaigns;
     return Array.isArray(campaigns) ? campaigns : [];
   }
 

@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.2.3-draft';
+const SCHEMA_VERSION = '0.2.4-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -180,10 +180,20 @@ function stubSummary(record: ReturnType<typeof stubRecord>) {
  */
 async function stubCampaignService(
   page: Page,
-  opts: { record?: ReturnType<typeof stubRecord>; status?: number } = {}
+  opts: {
+    record?: ReturnType<typeof stubRecord>;
+    status?: number;
+    /**
+     * Version the stub service claims, on BOTH endpoints. Defaults to the one
+     * the page expects. The mismatch tests below are the only callers that set
+     * it, and they are what proves assertSchema can still refuse something.
+     */
+    servedSchema?: string;
+  } = {}
 ) {
   const record = opts.record ?? stubRecord();
   const status = opts.status ?? 200;
+  const servedSchema = opts.servedSchema ?? SCHEMA_VERSION;
 
   await page.route('**/federation-campaign/**', async (route) => {
     if (status !== 200) {
@@ -191,7 +201,9 @@ async function stubCampaignService(
       return;
     }
     const url = route.request().url();
-    const body = url.includes('list_campaigns') ? [stubSummary(record)] : record;
+    const body = url.includes('list_campaigns')
+      ? { schema_version: servedSchema, campaigns: [stubSummary(record)] }
+      : { ...record, schema_version: servedSchema };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -215,6 +227,29 @@ async function regionText(page: Page): Promise<string> {
   return page.evaluate(() => {
     const el = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
     return el ? (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim() : '';
+  });
+}
+
+/**
+ * The campaigns region with the error diagnostic line removed, for the honesty
+ * check. That line carries an HTTP status or a schema version, so it holds
+ * digits that are not campaign figures, and it is excluded by testid rather
+ * than by matching its text so the exclusion cannot silently widen.
+ *
+ * Reads from the LIVE dom. innerText depends on layout, so doing this on a
+ * detached cloneNode() returns the empty string and any assertion over the
+ * result passes without having looked at anything.
+ */
+async function regionTextWithoutDiagnostics(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const el = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
+    if (!el) return '';
+    const detail = el.querySelector('[data-testid="campaign-error-detail"]') as HTMLElement | null;
+    const previous = detail?.style.display ?? null;
+    if (detail) detail.style.display = 'none';
+    const read = (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim();
+    if (detail) detail.style.display = previous ?? '';
+    return read;
   });
 }
 
@@ -248,6 +283,13 @@ test('an unreachable service renders an empty screen, not a plausible one', asyn
     for (const figure of ['7.76', '1,018', '62.1', '536', 'Full state dict', 'a22dba37']) {
       expect(text, `"${figure}" leaked into a failed ${route}`).not.toContain(figure);
     }
+
+    // This case really is an unreachable service, and it must say so rather
+    // than borrowing the schema-mismatch wording. Paired with the mismatch
+    // tests below, this is what proves the two states are distinguished
+    // instead of one string being shown for every failure.
+    expect(text).toContain('could not be reached');
+    expect(text).not.toContain('format this page does not recognise');
   }
 });
 
@@ -628,4 +670,142 @@ test('self-declared roster values are marked, and the roster is not called attes
 
   const text = await regionText(page);
   expect(text).toContain('does not verify that a deployment belongs to the institution it names');
+});
+
+// ---------------------------------------------------------------------------
+// Positive controls for the schema guard.
+//
+// Every other assertion about assertSchema is negative: no mismatched record
+// renders. That class of assertion passes identically when the guard works and
+// when the guard has been deleted, so on its own it is not evidence the guard
+// exists. These two make it throw. If someone breaks assertSchema, these fail
+// and nothing else in this file does.
+//
+// The detail path is checked as well as the index because the guard was added
+// to the two paths at different times, and a guard on one endpoint reads, from
+// the outside, exactly like a guard on both.
+// ---------------------------------------------------------------------------
+
+test('a service on a different schema is refused at the index, not rendered', async ({ page }) => {
+  await stubCampaignService(page, { servedSchema: '0.3.0-draft' });
+  await page.goto('/#/campaigns');
+
+  // The refusal is visible. A silent empty list would be the wrong outcome:
+  // it reads as "no campaigns exist" when the truth is "we cannot read this".
+  await expect(page.getByText(/schema 0\.3\.0-draft/)).toBeVisible({ timeout: 20000 });
+
+  // And nothing from the stub leaked onto the page behind the error.
+  const text = await regionText(page);
+  expect(text).not.toContain('Stub nucleus segmentation consortium');
+  expect(text).not.toContain('Full state dict');
+
+  // The service answered. Saying it could not be reached would point the
+  // reader at the wrong problem.
+  expect(text).toContain('format this page does not recognise');
+  expect(text).not.toContain('could not be reached');
+});
+
+test('a service on a different schema is refused at the detail page too', async ({ page }) => {
+  await stubCampaignService(page, { servedSchema: '0.3.0-draft' });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+
+  await expect(page.getByText(/schema 0\.3\.0-draft/)).toBeVisible({ timeout: 20000 });
+
+  const text = await regionText(page);
+  expect(text).not.toContain('7.76 MB');
+  expect(text).not.toContain('validation Dice');
+  expect(text).toContain('format this page does not recognise');
+});
+
+test('a response carrying no schema version at all is refused', async ({ page }) => {
+  // The absent case is separate from the wrong case because they take
+  // different branches, and the absent one is what a service that predates the
+  // version field returns.
+  await page.route('**/federation-campaign/**', async (route) => {
+    const url = route.request().url();
+    const body = url.includes('list_campaigns')
+      ? { campaigns: [stubSummary(stubRecord())] }
+      : { ...stubRecord(), schema_version: undefined };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+
+  await page.goto('/#/campaigns');
+  await expect(page.getByText(/schema none/)).toBeVisible({ timeout: 20000 });
+});
+
+test('a patch-level difference is accepted, so the guard is not merely refusing everything', async ({
+  page,
+}) => {
+  // The complement of the three above. Without this a guard hardwired to
+  // `throw` would pass every positive control in this file, which would make
+  // them evidence of nothing.
+  await stubCampaignService(page, { servedSchema: '0.2.99-draft' });
+  await page.goto('/#/campaigns');
+
+  await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// The honesty check.
+//
+// The product brief's hardest constraint is that the deployed page renders
+// what the campaign service reports or renders nothing, with no illustrative
+// figures ever. This is the general form of that check and it lives here, in
+// the suite, on purpose. It was previously a scratch script re-created and
+// deleted each round, which is exactly how the sibling fixture-leak gate came
+// to spend several rounds passing for the wrong reason without anyone noticing.
+// A check that is not checked in is a check that decays privately.
+//
+// It asserts on DIGITS rather than on a list of known figures, because the
+// enumerated form can only catch the numbers someone remembered to enumerate,
+// and the failure being guarded against is a number nobody expected.
+// ---------------------------------------------------------------------------
+
+test('with no service reachable, not one digit is rendered on any campaign route', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { status: 500 });
+
+  for (const route of [
+    '/#/campaigns',
+    `/#/campaigns/${CAMPAIGN_ID}`,
+    `/#/campaigns/${CAMPAIGN_ID}/progress`,
+  ]) {
+    await page.goto(route);
+    await expect(page.locator('[data-testid="campaign-error-state"]')).toBeVisible();
+
+    // The diagnostic line is excluded, and only that line. It carries an HTTP
+    // status or a schema version, so it legitimately contains digits that are
+    // not campaign figures. The exclusion is by testid rather than by matching
+    // the text, so it cannot silently widen to cover a real figure that
+    // happens to be phrased like a diagnostic.
+    const text = await regionTextWithoutDiagnostics(page);
+
+    // Non-empty, so a blank page cannot pass this by rendering nothing at all.
+    expect(text.length, `${route} rendered no text at all`).toBeGreaterThan(50);
+
+    const digits = text.match(/\d/g);
+    expect(
+      digits,
+      `${route} rendered digits with no data behind them: ${JSON.stringify(text.slice(0, 400))}`
+    ).toBeNull();
+  }
+});
+
+test('the same digit scan does find digits when the service answers', async ({ page }) => {
+  // The complement of the check above, and the reason to trust it. A digit
+  // scan that is silently reading the wrong element, or an empty string,
+  // reports "no digits" forever and looks like a clean pass every time. This
+  // is the case that makes the scanner prove it can see anything at all.
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionTextWithoutDiagnostics(page);
+  expect(text.match(/\d/g)).not.toBeNull();
+  expect(text).toContain('7.76 MB');
 });

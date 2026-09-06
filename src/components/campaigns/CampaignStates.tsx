@@ -1,4 +1,5 @@
 import React from 'react';
+import { CampaignSchemaMismatchError } from '../../services/campaignService';
 
 /**
  * The three non-data states every campaign screen can be in.
@@ -24,6 +25,13 @@ export const CampaignEmptyState: React.FC<{ title: string; body: string }> = ({ 
   </div>
 );
 
+/**
+ * A schema mismatch is not an unreachable service and must not claim to be one.
+ * The service answered, the page simply cannot vouch for what it said, and
+ * telling a reader the service was unreachable would send them to look at the
+ * wrong thing. Both cases render the same empty screen; only the sentence
+ * explaining it differs.
+ */
 export const CampaignErrorState: React.FC<{ error: Error; onRetry?: () => void }> = ({
   error,
   onRetry,
@@ -33,11 +41,27 @@ export const CampaignErrorState: React.FC<{ error: Error; onRetry?: () => void }
     className="rounded-2xl border border-gray-200 bg-white/70 px-6 py-14 text-center"
   >
     <h2 className="text-lg font-semibold text-gray-800">Campaign data is not available</h2>
-    <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600">
-      The campaign service could not be reached, so there is nothing to show. This page does not
-      display placeholder figures, so it stays empty until real records load.
+    {error instanceof CampaignSchemaMismatchError ? (
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600">
+        The campaign service answered, but it reports records in a format this page does not
+        recognise, so nothing here can be shown. Rendering them anyway could put a figure on screen
+        in the wrong units, which is worse than showing nothing. This usually means the page and the
+        service are on different versions.
+      </p>
+    ) : (
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600">
+        The campaign service could not be reached, so there is nothing to show. This page does not
+        display placeholder figures, so it stays empty until real records load.
+      </p>
+    )}
+    {/* Diagnostic detail, not campaign data. It renders only an HTTP status or
+        a schema version, never anything read out of a record, which is what
+        lets the honesty check exclude it by this testid. Keep it that way: if
+        this line ever interpolates a value from a campaign, the check that
+        forbids invented figures stops covering the thing it exists for. */}
+    <p data-testid="campaign-error-detail" className="mt-2 text-xs text-gray-400">
+      {error.message}
     </p>
-    <p className="mt-2 text-xs text-gray-400">{error.message}</p>
     {onRetry && (
       <button
         type="button"

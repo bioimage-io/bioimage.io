@@ -144,7 +144,7 @@
  */
 
 /** Bump on any breaking change to the shapes below. */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.3-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.2.4-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -568,6 +568,28 @@ export interface PublishedModel {
   /** Fully qualified, e.g. "bioimage-io/collaborative-narwhal". */
   artifact_id: string;
   version: string | null;
+}
+
+/**
+ * What `list_campaigns` returns.
+ *
+ * It is an envelope rather than a bare array, and the version lives on the
+ * envelope rather than on each summary, for two reasons.
+ *
+ * The index is FIRST CONTACT with the campaign service. Until 0.2.4-draft only
+ * `get_campaign` carried a version, so a service that had drifted rendered its
+ * whole index correctly and failed only when a reader clicked into a detail.
+ * The summaries carry `payload` and `round`, which is exactly where a renamed
+ * unit turns a byte count into a megabyte count, so the argument for checking
+ * the detail applies to the index with no weakening at all.
+ *
+ * The version sits on the envelope because N copies can disagree with each
+ * other, and a per-item version would invent a failure mode the page has no
+ * sensible answer for. One response carries one version.
+ */
+export interface CampaignListResponse {
+  schema_version: string;
+  campaigns: CampaignSummary[];
 }
 
 /** Summary shape returned by the campaign index. A subset of CampaignRecord. */
