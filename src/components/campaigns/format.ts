@@ -35,17 +35,34 @@ export function formatMetric(value: number | null | undefined): string | null {
 }
 
 /**
- * The transport asymmetry, as "about N to 1".
+ * The transport asymmetry, as "about N to 1", together with the standing of the
+ * denominator it was built on.
  *
- * Returns null unless BOTH halves were measured. The ratio is the page's
- * headline claim, so it is computed from the record or not shown at all.
+ * The basis travels WITH the number rather than beside it, and the whole
+ * `images_held` object is taken rather than a bare byte count, so that a caller
+ * physically cannot obtain the text without also holding the answer to "is this
+ * half measured".
+ *
+ * That shape exists because the two halves of this ratio fail differently. The
+ * numerator is the observed outbound total, which is unusable today only
+ * because the per-source transport windows disagree: a defect, and one that a
+ * fix will clear. The denominator is the amount of data the sites hold, which
+ * this driver does not measure and is not going to. If the ratio were keyed on
+ * the numerator alone, repairing the numerator would silently promote a
+ * measured-over-declared quotient into something that reads as fully audited.
+ *
+ * Returns null when either half is missing, and null when the basis is unknown,
+ * because an unmarked ratio is exactly the failure this guards against.
  */
 export function formatRatio(
-  held: number | null | undefined,
+  held: { bytes: number | null; basis: 'declared' | 'measured' | null } | null | undefined,
   moved: number | null | undefined
-): string | null {
-  if (!held || !moved || held <= 0 || moved <= 0) return null;
-  const ratio = held / moved;
+): { text: string; basis: 'declared' | 'measured' } | null {
+  const bytes = held?.bytes;
+  const basis = held?.basis;
+  if (!basis) return null;
+  if (!bytes || !moved || bytes <= 0 || moved <= 0) return null;
+  const ratio = bytes / moved;
   if (!Number.isFinite(ratio) || ratio < 1) return null;
   const rounded =
     ratio >= 1000
@@ -53,7 +70,7 @@ export function formatRatio(
       : ratio >= 100
         ? Math.round(ratio / 10) * 10
         : Math.round(ratio);
-  return `about ${rounded.toLocaleString('en-US')} to 1`;
+  return { text: `about ${rounded.toLocaleString('en-US')} to 1`, basis };
 }
 
 /** Date only, in a form that reads the same in every locale. */

@@ -96,8 +96,12 @@
  *    otherwise, because a fingerprint over private data is a membership
  *    oracle. Nullable.
  *  - **Outcome axis is post-hoc**: process fields (roster, transport, round
- *    progress) may update live, but a running campaign may report no metric at
- *    all. `RoundRecord.metric` is nullable for that reason, not by accident.
+ *    progress, fingerprints) may update live. Accuracy may not, at all, until
+ *    `policy.outcomes_released` says the campaign's primary-metric rules have
+ *    resolved. `RoundRecord.metric` is nullable for that reason and not by
+ *    accident, but nullability is only half of it: a service that sends a
+ *    metric anyway must still not have it rendered, so the page gates on the
+ *    flag rather than on whether the field happens to be populated.
  *
  * ## Reporting is lossy in flight and reconciled at the end
  *
@@ -116,7 +120,9 @@
  *
  *  - Reconciliation is an end-of-arm event, not continuous repair. A running
  *    campaign should expect gaps and say so; the same campaign after completion
- *    should be whole.
+ *    should be whole. The committed arm record is written once, at arm end, so
+ *    a running campaign is permanently `reconciled: false`. That is the correct
+ *    reading of a running campaign and not a bug to chase.
  *  - `reporting.dropped_reports` counts reports lost in flight, and
  *    `reporting.reconciled` says whether the series has been checked against
  *    the committed record. Together they let a reader tell "we lost telemetry"
@@ -124,7 +130,7 @@
  */
 
 /** Bump on any breaking change to the shapes below. */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.2.1-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -407,11 +413,38 @@ export interface TransportSummary {
    * `n_images` is the roster's summed training-set size, so it sits behind the
    * same opt-in flag as `merge_weights` and `SiteRecord.n_train_images`. It
    * looks innocuous and is not.
+   *
+   * The SUM has a failure the individual values do not. A published total plus
+   * n-1 opted-in sites reconstructs the site that opted out, so the service
+   * serves `n_images` only when EVERY site on the roster has set the flag, not
+   * merely when the sites being summed have. Withholding one site's
+   * contribution from a total that is still published is not withholding it.
+   * This is the same shape as the partial-aggregate rule on `RoundMetric`.
    */
   images_held: {
     n_images: number | null;
     /** Null whenever the campaign records counts rather than sizes. Do not estimate. */
     bytes: number | null;
+    /**
+     * How `bytes` was arrived at, and the reason any ratio built on it is
+     * gated.
+     *
+     * The transport asymmetry ratio has TWO independent blockers, and only one
+     * of them can ever clear. The numerator (`observed.driver.bytes_out`) is
+     * unusable today because the source windows disagree, and that is a defect
+     * with a fix. The denominator is a self-declared figure that this driver
+     * does not measure and has no plan to, so it is not a defect at all.
+     *
+     * Without this field the page would quietly start rendering the ratio the
+     * day the numerator is repaired, as though both halves had become real. A
+     * measured numerator over a declared denominator is a far weaker claim than
+     * "17,000x less data moved" reads as, so it renders only when it can be
+     * marked as what it is.
+     *
+     * Null means the service did not say, and the page then withholds any ratio
+     * built on this value rather than guessing which kind of number it is.
+     */
+    basis: 'declared' | 'measured' | null;
   } | null;
 }
 
@@ -451,7 +484,20 @@ export interface CampaignPolicy {
    * one release before.
    */
   roster_attested: boolean | null;
-  /** Whether the outcome axis has been released. Metrics stay withheld until it is. */
+  /**
+   * Whether the outcome axis has been released.
+   *
+   * BINDING: the live page shows PROCESS only. No accuracy is rendered anywhere
+   * until this is true, and it becomes true only after the campaign's
+   * primary-metric rules have resolved. A metric published mid-run is read as a
+   * result when it is a partial observation, and as a comparison between sites
+   * when the sites hold different data. Neither is recoverable by putting a
+   * caveat next to it.
+   *
+   * The service owns this flag and the page does not second-guess it against
+   * `status`. Null fails closed, because not saying whether a figure may be
+   * published is not permission to publish it. See `disclosure.ts`.
+   */
   outcomes_released: boolean | null;
 }
 

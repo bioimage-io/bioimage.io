@@ -7,6 +7,7 @@ import JoinCampaignDialog from './JoinCampaignDialog';
 import PrototypeBanner from './PrototypeBanner';
 import SiteRoster from './SiteRoster';
 import TransportAudit from './TransportAudit';
+import TransportHeadline from './TransportHeadline';
 import { formatBytes, formatDate } from './format';
 import { Value } from './MissingValue';
 
@@ -137,9 +138,13 @@ const CampaignDetail: React.FC = () => {
         )}
       </header>
 
+      {/* Above everything else, including the roster. A round counter is table
+          stakes; a measured byte total is the thing this page exists to show. */}
+      <TransportHeadline transport={data.transport} payload={data.payload} />
+
       <Section
-        title="What crossed the network"
-        subtitle="Recorded by the platform while the campaign ran, not asserted afterwards."
+        title="The transport audit"
+        subtitle="The same figures with their workings, for anyone who wants to check them."
       >
         <TransportAudit transport={data.transport} payload={data.payload} />
       </Section>

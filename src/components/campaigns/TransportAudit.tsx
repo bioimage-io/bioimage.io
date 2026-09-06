@@ -20,9 +20,16 @@ import MissingValue, { Value } from './MissingValue';
  * pattern. It is trustworthy where the observed sum is not, but it is a
  * different kind of claim, so it renders separately and labelled.
  *
- * The asymmetry ratio is computed only from the OBSERVED side, and only when
- * both halves of it were measured. A ratio with a computed numerator or an
- * estimated denominator is not an audit.
+ * The asymmetry ratio is computed only from the OBSERVED side. A ratio with a
+ * computed numerator is not an audit.
+ *
+ * Its two halves are not equally repairable, which is why the denominator
+ * carries a basis. The numerator is blocked by a defect that a fix will clear.
+ * The denominator is a figure the sites declare and this driver has no way to
+ * measure, so it stays declared however much the numerator improves. Keying the
+ * ratio on the numerator alone would mean that fixing the log quietly upgrades
+ * the claim, so the ratio renders only when the basis is known and it says on
+ * screen which half was measured.
  */
 
 interface TransportAuditProps {
@@ -76,17 +83,31 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
 
   // Observed numerator only. A ratio against the computed figure would read as
   // measured, and the computed figure is the half that is not.
-  const ratio = formatRatio(transport.images_held?.bytes, observedOut);
+  //
+  // The denominator carries its own standing. Total data held is a figure the
+  // sites declare, not one the platform measured, and that half will not become
+  // measured by fixing anything on this side. So the ratio renders only when the
+  // record says which kind of number it is, and it says so on screen.
+  const ratio = formatRatio(transport.images_held, observedOut);
 
-  // Prefer the byte figure when the campaign measured one. When it did not,
-  // fall back to the image count and say which it is, rather than estimating a
-  // size from the count.
+  // Prefer the byte figure when the campaign has one. When it does not, fall
+  // back to the image count and say which it is, rather than estimating a size
+  // from the count.
+  //
+  // The hint also carries the standing of the byte figure. This tile is the one
+  // place the declared denominator appears on its own, so it has to say what it
+  // is here too and not only in the ratio's footnote.
+  const heldBasis = transport.images_held?.basis ?? null;
   const heldValue = heldBytes ?? (heldImages ? `${heldImages} images` : null);
-  const heldHint = heldBytes
-    ? heldImages
-      ? `${heldImages} images across the roster`
-      : undefined
-    : 'This campaign records image counts, not sizes on disk';
+  const heldHint = !heldBytes
+    ? 'This campaign records image counts, not sizes on disk'
+    : heldBasis === 'declared'
+      ? heldImages
+        ? `${heldImages} images, a total the sites declared`
+        : 'Declared by the sites, not measured by the platform'
+      : heldImages
+        ? `${heldImages} images across the roster`
+        : undefined;
 
   // The payload label is whatever the campaign reported. The page never
   // assumes an adapter: a small network exchanging its whole state dict is a
@@ -134,7 +155,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
         <div>
           <span className="text-gray-500">Transport asymmetry: </span>
           {ratio ? (
-            <span className="font-semibold text-gray-900">{ratio}</span>
+            <span className="font-semibold text-gray-900">{ratio.text}</span>
           ) : (
             <MissingValue label="Not computable from what was measured" />
           )}
@@ -146,6 +167,14 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
           </span>
         </div>
       </div>
+
+      {ratio && ratio.basis === 'declared' && (
+        <p className="mt-2 text-xs text-gray-500">
+          The bytes that moved were measured on the transport log. The amount of data held was
+          declared by the participating sites, not measured by the platform, so this comparison is
+          only as good as those declarations.
+        </p>
+      )}
 
       {observed && !observedValid && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">

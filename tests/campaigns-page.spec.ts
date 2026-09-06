@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.2.0-draft';
+const SCHEMA_VERSION = '0.2.1-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -142,7 +142,7 @@ function stubRecord(overrides: Record<string, unknown> = {}) {
       only_weights_left_site: true,
       images_moved_bytes: 0,
       // No byte figure exists for this campaign, only a count of images.
-      images_held: { n_images: 1018, bytes: null },
+      images_held: { n_images: 1018, bytes: null, basis: null },
     },
     payload: {
       kind: 'full_state_dict',
@@ -338,7 +338,7 @@ test('an incomplete transport log withholds the total instead of undercounting',
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        images_held: { n_images: 1018, bytes: null },
+        images_held: { n_images: 1018, bytes: null, basis: null },
       },
     }),
   });
@@ -367,7 +367,7 @@ test('a computed total is labelled as computed rather than measured', async ({ p
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        images_held: { n_images: 1018, bytes: null },
+        images_held: { n_images: 1018, bytes: null, basis: null },
       },
     }),
   });
@@ -414,6 +414,113 @@ test('the round log reports the digest the sites actually scored on', async ({ p
   expect(text).toContain('a22dba37');
   // Only the first eight characters, never the whole digest.
   expect(text).not.toContain(STUB_DIGEST);
+});
+
+// ---------------------------------------------------------------------------
+// The v0.2.1 guarantees: no live accuracy, and no unmarked ratio.
+// ---------------------------------------------------------------------------
+
+test('a campaign that has not released its outcomes renders no accuracy at all', async ({
+  page,
+}) => {
+  // The record carries a full metric on every round. The page must still refuse
+  // it, because permission and presence are different questions and only the
+  // first one governs. This is the shape every running campaign will have.
+  await stubCampaignService(page, {
+    record: stubRecord({
+      policy: { public_data_campaign: true, roster_attested: false, outcomes_released: false },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('No scores are published for this campaign yet');
+  expect(text).toContain('primary-metric rules resolve');
+
+  // Neither the metric's name nor any of its values may appear anywhere.
+  expect(text).not.toContain('validation Dice');
+  for (const value of ['0.400', '0.470', '0.680', '0.750']) {
+    expect(text, `metric value ${value} rendered on an unreleased campaign`).not.toContain(value);
+  }
+
+  // Process is unaffected. The rounds, the transport and the digests stay live,
+  // which is the whole point of gating the outcome axis rather than the page.
+  expect(text).toContain('Round 5');
+  expect(text).toContain('62.1');
+  expect(text).toContain('a22dba37');
+});
+
+test('a null outcomes flag withholds accuracy just as a false one does', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubRecord({
+      policy: { public_data_campaign: true, roster_attested: false, outcomes_released: null },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('No scores are published for this campaign yet');
+  expect(text).not.toContain('validation Dice');
+});
+
+test('a ratio built on a declared denominator says so', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubRecord({
+      transport: {
+        observed: {
+          valid: true,
+          invalid_reason: null,
+          per_site: null,
+          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
+          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
+        },
+        computed: null,
+        kinds_transferred: ['model_weights'],
+        only_weights_left_site: true,
+        images_moved_bytes: 0,
+        // A measured numerator over a figure the sites typed in themselves.
+        images_held: { n_images: 1018, bytes: 11_400_000_000_000, basis: 'declared' },
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('to 1');
+  expect(text).toContain('declared by the participating sites, not measured by the platform');
+});
+
+test('an unknown denominator basis withholds the ratio entirely', async ({ page }) => {
+  // Both halves are present and the arithmetic would work. The page still
+  // refuses, because a ratio whose standing is unknown is the exact thing that
+  // would quietly start reading as fully audited.
+  await stubCampaignService(page, {
+    record: stubRecord({
+      transport: {
+        observed: {
+          valid: true,
+          invalid_reason: null,
+          per_site: null,
+          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
+          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
+        },
+        computed: null,
+        kinds_transferred: ['model_weights'],
+        only_weights_left_site: true,
+        images_moved_bytes: 0,
+        images_held: { n_images: 1018, bytes: 11_400_000_000_000, basis: null },
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('to 1');
+  expect(text).toContain('Not computable from what was measured');
 });
 
 test('self-declared roster values are marked, and the roster is not called attested', async ({

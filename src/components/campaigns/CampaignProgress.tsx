@@ -7,6 +7,8 @@ import PrototypeBanner from './PrototypeBanner';
 import RoundChart from './RoundChart';
 import SiteRoster from './SiteRoster';
 import TransportAudit from './TransportAudit';
+import TransportHeadline from './TransportHeadline';
+import { outcomesReleased } from './disclosure';
 import { formatBytes, formatCount } from './format';
 import { Value } from './MissingValue';
 
@@ -16,6 +18,11 @@ import { Value } from './MissingValue';
  * The round log is derived from the campaign's own round records rather than
  * being a separate narration, so there is no way for the log to describe
  * something the records do not contain.
+ *
+ * What is live here is PROCESS: the roster growing, bytes crossing the network,
+ * rounds landing, the digests each site scored on. Accuracy is not, and is
+ * withheld entirely until the campaign's primary-metric rules resolve. See
+ * `disclosure.ts` for why that is a rule rather than a preference.
  */
 
 const RoundBar: React.FC<{ record: CampaignRecord }> = ({ record }) => {
@@ -46,7 +53,10 @@ const RoundBar: React.FC<{ record: CampaignRecord }> = ({ record }) => {
   );
 };
 
-const RoundLog: React.FC<{ record: CampaignRecord }> = ({ record }) => {
+const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
+  record,
+  showMetric,
+}) => {
   const entries = [...record.rounds].sort((a, b) => b.round - a.round).slice(0, 12);
   if (entries.length === 0) {
     return <p className="text-sm text-gray-500">No rounds have been reported yet.</p>;
@@ -84,12 +94,17 @@ const RoundLog: React.FC<{ record: CampaignRecord }> = ({ record }) => {
                     .
                   </>
                 )}
-                {round.metric?.aggregate !== undefined && round.metric?.aggregate !== null && (
-                  <>
-                    {' '}
-                    {round.metric.name} {round.metric.aggregate.toFixed(3)}.
-                  </>
-                )}
+                {/* The metric is withheld with the rest of the outcome axis.
+                    A service that sends one anyway must still not have it
+                    rendered, so this checks permission and not presence. */}
+                {showMetric &&
+                  round.metric?.aggregate !== undefined &&
+                  round.metric?.aggregate !== null && (
+                    <>
+                      {' '}
+                      {round.metric.name} {round.metric.aggregate.toFixed(3)}.
+                    </>
+                  )}
               </span>
             </li>
           );
@@ -169,9 +184,13 @@ const CampaignProgress: React.FC = () => {
         <p className="mt-1 text-sm text-gray-500">Progress and transport audit</p>
       </header>
 
+      <TransportHeadline transport={data.transport} payload={data.payload} />
+
       <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
         <RoundBar record={data} />
-        <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+        {/* Three tiles, not four. "Weights out" moved into the headline above,
+            and repeating it here would make one measurement look like two. */}
+        <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Sites reporting</dt>
             <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
@@ -187,20 +206,6 @@ const CampaignProgress: React.FC = () => {
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Weights out</dt>
-            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              {/* Observed only, and only when the service says its per-source
-                  logs cover the same window. The computed campaign-wide figure
-                  is a different kind of claim and belongs in the audit panel
-                  where it can carry its label, not in a bare tile. */}
-              <Value>
-                {data.transport?.observed?.valid === true
-                  ? formatBytes(data.transport.observed.driver?.bytes_out)
-                  : null}
-              </Value>
-            </dd>
-          </div>
-          <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Image data moved</dt>
             <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
               <Value>{formatBytes(data.transport?.images_moved_bytes)}</Value>
@@ -209,19 +214,29 @@ const CampaignProgress: React.FC = () => {
         </dl>
       </div>
 
-      <Section title="Scores by round">
-        <RoundChart rounds={data.rounds} sites={data.sites} />
-      </Section>
-
       <Section
-        title="Transport audit"
+        title="The transport audit"
         subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
       >
         <TransportAudit transport={data.transport} payload={data.payload} />
       </Section>
 
+      <Section title="Scores by round">
+        {outcomesReleased(data) ? (
+          <RoundChart rounds={data.rounds} sites={data.sites} />
+        ) : (
+          <p className="text-sm leading-relaxed text-gray-600">
+            No scores are published for this campaign yet. A score taken from a round still in
+            flight is a partial observation, and once it is next to another site&rsquo;s it reads as
+            a comparison between datasets rather than between methods. Scores appear here after
+            this campaign&rsquo;s primary-metric rules resolve. Everything above stays live in the
+            meantime.
+          </p>
+        )}
+      </Section>
+
       <Section title="Round log">
-        <RoundLog record={data} />
+        <RoundLog record={data} showMetric={outcomesReleased(data)} />
       </Section>
 
       <Section title="Sites">

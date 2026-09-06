@@ -177,7 +177,10 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // No per-deployment credential exists yet, so the roster is a list of
     // self-declared names and the page says so.
     roster_attested: false,
-    outcomes_released: true,
+    // Still running, so no accuracy is published: the whole outcome axis is
+    // withheld until the primary-metric rules resolve. This fixture exists to
+    // exercise that path, which is the one every live campaign will be on.
+    outcomes_released: false,
   },
   base_model: {
     id: 'bioimage-io/cellpose-sam',
@@ -218,7 +221,10 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     kinds_transferred: ['model_weights'],
     only_weights_left_site: true,
     images_moved_bytes: 0,
-    images_held: { n_images: 124500, bytes: 11_400_000_000_000 },
+    // The byte figure is what the facilities said they hold. Nothing in the
+    // platform measures the size of an archive it never touches, so the ratio
+    // built on this renders marked as a declared denominator.
+    images_held: { n_images: 124500, bytes: 11_400_000_000_000, basis: 'declared' },
   },
   payload: {
     kind: 'lora_adapter',
@@ -409,7 +415,9 @@ const UNET_CAMPAIGN: CampaignRecord = {
     images_moved_bytes: 0,
     // No byte figure exists for this campaign: the driver counts images on
     // public benchmark datasets and never measures their size on disk.
-    images_held: { n_images: 1753, bytes: null },
+    // Public benchmark datasets, counted rather than sized. No byte figure
+    // exists at all, so there is no basis to state and no ratio to render.
+    images_held: { n_images: 1753, bytes: null, basis: null },
   },
   payload: {
     kind: 'full_state_dict',
