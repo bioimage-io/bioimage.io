@@ -224,7 +224,8 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // The byte figure is what the facilities said they hold. Nothing in the
     // platform measures the size of an archive it never touches, so the ratio
     // built on this renders marked as a declared denominator.
-    images_held: { n_images: 124500, bytes: 11_400_000_000_000, basis: 'declared' },
+    images_held: { n_images: 124500 },
+    declared_data_bytes: 11_400_000_000_000,
   },
   payload: {
     kind: 'lora_adapter',
@@ -417,7 +418,8 @@ const UNET_CAMPAIGN: CampaignRecord = {
     // public benchmark datasets and never measures their size on disk.
     // Public benchmark datasets, counted rather than sized. No byte figure
     // exists at all, so there is no basis to state and no ratio to render.
-    images_held: { n_images: 1753, bytes: null, basis: null },
+    images_held: { n_images: 1753 },
+    declared_data_bytes: null,
   },
   payload: {
     kind: 'full_state_dict',

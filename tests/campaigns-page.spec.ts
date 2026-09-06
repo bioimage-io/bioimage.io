@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.2.1-draft';
+const SCHEMA_VERSION = '0.2.2-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -142,7 +142,8 @@ function stubRecord(overrides: Record<string, unknown> = {}) {
       only_weights_left_site: true,
       images_moved_bytes: 0,
       // No byte figure exists for this campaign, only a count of images.
-      images_held: { n_images: 1018, bytes: null, basis: null },
+      images_held: { n_images: 1018 },
+      declared_data_bytes: null,
     },
     payload: {
       kind: 'full_state_dict',
@@ -338,7 +339,8 @@ test('an incomplete transport log withholds the total instead of undercounting',
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        images_held: { n_images: 1018, bytes: null, basis: null },
+        images_held: { n_images: 1018 },
+        declared_data_bytes: null,
       },
     }),
   });
@@ -367,7 +369,8 @@ test('a computed total is labelled as computed rather than measured', async ({ p
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        images_held: { n_images: 1018, bytes: null, basis: null },
+        images_held: { n_images: 1018 },
+        declared_data_bytes: null,
       },
     }),
   });
@@ -378,6 +381,12 @@ test('a computed total is labelled as computed rather than measured', async ({ p
   expect(text).toContain('Computed, not observed');
   expect(text).toContain('3N+1 transfers per round');
   expect(text).toContain('a single-site control run');
+  // The formula counts each arm once, but a restarted campaign re-runs the arm
+  // that was in flight and those rounds really did move weights. So the figure
+  // is a floor. Nothing in the record says whether this campaign restarted, and
+  // the page does not need to know, because "at least" holds either way.
+  expect(text).toContain('at least');
+  expect(text).toContain('lower bound');
 });
 
 test('a partial per-site map withholds the aggregate as well', async ({ page }) => {
@@ -481,7 +490,8 @@ test('a ratio built on a declared denominator says so', async ({ page }) => {
         only_weights_left_site: true,
         images_moved_bytes: 0,
         // A measured numerator over a figure the sites typed in themselves.
-        images_held: { n_images: 1018, bytes: 11_400_000_000_000, basis: 'declared' },
+        images_held: { n_images: 1018 },
+        declared_data_bytes: 11_400_000_000_000,
       },
     }),
   });
@@ -493,10 +503,11 @@ test('a ratio built on a declared denominator says so', async ({ page }) => {
   expect(text).toContain('declared by the participating sites, not measured by the platform');
 });
 
-test('an unknown denominator basis withholds the ratio entirely', async ({ page }) => {
-  // Both halves are present and the arithmetic would work. The page still
-  // refuses, because a ratio whose standing is unknown is the exact thing that
-  // would quietly start reading as fully audited.
+test('a campaign that declared no data size renders no ratio at all', async ({ page }) => {
+  // A measured numerator and a measured image count are both present here, and
+  // an image count over a byte count is arithmetic a page could do. It does not,
+  // because that quotient is not the claim, and the only denominator that makes
+  // it the claim is one no site declared.
   await stubCampaignService(page, {
     record: stubRecord({
       transport: {
@@ -511,7 +522,8 @@ test('an unknown denominator basis withholds the ratio entirely', async ({ page 
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        images_held: { n_images: 1018, bytes: 11_400_000_000_000, basis: null },
+        images_held: { n_images: 1018 },
+        declared_data_bytes: null,
       },
     }),
   });

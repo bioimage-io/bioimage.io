@@ -59,8 +59,10 @@
  * in three ways, and the schema accommodates all three rather than hiding them:
  *
  *  1. There is no terabyte figure. The driver records image COUNTS on public
- *     benchmark datasets, so `images_held.bytes` is nullable and is expected to
- *     be null for the U-Net campaign. The page then renders an image count.
+ *     benchmark datasets and measures dataset sizes nowhere, so the only byte
+ *     figure available is one the sites declare. It lives in its own field,
+ *     `declared_data_bytes`, and is expected to be null for the U-Net campaign.
+ *     The page then renders an image count and does not estimate a size from it.
  *  2. The U-Net campaign exchanges FULL state dicts, which is correct for a
  *     small U-Net. `PayloadDescriptor.kind` carries that, and no page hardcodes
  *     the word "adapter".
@@ -130,7 +132,7 @@
  */
 
 /** Bump on any breaking change to the shapes below. */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.1-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.2.2-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -378,6 +380,23 @@ export interface ObservedTransport {
  * number.
  */
 export interface ComputedTransport {
+  /**
+   * A LOWER BOUND on the bytes moved, never a total. Render it as "at least".
+   *
+   * The formula counts each arm once, but a driver relaunch keeps the arms that
+   * finished and restarts the arm that was in flight from round 0. The rounds
+   * that arm had already run really did put weights on the network and the
+   * formula does not see them, so a restarted campaign moved strictly more than
+   * this. The consortium run is on its seventh relaunch.
+   *
+   * Nothing in the record says whether a given campaign was restarted, so the
+   * page cannot qualify this conditionally, and it does not need to: "at least"
+   * is true of a clean run as well. Both of this page's transport figures now
+   * fail in the same direction. The observed sum undercounts when the windows
+   * disagree, the computed figure undercounts when the run was resumed, and
+   * neither can overstate what crossed the network. That is the right direction
+   * for the only claim this page is really making.
+   */
   bytes_moved: number | null;
   /** The formula, e.g. "3N+1 transfers per round x measured payload size". */
   basis: string;
@@ -408,11 +427,12 @@ export interface TransportSummary {
   /** Expected to be 0 for a correct campaign. Null means unreported, which is not the same. */
   images_moved_bytes: number | null;
   /**
-   * How much image data stayed where it was. Null when unreported.
+   * How many images stayed where they were: the roster's summed training-set
+   * size, MEASURED, off the same `push_weights()` call as
+   * `SiteRecord.n_train_images`. Null when unreported.
    *
-   * `n_images` is the roster's summed training-set size, so it sits behind the
-   * same opt-in flag as `merge_weights` and `SiteRecord.n_train_images`. It
-   * looks innocuous and is not.
+   * It therefore sits behind the same opt-in flag as `merge_weights` and
+   * `SiteRecord.n_train_images`. It looks innocuous and is not.
    *
    * The SUM has a failure the individual values do not. A published total plus
    * n-1 opted-in sites reconstructs the site that opted out, so the service
@@ -423,29 +443,33 @@ export interface TransportSummary {
    */
   images_held: {
     n_images: number | null;
-    /** Null whenever the campaign records counts rather than sizes. Do not estimate. */
-    bytes: number | null;
-    /**
-     * How `bytes` was arrived at, and the reason any ratio built on it is
-     * gated.
-     *
-     * The transport asymmetry ratio has TWO independent blockers, and only one
-     * of them can ever clear. The numerator (`observed.driver.bytes_out`) is
-     * unusable today because the source windows disagree, and that is a defect
-     * with a fix. The denominator is a self-declared figure that this driver
-     * does not measure and has no plan to, so it is not a defect at all.
-     *
-     * Without this field the page would quietly start rendering the ratio the
-     * day the numerator is repaired, as though both halves had become real. A
-     * measured numerator over a declared denominator is a far weaker claim than
-     * "17,000x less data moved" reads as, so it renders only when it can be
-     * marked as what it is.
-     *
-     * Null means the service did not say, and the page then withholds any ratio
-     * built on this value rather than guessing which kind of number it is.
-     */
-    basis: 'declared' | 'measured' | null;
   } | null;
+  /**
+   * How many bytes of data the sites hold, AS THE SITES THEMSELVES DECLARED IT.
+   * Null when unreported, and null unless every roster site declared.
+   *
+   * The basis lives in the field name because there is no other basis this
+   * quantity can have. Nothing in the driver records dataset sizes on disk: the
+   * only file-size call in the app is a download-completeness check, and what
+   * gets recorded from the datasets is counts. So there is no code path, present
+   * or planned, that would produce a measured version of this number, and the
+   * schema does not offer a field that could hold one. An enum admitting
+   * `'measured'` would read as achievable-but-unwired to whoever picks this up.
+   *
+   * Kept separate from `images_held` for the same reason. That object holds a
+   * measured count; this holds a declared size. One basis flag over both would
+   * be ambiguous exactly where the distinction matters, which is the transport
+   * asymmetry ratio: its numerator is measured and unusable today only because
+   * the source windows disagree, a defect with a fix, while this denominator is
+   * declared and stays declared however much the numerator improves. Fixing the
+   * log must not silently promote a measured-over-declared quotient into
+   * something that reads as fully audited, so any ratio built on this field
+   * renders with the declared half named on screen.
+   *
+   * Being a sum over the roster, it inherits the same reconstruction rule as
+   * `images_held.n_images`: published only when every site declared, else null.
+   */
+  declared_data_bytes: number | null;
 }
 
 export type CampaignStatus = 'open' | 'running' | 'completed' | 'closed';

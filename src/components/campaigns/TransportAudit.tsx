@@ -18,18 +18,21 @@ import MissingValue, { Value } from './MissingValue';
  *
  * `computed` is the campaign-wide figure derived from the validated transfer
  * pattern. It is trustworthy where the observed sum is not, but it is a
- * different kind of claim, so it renders separately and labelled.
+ * different kind of claim, so it renders separately and labelled, and it renders
+ * as a lower bound: the formula counts each arm once, while a resumed run
+ * re-runs the arm that was in flight and those first rounds really did move
+ * weights. Both figures on this panel therefore fail in the same direction.
+ * Neither can overstate what crossed the network.
  *
  * The asymmetry ratio is computed only from the OBSERVED side. A ratio with a
  * computed numerator is not an audit.
  *
- * Its two halves are not equally repairable, which is why the denominator
- * carries a basis. The numerator is blocked by a defect that a fix will clear.
+ * Its two halves are not equally repairable, which is why the caveat below it
+ * is unconditional. The numerator is blocked by a defect that a fix will clear.
  * The denominator is a figure the sites declare and this driver has no way to
- * measure, so it stays declared however much the numerator improves. Keying the
- * ratio on the numerator alone would mean that fixing the log quietly upgrades
- * the claim, so the ratio renders only when the basis is known and it says on
- * screen which half was measured.
+ * measure, so it stays declared however much the numerator improves. Fixing the
+ * log must not quietly upgrade the claim, so wherever the ratio appears the
+ * declared half is named next to it.
  */
 
 interface TransportAuditProps {
@@ -77,37 +80,34 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
   const observedIn = observedValid ? observed?.driver?.bytes_in ?? null : null;
   const observedTransfers = observedValid ? observed?.driver?.n_transfers ?? null : null;
 
-  const heldBytes = formatBytes(transport.images_held?.bytes);
+  const heldBytes = formatBytes(transport.declared_data_bytes);
   const heldImages = formatCount(transport.images_held?.n_images);
   const imagesMoved = formatBytes(transport.images_moved_bytes);
 
   // Observed numerator only. A ratio against the computed figure would read as
   // measured, and the computed figure is the half that is not.
   //
-  // The denominator carries its own standing. Total data held is a figure the
-  // sites declare, not one the platform measured, and that half will not become
-  // measured by fixing anything on this side. So the ratio renders only when the
-  // record says which kind of number it is, and it says so on screen.
-  const ratio = formatRatio(transport.images_held, observedOut);
+  // The denominator has one possible standing, which is why the field is called
+  // what it is. Total data held is a figure the sites declare, and no fix on
+  // this side will ever make it measured, so the caveat under the ratio is not
+  // conditional on anything.
+  const ratio = formatRatio(transport.declared_data_bytes, observedOut);
 
   // Prefer the byte figure when the campaign has one. When it does not, fall
   // back to the image count and say which it is, rather than estimating a size
   // from the count.
   //
-  // The hint also carries the standing of the byte figure. This tile is the one
-  // place the declared denominator appears on its own, so it has to say what it
-  // is here too and not only in the ratio's footnote.
-  const heldBasis = transport.images_held?.basis ?? null;
+  // The hint carries the standing of whichever figure landed here. The two are
+  // not the same kind of number: the count is measured off push_weights(), the
+  // byte figure is declared. This tile is the one place the declared
+  // denominator appears on its own, so it has to say so here too and not only
+  // in the ratio's footnote.
   const heldValue = heldBytes ?? (heldImages ? `${heldImages} images` : null);
   const heldHint = !heldBytes
     ? 'This campaign records image counts, not sizes on disk'
-    : heldBasis === 'declared'
-      ? heldImages
-        ? `${heldImages} images, a total the sites declared`
-        : 'Declared by the sites, not measured by the platform'
-      : heldImages
-        ? `${heldImages} images across the roster`
-        : undefined;
+    : heldImages
+      ? `${heldImages} images, and a size the sites declared`
+      : 'Declared by the sites, not measured by the platform';
 
   // The payload label is whatever the campaign reported. The page never
   // assumes an adapter: a small network exchanging its whole state dict is a
@@ -155,7 +155,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
         <div>
           <span className="text-gray-500">Transport asymmetry: </span>
           {ratio ? (
-            <span className="font-semibold text-gray-900">{ratio.text}</span>
+            <span className="font-semibold text-gray-900">{ratio}</span>
           ) : (
             <MissingValue label="Not computable from what was measured" />
           )}
@@ -168,7 +168,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
         </div>
       </div>
 
-      {ratio && ratio.basis === 'declared' && (
+      {ratio && (
         <p className="mt-2 text-xs text-gray-500">
           The bytes that moved were measured on the transport log. The amount of data held was
           declared by the participating sites, not measured by the platform, so this comparison is
@@ -209,7 +209,11 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
       {computed && computed.bytes_moved !== null && (
         <div className="mt-4 rounded-xl border border-gray-200 bg-white/70 p-4">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            {/* "at least" sits inside the figure, at the figure's own baseline,
+                so the qualifier cannot be read separately from the number it
+                qualifies or dropped when someone quotes it. */}
             <span className="text-2xl font-semibold tabular-nums text-gray-900">
+              <span className="mr-1.5 text-base font-medium text-gray-500">at least</span>
               <Value>{formatBytes(computed.bytes_moved)}</Value>
             </span>
             <span className="rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600">
@@ -221,7 +225,9 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
             {computed.basis}.
             {computed.validated_against
               ? ` Checked against ${computed.validated_against}.`
-              : ' It has not been checked against a control run.'}
+              : ' It has not been checked against a control run.'}{' '}
+            It is a lower bound rather than a total, because a campaign that was restarted re-runs
+            the stretch that was in flight and the formula counts that stretch once.
           </p>
         </div>
       )}

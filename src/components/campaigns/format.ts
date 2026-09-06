@@ -35,34 +35,31 @@ export function formatMetric(value: number | null | undefined): string | null {
 }
 
 /**
- * The transport asymmetry, as "about N to 1", together with the standing of the
- * denominator it was built on.
+ * The transport asymmetry, as "about N to 1".
  *
- * The basis travels WITH the number rather than beside it, and the whole
- * `images_held` object is taken rather than a bare byte count, so that a caller
- * physically cannot obtain the text without also holding the answer to "is this
- * half measured".
+ * The parameter is named `declaredBytes` and not `heldBytes` because the
+ * denominator has exactly one possible standing. Nothing in the driver measures
+ * dataset sizes on disk, so the amount of data held is always a figure the
+ * sites declared, and the schema offers no field that could hold a measured
+ * version of it. Naming the basis in the signature means a caller cannot obtain
+ * this string while believing both halves were measured.
  *
- * That shape exists because the two halves of this ratio fail differently. The
- * numerator is the observed outbound total, which is unusable today only
- * because the per-source transport windows disagree: a defect, and one that a
- * fix will clear. The denominator is the amount of data the sites hold, which
- * this driver does not measure and is not going to. If the ratio were keyed on
- * the numerator alone, repairing the numerator would silently promote a
- * measured-over-declared quotient into something that reads as fully audited.
+ * That matters because the two halves of this ratio fail differently and only
+ * one of them can improve. The numerator is the observed outbound total, which
+ * is unusable today only because the per-source transport windows disagree: a
+ * defect, and one that a fix will clear. The denominator is declared and stays
+ * declared. Repairing the log must not quietly promote a measured-over-declared
+ * quotient into something that reads as fully audited, so every caller renders
+ * the declared half unconditionally alongside the number.
  *
- * Returns null when either half is missing, and null when the basis is unknown,
- * because an unmarked ratio is exactly the failure this guards against.
+ * Returns null when either half is missing.
  */
 export function formatRatio(
-  held: { bytes: number | null; basis: 'declared' | 'measured' | null } | null | undefined,
+  declaredBytes: number | null | undefined,
   moved: number | null | undefined
-): { text: string; basis: 'declared' | 'measured' } | null {
-  const bytes = held?.bytes;
-  const basis = held?.basis;
-  if (!basis) return null;
-  if (!bytes || !moved || bytes <= 0 || moved <= 0) return null;
-  const ratio = bytes / moved;
+): string | null {
+  if (!declaredBytes || !moved || declaredBytes <= 0 || moved <= 0) return null;
+  const ratio = declaredBytes / moved;
   if (!Number.isFinite(ratio) || ratio < 1) return null;
   const rounded =
     ratio >= 1000
@@ -70,7 +67,7 @@ export function formatRatio(
       : ratio >= 100
         ? Math.round(ratio / 10) * 10
         : Math.round(ratio);
-  return { text: `about ${rounded.toLocaleString('en-US')} to 1`, basis };
+  return `about ${rounded.toLocaleString('en-US')} to 1`;
 }
 
 /** Date only, in a form that reads the same in every locale. */

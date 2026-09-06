@@ -23,8 +23,9 @@ import MissingValue from './MissingValue';
  *
  *  1. The observed log covers the campaign, so the counted total is shown.
  *  2. The observed log is truncated but a campaign-wide figure was computed
- *     from the validated transfer pattern. That figure is shown with the label
- *     attached to the number itself, not in a footnote below it.
+ *     from the validated transfer pattern. That figure is shown as a LOWER
+ *     BOUND, with both the bound and the label attached to the number itself
+ *     rather than to a footnote below it.
  *  3. Neither exists, and the slot reads "not reported" with the reason.
  *
  * State 2 is not a compromise. The U-Net consortium campaign really did move
@@ -32,6 +33,14 @@ import MissingValue from './MissingValue';
  * anything would misreport a measurement problem as an absence of transport.
  * The pill sits inline with the number because that is the only place a reader
  * who reads nothing else will still see it.
+ *
+ * It is "at least" and not a total because the formula counts each arm once,
+ * while a driver relaunch restarts the arm that was in flight from its first
+ * round. Those rounds put weights on the network and the formula does not see
+ * them. Nothing in the record says whether a campaign was restarted, and the
+ * page does not need to know: "at least" is true either way, and it means both
+ * of this widget's possible figures now fail in the same direction. Whichever
+ * one is on screen, the real number is at least this large.
  *
  * There is no odometer animation. A count-up would render intermediate values
  * that were never true of this campaign, on the one widget whose entire value
@@ -57,9 +66,12 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
   const movedIsComputed = observedOut === null && movedBytes !== null;
   const moved = formatBytes(movedBytes);
 
-  const heldBytes = formatBytes(transport?.images_held?.bytes);
+  // The count is measured off push_weights(); the byte figure is one the sites
+  // declared and there is no measured version of it anywhere in the driver.
+  // They are different kinds of number, so the caption says which one landed
+  // here rather than describing them both as "held".
+  const heldBytes = formatBytes(transport?.declared_data_bytes);
   const heldImages = formatCount(transport?.images_held?.n_images);
-  const heldIsDeclared = transport?.images_held?.basis === 'declared';
   const held = heldBytes ?? (heldImages ? `${heldImages} images` : null);
 
   const perRound = formatBytes(payload?.bytes_per_site_per_round);
@@ -80,6 +92,12 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
                 the screen. */}
             {moved ? (
               <span className="text-4xl font-semibold tabular-nums tracking-tight text-gray-900">
+                {/* The bound is part of the figure, set inside the same element
+                    at the same baseline, so there is no way to read the number
+                    without it and no way for a screenshot to crop it off. */}
+                {movedIsComputed && (
+                  <span className="mr-2 text-xl font-medium text-gray-500">at least</span>
+                )}
                 {moved}
               </span>
             ) : (
@@ -115,7 +133,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
           )}
           <div className="mt-1.5 text-sm text-gray-600">
             stayed where they were
-            {heldIsDeclared && heldBytes ? ', by the sites’ own account' : ''}
+            {heldBytes ? ', by the sites’ own account' : ''}
           </div>
         </div>
       </div>
@@ -134,7 +152,9 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
             The participants keep their transport logs in memory and start fresh ones when a
             process restarts, so the logs cover different stretches of this campaign and adding
             them up would undercount. This figure is worked out from the transfer pattern instead:{' '}
-            {computed?.basis}.
+            {computed?.basis}. It is a floor and not a total, because a campaign that was
+            restarted re-runs the stretch that was in flight and the formula counts that stretch
+            once, so the real figure can only be larger.
           </>
         ) : (
           <>
