@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.2.2-draft';
+const SCHEMA_VERSION = '0.2.3-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -474,7 +474,14 @@ test('a null outcomes flag withholds accuracy just as a false one does', async (
   expect(text).not.toContain('validation Dice');
 });
 
-test('the asymmetry ratio names its round and its declared half', async ({ page }) => {
+test('no ratio of bytes moved to data held is rendered, in either direction', async ({
+  page,
+}) => {
+  // Both halves are present and the arithmetic is trivial. The page still does
+  // not do it, because the two quantities have different shapes: bytes moved
+  // accumulates with rounds and data held does not, so the quotient depends on
+  // the window it is taken over and for a whole-model payload it changes sign
+  // partway through the campaign. There is no window a scalar can carry.
   await stubCampaignService(page, {
     record: stubRecord({
       transport: {
@@ -489,7 +496,6 @@ test('the asymmetry ratio names its round and its declared half', async ({ page 
         kinds_transferred: ['model_weights'],
         only_weights_left_site: true,
         images_moved_bytes: 0,
-        // A measured numerator over a figure the sites typed in themselves.
         images_held: { n_images: 1018 },
         declared_data_bytes: 11_400_000_000_000,
       },
@@ -499,123 +505,114 @@ test('the asymmetry ratio names its round and its declared half', async ({ page 
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).toContain('to 1');
-  // The numerator is ONE round's outbound bytes, so the round has to travel with
-  // the figure. A per-round ratio read without its round is a campaign total to
-  // anyone skimming, which is the one misreading it cannot survive.
-  expect(text).toContain('Transport asymmetry in round 5');
-  expect(text).toContain('left the sites in round 5');
-  // And both endpoints named in the same sentence as each other.
-  expect(text).toContain('stayed where it was');
-  expect(text).toContain('declared by the participating sites, not measured by the platform');
-  // The campaign-wide observed total is 62.08 MB and is NOT the numerator here.
-  // If it ever became one it would be a whole-campaign figure over a per-round
-  // denominator, so the ratio has to be built on the round's own 15.52 MB.
-  expect(text).toContain('15.5 MB left the sites');
-  expect(text).toContain('about 734,500 to 1');
+  // "to 1" as a RATIO, not as a sequence range: the incomplete-log window list
+  // legitimately renders "entries 0 to 1,011", so a bare substring match fires
+  // on honest copy. Require that nothing numeric follows the 1.
+  expect(text).not.toMatch(/\bto 1(?![\d,.])/);
+  expect(text).not.toMatch(/\bratio\b/i);
+  expect(text).not.toContain('Transport asymmetry');
+  // Nor any of the framing a quotient would have carried. "saving" is in the
+  // list on purpose and the page copy is written around it: the word cannot
+  // appear at all, so no sentence containing it can be quoted as a claim.
+  for (const phrase of ['times less', 'times more', 'less data in motion', 'saving', 'saves']) {
+    expect(text, `saving language "${phrase}" rendered on a campaign page`).not.toContain(phrase);
+  }
+  // Both figures are still shown. Withholding the comparison is not the same as
+  // withholding the measurements, and this page exists to show the latter.
+  expect(text).toContain('62.1 MB');
+  expect(text).toContain('11.4 TB');
 });
 
-test('a round no source fully logged yields no ratio, even with both halves present', async ({
+test('a campaign that moved more than it held renders both figures unflinchingly', async ({
   page,
 }) => {
-  // Every round here carries a populated bytes_out and the campaign declares a
-  // data size, so the arithmetic is available. The page still refuses it: a
-  // round covered by some sources and not others is a real sum of real entries
-  // that is not the round's transport, and a populated value cannot say which
-  // of the two it is. The flag is asked instead, and it fails closed.
+  // The failure this guards is specific and it was live: a plausibility guard
+  // that dropped ratios below 1 suppressed exactly the answers unfavourable to
+  // federation and passed the favourable ones. Any campaign run past its
+  // crossover round moves more than it avoided moving, and that is a real
+  // finding the page must not be able to hide. The figures below are a
+  // constructed case rather than a record of any campaign here, which is the
+  // point: the page has to render it whoever supplies it. With no quotient
+  // anywhere, the two figures stand alone and a reader can see which is larger.
+  await stubCampaignService(page, {
+    record: stubRecord({
+      transport: {
+        observed: {
+          valid: true,
+          invalid_reason: null,
+          per_site: null,
+          driver: { bytes_out: 1_390_000_000_000, bytes_in: 1_390_000_000_000, n_transfers: 360 },
+          windows: [{ source: 'driver', first_seq: 0, last_seq: 359, n_transfers: 360 }],
+        },
+        computed: null,
+        kinds_transferred: ['model_weights'],
+        only_weights_left_site: true,
+        images_moved_bytes: 0,
+        images_held: { n_images: 1018 },
+        declared_data_bytes: 600_000_000_000,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('1.39 TB');
+  expect(text).toContain('600 GB');
+  // No "not computable" excuse, because it was computable. It was unflattering.
+  expect(text).not.toContain('Not computable');
+  expect(text).not.toMatch(/\bto 1(?![\d,.])/);
+});
+
+test('per-round bytes are withheld when the round was not fully logged', async ({ page }) => {
+  // Every round carries a populated bytes_out. The round log still shows none of
+  // them: a round covered by some sources and not others is a real sum of real
+  // entries that is not the round's transport, and the value cannot say which of
+  // the two it is. The flag is asked instead.
   await stubCampaignService(page, {
     record: stubRecord({
       rounds: stubRounds().map((round: any) => ({
         ...round,
         transport: { ...(round.transport as object), sources_complete: false },
       })),
-      transport: {
-        observed: {
-          valid: true,
-          invalid_reason: null,
-          per_site: null,
-          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
-          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
-        },
-        computed: null,
-        kinds_transferred: ['model_weights'],
-        only_weights_left_site: true,
-        images_moved_bytes: 0,
-        images_held: { n_images: 1018 },
-        declared_data_bytes: 11_400_000_000_000,
-      },
     }),
   });
-  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).not.toContain('to 1');
-  expect(text).toContain('Not computable from what was measured');
+  expect(text).toContain('Round 5');
+  expect(text).not.toContain('of weights moved');
 });
 
-test('a null coverage flag withholds the ratio just as a false one does', async ({ page }) => {
+test('a null coverage flag withholds per-round bytes just as a false one does', async ({
+  page,
+}) => {
   await stubCampaignService(page, {
     record: stubRecord({
       rounds: stubRounds().map((round: any) => ({
         ...round,
         transport: { ...(round.transport as object), sources_complete: null },
       })),
-      transport: {
-        observed: {
-          valid: true,
-          invalid_reason: null,
-          per_site: null,
-          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
-          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
-        },
-        computed: null,
-        kinds_transferred: ['model_weights'],
-        only_weights_left_site: true,
-        images_moved_bytes: 0,
-        images_held: { n_images: 1018 },
-        declared_data_bytes: 11_400_000_000_000,
-      },
     }),
   });
-  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).not.toContain('to 1');
-  expect(text).toContain('Not computable from what was measured');
+  expect(text).toContain('Round 5');
+  expect(text).not.toContain('of weights moved');
 });
 
-test('a campaign that declared no data size renders no ratio at all', async ({ page }) => {
-  // A measured numerator and a measured image count are both present here, and
-  // an image count over a byte count is arithmetic a page could do. It does not,
-  // because that quotient is not the claim, and the only denominator that makes
-  // it the claim is one no site declared.
-  await stubCampaignService(page, {
-    record: stubRecord({
-      transport: {
-        observed: {
-          valid: true,
-          invalid_reason: null,
-          per_site: null,
-          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
-          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
-        },
-        computed: null,
-        kinds_transferred: ['model_weights'],
-        only_weights_left_site: true,
-        images_moved_bytes: 0,
-        images_held: { n_images: 1018 },
-        declared_data_bytes: null,
-      },
-    }),
-  });
-  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+test('a fully logged round does show its bytes', async ({ page }) => {
+  // The gate must not be a blanket suppression. stubRounds() reports complete
+  // coverage, so the figure is rendered.
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).not.toContain('to 1');
-  expect(text).toContain('Not computable from what was measured');
+  expect(text).toContain('15.5 MB of weights moved');
 });
 
 test('self-declared roster values are marked, and the roster is not called attested', async ({

@@ -45,6 +45,13 @@ import MissingValue from './MissingValue';
  * There is no odometer animation. A count-up would render intermediate values
  * that were never true of this campaign, on the one widget whose entire value
  * is that every number on it is a real observation.
+ *
+ * The two figures sit side by side and are NEVER divided into one. The left one
+ * grows with every round and the right one does not move at all, so a quotient
+ * of them is a function of how long the campaign has been running, and for a
+ * campaign that exchanges whole models it changes sign partway through. See the
+ * note at the top of TransportAudit.tsx. The layout is a comparison and not a
+ * verdict on purpose.
  */
 
 interface TransportHeadlineProps {

@@ -66,7 +66,14 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
     <div>
       <ol className="space-y-3">
         {entries.map((round) => {
-          const out = formatBytes(round.transport?.bytes_out);
+          // Gated on coverage, not on the value being populated. A round that
+          // four of six sources logged yields a real sum of real entries that
+          // is still not that round's transport, and the number cannot say
+          // which of the two it is. Null fails closed, as everywhere else here.
+          const out =
+            round.transport?.sources_complete === true
+              ? formatBytes(round.transport?.bytes_out)
+              : null;
           const names = round.participants.map((id) => siteNames.get(id) ?? id);
           // The strongest provenance the record carries. "6 sites trained" is a
           // claim about intent; "6 sites scored on a22dba37" is a claim the
@@ -218,7 +225,7 @@ const CampaignProgress: React.FC = () => {
         title="The transport audit"
         subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
       >
-        <TransportAudit transport={data.transport} payload={data.payload} rounds={data.rounds} />
+        <TransportAudit transport={data.transport} payload={data.payload} />
       </Section>
 
       <Section title="Scores by round">

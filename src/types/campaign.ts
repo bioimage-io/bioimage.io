@@ -69,6 +69,18 @@
  *  3. The metric is validation Dice per dataset, not a generic "score".
  *     `RoundMetric.name` travels with the record and is rendered verbatim.
  *
+ * There is a FOURTH mismatch, found later and larger than the other three: the
+ * mockup's headline saving figure is not a property of the campaign at all, it
+ * is a property of the window it is taken over, and over a long enough campaign
+ * it changes SIGN. Bytes moved accumulates with every round and data held does
+ * not, so a quotient of the two is a function of how long the run has gone on.
+ * Every campaign therefore has a crossover round, and whether that round is
+ * inside or outside the schedule depends on the corpus size relative to the
+ * payload, not on whether the payload is an adapter or a whole model. This
+ * schema carries no field for a saving and no page may render saving language,
+ * or any quotient of bytes moved by data held, in any form. See
+ * TransportAudit.tsx for the full note.
+ *
  * ## Disclosure rules (binding, from the driver owner)
  *
  * Some fields are deliberately withholdable, and the page must render fine
@@ -132,7 +144,7 @@
  */
 
 /** Bump on any breaking change to the shapes below. */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.2-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.2.3-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -309,10 +321,10 @@ export interface RoundMetric {
  * and null for the rounds it does not, which turns an invisible undercount into
  * a visible gap.
  *
- * It is also the only place on this page where an OBSERVED numerator exists
- * today. The campaign-wide observed total needs the source windows to agree and
- * that is indefinite. A single round needs only that every source covered that
- * one round, which recent rounds do.
+ * These figures are rendered PER ROUND and are never summed, extrapolated, or
+ * put over the data held. A per-round transport figure and a campaign-wide one
+ * are different quantities and the comparison between them reverses sign
+ * depending on which you use. See the note at the top of TransportAudit.tsx.
  */
 export interface RoundTransport {
   bytes_out: number | null;
@@ -327,9 +339,11 @@ export interface RoundTransport {
    * transport: it is a partial sum that looks complete, which is the exact
    * failure the campaign-wide total has, moved down one level.
    *
-   * The page therefore gates on this flag rather than on `bytes_out` being
-   * populated, because a populated value cannot tell a reader whether it is
-   * whole. Null fails closed, like every other flag in this schema.
+   * The round log therefore gates the per-round byte figure on this flag rather
+   * than on `bytes_out` being populated, because a populated value cannot tell
+   * a reader whether it is whole. Null fails closed, like every other flag in
+   * this schema, so a service that cannot answer this per round simply shows no
+   * per-round bytes.
    */
   sources_complete: boolean | null;
 }

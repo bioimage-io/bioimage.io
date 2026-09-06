@@ -1,7 +1,7 @@
 import React from 'react';
-import { PayloadDescriptor, RoundRecord, TransportSummary } from '../../types/campaign';
-import { formatBytes, formatCount, formatRatio, latestWholeRound } from './format';
-import MissingValue, { Value } from './MissingValue';
+import { PayloadDescriptor, TransportSummary } from '../../types/campaign';
+import { formatBytes, formatCount } from './format';
+import { Value } from './MissingValue';
 
 /**
  * The transport audit: how many bytes of weights moved, against how much data
@@ -24,26 +24,52 @@ import MissingValue, { Value } from './MissingValue';
  * weights. Both figures on this panel therefore fail in the same direction.
  * Neither can overstate what crossed the network.
  *
- * The asymmetry ratio is PER ROUND and never a campaign total. A single round
- * only needs every source to have logged that one round, which recent rounds
- * do, so its numerator is genuinely observed and auditable down to individual
- * entries. The campaign-wide observed total needs the log windows to agree,
- * which is not scheduled and not coming. See `latestWholeRound` for why summing
- * covered rounds or multiplying one round up are both worse than showing
- * nothing.
+ * THERE IS NO ASYMMETRY RATIO ON THIS PANEL, and its absence is the considered
+ * position rather than a gap waiting to be filled. Read this before adding one.
  *
- * The round number is rendered in the same element as the ratio, because a
- * per-round figure without its round is indistinguishable from a total.
+ * The two quantities have different shapes. Bytes moved accumulates with every
+ * round; data held does not move at all. A quotient of the two is therefore not
+ * one number, it is a number that depends entirely on the window you take it
+ * over, and the windows disagree about the SIGN.
  *
- * The denominator stays declared whatever happens to the numerator, so the
- * caveat under the ratio is unconditional rather than keyed on a flag.
+ * Every campaign therefore has a crossover round, the round at which the total
+ * sent overtakes the total held, and the same run reads as a saving before it
+ * and a cost after it. A per-round figure sits permanently on the flattering
+ * side of that crossing, so a per-round ratio does not merely understate the
+ * campaign-wide one. Past the crossing it reverses it, and nothing on a page
+ * showing the per-round number would tell a reader which side they were on.
+ *
+ * Where the crossing falls is set by the corpus size relative to the payload,
+ * NOT by whether the payload is an adapter or a whole model. The transfer
+ * pattern is structural: 3N+1 payloads per round for N participants, being a
+ * push and a pull each, plus one aggregate write and one store read each. So
+ * the campaign saves data for as long as
+ *
+ *     payload_bytes * (3N + 1) * rounds  <  corpus_bytes
+ *
+ * Two campaigns of identical shape, six sites over a 600 GB corpus, land in
+ * completely different places under that condition. This platform's U-Net has
+ * a 7.8 MB state dict and crosses at about round 4,000, so its sixty-round
+ * schedule never approaches it. A Cellpose-SAM-scale state dict at 1.2 GB
+ * crosses at about round 26 and finishes the same schedule having moved more
+ * than twice what it avoided moving. Both are full state dicts. The payload
+ * kind predicts nothing on its own.
+ *
+ * What is correct, when the page has a campaign that can supply it, is a
+ * cumulative-to-date curve with that crossing marked. That is a real finding
+ * and this panel is where it will go. It needs per-round coverage from round
+ * zero, which the consortium run cannot supply retroactively, and it must use
+ * the 3N+1 coefficient above: a 2N approximation that counts only the pushes
+ * and pulls puts the crossing 58% too late.
+ *
+ * Until then the panel shows both quantities and no quotient. A reader who
+ * wants the ratio can divide, and will have both labels in front of them when
+ * they do.
  */
 
 interface TransportAuditProps {
   transport: TransportSummary | null;
   payload: PayloadDescriptor | null;
-  /** Needed for the asymmetry ratio, whose numerator is one round's bytes. */
-  rounds: RoundRecord[] | null;
   /** Compact variant for the model page, which has less room. */
   compact?: boolean;
 }
@@ -65,7 +91,7 @@ const Figure: React.FC<{
   </div>
 );
 
-const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rounds, compact }) => {
+const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, compact }) => {
   if (!transport) {
     return (
       <p className="text-sm text-gray-500">
@@ -89,18 +115,6 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rou
   const heldBytes = formatBytes(transport.declared_data_bytes);
   const heldImages = formatCount(transport.images_held?.n_images);
   const imagesMoved = formatBytes(transport.images_moved_bytes);
-
-  // One round's observed outbound bytes over the declared data held. Not the
-  // campaign total: that needs the source windows to agree, and it is not
-  // coming. A round only needs every source to have logged that one round.
-  //
-  // The denominator has one possible standing, which is why the field is called
-  // what it is. Total data held is a figure the sites declare, and no fix on
-  // this side will ever make it measured, so the caveat under the ratio is not
-  // conditional on anything.
-  const ratioRound = latestWholeRound(rounds);
-  const ratio = formatRatio(transport.declared_data_bytes, ratioRound?.transport?.bytes_out);
-  const ratioMoved = formatBytes(ratioRound?.transport?.bytes_out);
 
   // Prefer the byte figure when the campaign has one. When it does not, fall
   // back to the image count and say which it is, rather than estimating a size
@@ -162,19 +176,6 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rou
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <div>
-          {/* The round is inside the label, not beside it. A per-round ratio
-              read without its round is a campaign total to anyone skimming,
-              and that is the one misreading this figure cannot survive. */}
-          <span className="text-gray-500">
-            {ratioRound ? `Transport asymmetry in round ${ratioRound.round}: ` : 'Transport asymmetry: '}
-          </span>
-          {ratio ? (
-            <span className="font-semibold text-gray-900">{ratio}</span>
-          ) : (
-            <MissingValue label="Not computable from what was measured" />
-          )}
-        </div>
-        <div>
           <span className="text-gray-500">Transfers logged: </span>
           <span className="font-medium tabular-nums text-gray-800">
             <Value>{formatCount(observedTransfers)}</Value>
@@ -182,18 +183,18 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rou
         </div>
       </div>
 
-      {ratio && ratioRound && (
-        <p className="mt-2 text-xs leading-relaxed text-gray-500">
-          {/* Both endpoints named in the same sentence as each other, so the
-              figure cannot be quoted as a campaign-wide one. */}
-          {ratioMoved} left the sites in round {ratioRound.round}, counted on the transport log and
-          traceable to individual transfers, while {heldValue} stayed where it was. One round is
-          the comparison this page makes, because a campaign-wide total needs every participant&rsquo;s
-          log to cover the same span and they do not. The amount of data held was declared by the
-          participating sites, not measured by the platform, so this comparison is only as good as
-          those declarations.
-        </p>
-      )}
+      {/* No quotient of the two headline figures is shown, for the reason set
+          out at the top of this file. The note says so, because a reader who
+          notices the obvious comparison is missing deserves to know it was
+          left out on purpose rather than forgotten. */}
+      <p className="mt-2 text-xs leading-relaxed text-gray-500">
+        This panel does not divide one of these figures by the other. The amount moved grows with
+        every round while the amount held stays where it is, so any such comparison depends on the
+        stretch of the campaign it is taken over, and for a campaign that exchanges whole models it
+        can point either way. The useful version of that comparison is the round at which the
+        total sent overtakes the total held, and it needs per-round coverage from the first round
+        onwards.
+      </p>
 
       {observed && !observedValid && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
@@ -245,8 +246,10 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rou
             {computed.validated_against
               ? ` Checked against ${computed.validated_against}.`
               : ' It has not been checked against a control run.'}{' '}
-            It is a lower bound rather than a total, because a campaign that was restarted re-runs
-            the stretch that was in flight and the formula counts that stretch once.
+            It counts the transfers the protocol requires, which is exact. It reads as a lower
+            bound here because the question this page asks is what this campaign moved, and a
+            campaign that was restarted re-runs the stretch that was in flight while the formula
+            counts that stretch once.
           </p>
         </div>
       )}
