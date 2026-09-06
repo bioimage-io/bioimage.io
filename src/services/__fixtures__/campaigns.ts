@@ -13,13 +13,16 @@
  * exercised against both of the profiles the schema has to serve:
  *
  *  - `cellpose-sam-community` mirrors the design mockup: a LoRA adapter
- *    payload, a byte figure for data held, a roster that grows mid-campaign.
+ *    payload, a byte figure for data held, a roster that grows mid-campaign,
+ *    and a transport log whose per-source windows agree.
  *  - `unet-consortium` mirrors the first real campaign: full state dicts, no
- *    byte figure at all for data held (only image counts), and a metric named
- *    "validation Dice" rather than a generic score.
+ *    byte figure at all for data held (only image counts), a metric named
+ *    "validation Dice" rather than a generic score, and a transport log whose
+ *    windows do NOT agree, so the observed total is withheld and only the
+ *    computed figure is offered, labelled as such.
  *
  * If a component renders the second one correctly, it cannot be hardcoding
- * "adapter", "TB" or "score".
+ * "adapter", "TB", "score", or a summable transport log.
  */
 
 import {
@@ -31,6 +34,21 @@ import {
 } from '../../types/campaign';
 
 const ADAPTER_BYTES = 3_500_000;
+
+/**
+ * A deterministic stand-in for a merged-weights digest. Not a real hash and not
+ * claimed to be one: it exists so the round log renders the same shape the live
+ * record will, with digests that agree within a round and differ between them.
+ */
+function fixtureDigest(seedText: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < seedText.length; i += 1) {
+    h ^= seedText.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const block = (h >>> 0).toString(16).padStart(8, '0');
+  return `${block}${block}${block}${block}`;
+}
 
 function adapterSite(
   site_id: string,
@@ -59,12 +77,17 @@ function adapterSite(
         source: 'Local facility archive',
         licence: 'CC-BY-4.0',
         citation: null,
+        // Private facility archives, so a fingerprint would act as a
+        // membership oracle over data nobody else can see.
         split_fingerprint: null,
       },
     ],
     n_train_images,
     activity: 'reported',
     bioengine_version: '0.7.2',
+    // Everything a site typed into its join form. The platform measured none
+    // of it, and the roster marks each one so a reader can tell.
+    declared: ['site_name', 'country', 'datasets', 'n_train_images'],
   };
 }
 
@@ -101,6 +124,11 @@ function adapterRounds(total: number): RoundRecord[] {
       );
     });
     const values = Object.values(per_site);
+    const digest = fixtureDigest(`cellpose-sam-community/${round}`);
+    const scored_with: Record<string, string> = {};
+    roster.forEach((site) => {
+      scored_with[site.site_id] = digest;
+    });
     rounds.push({
       round,
       participants,
@@ -113,8 +141,11 @@ function adapterRounds(total: number): RoundRecord[] {
         // whose data is hardest. Only the aggregate is published.
         per_site: null,
         aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
+        aggregate_basis: 'merge-weighted mean over the per-site validation F1',
+        n_sites_scored: roster.length,
       },
-      global_sha256: null,
+      global_sha256: digest,
+      scored_with,
       transport: {
         bytes_out: ADAPTER_BYTES * roster.length,
         bytes_in: ADAPTER_BYTES * roster.length,
@@ -127,6 +158,8 @@ function adapterRounds(total: number): RoundRecord[] {
 
 const ADAPTER_ROUNDS = adapterRounds(35);
 
+const ADAPTER_TRANSFERS = ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.n_transfers ?? 0), 0);
+
 const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   schema_version: CAMPAIGN_SCHEMA_VERSION,
   campaign_id: 'cellpose-sam-community',
@@ -136,6 +169,16 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     + 'microscopy archives. The base model is frozen and only a low-rank adapter is trained, '
     + 'so what travels each round is a few megabytes of weights rather than the images.',
   status: 'running',
+  experiment: { arm: 'fedavg', seed: 0, run_id: 'cellpose-sam-community-2026-08' },
+  policy: {
+    // Private facility archives throughout, which is why the fingerprints
+    // above are null.
+    public_data_campaign: false,
+    // No per-deployment credential exists yet, so the roster is a list of
+    // self-declared names and the page says so.
+    roster_attested: false,
+    outcomes_released: true,
+  },
   base_model: {
     id: 'bioimage-io/cellpose-sam',
     name: 'Cellpose-SAM',
@@ -149,11 +192,29 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   round: { current: 34, total: 60, started_at: '2026-08-04T09:12:00Z' },
   sites: ADAPTER_SITES,
   rounds: ADAPTER_ROUNDS,
-  reporting: { dropped_reports: 0 },
+  reporting: { dropped_reports: 0, reconciled: false, reconciled_at: null },
   transport: {
-    bytes_out: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_out ?? 0), 0),
-    bytes_in: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_in ?? 0), 0),
-    n_transfers: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.n_transfers ?? 0), 0),
+    // The clean case: one driver process for the whole campaign, so its log
+    // covers every transfer and the total means what it says.
+    observed: {
+      valid: true,
+      invalid_reason: null,
+      per_site: null,
+      driver: {
+        bytes_out: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_out ?? 0), 0),
+        bytes_in: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_in ?? 0), 0),
+        n_transfers: ADAPTER_TRANSFERS,
+      },
+      windows: [
+        {
+          source: 'driver',
+          first_seq: 0,
+          last_seq: ADAPTER_TRANSFERS - 1,
+          n_transfers: ADAPTER_TRANSFERS,
+        },
+      ],
+    },
+    computed: null,
     kinds_transferred: ['model_weights'],
     only_weights_left_site: true,
     images_moved_bytes: 0,
@@ -194,6 +255,10 @@ const UNET_SITES: SiteRecord[] = [
     n_train_images: 536,
     activity: 'reported',
     bioengine_version: '0.7.2',
+    // Public benchmark data, read off disk by the site's own loader, so the
+    // counts are measured rather than typed into a form. Only the display
+    // name is declared.
+    declared: ['site_name'],
   },
   {
     site_id: 'site-b',
@@ -219,10 +284,16 @@ const UNET_SITES: SiteRecord[] = [
     n_train_images: 482,
     activity: 'reported',
     bioengine_version: '0.7.2',
+    declared: ['site_name'],
   },
 ];
 
 const UNET_STATE_DICT_BYTES = 7_760_000;
+
+// One round where only one of the two sites reported a score. The aggregate is
+// still in the record, and the chart deliberately withholds it: with two sites,
+// an aggregate plus one per-site value reconstructs the other exactly.
+const UNET_PARTIAL_ROUND = 7;
 
 function unetRounds(total: number): RoundRecord[] {
   const rounds: RoundRecord[] = [];
@@ -235,6 +306,11 @@ function unetRounds(total: number): RoundRecord[] {
       );
     });
     const values = Object.values(per_site);
+    const aggregate = Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4));
+    if (round === UNET_PARTIAL_ROUND) {
+      delete per_site['site-b'];
+    }
+    const digest = fixtureDigest(`unet-consortium/${round}`);
     rounds.push({
       round,
       participants: UNET_SITES.map((s) => s.site_id),
@@ -243,9 +319,14 @@ function unetRounds(total: number): RoundRecord[] {
         name: 'validation Dice',
         higher_is_better: true,
         per_site,
-        aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
+        aggregate,
+        aggregate_basis: 'merge-weighted mean over the per-dataset validation Dice',
+        // Both sites scored every round. Round 7 published only one of the two
+        // curves, which is what makes its per-site map partial.
+        n_sites_scored: UNET_SITES.length,
       },
-      global_sha256: null,
+      global_sha256: digest,
+      scored_with: { 'site-a': digest, 'site-b': digest },
       transport: {
         bytes_out: UNET_STATE_DICT_BYTES * UNET_SITES.length,
         bytes_in: UNET_STATE_DICT_BYTES * UNET_SITES.length,
@@ -258,13 +339,19 @@ function unetRounds(total: number): RoundRecord[] {
 
 const UNET_ALL_ROUNDS = unetRounds(12);
 
-// Two round reports never reached the campaign service. The transport log is
-// kept by the driver itself and is not lossy, so the summary below still covers
-// all twelve rounds while `rounds` has holes at 4 and 9. That asymmetry is the
-// whole point of the dropped-report count: a gap in the series is a lost
-// record, not a round that did not happen.
+// Two round reports never reached the campaign service. Reporting is
+// fire-and-forget, so a gap here is a lost record rather than a round that did
+// not happen, and the driver's own committed arm record still has both. This
+// campaign has completed, so the two have been reconciled and the remaining
+// gaps are the ones reconciliation could not close.
 const UNET_DROPPED_ROUNDS = [4, 9];
 const UNET_ROUNDS = UNET_ALL_ROUNDS.filter((r) => !UNET_DROPPED_ROUNDS.includes(r.round));
+
+// The driver was relaunched seven times over the run, so its in-memory log
+// covers only the tail. The site logs cover far more. Adding them together
+// would produce a total that looks complete and undercounts by most of the run.
+const UNET_COMPUTED_BYTES =
+  UNET_ALL_ROUNDS.length * (3 * UNET_SITES.length + 1) * UNET_STATE_DICT_BYTES;
 
 const UNET_CAMPAIGN: CampaignRecord = {
   schema_version: CAMPAIGN_SCHEMA_VERSION,
@@ -274,6 +361,12 @@ const UNET_CAMPAIGN: CampaignRecord = {
     'Two sites train a small U-Net on public benchmark datasets that stay where they are. '
     + 'The network is small enough that the whole state dict is exchanged each round.',
   status: 'completed',
+  experiment: { arm: 'fedavg', seed: 0, run_id: 'unet-consortium-2026-07' },
+  policy: {
+    public_data_campaign: true,
+    roster_attested: false,
+    outcomes_released: true,
+  },
   base_model: null,
   aggregation: { method: 'FedAvg', weighting: 'sample count' },
   licence_policy: {
@@ -283,11 +376,34 @@ const UNET_CAMPAIGN: CampaignRecord = {
   round: { current: 12, total: 12, started_at: '2026-07-19T14:03:00Z' },
   sites: UNET_SITES,
   rounds: UNET_ROUNDS,
-  reporting: { dropped_reports: UNET_DROPPED_ROUNDS.length },
+  reporting: {
+    dropped_reports: UNET_DROPPED_ROUNDS.length,
+    reconciled: true,
+    reconciled_at: '2026-07-21T08:40:00Z',
+  },
   transport: {
-    bytes_out: UNET_ALL_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_out ?? 0), 0),
-    bytes_in: UNET_ALL_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_in ?? 0), 0),
-    n_transfers: UNET_ALL_ROUNDS.reduce((a, r) => a + (r.transport?.n_transfers ?? 0), 0),
+    observed: {
+      valid: false,
+      invalid_reason:
+        'The driver was relaunched several times during this run, so its log covers only the '
+        + 'last stretch of it while the site logs cover much more.',
+      per_site: null,
+      driver: {
+        bytes_out: UNET_STATE_DICT_BYTES * 123,
+        bytes_in: UNET_STATE_DICT_BYTES * 123,
+        n_transfers: 246,
+      },
+      windows: [
+        { source: 'driver', first_seq: 0, last_seq: 245, n_transfers: 246 },
+        { source: 'site-a', first_seq: 0, last_seq: 1011, n_transfers: 1012 },
+        { source: 'site-b', first_seq: 0, last_seq: 987, n_transfers: 988 },
+      ],
+    },
+    computed: {
+      bytes_moved: UNET_COMPUTED_BYTES,
+      basis: '3N+1 transfers per round for N sites, times the measured payload size',
+      validated_against: 'a single-site control run whose log covered the whole of it',
+    },
     kinds_transferred: ['model_weights'],
     only_weights_left_site: true,
     images_moved_bytes: 0,

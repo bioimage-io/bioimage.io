@@ -58,6 +58,13 @@ const RoundLog: React.FC<{ record: CampaignRecord }> = ({ record }) => {
         {entries.map((round) => {
           const out = formatBytes(round.transport?.bytes_out);
           const names = round.participants.map((id) => siteNames.get(id) ?? id);
+          // The strongest provenance the record carries. "6 sites trained" is a
+          // claim about intent; "6 sites scored on a22dba37" is a claim the
+          // driver checked, because it compares the digests and raises when
+          // they disagree. Prefer it wherever it exists.
+          const digests = round.scored_with ? Object.values(round.scored_with) : [];
+          const agreedDigest =
+            digests.length > 0 && digests.every((d) => d === digests[0]) ? digests[0] : null;
           return (
             <li key={round.round} className="flex gap-3 text-sm">
               <span className="mt-0.5 w-16 flex-shrink-0 tabular-nums font-medium text-gray-500">
@@ -67,6 +74,16 @@ const RoundLog: React.FC<{ record: CampaignRecord }> = ({ record }) => {
                 Merged weights from {names.length} {names.length === 1 ? 'site' : 'sites'}
                 {names.length > 0 && `: ${names.join(', ')}`}
                 {out && `. ${out} of weights moved.`}
+                {agreedDigest && (
+                  <>
+                    {' '}
+                    All {digests.length} scored on{' '}
+                    <code className="rounded bg-gray-100 px-1 text-xs text-gray-600">
+                      {agreedDigest.slice(0, 8)}
+                    </code>
+                    .
+                  </>
+                )}
                 {round.metric?.aggregate !== undefined && round.metric?.aggregate !== null && (
                   <>
                     {' '}
@@ -83,6 +100,9 @@ const RoundLog: React.FC<{ record: CampaignRecord }> = ({ record }) => {
           {formatCount(record.reporting.dropped_reports)} reports from the training run did not
           reach this service and are missing above. Reporting never blocks training, so a gap here
           means a lost record rather than a lost round.
+          {record.reporting.reconciled === true
+            ? ' The series has since been checked against the run’s own committed record, so what is shown is complete.'
+            : ' The run keeps its own record and the two are reconciled once it finishes, so gaps that remain here may still fill in.'}
         </p>
       ) : null}
     </div>
@@ -169,7 +189,15 @@ const CampaignProgress: React.FC = () => {
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Weights out</dt>
             <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              <Value>{formatBytes(data.transport?.bytes_out)}</Value>
+              {/* Observed only, and only when the service says its per-source
+                  logs cover the same window. The computed campaign-wide figure
+                  is a different kind of claim and belongs in the audit panel
+                  where it can carry its label, not in a bare tile. */}
+              <Value>
+                {data.transport?.observed?.valid === true
+                  ? formatBytes(data.transport.observed.driver?.bytes_out)
+                  : null}
+              </Value>
             </dd>
           </div>
           <div>
@@ -187,7 +215,7 @@ const CampaignProgress: React.FC = () => {
 
       <Section
         title="Transport audit"
-        subtitle="Computed over the campaign's own transport log."
+        subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
       >
         <TransportAudit transport={data.transport} payload={data.payload} />
       </Section>
@@ -197,7 +225,7 @@ const CampaignProgress: React.FC = () => {
       </Section>
 
       <Section title="Sites">
-        <SiteRoster sites={data.sites} />
+        <SiteRoster sites={data.sites} rosterAttested={data.policy?.roster_attested} />
       </Section>
     </div>
   );

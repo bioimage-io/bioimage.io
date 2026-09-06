@@ -102,7 +102,7 @@ const FederatedProvenance: React.FC<{ campaignId: string }> = ({ campaignId }) =
           Contributing sites
         </h3>
         <div className="mt-3">
-          <SiteRoster sites={data.sites} />
+          <SiteRoster sites={data.sites} rosterAttested={data.policy?.roster_attested} />
         </div>
       </div>
     </section>

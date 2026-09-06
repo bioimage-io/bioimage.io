@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { campaignService } from '../../services/campaignService';
+import { useHyphaStore } from '../../store/hyphaStore';
 import { CampaignRecord, JoinRequestReceipt } from '../../types/campaign';
+import LoginButton from '../LoginButton';
 import { formatBytes } from './format';
 
 /**
@@ -14,6 +16,13 @@ import { formatBytes } from './format';
  * The transport contract is rendered from the campaign record, so a site is
  * shown the payload this campaign actually exchanges rather than a generic
  * promise written once and never revisited.
+ *
+ * Sign-in is required HERE and nowhere else in the campaigns section. Every
+ * read is anonymous, because a campaign page is public. This one write cannot
+ * be: a steward approving an unattributable string is not approving anything.
+ * So the gate is on the dialog rather than the route, and it is checked before
+ * the form rather than at submit, where a rejection would arrive after the
+ * visitor has filled the whole thing in.
  */
 
 interface JoinCampaignDialogProps {
@@ -22,6 +31,7 @@ interface JoinCampaignDialogProps {
 }
 
 const JoinCampaignDialog: React.FC<JoinCampaignDialogProps> = ({ campaign, onClose }) => {
+  const { user } = useHyphaStore();
   const [deploymentId, setDeploymentId] = useState('');
   const [datasetName, setDatasetName] = useState('');
   const [nImages, setNImages] = useState('');
@@ -103,7 +113,25 @@ const JoinCampaignDialog: React.FC<JoinCampaignDialogProps> = ({ campaign, onClo
           <p className="mt-1 text-sm text-gray-600">{campaign.title}</p>
         </div>
 
-        {receipt ? (
+        {!user ? (
+          <div className="px-6 py-8">
+            <h3 className="text-lg font-semibold text-gray-900">Sign in to send a request</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Everything else on this page is public and needs no account. A join request is the
+              exception: a steward has to be able to see who asked, and reply to them.
+            </p>
+            <div className="mt-5">
+              <LoginButton />
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-6 text-sm text-gray-500 transition-colors duration-200 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : receipt ? (
           <div className="px-6 py-8">
             <h3 className="text-lg font-semibold text-gray-900">Request sent</h3>
             <p className="mt-2 text-sm text-gray-600">
@@ -147,6 +175,16 @@ const JoinCampaignDialog: React.FC<JoinCampaignDialogProps> = ({ campaign, onClo
                 {campaign.licence_policy.model_licence
                   ? ` The merged model is published under ${campaign.licence_policy.model_licence}.`
                   : ''}
+              </p>
+              {/* What accepting actually does, in the words it actually does it
+                  in. Anything vaguer here reads as a promise about scope that
+                  the platform cannot yet keep. */}
+              <p className="mt-2 text-sm text-gray-600">
+                If a steward accepts, one click installs the campaign app on your BioEngine
+                instance and registers it with the campaign. It does not stand up a worker for
+                you: you need a running BioEngine instance with your data already mounted. Your
+                instance joins with its own credentials, which can be revoked on their own without
+                affecting anyone else.
               </p>
             </div>
 

@@ -1,46 +1,78 @@
 import React from 'react';
-import { SiteActivity, SiteRecord } from '../../types/campaign';
+import { DeclaredSiteField, SiteActivity, SiteRecord } from '../../types/campaign';
 import { formatCount } from './format';
-import { Value } from './MissingValue';
+import MissingValue, { Value } from './MissingValue';
 
 /**
  * The roster of participating sites.
  *
+ * Two things this table is careful about.
+ *
  * Site names are self-declared: the platform does not verify that a
  * participating deployment belongs to the institution it names. The footnote
- * says so on every render, because a table of institution names reads as an
- * attested membership list unless it explicitly is not one.
+ * says so, because a table of institution names reads as an attested membership
+ * list unless it explicitly is not one. The wording is keyed off the campaign's
+ * `roster_attested` flag rather than hardcoded, so it disappears when
+ * per-deployment credentials land and not one release before.
+ *
+ * Declared and measured values are not interchangeable. A value the site typed
+ * into a join form is marked as such, so a reader can tell it from something
+ * the platform observed without having to know which columns are which.
  */
 
+// Only the states the driver can actually back. There is no 'training' or
+// 'unreachable' pill because nothing records them: producing either would mean
+// polling a live per-site call, which contradicts the snapshot the rest of this
+// record is and goes blank the moment a campaign ends.
 const ACTIVITY_STYLES: Record<SiteActivity, { label: string; className: string }> = {
-  training: { label: 'Training', className: 'bg-blue-50 text-blue-700 border-blue-200' },
   reported: { label: 'Reported', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   idle: { label: 'Idle', className: 'bg-gray-50 text-gray-600 border-gray-200' },
-  unreachable: { label: 'Unreachable', className: 'bg-red-50 text-red-700 border-red-200' },
   pending_review: { label: 'Awaiting review', className: 'bg-amber-50 text-amber-800 border-amber-200' },
 };
 
-const ActivityPill: React.FC<{ activity: SiteActivity }> = ({ activity }) => {
-  const style = ACTIVITY_STYLES[activity] ?? ACTIVITY_STYLES.idle;
+const ActivityPill: React.FC<{ activity: SiteActivity | null }> = ({ activity }) => {
+  const style = activity ? ACTIVITY_STYLES[activity] : undefined;
+  if (!style) return <MissingValue label="Not reported" />;
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${style.className}`}
     >
-      {activity === 'training' && (
-        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-      )}
       {style.label}
     </span>
   );
 };
 
+/** Marks a value the site declared rather than one the platform measured. */
+const DeclaredMark: React.FC = () => (
+  <span
+    className="ml-1.5 align-middle text-[10px] font-medium uppercase tracking-wide text-gray-400"
+    title="Declared by the site on its join form, not measured by the platform."
+  >
+    declared
+  </span>
+);
+
+function isDeclared(site: SiteRecord, field: DeclaredSiteField): boolean {
+  return site.declared?.includes(field) ?? false;
+}
+
 interface SiteRosterProps {
   sites: SiteRecord[];
   /** Shown as a "joined at round N" column when the campaign has a round counter. */
   showJoinedRound?: boolean;
+  /**
+   * From the campaign's `policy.roster_attested`. Null means the service did
+   * not say, which is treated exactly like false: the caveat stays up until
+   * something affirmatively says attestation exists.
+   */
+  rosterAttested?: boolean | null;
 }
 
-const SiteRoster: React.FC<SiteRosterProps> = ({ sites, showJoinedRound = true }) => {
+const SiteRoster: React.FC<SiteRosterProps> = ({
+  sites,
+  showJoinedRound = true,
+  rosterAttested = null,
+}) => {
   if (sites.length === 0) {
     return (
       <p className="text-sm text-gray-500">No sites are on this roster yet.</p>
@@ -69,6 +101,7 @@ const SiteRoster: React.FC<SiteRosterProps> = ({ sites, showJoinedRound = true }
                   <div className="font-medium text-gray-900">{site.site_name}</div>
                   <div className="text-xs text-gray-500">
                     <Value label="Location not declared">{site.country}</Value>
+                    {site.country && isDeclared(site, 'country') && <DeclaredMark />}
                   </div>
                 </td>
                 <td className="py-3 pr-4 text-gray-700">
@@ -93,7 +126,10 @@ const SiteRoster: React.FC<SiteRosterProps> = ({ sites, showJoinedRound = true }
                   )}
                 </td>
                 <td className="py-3 pr-4 tabular-nums text-gray-700">
-                  <Value>{formatCount(site.n_train_images)}</Value>
+                  <Value label="Not published">{formatCount(site.n_train_images)}</Value>
+                  {site.n_train_images !== null && isDeclared(site, 'n_train_images') && (
+                    <DeclaredMark />
+                  )}
                 </td>
                 {showJoinedRound && (
                   <td className="py-3 pr-4 tabular-nums text-gray-700">
@@ -114,11 +150,18 @@ const SiteRoster: React.FC<SiteRosterProps> = ({ sites, showJoinedRound = true }
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-xs text-gray-500">
-        Site names are self-declared by each participating deployment. The platform does not verify
-        that a deployment belongs to the institution it names, so this is a list of participants
-        rather than an attested membership record.
-      </p>
+      {rosterAttested === true ? (
+        <p className="mt-3 text-xs text-gray-500">
+          Each entry is tied to the credential the deployment joined with, so this roster records
+          which deployments took part.
+        </p>
+      ) : (
+        <p className="mt-3 text-xs text-gray-500">
+          Site names are self-declared by each participating deployment. The platform does not
+          verify that a deployment belongs to the institution it names, so this is a list of
+          participants rather than an attested membership record.
+        </p>
+      )}
     </div>
   );
 };

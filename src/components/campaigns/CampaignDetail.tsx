@@ -139,13 +139,13 @@ const CampaignDetail: React.FC = () => {
 
       <Section
         title="What crossed the network"
-        subtitle="Measured by the platform while the campaign ran, not asserted afterwards."
+        subtitle="Recorded by the platform while the campaign ran, not asserted afterwards."
       >
         <TransportAudit transport={data.transport} payload={data.payload} />
       </Section>
 
       <Section title="Participating sites">
-        <SiteRoster sites={data.sites} />
+        <SiteRoster sites={data.sites} rosterAttested={data.policy?.roster_attested} />
       </Section>
 
       <Section title="At a glance">

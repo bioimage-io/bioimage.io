@@ -13,6 +13,12 @@ import { formatMetric } from './format';
  * Per-site curves are drawn only when the campaign publishes them. Most
  * campaigns publish the aggregate alone, and this component treats that as the
  * normal case rather than as missing data.
+ *
+ * The aggregate is withheld for any round where the per-site map is PARTIAL.
+ * With few sites, an aggregate plus n-1 per-site values reconstructs the nth,
+ * so publishing both halves of a partial round leaks exactly the value that
+ * withholding per-site curves exists to protect. Publishing all of them or none
+ * of them is safe; publishing most of them is not.
  */
 
 const SERIES_COLOURS = ['#2563eb', '#7c3aed', '#0891b2', '#c2410c', '#059669', '#be185d'];
@@ -41,8 +47,9 @@ interface RoundChartProps {
 const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
   const scored = useMemo(() => rounds.filter((r) => r.metric !== null), [rounds]);
 
-  const { series, metricName, xMin, xMax, yMin, yMax } = useMemo(() => {
+  const { series, metricName, metricBasis, withheldAggregates, xMin, xMax, yMin, yMax } = useMemo(() => {
     const siteNames = new Map(sites.map((s) => [s.site_id, s.site_name]));
+    let withheld = 0;
     const aggregate: Series = {
       key: '__aggregate__',
       label: 'All sites',
@@ -54,8 +61,16 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
 
     scored.forEach((round) => {
       const metric = round.metric!;
-      if (metric.aggregate !== null) {
+      // A partial per-site map plus an aggregate reconstructs the missing site,
+      // so the two are only publishable together when the map is complete.
+      const partialPerSite =
+        metric.per_site !== null &&
+        metric.n_sites_scored !== null &&
+        Object.keys(metric.per_site).length < metric.n_sites_scored;
+      if (metric.aggregate !== null && !partialPerSite) {
         aggregate.points.push({ round: round.round, value: metric.aggregate });
+      } else if (metric.aggregate !== null) {
+        withheld += 1;
       }
       if (metric.per_site) {
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
@@ -88,6 +103,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
     return {
       series: all,
       metricName: scored[0]?.metric?.name ?? null,
+      metricBasis: scored.find((r) => r.metric?.aggregate_basis)?.metric?.aggregate_basis ?? null,
+      withheldAggregates: withheld,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
@@ -172,10 +189,24 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
           </span>
         ))}
       </div>
+      {metricBasis && (
+        <p className="mt-3 text-xs text-gray-500">
+          The combined curve is a {metricBasis}. There is no single pooled figure in the training
+          record, so this one is worked out from the per-dataset scores and is named here rather
+          than presented as a measurement.
+        </p>
+      )}
       {series.length === 1 && series[0].key === '__aggregate__' && (
         <p className="mt-3 text-xs text-gray-500">
           Per-site curves are kept within the campaign. Publishing them live would amount to a
           public ranking of whose data is hardest, which discourages the sites this depends on.
+        </p>
+      )}
+      {withheldAggregates > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          {withheldAggregates} {withheldAggregates === 1 ? 'round is' : 'rounds are'} missing a
+          combined score. Where only some sites published a curve, showing the combined figure too
+          would let the remaining one be worked back out, so both are held back together.
         </p>
       )}
     </div>
