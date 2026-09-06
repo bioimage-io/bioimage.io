@@ -308,11 +308,30 @@ export interface RoundMetric {
  * same truncated log read per round gives exact bytes for the rounds it covers
  * and null for the rounds it does not, which turns an invisible undercount into
  * a visible gap.
+ *
+ * It is also the only place on this page where an OBSERVED numerator exists
+ * today. The campaign-wide observed total needs the source windows to agree and
+ * that is indefinite. A single round needs only that every source covered that
+ * one round, which recent rounds do.
  */
 export interface RoundTransport {
   bytes_out: number | null;
   bytes_in: number | null;
   n_transfers: number | null;
+  /**
+   * True only when EVERY source's log covers this round.
+   *
+   * This is the per-round analogue of `ObservedTransport.valid` and it exists
+   * for the same reason. A round covered by four sources out of six produces a
+   * `bytes_out` that is a real sum of real entries and is still not the round's
+   * transport: it is a partial sum that looks complete, which is the exact
+   * failure the campaign-wide total has, moved down one level.
+   *
+   * The page therefore gates on this flag rather than on `bytes_out` being
+   * populated, because a populated value cannot tell a reader whether it is
+   * whole. Null fails closed, like every other flag in this schema.
+   */
+  sources_complete: boolean | null;
 }
 
 /** One federation round. Mirrors an entry of `run_federated.py` `round_records`. */

@@ -150,6 +150,7 @@ function adapterRounds(total: number): RoundRecord[] {
         bytes_out: ADAPTER_BYTES * roster.length,
         bytes_in: ADAPTER_BYTES * roster.length,
         n_transfers: roster.length * 2,
+        sources_complete: true,
       },
     });
   }
@@ -338,6 +339,7 @@ function unetRounds(total: number): RoundRecord[] {
         bytes_out: UNET_STATE_DICT_BYTES * UNET_SITES.length,
         bytes_in: UNET_STATE_DICT_BYTES * UNET_SITES.length,
         n_transfers: UNET_SITES.length * 2,
+        sources_complete: true,
       },
     });
   }

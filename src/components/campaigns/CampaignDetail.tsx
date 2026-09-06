@@ -146,7 +146,7 @@ const CampaignDetail: React.FC = () => {
         title="The transport audit"
         subtitle="The same figures with their workings, for anyone who wants to check them."
       >
-        <TransportAudit transport={data.transport} payload={data.payload} />
+        <TransportAudit transport={data.transport} payload={data.payload} rounds={data.rounds} />
       </Section>
 
       <Section title="Participating sites">

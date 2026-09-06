@@ -93,7 +93,12 @@ const FederatedProvenance: React.FC<{ campaignId: string }> = ({ campaignId }) =
           Transport audit
         </h3>
         <div className="mt-3">
-          <TransportAudit transport={data.transport} payload={data.payload} compact />
+          <TransportAudit
+            transport={data.transport}
+            payload={data.payload}
+            rounds={data.rounds}
+            compact
+          />
         </div>
       </div>
 

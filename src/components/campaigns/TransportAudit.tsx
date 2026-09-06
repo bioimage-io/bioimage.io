@@ -1,6 +1,6 @@
 import React from 'react';
-import { PayloadDescriptor, TransportSummary } from '../../types/campaign';
-import { formatBytes, formatCount, formatRatio } from './format';
+import { PayloadDescriptor, RoundRecord, TransportSummary } from '../../types/campaign';
+import { formatBytes, formatCount, formatRatio, latestWholeRound } from './format';
 import MissingValue, { Value } from './MissingValue';
 
 /**
@@ -24,20 +24,26 @@ import MissingValue, { Value } from './MissingValue';
  * weights. Both figures on this panel therefore fail in the same direction.
  * Neither can overstate what crossed the network.
  *
- * The asymmetry ratio is computed only from the OBSERVED side. A ratio with a
- * computed numerator is not an audit.
+ * The asymmetry ratio is PER ROUND and never a campaign total. A single round
+ * only needs every source to have logged that one round, which recent rounds
+ * do, so its numerator is genuinely observed and auditable down to individual
+ * entries. The campaign-wide observed total needs the log windows to agree,
+ * which is not scheduled and not coming. See `latestWholeRound` for why summing
+ * covered rounds or multiplying one round up are both worse than showing
+ * nothing.
  *
- * Its two halves are not equally repairable, which is why the caveat below it
- * is unconditional. The numerator is blocked by a defect that a fix will clear.
- * The denominator is a figure the sites declare and this driver has no way to
- * measure, so it stays declared however much the numerator improves. Fixing the
- * log must not quietly upgrade the claim, so wherever the ratio appears the
- * declared half is named next to it.
+ * The round number is rendered in the same element as the ratio, because a
+ * per-round figure without its round is indistinguishable from a total.
+ *
+ * The denominator stays declared whatever happens to the numerator, so the
+ * caveat under the ratio is unconditional rather than keyed on a flag.
  */
 
 interface TransportAuditProps {
   transport: TransportSummary | null;
   payload: PayloadDescriptor | null;
+  /** Needed for the asymmetry ratio, whose numerator is one round's bytes. */
+  rounds: RoundRecord[] | null;
   /** Compact variant for the model page, which has less room. */
   compact?: boolean;
 }
@@ -59,7 +65,7 @@ const Figure: React.FC<{
   </div>
 );
 
-const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, compact }) => {
+const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, rounds, compact }) => {
   if (!transport) {
     return (
       <p className="text-sm text-gray-500">
@@ -84,14 +90,17 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
   const heldImages = formatCount(transport.images_held?.n_images);
   const imagesMoved = formatBytes(transport.images_moved_bytes);
 
-  // Observed numerator only. A ratio against the computed figure would read as
-  // measured, and the computed figure is the half that is not.
+  // One round's observed outbound bytes over the declared data held. Not the
+  // campaign total: that needs the source windows to agree, and it is not
+  // coming. A round only needs every source to have logged that one round.
   //
   // The denominator has one possible standing, which is why the field is called
   // what it is. Total data held is a figure the sites declare, and no fix on
   // this side will ever make it measured, so the caveat under the ratio is not
   // conditional on anything.
-  const ratio = formatRatio(transport.declared_data_bytes, observedOut);
+  const ratioRound = latestWholeRound(rounds);
+  const ratio = formatRatio(transport.declared_data_bytes, ratioRound?.transport?.bytes_out);
+  const ratioMoved = formatBytes(ratioRound?.transport?.bytes_out);
 
   // Prefer the byte figure when the campaign has one. When it does not, fall
   // back to the image count and say which it is, rather than estimating a size
@@ -153,7 +162,12 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <div>
-          <span className="text-gray-500">Transport asymmetry: </span>
+          {/* The round is inside the label, not beside it. A per-round ratio
+              read without its round is a campaign total to anyone skimming,
+              and that is the one misreading this figure cannot survive. */}
+          <span className="text-gray-500">
+            {ratioRound ? `Transport asymmetry in round ${ratioRound.round}: ` : 'Transport asymmetry: '}
+          </span>
           {ratio ? (
             <span className="font-semibold text-gray-900">{ratio}</span>
           ) : (
@@ -168,11 +182,16 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
         </div>
       </div>
 
-      {ratio && (
-        <p className="mt-2 text-xs text-gray-500">
-          The bytes that moved were measured on the transport log. The amount of data held was
-          declared by the participating sites, not measured by the platform, so this comparison is
-          only as good as those declarations.
+      {ratio && ratioRound && (
+        <p className="mt-2 text-xs leading-relaxed text-gray-500">
+          {/* Both endpoints named in the same sentence as each other, so the
+              figure cannot be quoted as a campaign-wide one. */}
+          {ratioMoved} left the sites in round {ratioRound.round}, counted on the transport log and
+          traceable to individual transfers, while {heldValue} stayed where it was. One round is
+          the comparison this page makes, because a campaign-wide total needs every participant&rsquo;s
+          log to cover the same span and they do not. The amount of data held was declared by the
+          participating sites, not measured by the platform, so this comparison is only as good as
+          those declarations.
         </p>
       )}
 

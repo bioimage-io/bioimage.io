@@ -44,13 +44,9 @@ export function formatMetric(value: number | null | undefined): string | null {
  * version of it. Naming the basis in the signature means a caller cannot obtain
  * this string while believing both halves were measured.
  *
- * That matters because the two halves of this ratio fail differently and only
- * one of them can improve. The numerator is the observed outbound total, which
- * is unusable today only because the per-source transport windows disagree: a
- * defect, and one that a fix will clear. The denominator is declared and stays
- * declared. Repairing the log must not quietly promote a measured-over-declared
- * quotient into something that reads as fully audited, so every caller renders
- * the declared half unconditionally alongside the number.
+ * The numerator is a SINGLE ROUND's outbound bytes. See `latestWholeRound` for
+ * why it is not a campaign total, and for the two ways of manufacturing one
+ * that this page does not use.
  *
  * Returns null when either half is missing.
  */
@@ -68,6 +64,51 @@ export function formatRatio(
         ? Math.round(ratio / 10) * 10
         : Math.round(ratio);
   return `about ${rounded.toLocaleString('en-US')} to 1`;
+}
+
+/**
+ * The most recent round whose transport every source logged, or null.
+ *
+ * This exists because the page's asymmetry claim is per-round rather than
+ * per-campaign, and that is a deliberate narrowing, not a fallback.
+ *
+ * The campaign-wide observed total needs the per-source log windows to agree.
+ * They do not, the reconciliation work is not scheduled, and the driver is
+ * frozen, so "wait for the total" and "show nothing, ever" are the same
+ * position. A single round needs only that every source covered that one round,
+ * which recent rounds do. So a per-round ratio is observed over declared: one
+ * soft half instead of two, available now instead of indefinitely.
+ *
+ * It is also the better claim. Per-round is what federated learning actually
+ * asserts, and unlike a total it does not vary with how many rounds a campaign
+ * happened to run, so two campaigns can be compared.
+ *
+ * There are two ways to manufacture a campaign total from this and the page
+ * uses neither:
+ *
+ *  - Summing the rounds the log happens to cover gives a subset numerator. Put
+ *    over the whole data held, that is not a ratio between comparable things.
+ *    It is a different quantity wearing the total's clothes, and no caveat
+ *    rescues it.
+ *  - Multiplying one round by the round count is the computed figure again by
+ *    another route, laundered through an observed-looking number.
+ *
+ * Which is why callers must render the round number in the same element as the
+ * ratio. A reader who cannot see which round it is cannot tell the two apart.
+ *
+ * Gating on `sources_complete` and not on `bytes_out` being non-null is the
+ * same rule as everywhere else here: a populated value cannot say whether it is
+ * whole, so the flag is asked instead. Null fails closed.
+ */
+export function latestWholeRound<
+  T extends { round: number; transport?: { bytes_out: number | null; sources_complete: boolean | null } | null },
+>(rounds: T[] | null | undefined): T | null {
+  if (!rounds || rounds.length === 0) return null;
+  const whole = rounds.filter(
+    (r) => r.transport?.sources_complete === true && (r.transport?.bytes_out ?? 0) > 0
+  );
+  if (whole.length === 0) return null;
+  return whole.reduce((latest, r) => (r.round > latest.round ? r : latest));
 }
 
 /** Date only, in a form that reads the same in every locale. */

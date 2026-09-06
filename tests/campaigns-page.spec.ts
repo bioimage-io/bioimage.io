@@ -53,7 +53,7 @@ function stubRounds(): Array<Record<string, unknown>> {
     // Both sites scored on the same aggregate, which is the strongest
     // provenance claim the record carries.
     scored_with: { 'stub-site-a': STUB_DIGEST, 'stub-site-b': STUB_DIGEST },
-    transport: { bytes_out: 15_520_000, bytes_in: 15_520_000, n_transfers: 4 },
+    transport: { bytes_out: 15_520_000, bytes_in: 15_520_000, n_transfers: 4, sources_complete: true },
   }));
 }
 
@@ -474,7 +474,7 @@ test('a null outcomes flag withholds accuracy just as a false one does', async (
   expect(text).not.toContain('validation Dice');
 });
 
-test('a ratio built on a declared denominator says so', async ({ page }) => {
+test('the asymmetry ratio names its round and its declared half', async ({ page }) => {
   await stubCampaignService(page, {
     record: stubRecord({
       transport: {
@@ -500,7 +500,90 @@ test('a ratio built on a declared denominator says so', async ({ page }) => {
 
   const text = await regionText(page);
   expect(text).toContain('to 1');
+  // The numerator is ONE round's outbound bytes, so the round has to travel with
+  // the figure. A per-round ratio read without its round is a campaign total to
+  // anyone skimming, which is the one misreading it cannot survive.
+  expect(text).toContain('Transport asymmetry in round 5');
+  expect(text).toContain('left the sites in round 5');
+  // And both endpoints named in the same sentence as each other.
+  expect(text).toContain('stayed where it was');
   expect(text).toContain('declared by the participating sites, not measured by the platform');
+  // The campaign-wide observed total is 62.08 MB and is NOT the numerator here.
+  // If it ever became one it would be a whole-campaign figure over a per-round
+  // denominator, so the ratio has to be built on the round's own 15.52 MB.
+  expect(text).toContain('15.5 MB left the sites');
+  expect(text).toContain('about 734,500 to 1');
+});
+
+test('a round no source fully logged yields no ratio, even with both halves present', async ({
+  page,
+}) => {
+  // Every round here carries a populated bytes_out and the campaign declares a
+  // data size, so the arithmetic is available. The page still refuses it: a
+  // round covered by some sources and not others is a real sum of real entries
+  // that is not the round's transport, and a populated value cannot say which
+  // of the two it is. The flag is asked instead, and it fails closed.
+  await stubCampaignService(page, {
+    record: stubRecord({
+      rounds: stubRounds().map((round: any) => ({
+        ...round,
+        transport: { ...(round.transport as object), sources_complete: false },
+      })),
+      transport: {
+        observed: {
+          valid: true,
+          invalid_reason: null,
+          per_site: null,
+          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
+          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
+        },
+        computed: null,
+        kinds_transferred: ['model_weights'],
+        only_weights_left_site: true,
+        images_moved_bytes: 0,
+        images_held: { n_images: 1018 },
+        declared_data_bytes: 11_400_000_000_000,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('to 1');
+  expect(text).toContain('Not computable from what was measured');
+});
+
+test('a null coverage flag withholds the ratio just as a false one does', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubRecord({
+      rounds: stubRounds().map((round: any) => ({
+        ...round,
+        transport: { ...(round.transport as object), sources_complete: null },
+      })),
+      transport: {
+        observed: {
+          valid: true,
+          invalid_reason: null,
+          per_site: null,
+          driver: { bytes_out: 62_080_000, bytes_in: 62_080_000, n_transfers: 16 },
+          windows: [{ source: 'driver', first_seq: 0, last_seq: 15, n_transfers: 16 }],
+        },
+        computed: null,
+        kinds_transferred: ['model_weights'],
+        only_weights_left_site: true,
+        images_moved_bytes: 0,
+        images_held: { n_images: 1018 },
+        declared_data_bytes: 11_400_000_000_000,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('to 1');
+  expect(text).toContain('Not computable from what was measured');
 });
 
 test('a campaign that declared no data size renders no ratio at all', async ({ page }) => {

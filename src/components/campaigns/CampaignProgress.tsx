@@ -218,7 +218,7 @@ const CampaignProgress: React.FC = () => {
         title="The transport audit"
         subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
       >
-        <TransportAudit transport={data.transport} payload={data.payload} />
+        <TransportAudit transport={data.transport} payload={data.payload} rounds={data.rounds} />
       </Section>
 
       <Section title="Scores by round">
