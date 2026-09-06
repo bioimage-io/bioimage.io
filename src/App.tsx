@@ -23,6 +23,7 @@ import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/bioengine/BioEngineHome';
 import BioEngineWorker from './components/bioengine/BioEngineWorker';
 import ColabPage from './components/colab/ColabPage';
+import CampaignsPage from './components/campaigns/CampaignsPage';
 import { useConnectionLiveness } from './hooks/useConnectionLiveness';
 
 // Add a utility function to check if footer should be hidden
@@ -124,6 +125,7 @@ const AppContent: React.FC = () => {
           <Route path="/bioengine" element={<BioEngineHome />} />
           <Route path="/bioengine/worker" element={<BioEngineWorker />} />
           <Route path="/colab/*" element={<ColabPage />} />
+          <Route path="/campaigns/*" element={<CampaignsPage />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}

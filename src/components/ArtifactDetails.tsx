@@ -35,6 +35,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import { ArtifactInfo, TestReport, DetailedTestReport } from '../types/artifact';
 import CodeIcon from '@mui/icons-material/Code';
 import { partnerService } from '../services/partnerService';
+import FederatedProvenance, { getCampaignIdFromManifest } from './campaigns/FederatedProvenance';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -110,6 +111,9 @@ const ArtifactDetails = () => {
   // hatch keeps the button live even when that report is stale or failed.
   const cellpose3 = useCellpose3Runner();
   const modelId = selectedResource?.id ? selectedResource.id.split('/').pop() : undefined;
+  // Null for every model that did not come out of a federation campaign,
+  // which is almost all of them.
+  const federationCampaignId = getCampaignIdFromManifest(selectedResource?.manifest);
   const isCellpose3Model = cellpose3.isSupported(modelId);
   const canTestRun = bioengineStatus?.status === 'passed' || isCellpose3Model;
 
@@ -1295,6 +1299,14 @@ const ArtifactDetails = () => {
       <Grid container spacing={{ xs: 1, sm: 2, md: 3 }}>
         {/* Left Column - Documentation */}
         <Grid item xs={12} md={8}>
+          {/* Federation provenance. Renders only for models whose RDF links a
+              campaign, and renders nothing at all if the campaign service is
+              unreachable, so an ordinary model page is untouched by this. */}
+          {federationCampaignId && (
+            <Box sx={{ mb: { xs: 1, sm: 2, md: 3 } }}>
+              <FederatedProvenance campaignId={federationCampaignId} />
+            </Box>
+          )}
           {/* Documentation Card */}
           {documentation && (
             <Card 
