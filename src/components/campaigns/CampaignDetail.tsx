@@ -170,7 +170,19 @@ const CampaignDetail: React.FC = () => {
                   data.base_model.name
                 )
               ) : (
-                <Value label="Trained from scratch">{null}</Value>
+                /* This used to read "Trained from scratch", which the record
+                   does not say. `base_model` is nullable and nothing in the
+                   schema gives null that meaning, so the page was picking the
+                   more informative of two readings without warrant. That is
+                   exactly the default-substitution the schema forbids, and it
+                   is the unsafe direction: a campaign that fine-tuned from a
+                   published model but did not report which one would have been
+                   described to a reader as having trained from nothing.
+
+                   If a campaign needs to state that it started from scratch,
+                   that is a value the service must send, not an inference the
+                   page is entitled to make from an absence. */
+                <Value>{null}</Value>
               )}
             </dd>
           </div>

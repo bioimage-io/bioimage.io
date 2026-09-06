@@ -305,10 +305,78 @@ test('unreported values say so instead of showing a zero', async ({ page }) => {
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText('Stub site B')).toBeVisible();
-  // Site B reports no training-image count and holds no declared dataset.
+  // Site B holds no declared dataset, which must read as an absence.
   await expect(page.getByText('Not reported').first()).toBeVisible();
   // Site A's count is real and must still be shown.
   await expect(page.getByText('536').first()).toBeVisible();
+});
+
+/**
+ * Absence has more than one cause, and the causes point at different people to
+ * go and ask. These three assertions exist because the page once had a single
+ * absence tooltip, "the campaign service did not report this value", rendered
+ * under labels that said something else. A reader who hovered over "Not
+ * published" was told the service had stayed silent about a figure the service
+ * had deliberately withheld, which sends them to check whether a service is up
+ * when nothing is wrong with it.
+ *
+ * Asserting the three titles differ is the positive control. A component that
+ * regressed to one hardcoded title would satisfy any single one of these and
+ * fail the set, which is the property that makes them evidence rather than
+ * three chances to pass.
+ */
+test('an absent value says which kind of absent it is', async ({ page }) => {
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const titleFor = (reason: string) =>
+    page.locator(`[data-missing-reason="${reason}"]`).first().getAttribute('title');
+
+  const [unreported, withheld, undeclared] = await Promise.all([
+    titleFor('unreported'),
+    titleFor('withheld'),
+    titleFor('undeclared'),
+  ]);
+
+  // Site B's empty dataset list, its null training count, and its null country
+  // are three different situations and the record distinguishes them.
+  expect(unreported).toContain('did not report');
+  expect(withheld).toContain('does not publish');
+  expect(undeclared).toContain('did not declare');
+
+  // The failure this guards against is convergence, so check they stayed apart
+  // rather than only that each matched something.
+  expect(new Set([unreported, withheld, undeclared]).size).toBe(3);
+
+  // A withheld figure is a decision, and calling it unreported blames the wrong
+  // component. Neither may borrow the other's explanation.
+  expect(withheld).not.toContain('did not report');
+  expect(undeclared).not.toContain('did not report');
+});
+
+/**
+ * `base_model` is nullable and the schema gives null exactly one meaning:
+ * not reported. The page used to render null as "Trained from scratch", which
+ * is a fact the record never stated, and it is the unsafe reading. A campaign
+ * that fine-tuned from a published model and failed to report which one would
+ * have been described to every visitor as having trained from nothing.
+ */
+test('a campaign with no reported base model is not described as trained from scratch', async ({
+  page,
+}) => {
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  // Lowercased because the field labels are uppercased in CSS, so innerText
+  // reads "BASE MODEL". Asserting the label at all is the point: without it,
+  // "does not say from scratch" would pass just as happily on a page that had
+  // stopped rendering the field.
+  const text = (await regionText(page)).toLowerCase();
+  expect(text).toContain('base model');
+  expect(text).not.toContain('from scratch');
+  expect(text).not.toContain('trained from');
 });
 
 test('image data held is rendered as a count when no byte figure exists', async ({ page }) => {

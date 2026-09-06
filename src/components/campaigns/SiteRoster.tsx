@@ -32,7 +32,7 @@ const ACTIVITY_STYLES: Record<SiteActivity, { label: string; className: string }
 
 const ActivityPill: React.FC<{ activity: SiteActivity | null }> = ({ activity }) => {
   const style = activity ? ACTIVITY_STYLES[activity] : undefined;
-  if (!style) return <MissingValue label="Not reported" />;
+  if (!style) return <MissingValue />;
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${style.className}`}
@@ -100,7 +100,7 @@ const SiteRoster: React.FC<SiteRosterProps> = ({
                 <td className="py-3 pr-4">
                   <div className="font-medium text-gray-900">{site.site_name}</div>
                   <div className="text-xs text-gray-500">
-                    <Value label="Location not declared">{site.country}</Value>
+                    <Value reason="undeclared" label="Location not declared">{site.country}</Value>
                     {site.country && isDeclared(site, 'country') && <DeclaredMark />}
                   </div>
                 </td>
@@ -126,7 +126,11 @@ const SiteRoster: React.FC<SiteRosterProps> = ({
                   )}
                 </td>
                 <td className="py-3 pr-4 tabular-nums text-gray-700">
-                  <Value label="Not published">{formatCount(site.n_train_images)}</Value>
+                  {/* Null here is withholding, not silence. The schema records
+                      that uniform-weight campaigns do not publish per-site
+                      training-set sizes, so pointing a reader at the service is
+                      pointing them at the wrong thing. */}
+                  <Value reason="withheld">{formatCount(site.n_train_images)}</Value>
                   {site.n_train_images !== null && isDeclared(site, 'n_train_images') && (
                     <DeclaredMark />
                   )}

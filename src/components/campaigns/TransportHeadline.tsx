@@ -109,7 +109,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
               </span>
             ) : (
               <span className="text-xl">
-                <MissingValue label="Not reported" />
+                <MissingValue />
               </span>
             )}
             {movedIsComputed && (
@@ -135,7 +135,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
             </div>
           ) : (
             <div className="text-xl">
-              <MissingValue label="Not reported" />
+              <MissingValue />
             </div>
           )}
           <div className="mt-1.5 text-sm text-gray-600">
