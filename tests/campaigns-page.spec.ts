@@ -762,8 +762,77 @@ test('neither per-site note fires on a record that reports a complete map', asyn
   const text = await regionText(page);
   expect(text).not.toContain('not every site that took part');
   expect(text).not.toContain('without saying how many sites scored');
+  expect(text).not.toContain('more per-site scores than sites recorded as scoring');
   // And the curves really are on the chart, so this is not the empty state.
   expect(text).toContain('Stub site A');
+});
+
+test('a per-site map with more entries than sites scored is not drawn at all', async ({ page }) => {
+  // The other direction of the completeness comparison. The gate was written to
+  // catch a short map, and a gate that tests one direction passes the other in
+  // silence. This is the more serious direction: three entries against two
+  // sites means the keys cannot be site ids, so the label fall-through would
+  // render whatever they really are as though each were a site. A wrong curve
+  // under a plausible label is worse than a missing one.
+  //
+  // No aggregate either, so nothing else on the page has any reason to mention
+  // these rounds. That also puts the chart in its empty branch, which is where
+  // a dropped map is easiest to misread as data never collected.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69, 'stub-dataset-x': 0.66 },
+      n_sites_scored: 2,
+      aggregate: null,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('more per-site scores than sites recorded as scoring');
+  // The unmatched key is never printed as a series label, which is the whole
+  // point of dropping the map rather than plotting it with a caveat.
+  expect(text).not.toContain('stub-dataset-x');
+  // And the record is not described as carrying no per-site curves. It carries
+  // them; this page declined to draw them, which is a different sentence.
+  expect(text).not.toContain('No per-site curves are in this record');
+  expect(text).not.toContain('not every site that took part');
+});
+
+test('an over-long map is named in the refusal box when an aggregate is published', async ({
+  page,
+}) => {
+  // One round over-long among three sound ones, so the chart really renders and
+  // the note is read against a drawn curve rather than an empty panel. The
+  // aggregate for that round is refused by the page, so it belongs in the amber
+  // box: the record carries a combination its own format rules out.
+  const rounds = stubRounds().map((round: any) =>
+    round.round === 5
+      ? {
+          ...round,
+          metric: {
+            ...(round.metric as any),
+            per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69, 'stub-dataset-x': 0.66 },
+            n_sites_scored: 2,
+          },
+        }
+      : round
+  );
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('holding back figures the campaign did publish');
+  expect(text).toContain('more per-site scores than the number of sites it records');
+  expect(text).not.toContain('stub-dataset-x');
+  // The three sound rounds still plot, so this is a single round withheld and
+  // not the gate swallowing the series.
+  expect(text).toContain('The combined curve is a merge-weighted mean');
 });
 
 test('the caption describing the combined curve does not outlive the curve', async ({ page }) => {

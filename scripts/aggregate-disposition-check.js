@@ -117,6 +117,37 @@ try {
   eq('unknown completeness refuses',
     aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3),
     { plot: false, by: 'page', cause: 'completeness_unknown' });
+  // The other direction of the same comparison. The gate was written to catch a
+  // short map, and a gate that tests one direction passes the other in silence.
+  eq('a map with more entries than sites scored refuses',
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.81, c: 0.79, d: 0.78 } } }), 3),
+    { plot: false, by: 'page', cause: 'map_exceeds_count' });
+  // Control. Without this the rule above would also pass if the gate refused
+  // every map that is not short, which would withhold every correct round.
+  eq('a map of exactly n_sites_scored entries still plots',
+    aggregateDisposition(ok(), 3), { plot: true, value: 0.8 });
+  // The two directions must stay separable, because they send a reader to
+  // different places: a short map is missing entries, an over-long one means
+  // the keys are not site ids and every label on the chart would be a guess.
+  eq('short and over-long are not the same finding',
+    [
+      aggregateDisposition(ok({ metric: { per_site: { a: 0.8 } } }), 3).cause,
+      aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8 } } }), 3).cause,
+    ],
+    ['partial_map', 'map_exceeds_count']);
+  // The realised case rather than a hypothetical one: the driver keys scores by
+  // dataset while n_sites_scored counts sites, and one arm of the current
+  // federated layout scores six datasets at a single site.
+  eq('six dataset-keyed scores from one scoring site refuses',
+    aggregateDisposition(ok({
+      eval_on: ['pooled'],
+      metric: {
+        per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
+        n_sites_scored: 1,
+      },
+    }), 1),
+    { plot: false, by: 'page', cause: 'map_exceeds_count' });
+
   eq('below the floor refuses',
     aggregateDisposition(ok({ eval_on: ['a', 'b'] }), 3),
     { plot: false, by: 'page', cause: 'below_eval_floor' });

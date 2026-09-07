@@ -109,6 +109,12 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${publishes(n)} a combined score next to a partial set of per-site curves, which would let the missing values be worked back out.`
     );
   }
+  if (tally.page.map_exceeds_count > 0) {
+    const n = tally.page.map_exceeds_count;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} more per-site scores than the number of sites it records as having scored, so the two cannot both be describing sites.`
+    );
+  }
   if (tally.page.completeness_unknown > 0) {
     const n = tally.page.completeness_unknown;
     refused.push(
@@ -171,6 +177,43 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
   );
 };
 
+/**
+ * What is wrong with the per-site maps, independent of the aggregate.
+ *
+ * A component rather than three inline blocks because these have to render in
+ * both the plotted and the empty branch. The over-long case draws no curves at
+ * all, so a campaign where every round is over-long reaches the empty state,
+ * and an empty state is exactly where a dropped map is easiest to read as
+ * nothing having been collected.
+ */
+const PerSiteNotes: React.FC<{
+  short: number;
+  unknown: number;
+  unattributable: number;
+}> = ({ short, unknown, unattributable }) => (
+  <>
+    {short > 0 && (
+      <p className="mt-3 text-xs text-gray-500">
+        {countPhrase(short)} {has(short)} curves from fewer sites than scored that round, so the
+        lines above are not every site that took part.
+      </p>
+    )}
+    {unknown > 0 && (
+      <p className="mt-3 text-xs text-gray-500">
+        {countPhrase(unknown)} {publishes(unknown)} per-site curves without saying how many sites
+        scored, so a complete set cannot be told from a partial one.
+      </p>
+    )}
+    {unattributable > 0 && (
+      <p className="mt-3 text-xs text-gray-500">
+        {countPhrase(unattributable)} {reports(unattributable)} more per-site scores than sites
+        recorded as scoring, so those scores are not one per site and cannot be attributed to one.
+        Their curves are left off the chart rather than drawn under a guessed label.
+      </p>
+    )}
+  </>
+);
+
 interface RoundChartProps {
   rounds: RoundRecord[];
   sites: SiteRecord[];
@@ -191,6 +234,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     metricBasis,
     shortPerSite,
     unknownPerSite,
+    unattributablePerSite,
     tally,
     xMin,
     xMax,
@@ -209,6 +253,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     const perSite = new Map<string, Series>();
     let shortPerSite = 0;
     let unknownPerSite = 0;
+    let unattributablePerSite = 0;
 
     scored.forEach((round) => {
       const metric = round.metric!;
@@ -228,7 +273,21 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       // did report as though they were the whole set. Same rule as the log
       // fix: the statement belongs on the value's own exit path, not on
       // whichever sibling happened to need it first.
-      if (metric.per_site) {
+      // An over-long map is not drawn at all, which is stricter than the short
+      // case on purpose. A short map is site-keyed and missing entries, so the
+      // curves it does carry are still attributable and only the set is
+      // incomplete. A map with more entries than sites scored cannot be
+      // site-keyed at all, so `siteNames.get(key) ?? key` would fall through
+      // and render whatever the keys really are as though each were a site.
+      // Labelling a dataset as a site is not a missing curve, it is a wrong
+      // one, and a wrong curve with a plausible label is the failure this whole
+      // panel is supposed to be incapable of.
+      const overlong =
+        metric.per_site !== null &&
+        metric.n_sites_scored !== null &&
+        Object.keys(metric.per_site).length > metric.n_sites_scored;
+      if (overlong) unattributablePerSite += 1;
+      if (metric.per_site && !overlong) {
         if (metric.n_sites_scored === null) unknownPerSite += 1;
         else if (Object.keys(metric.per_site).length < metric.n_sites_scored) shortPerSite += 1;
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
@@ -274,6 +333,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       tally: tallied,
       shortPerSite,
       unknownPerSite,
+      unattributablePerSite,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
@@ -304,6 +364,11 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           </p>
         )}
         <DispositionNotes tally={tally} />
+        <PerSiteNotes
+          short={shortPerSite}
+          unknown={unknownPerSite}
+          unattributable={unattributablePerSite}
+        />
       </div>
     );
   }
@@ -376,18 +441,11 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           </span>
         ))}
       </div>
-      {shortPerSite > 0 && (
-        <p className="mt-3 text-xs text-gray-500">
-          {countPhrase(shortPerSite)} {has(shortPerSite)} curves from fewer sites than scored that
-          round, so the lines above are not every site that took part.
-        </p>
-      )}
-      {unknownPerSite > 0 && (
-        <p className="mt-3 text-xs text-gray-500">
-          {countPhrase(unknownPerSite)} {publishes(unknownPerSite)} per-site curves without saying
-          how many sites scored, so a complete set cannot be told from a partial one.
-        </p>
-      )}
+      <PerSiteNotes
+        short={shortPerSite}
+        unknown={unknownPerSite}
+        unattributable={unattributablePerSite}
+      />
       {metricBasis && (
         <p className="mt-3 text-xs text-gray-500">
           The combined curve is a {metricBasis}. There is no single pooled figure in the training
@@ -410,7 +468,13 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           rule across surfaces for `aggregate` and never across fields is the
           same boundary error one more time, and this instance sat three lines
           below the one I had just closed. */}
-      {series.length === 1 && series[0].key === '__aggregate__' && (
+      {/* `unattributablePerSite` gates this too, because an over-long map is
+          dropped before it reaches `perSite`, so the chart looks identical to
+          one that never had per-site data. "No per-site curves are in this
+          record" would then be false about the record and true only about the
+          chart, which is the page reporting its own output as the source's
+          content. The note above already says what happened to those rounds. */}
+      {series.length === 1 && series[0].key === '__aggregate__' && unattributablePerSite === 0 && (
         <p className="mt-3 text-xs text-gray-500">
           No per-site curves are in this record. Whether they were held back or never collected is
           not recorded, so this page does not describe it as either.

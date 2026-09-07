@@ -38,6 +38,8 @@ export type PageRefusal =
   | 'contradictory_withhold'
   /** Some per-site values published; the aggregate reconstructs the rest. */
   | 'partial_map'
+  /** More entries in the per-site map than sites recorded as having scored. */
+  | 'map_exceeds_count'
   /** No `n_sites_scored`, so a complete per-site map is indistinguishable from a short one. */
   | 'completeness_unknown'
   /** Fewer evaluating sites than the campaign's own floor. */
@@ -91,8 +93,20 @@ export function aggregateDisposition(
     if (metric.n_sites_scored === null) {
       return { plot: false, by: 'page', cause: 'completeness_unknown' };
     }
-    if (Object.keys(metric.per_site).length < metric.n_sites_scored) {
+    // Both directions of the mismatch, because this check was written to catch
+    // a short map and a gate that tests one direction passes the other in
+    // silence. An over-long map is the more serious of the two: the count and
+    // the keys cannot both be about sites, so either the count is wrong or the
+    // keys are not site ids, and the second means every label on the chart is a
+    // guess. The driver makes this concrete rather than hypothetical, since it
+    // keys its scores by dataset while the sites' own count is a count of
+    // sites, and one arm of the current layout scores six datasets at one site.
+    const mapped = Object.keys(metric.per_site).length;
+    if (mapped < metric.n_sites_scored) {
       return { plot: false, by: 'page', cause: 'partial_map' };
+    }
+    if (mapped > metric.n_sites_scored) {
+      return { plot: false, by: 'page', cause: 'map_exceeds_count' };
     }
   }
 
@@ -133,6 +147,7 @@ export function emptyTally(): DispositionTally {
     page: {
       contradictory_withhold: 0,
       partial_map: 0,
+      map_exceeds_count: 0,
       completeness_unknown: 0,
       below_eval_floor: 0,
       floor_unstated: 0,
