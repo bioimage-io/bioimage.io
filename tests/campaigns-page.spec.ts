@@ -413,7 +413,7 @@ test('a gap in the round series is shown as a lost record, not a lost round', as
   expect(text).toContain('reconciled once it finishes');
 });
 
-test('per-site curves are withheld when the service does not publish them', async ({ page }) => {
+test('absent per-site curves are not described as a decision', async ({ page }) => {
   await stubCampaignService(page);
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
   await waitForLoaded(page);
@@ -421,8 +421,14 @@ test('per-site curves are withheld when the service does not publish them', asyn
   const text = await regionText(page);
   // The metric name travels in the record and is rendered verbatim.
   expect(text).toContain('validation Dice');
-  expect(text).toContain('Per-site curves are kept within the campaign');
   expect(text).not.toContain('Stub site A 0.');
+  expect(text).toContain('No per-site curves are in this record');
+  // `per_site` carries no cause, so a null one is an absence. The page must not
+  // name an actor for it, and must not supply the campaign's reasoning either:
+  // the old copy argued that publishing per-site curves would rank the sites,
+  // which is a good argument and still the page's own rather than the record's.
+  expect(text).not.toContain('kept within the campaign');
+  expect(text).not.toContain('public ranking');
 });
 
 // ---------------------------------------------------------------------------
@@ -686,6 +692,117 @@ test('the three reasons a round has no combined score stay distinguishable', asy
   // Round 0 still plots, which is what makes the three refusals above findings
   // rather than the behaviour of a chart that refuses everything.
   expect(text).toContain('validation Dice 0.400');
+});
+
+test('a short per-site map is reported even when no aggregate reasoning runs', async ({ page }) => {
+  // Two sites scored, one published a curve, and there is no aggregate at all.
+  // Every aggregate note is correctly silent here, and the per-site curves were
+  // relying on those notes to mention that the set was short: the chart drew
+  // one line for a round that two sites scored and nothing said so.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71 },
+      n_sites_scored: 2,
+      aggregate: null,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('not every site that took part');
+  // The aggregate side stays on its own axis: these rounds are absences, not
+  // withholds, and nothing about the short map may be reported as one.
+  expect(text).toContain('no reason recorded for its absence');
+  expect(text).not.toContain('holding back figures the campaign did publish');
+});
+
+test('per-site curves of unknowable completeness say so', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      n_sites_scored: null,
+      aggregate: null,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('without saying how many sites scored');
+  // A full-looking map is not a map known to be full, and the page must not
+  // upgrade one to the other by staying quiet.
+  expect(text).not.toContain('not every site that took part');
+});
+
+test('neither per-site note fires on a record that reports a complete map', async ({ page }) => {
+  // The control for both tests above. Both notes are about absences, so both
+  // would be invisible if they fired always, and a note that fires always says
+  // nothing about the record it is printed under.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      n_sites_scored: 2,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('not every site that took part');
+  expect(text).not.toContain('without saying how many sites scored');
+  // And the curves really are on the chart, so this is not the empty state.
+  expect(text).toContain('Stub site A');
+});
+
+test('the caption describing the combined curve does not outlive the curve', async ({ page }) => {
+  // Every aggregate withheld, per-site curves present, so the chart still draws
+  // something and the empty state does not fire. That combination is the only
+  // one where the defect is visible: the caption is present tense about a line
+  // on the chart, and it was keyed off the metric carrying a basis rather than
+  // off a combined curve having been plotted.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      aggregate: null,
+      aggregate_withheld: 'below_eval_floor',
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('The combined curve is a');
+  // The per-site curves really are on the chart, so this is a caption suppressed
+  // next to a rendered chart and not the empty state swallowing everything.
+  expect(text).toContain('Fewer sites evaluated');
+});
+
+test('the same caption does render when a combined curve is actually plotted', async ({ page }) => {
+  // The control for the test above. Without it, deleting the caption outright
+  // would pass and the page would have lost the one sentence that says the
+  // combined curve is worked out rather than measured.
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('The combined curve is a merge-weighted mean');
+  expect(text).toContain('named here rather than presented as a measurement');
 });
 
 test('a campaign with nothing missing renders none of the missing-round notes', async ({

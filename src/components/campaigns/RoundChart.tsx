@@ -189,6 +189,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     series,
     metricName,
     metricBasis,
+    shortPerSite,
+    unknownPerSite,
     tally,
     xMin,
     xMax,
@@ -205,6 +207,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       dashed: false,
     };
     const perSite = new Map<string, Series>();
+    let shortPerSite = 0;
+    let unknownPerSite = 0;
 
     scored.forEach((round) => {
       const metric = round.metric!;
@@ -217,7 +221,16 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       if (disposition.plot) {
         aggregate.points.push({ round: round.round, value: disposition.value });
       }
+      // The per-site map's completeness is a property of the per-site map, and
+      // it was only ever being reported as a by-product of reasoning about the
+      // aggregate. When a round carries a short map and no aggregate at all,
+      // every aggregate note stays silent and the chart draws the sites that
+      // did report as though they were the whole set. Same rule as the log
+      // fix: the statement belongs on the value's own exit path, not on
+      // whichever sibling happened to need it first.
       if (metric.per_site) {
+        if (metric.n_sites_scored === null) unknownPerSite += 1;
+        else if (Object.keys(metric.per_site).length < metric.n_sites_scored) shortPerSite += 1;
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
           let s = perSite.get(siteId);
           if (!s) {
@@ -248,8 +261,19 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     return {
       series: all,
       metricName: scored[0]?.metric?.name ?? null,
-      metricBasis: scored.find((r) => r.metric?.aggregate_basis)?.metric?.aggregate_basis ?? null,
+      // Null unless a combined curve actually rendered. The sentence this feeds
+      // is present tense about a line on the chart, so when every aggregate is
+      // withheld it describes a curve that is not there. That is the same
+      // defect as the log one, shrunk to a caption: the disposition gated the
+      // value and nothing gated the sentence about the value, and a caption
+      // outliving its subject asserts the subject exists.
+      metricBasis:
+        aggregate.points.length > 0
+          ? scored.find((r) => r.metric?.aggregate_basis)?.metric?.aggregate_basis ?? null
+          : null,
       tally: tallied,
+      shortPerSite,
+      unknownPerSite,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
@@ -352,6 +376,18 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           </span>
         ))}
       </div>
+      {shortPerSite > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          {countPhrase(shortPerSite)} {has(shortPerSite)} curves from fewer sites than scored that
+          round, so the lines above are not every site that took part.
+        </p>
+      )}
+      {unknownPerSite > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          {countPhrase(unknownPerSite)} {publishes(unknownPerSite)} per-site curves without saying
+          how many sites scored, so a complete set cannot be told from a partial one.
+        </p>
+      )}
       {metricBasis && (
         <p className="mt-3 text-xs text-gray-500">
           The combined curve is a {metricBasis}. There is no single pooled figure in the training
@@ -359,10 +395,25 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           than presented as a measurement.
         </p>
       )}
+      {/* This used to say per-site curves are kept within the campaign, and to
+          explain why that is a reasonable thing for a campaign to do. Both
+          halves were the page's, not the record's. `per_site` is a bare
+          nullable field with no cause attached, so a null one is an absence,
+          and describing an absence as a decision invents an actor: it points a
+          reader at a policy to go and read that may never have existed.
+
+          The argument in the old sentence is probably right, which is what made
+          it hard to see. A justification the record does not carry is still the
+          page's own, and a good one reads as more authoritative, not less.
+
+          This is the aggregate fix again on a neighbouring field. Carrying the
+          rule across surfaces for `aggregate` and never across fields is the
+          same boundary error one more time, and this instance sat three lines
+          below the one I had just closed. */}
       {series.length === 1 && series[0].key === '__aggregate__' && (
         <p className="mt-3 text-xs text-gray-500">
-          Per-site curves are kept within the campaign. Publishing them live would amount to a
-          public ranking of whose data is hardest, which discourages the sites this depends on.
+          No per-site curves are in this record. Whether they were held back or never collected is
+          not recorded, so this page does not describe it as either.
         </p>
       )}
       {/* One sentence per reason, never a wider sentence covering several. A
