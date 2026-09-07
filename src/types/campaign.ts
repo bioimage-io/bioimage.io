@@ -163,8 +163,32 @@
  * a null `n_sites_scored` now withholds the aggregate service-side. Both narrow
  * what may be emitted and neither invalidates a reader that handled the looser
  * case, so both are patches.
+ *
+ * 0.3.0-draft: MINOR, and the reason is worth keeping because it is the case
+ * the criterion above exists for. The change is `policy.aggregate_min_eval_sites`
+ * plus a service-side withhold of `aggregate` when the eval set is smaller than
+ * it, and on its face that is another tightening. It is not, because it
+ * withholds aggregates on rounds a reader currently expects to render, so
+ * anything holding "outcomes released implies an aggregate renders" breaks. This
+ * page held exactly that: a null aggregate matched neither branch of the chart's
+ * loop and produced no point, no counter and no note. Every leave-one-site-out
+ * fold has a singleton eval set, so the first campaign to use one would have
+ * shortened its own curve silently.
+ *
+ * Also in 0.3.0-draft: `RoundRecord.eval_on`, without which the transport
+ * multiplier is only computable at full participation, and
+ * `RoundMetric.aggregate_withheld`, which carries the reason for a withhold so
+ * the page does not reconstruct it. The page could infer every one of those
+ * causes from public process fields. It must not: inference from an absence is
+ * how a withhold becomes indistinguishable from a gap, which is the same bug
+ * arrived at from the other side.
+ *
+ * The pin moved only after the handling landed. A version pin is a claim that
+ * this page handles that version, so bumping first would have made the claim
+ * false for as long as the gap stayed open, and the page would have accepted
+ * 0.3.0 records while dropping their withheld rounds on the floor.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.5-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.3.0-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -306,6 +330,36 @@ export interface SiteRecord {
   declared: DeclaredSiteField[] | null;
 }
 
+/**
+ * Why the service published no aggregate for a round.
+ *
+ * A closed union, emitted by the service, and the page never infers which
+ * applies. It could: every one of these is derivable from public process
+ * fields. It must not, because inference from an absence is how a withhold
+ * becomes indistinguishable from a gap, and a reconstructed cause is a guess
+ * wearing the service's voice.
+ *
+ *  - `partial_map`          some sites' per-site values were published and the
+ *                           aggregate would reconstruct the rest.
+ *  - `completeness_unknown` the service could not establish that the per-site
+ *                           map was complete, so it could not rule out the above.
+ *  - `below_eval_floor`     fewer than `policy.aggregate_min_eval_sites` sites
+ *                           evaluated. At one site the aggregate IS that site's
+ *                           value under a pooled label, and every
+ *                           leave-one-site-out fold has a singleton eval set.
+ *  - `floor_unknown`        the floor itself was not stated, so the service
+ *                           could not prove it was met.
+ *
+ * Null alongside a null aggregate is NOT a withhold. It is an absence, and
+ * absences carry no argument: the page says the score is not in the record
+ * rather than reporting a decision nobody made.
+ */
+export type AggregateWithholdCause =
+  | 'partial_map'
+  | 'completeness_unknown'
+  | 'below_eval_floor'
+  | 'floor_unknown';
+
 /** The scoring for one round. `name` is campaign-specific and rendered as given. */
 export interface RoundMetric {
   /** e.g. "validation Dice". Never abbreviated to "score" by the page. */
@@ -327,8 +381,23 @@ export interface RoundMetric {
    * Withhold this whenever `per_site` is partially populated. With few sites,
    * an aggregate plus n-1 per-site values reconstructs the nth, which would
    * leak the value the per-site withholding exists to protect.
+   *
+   * Also withheld when fewer than `policy.aggregate_min_eval_sites` sites
+   * evaluated. See `aggregate_withheld`.
    */
   aggregate: number | null;
+  /**
+   * Set when `aggregate` is null BECAUSE the service decided to withhold it,
+   * naming which rule fired. Null when no aggregate was ever computed, or when
+   * the service simply did not say.
+   *
+   * This exists because a null field cannot distinguish a decision from a gap
+   * on its own, and the page had no third state for it: a null aggregate fell
+   * out of both branches of the chart's loop, contributing no point, no
+   * counter, and no note. The round silently shortened the line, and every
+   * missing round was rendered as if the campaign had never had one.
+   */
+  aggregate_withheld: AggregateWithholdCause | null;
   /**
    * How `aggregate` was pooled, e.g. "merge-weighted mean over per-dataset
    * validation Dice". Rendered wherever the aggregate is, because a pooled
@@ -625,6 +694,30 @@ export interface CampaignPolicy {
    * published is not permission to publish it. See `disclosure.ts`.
    */
   outcomes_released: boolean | null;
+  /**
+   * The minimum number of evaluating sites below which `RoundMetric.aggregate`
+   * is withheld. A campaign-level judgement, not a derivation, which is exactly
+   * why it lives here and is not a constant in this repo: a page that supplied
+   * its own value would present one consortium's disclosure threshold as a
+   * property of the platform.
+   *
+   * The long name is deliberate. A bare `min_eval_sites` reads as a validity
+   * condition on the round, which would have the page drop the round entirely.
+   * This gates ONE outcome field and leaves every process field standing.
+   *
+   * Readable regardless of `outcomes_released`, because it describes a rule and
+   * not a result. That generalises: a gate's parameter must not be hidden by
+   * its own gate, or the withhold becomes unexplainable exactly when it fires,
+   * which is the failure the withhold exists to prevent.
+   *
+   * Null fails closed. The page does not substitute a default and does not
+   * treat an unstated floor as met. Service-side a null floor also withholds,
+   * which makes "aggregate present alongside a null floor" a can't-happen. The
+   * page keeps a branch for it anyway and renders it as a drifted service,
+   * because the service refusing at the boundary is its guarantee, not a
+   * mechanism on this side.
+   */
+  aggregate_min_eval_sites: number | null;
 }
 
 export interface CampaignSteward {

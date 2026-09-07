@@ -132,6 +132,12 @@ function adapterRounds(total: number): RoundRecord[] {
     rounds.push({
       round,
       participants,
+      // Everyone on the roster at this round both trains and evaluates, so the
+      // union term equals the participant count and the multiplier lands on
+      // 3N+1. That is this campaign's shape, not the formula: a fold that
+      // trains a subset would read differently, which is why the sets are
+      // carried per round rather than a site count being carried once.
+      eval_on: participants,
       merge_weights,
       metric: {
         name: 'validation F1',
@@ -143,6 +149,10 @@ function adapterRounds(total: number): RoundRecord[] {
         aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
         aggregate_basis: 'merge-weighted mean over the per-site validation F1',
         n_sites_scored: roster.length,
+        // An aggregate is present, so nothing was withheld and there is no
+        // cause to state. Null here is the absence of a decision, not a
+        // decision to say nothing.
+        aggregate_withheld: null,
       },
       global_sha256: digest,
       scored_with,
@@ -182,6 +192,10 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // withheld until the primary-metric rules resolve. This fixture exists to
     // exercise that path, which is the one every live campaign will be on.
     outcomes_released: false,
+    // Four sites on the roster, so a floor of three still admits a pooled
+    // figure while ruling out the case where the pooled figure is one site's
+    // own result under a shared label.
+    aggregate_min_eval_sites: 3,
   },
   base_model: {
     id: 'bioimage-io/cellpose-sam',
@@ -322,6 +336,7 @@ function unetRounds(total: number): RoundRecord[] {
     rounds.push({
       round,
       participants: UNET_SITES.map((s) => s.site_id),
+      eval_on: UNET_SITES.map((s) => s.site_id),
       merge_weights: { 'site-a': 536, 'site-b': 482 },
       metric: {
         name: 'validation Dice',
@@ -332,6 +347,11 @@ function unetRounds(total: number): RoundRecord[] {
         // Both sites scored every round. Round 7 published only one of the two
         // curves, which is what makes its per-site map partial.
         n_sites_scored: UNET_SITES.length,
+        // The aggregate is present on every round including the partial one.
+        // That is deliberate: this fixture exercises the PAGE refusing a figure
+        // the record carries, which is a different path from the campaign
+        // withholding one and saying why.
+        aggregate_withheld: null,
       },
       global_sha256: digest,
       scored_with: { 'site-a': digest, 'site-b': digest },
@@ -375,6 +395,12 @@ const UNET_CAMPAIGN: CampaignRecord = {
     public_data_campaign: true,
     roster_attested: false,
     outcomes_released: true,
+    // Two sites, so two is the only floor that admits a pooled figure at all.
+    // A floor equal to the roster size is weaker than it looks: it is
+    // underdetermined within one round, but across rounds where membership
+    // changes while the protected quantity does not, the system can solve. This
+    // fixture holds membership fixed, which is the case where it does not.
+    aggregate_min_eval_sites: 2,
   },
   base_model: null,
   aggregation: { method: 'FedAvg', weighting: 'sample count' },

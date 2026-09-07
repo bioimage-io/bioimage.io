@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useCampaign } from '../../hooks/useCampaign';
 import { CampaignRecord } from '../../types/campaign';
 import { CampaignEmptyState, CampaignErrorState, CampaignLoading } from './CampaignStates';
+import { aggregateDisposition } from './aggregateDisposition';
 import PrototypeBanner from './PrototypeBanner';
 import RoundChart from './RoundChart';
 import SiteRoster from './SiteRoster';
@@ -82,6 +83,14 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
           const digests = round.scored_with ? Object.values(round.scored_with) : [];
           const agreedDigest =
             digests.length > 0 && digests.every((d) => d === digests[0]) ? digests[0] : null;
+          // Same decision the chart makes, from the same function, so the two
+          // surfaces cannot disagree about whether a round's pooled figure is
+          // publishable.
+          const disposition = aggregateDisposition(
+            round,
+            record.policy?.aggregate_min_eval_sites ?? null
+          );
+          const aggregateShown = disposition.plot ? disposition.value : null;
           return (
             <li key={round.round} className="flex gap-3 text-sm">
               <span className="mt-0.5 w-16 flex-shrink-0 tabular-nums font-medium text-gray-500">
@@ -103,15 +112,21 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
                 )}
                 {/* The metric is withheld with the rest of the outcome axis.
                     A service that sends one anyway must still not have it
-                    rendered, so this checks permission and not presence. */}
-                {showMetric &&
-                  round.metric?.aggregate !== undefined &&
-                  round.metric?.aggregate !== null && (
-                    <>
-                      {' '}
-                      {round.metric.name} {round.metric.aggregate.toFixed(3)}.
-                    </>
-                  )}
+                    rendered, so this checks permission and not presence.
+
+                    Permission is necessary and not sufficient. This used to
+                    render any aggregate that was present, which made the log
+                    the permissive twin of the chart: the chart would refuse a
+                    figure on a disclosure ground and the log would print it
+                    three lines further down. Between a surface that shows a
+                    number and one that does not, the number is what a reader
+                    takes away, so the same decision has to govern both. */}
+                {showMetric && aggregateShown !== null && (
+                  <>
+                    {' '}
+                    {round.metric!.name} {aggregateShown.toFixed(3)}.
+                  </>
+                )}
               </span>
             </li>
           );
@@ -230,7 +245,11 @@ const CampaignProgress: React.FC = () => {
 
       <Section title="Scores by round">
         {outcomesReleased(data) ? (
-          <RoundChart rounds={data.rounds} sites={data.sites} />
+          <RoundChart
+            rounds={data.rounds}
+            sites={data.sites}
+            minEvalSites={data.policy?.aggregate_min_eval_sites ?? null}
+          />
         ) : (
           <p className="text-sm leading-relaxed text-gray-600">
             No scores are published for this campaign yet. A score taken from a round still in

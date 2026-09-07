@@ -1,5 +1,11 @@
 import React, { useMemo } from 'react';
 import { RoundRecord, SiteRecord } from '../../types/campaign';
+import {
+  DispositionTally,
+  aggregateDisposition,
+  emptyTally,
+  tally as tallyInto,
+} from './aggregateDisposition';
 import { formatMetric } from './format';
 
 /**
@@ -19,6 +25,12 @@ import { formatMetric } from './format';
  * so publishing both halves of a partial round leaks exactly the value that
  * withholding per-site curves exists to protect. Publishing all of them or none
  * of them is safe; publishing most of them is not.
+ *
+ * Every round with no plotted point is accounted for under the chart, and the
+ * three ways that happens are kept apart: the campaign withheld and said why,
+ * the page refused to render one the campaign published, or the score is not in
+ * the record at all. See `aggregateDisposition.ts` for why that third case
+ * needed a branch of its own.
  */
 
 const SERIES_COLOURS = ['#2563eb', '#7c3aed', '#0891b2', '#c2410c', '#059669', '#be185d'];
@@ -39,28 +51,152 @@ interface Series {
   dashed: boolean;
 }
 
+const countPhrase = (n: number) => (n === 1 ? '1 round' : `${n} rounds`);
+const has = (n: number) => (n === 1 ? 'has' : 'have');
+const publishes = (n: number) => (n === 1 ? 'publishes' : 'publish');
+const reports = (n: number) => (n === 1 ? 'reports' : 'report');
+
+/**
+ * One sentence per reason a round is not on the chart.
+ *
+ * Rendered even when the chart itself has no points, because a campaign whose
+ * every round was withheld is not a campaign that never scored anything, and
+ * the empty state says the second. Returning early on an empty series would
+ * reinstate the silence this whole path exists to remove.
+ *
+ * Campaign decisions and page refusals are separated on screen and not only in
+ * the data. A withhold is the system working. A refusal means the record
+ * carries a figure its own stated format says it should not, which is a defect
+ * a reader can act on, and merging the two would bury it.
+ */
+const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
+  const withheld: string[] = [];
+  if (tally.service.partial_map > 0) {
+    const n = tally.service.partial_map;
+    withheld.push(
+      `${countPhrase(n)} ${has(n)} no combined score. Only some sites published a curve, so the combined figure is held back with them, because publishing both would let the rest be worked back out.`
+    );
+  }
+  if (tally.service.completeness_unknown > 0) {
+    const n = tally.service.completeness_unknown;
+    withheld.push(
+      `${countPhrase(n)} ${has(n)} no combined score. The campaign could not confirm that every scoring site had reported, so it could not rule out that a combined figure would fill in a missing one.`
+    );
+  }
+  if (tally.service.below_eval_floor > 0) {
+    const n = tally.service.below_eval_floor;
+    withheld.push(
+      `${countPhrase(n)} ${has(n)} no combined score. Fewer sites evaluated than the campaign publishes a combined figure over. Across very few sites a combined figure is close to one site's own result under a shared label.`
+    );
+  }
+  if (tally.service.floor_unknown > 0) {
+    const n = tally.service.floor_unknown;
+    withheld.push(
+      `${countPhrase(n)} ${has(n)} no combined score. The campaign did not record how many evaluating sites it requires before publishing one, so that condition could not be shown to have been met.`
+    );
+  }
+
+  const refused: string[] = [];
+  if (tally.page.contradictory_withhold > 0) {
+    const n = tally.page.contradictory_withhold;
+    refused.push(
+      `${countPhrase(n)} ${reports(n)} both a combined score and a reason for there being none.`
+    );
+  }
+  if (tally.page.partial_map > 0) {
+    const n = tally.page.partial_map;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score next to a partial set of per-site curves, which would let the missing values be worked back out.`
+    );
+  }
+  if (tally.page.completeness_unknown > 0) {
+    const n = tally.page.completeness_unknown;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score without saying how many sites were scored, so a complete set of per-site curves cannot be told from a partial one.`
+    );
+  }
+  if (tally.page.below_eval_floor > 0) {
+    const n = tally.page.below_eval_floor;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score over fewer evaluating sites than the campaign's own threshold allows.`
+    );
+  }
+  if (tally.page.floor_unstated > 0) {
+    const n = tally.page.floor_unstated;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score, but the campaign records no threshold for how many evaluating sites one requires.`
+    );
+  }
+  if (tally.page.eval_set_unreported > 0) {
+    const n = tally.page.eval_set_unreported;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score without recording which sites evaluated, so that threshold cannot be checked.`
+    );
+  }
+
+  if (withheld.length === 0 && refused.length === 0 && tally.absent === 0) return null;
+
+  return (
+    <>
+      {withheld.map((sentence) => (
+        <p key={sentence} className="mt-3 text-xs text-gray-500">
+          {sentence}
+        </p>
+      ))}
+      {refused.length > 0 && (
+        <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-xs font-medium text-amber-900">
+            This page is holding back figures the campaign did publish.
+          </p>
+          {refused.map((sentence) => (
+            <p key={sentence} className="mt-1 text-xs text-amber-900">
+              {sentence}
+            </p>
+          ))}
+          <p className="mt-1 text-xs text-amber-800">
+            Each of those combinations is one the campaign format rules out, so the record does not
+            match the format it declares. The figures are held back rather than shown with a note,
+            because a caveat does not undo a value a reader has already seen.
+          </p>
+        </div>
+      )}
+      {tally.absent > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          {countPhrase(tally.absent)} {has(tally.absent)} no combined score and no reason recorded
+          for its absence. There is no way to tell from the record whether it was held back or never
+          worked out, so this page does not describe it as either.
+        </p>
+      )}
+    </>
+  );
+};
+
 interface RoundChartProps {
   rounds: RoundRecord[];
   sites: SiteRecord[];
+  /**
+   * From `policy.aggregate_min_eval_sites`. Undefined and null both mean the
+   * floor was not stated, which withholds rather than passes: an unstated floor
+   * is not a met one, and the page does not supply a value of its own.
+   */
+  minEvalSites?: number | null;
 }
 
-const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
+const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = null }) => {
   const scored = useMemo(() => rounds.filter((r) => r.metric !== null), [rounds]);
 
   const {
     series,
     metricName,
     metricBasis,
-    withheldAggregates,
-    unverifiableAggregates,
+    tally,
     xMin,
     xMax,
     yMin,
     yMax,
   } = useMemo(() => {
     const siteNames = new Map(sites.map((s) => [s.site_id, s.site_name]));
-    let withheld = 0;
-    let unverifiable = 0;
+    const tallied = emptyTally();
     const aggregate: Series = {
       key: '__aggregate__',
       label: 'All sites',
@@ -72,32 +208,14 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
 
     scored.forEach((round) => {
       const metric = round.metric!;
-      // A partial per-site map plus an aggregate reconstructs the missing site,
-      // so the two are only publishable together when the map is complete.
-      //
-      // `n_sites_scored` is the ONLY thing that can establish completeness, so
-      // when it is null the page cannot tell a complete map from a partial one.
-      // This used to require `n_sites_scored !== null` before calling a round
-      // partial, which meant a silent count made `partialPerSite` false and the
-      // aggregate was published: precisely the combination this gate exists to
-      // prevent, produced by the service saying nothing. A gate that only fires
-      // when the record volunteers the number it needs is not a gate.
-      //
-      // Unknown completeness is therefore counted separately from known
-      // partial. Both withhold, but they are different situations and the note
-      // under the chart must not tell a reader the wrong one.
-      const perSiteReported = metric.per_site !== null;
-      const completenessUnknown = perSiteReported && metric.n_sites_scored === null;
-      const knownPartial =
-        perSiteReported &&
-        metric.n_sites_scored !== null &&
-        Object.keys(metric.per_site!).length < metric.n_sites_scored;
-
-      if (metric.aggregate !== null && !knownPartial && !completenessUnknown) {
-        aggregate.points.push({ round: round.round, value: metric.aggregate });
-      } else if (metric.aggregate !== null) {
-        if (completenessUnknown) unverifiable += 1;
-        else withheld += 1;
+      // Every outcome, including "no aggregate was reported", is named and
+      // counted. The decision itself lives in aggregateDisposition so it can be
+      // checked without rendering anything: a wrong gate here draws a curve
+      // that looks exactly like a right one, just with more points on it.
+      const disposition = aggregateDisposition(round, minEvalSites);
+      tallyInto(tallied, disposition);
+      if (disposition.plot) {
+        aggregate.points.push({ round: round.round, value: disposition.value });
       }
       if (metric.per_site) {
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
@@ -131,21 +249,38 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
       series: all,
       metricName: scored[0]?.metric?.name ?? null,
       metricBasis: scored.find((r) => r.metric?.aggregate_basis)?.metric?.aggregate_basis ?? null,
-      withheldAggregates: withheld,
-      unverifiableAggregates: unverifiable,
+      tally: tallied,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
       yMax: hi + span * 0.15,
     };
-  }, [scored, sites]);
+  }, [scored, sites, minEvalSites]);
 
   if (series.length === 0) {
+    // "Nothing reported" and "everything held back" are different claims, and
+    // the first one is wrong whenever any round produced a reason. The notes
+    // render here too, otherwise a fully withheld campaign reads as a campaign
+    // that never scored anything.
+    const anyAccounted =
+      tally.absent > 0 ||
+      Object.values(tally.service).some((n) => n > 0) ||
+      Object.values(tally.page).some((n) => n > 0);
     return (
-      <p className="text-sm text-gray-500">
-        No scores have been reported for this campaign yet. Accuracy is published after a campaign
-        completes, so a run in progress may show none.
-      </p>
+      <div>
+        {!anyAccounted && (
+          <p className="text-sm text-gray-500">
+            No scores have been reported for this campaign yet. Accuracy is published after a
+            campaign completes, so a run in progress may show none.
+          </p>
+        )}
+        {anyAccounted && (
+          <p className="text-sm text-gray-500">
+            No round in this campaign has a combined score to plot.
+          </p>
+        )}
+        <DispositionNotes tally={tally} />
+      </div>
     );
   }
 
@@ -230,27 +365,13 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
           public ranking of whose data is hardest, which discourages the sites this depends on.
         </p>
       )}
-      {withheldAggregates > 0 && (
-        <p className="mt-3 text-xs text-gray-500">
-          {withheldAggregates} {withheldAggregates === 1 ? 'round is' : 'rounds are'} missing a
-          combined score. Where only some sites published a curve, showing the combined figure too
-          would let the remaining one be worked back out, so both are held back together.
-        </p>
-      )}
-      {/* A separate sentence from the one above, not a wider version of it. A
-          round held back because the map is known to be short is a different
-          situation from one held back because nobody said how long the map
-          should be, and the second is a gap in the record rather than a
-          disclosure decision. Merging them would tell a reader the campaign
-          chose to withhold something it never reported the shape of. */}
-      {unverifiableAggregates > 0 && (
-        <p className="mt-3 text-xs text-gray-500">
-          {unverifiableAggregates} {unverifiableAggregates === 1 ? 'round does' : 'rounds do'} not
-          report how many sites were scored, so there is no way to tell a complete set of per-site
-          curves from a partial one. The combined score is held back for those rounds rather than
-          published on the assumption that the set is complete.
-        </p>
-      )}
+      {/* One sentence per reason, never a wider sentence covering several. A
+          round held back because the per-site map is known to be short is a
+          different situation from one held back because nobody said how long
+          the map should be, and both differ again from one the campaign never
+          scored. Merging any two tells a reader the wrong thing about at least
+          one of them. */}
+      <DispositionNotes tally={tally} />
     </div>
   );
 };

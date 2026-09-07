@@ -1,0 +1,176 @@
+#!/usr/bin/env node
+/**
+ * Checks the aggregate disclosure decision in
+ * src/components/campaigns/aggregateDisposition.ts.
+ *
+ * Standalone for the same reason as transport-math-check.js: the repo's TS
+ * version chain makes `react-scripts test` and `tsc --noEmit` unusable, and the
+ * module under test is pure and imports nothing but types.
+ *
+ * A rendering assertion cannot cover this class on its own. Every wrong answer
+ * here produces a chart that looks exactly like a right one, with one more
+ * point on it or one fewer, and the failure that matters is the direction where
+ * a figure appears that should not have. So the cases below are written mostly
+ * as refusals, and the ones that plot are there to prove the refusals are not
+ * vacuous: a function that refused everything would pass a suite of refusals.
+ *
+ *   node scripts/aggregate-disposition-check.js
+ *
+ * Exits non-zero on any failure. Emits into a temp dir and cleans up.
+ */
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const REPO = path.resolve(__dirname, '..');
+const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'agg-disp-'));
+
+try {
+  // tsc reports parse errors from modern .d.ts files under TS 3.9.10 and still
+  // emits. Emission is what matters, so the exit code is ignored.
+  try {
+    execFileSync(
+      path.join(REPO, 'node_modules/.bin/tsc'),
+      [
+        path.join(REPO, 'src/components/campaigns/aggregateDisposition.ts'),
+        '--outDir', OUT,
+        '--target', 'es2019',
+        '--module', 'commonjs',
+        '--skipLibCheck',
+        '--moduleResolution', 'node',
+      ],
+      { stdio: 'ignore' }
+    );
+  } catch (e) {
+    /* see above */
+  }
+
+  const emitted = path.join(OUT, 'components/campaigns/aggregateDisposition.js');
+  if (!fs.existsSync(emitted)) {
+    console.error('FAIL: aggregateDisposition.ts did not compile, nothing to check');
+    process.exit(1);
+  }
+
+  const { aggregateDisposition, emptyTally, tally } = require(emitted);
+
+  let fail = 0;
+  let passed = 0;
+  const eq = (name, got, want) => {
+    const g = JSON.stringify(got), w = JSON.stringify(want);
+    if (g !== w) { console.log(`FAIL ${name}\n  got  ${g}\n  want ${w}`); fail++; }
+    else { console.log(`ok   ${name}`); passed++; }
+  };
+
+  // A round with everything in order. Three evaluating sites, complete per-site
+  // map, no stated withhold.
+  const ok = (over) => ({
+    round: 0,
+    participants: ['a', 'b', 'c'],
+    eval_on: ['a', 'b', 'c'],
+    metric: {
+      name: 'validation Dice',
+      higher_is_better: true,
+      per_site: { a: 0.8, b: 0.81, c: 0.79 },
+      aggregate: 0.8,
+      aggregate_basis: 'mean',
+      n_sites_scored: 3,
+      aggregate_withheld: null,
+      ...(over && over.metric),
+    },
+    ...(over && over.round !== undefined ? { round: over.round } : {}),
+    ...(over && over.eval_on !== undefined ? { eval_on: over.eval_on } : {}),
+  });
+
+  // Plots. Without these the refusal cases below prove nothing.
+  eq('complete round plots', aggregateDisposition(ok(), 3), { plot: true, value: 0.8 });
+  eq('eval count exactly at the floor plots',
+    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'] }), 3).plot, true);
+  eq('per_site withheld entirely still plots',
+    aggregateDisposition(ok({ metric: { per_site: null, n_sites_scored: null } }), 3),
+    { plot: true, value: 0.8 });
+
+  // The bug this module was written for: a null aggregate used to fall out of
+  // both branches of the chart's loop and produce nothing at all.
+  eq('service withhold is attributed to the service',
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'below_eval_floor' } }), 3),
+    { plot: false, by: 'service', cause: 'below_eval_floor' });
+  eq('every service cause is carried through, not flattened',
+    ['partial_map', 'completeness_unknown', 'below_eval_floor', 'floor_unknown'].map((c) =>
+      aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: c } }), 3).cause),
+    ['partial_map', 'completeness_unknown', 'below_eval_floor', 'floor_unknown']);
+
+  // A null with no stated cause is an absence, not a withhold. Reporting it as
+  // a withhold would attribute a decision to a service that made none.
+  eq('null aggregate with no cause is absent',
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
+    { plot: false, by: 'absent' });
+  eq('no metric at all is absent',
+    aggregateDisposition({ round: 0, participants: [], eval_on: [], metric: null }, 3),
+    { plot: false, by: 'absent' });
+
+  // Page refusals. Each is a figure the service published that the page will
+  // not render, which is a different statement from the service withholding it.
+  eq('partial map refuses',
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.81 } } }), 3),
+    { plot: false, by: 'page', cause: 'partial_map' });
+  eq('unknown completeness refuses',
+    aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3),
+    { plot: false, by: 'page', cause: 'completeness_unknown' });
+  eq('below the floor refuses',
+    aggregateDisposition(ok({ eval_on: ['a', 'b'] }), 3),
+    { plot: false, by: 'page', cause: 'below_eval_floor' });
+  eq('singleton eval set refuses',
+    aggregateDisposition(ok({ eval_on: ['a'] }), 3),
+    { plot: false, by: 'page', cause: 'below_eval_floor' });
+  eq('unreported eval set refuses',
+    aggregateDisposition(ok({ eval_on: null }), 3),
+    { plot: false, by: 'page', cause: 'eval_set_unreported' });
+  eq('unstated floor refuses',
+    aggregateDisposition(ok(), null),
+    { plot: false, by: 'page', cause: 'floor_unstated' });
+  eq('aggregate plus a stated withhold refuses',
+    aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3),
+    { plot: false, by: 'page', cause: 'contradictory_withhold' });
+
+  // The failure direction that matters. A null floor must not be read as met,
+  // and the page must not supply 3 of its own: the threshold is one
+  // consortium's judgement and a page that invented one would present it as a
+  // property of the platform.
+  eq('null floor does not fall through to a default of 3',
+    aggregateDisposition(ok(), null).plot, false);
+  eq('null floor refuses even a large eval set',
+    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c', 'd', 'e', 'f'] }), null).plot, false);
+
+  // Service and page causes with the same name are not the same finding.
+  const sameName = [
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'partial_map' } }), 3),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 } } }), 3),
+  ];
+  eq('same cause, different actor, stays distinguishable',
+    sameName.map((d) => d.by), ['service', 'page']);
+
+  // A refusal must not be silently rewritten into a plot by the tally.
+  const t = emptyTally();
+  [
+    aggregateDisposition(ok(), 3),
+    aggregateDisposition(ok({ eval_on: ['a'] }), 3),
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'floor_unknown' } }), 3),
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
+  ].forEach((d) => tally(t, d));
+  eq('tally counts plotted', t.plotted, 1);
+  eq('tally counts the page refusal', t.page.below_eval_floor, 1);
+  eq('tally counts the service withhold', t.service.floor_unknown, 1);
+  eq('tally counts the absence', t.absent, 1);
+  // Every round lands in exactly one bucket. A round counted twice overstates
+  // how much is missing, and a round counted nowhere is the original bug.
+  const total = t.plotted + t.absent
+    + Object.values(t.service).reduce((a, b) => a + b, 0)
+    + Object.values(t.page).reduce((a, b) => a + b, 0);
+  eq('every round lands in exactly one bucket', total, 4);
+
+  console.log(fail ? `\n${fail} FAILED` : `\nall ${passed} passed`);
+  process.exit(fail ? 1 : 0);
+} finally {
+  fs.rmSync(OUT, { recursive: true, force: true });
+}
