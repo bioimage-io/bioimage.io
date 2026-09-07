@@ -68,6 +68,13 @@ const reports = (n: number) => (n === 1 ? 'reports' : 'report');
  * the data. A withhold is the system working. A refusal means the record
  * carries a figure its own stated format says it should not, which is a defect
  * a reader can act on, and merging the two would bury it.
+ *
+ * A third group sits between them: the record is correct, the format permits
+ * exactly what it did, and this page still cannot verify the figure. Only the
+ * refusals get the amber, because only they accuse anyone. Putting a permitted
+ * record under that heading accuses a producer of a breach they did not commit,
+ * and unlike a withhold or a refusal there is nothing they could do about it,
+ * since the shape being objected to is the correct one.
  */
 const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
   const withheld: string[] = [];
@@ -115,18 +122,6 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${publishes(n)} more per-site scores than the number of sites it records as having scored, so the two cannot both be describing sites.`
     );
   }
-  if (tally.page.per_site_basis_unstated > 0) {
-    const n = tally.page.per_site_basis_unstated;
-    refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score beside a set of per-unit scores that does not say what it is keyed by, so there is no way to tell what the combined figure would fill in.`
-    );
-  }
-  if (tally.page.per_site_not_site_keyed > 0) {
-    const n = tally.page.per_site_not_site_keyed;
-    refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score beside scores keyed by something other than site, and the record carries no count of those to check the set against.`
-    );
-  }
   if (tally.page.completeness_unknown > 0) {
     const n = tally.page.completeness_unknown;
     refused.push(
@@ -152,7 +147,35 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
     );
   }
 
-  if (withheld.length === 0 && refused.length === 0 && tally.absent === 0) return null;
+  // Separate from `refused` and rendered without the amber, because the amber
+  // block ends by telling the reader the record does not match its own declared
+  // format. That is true of everything in `refused` and false of this: a
+  // non-site key space is a value the format added a field for, so publishing
+  // one is conformance, not breach. A pooled arm is one site scoring several
+  // datasets and its map is dataset-keyed permanently, so under the old
+  // grouping the page called a correct and unchangeable record broken every
+  // time it drew that campaign.
+  const unrenderable: string[] = [];
+  if (tally.unrenderable.per_site_not_site_keyed > 0) {
+    const n = tally.unrenderable.per_site_not_site_keyed;
+    unrenderable.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score beside per-unit scores that are not keyed by site. The campaign format allows that and the record is not at fault. This page holds the combined figure back anyway, because the record counts the sites that scored and counts nothing in the units the scores are actually keyed by, so the set cannot be shown to be complete, and a combined figure beside an incomplete set would let the missing entries be worked back out. A count in the units the scores use would settle it.`
+    );
+  }
+  if (tally.unrenderable.per_site_basis_unstated > 0) {
+    const n = tally.unrenderable.per_site_basis_unstated;
+    unrenderable.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score beside per-unit scores without recording what the units are. Saying nothing is a permitted answer and the record is not at fault. This page holds the combined figure back anyway, because it cannot tell what the combined figure would fill in without knowing what the set is a set of.`
+    );
+  }
+
+  if (
+    withheld.length === 0 &&
+    refused.length === 0 &&
+    unrenderable.length === 0 &&
+    tally.absent === 0
+  )
+    return null;
 
   return (
     <>
@@ -172,12 +195,18 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
             </p>
           ))}
           <p className="mt-1 text-xs text-amber-800">
-            Each of those combinations is one the campaign format rules out, so the record does not
-            match the format it declares. The figures are held back rather than shown with a note,
-            because a caveat does not undo a value a reader has already seen.
+            Each of those is a rule the campaign itself declared and its own record then broke,
+            either by contradicting itself or by publishing a figure it said it would hold back.
+            The figures are held back rather than shown with a note, because a caveat does not undo
+            a value a reader has already seen.
           </p>
         </div>
       )}
+      {unrenderable.map((sentence) => (
+        <p key={sentence} className="mt-3 text-xs text-gray-500">
+          {sentence}
+        </p>
+      ))}
       {tally.absent > 0 && (
         <p className="mt-3 text-xs text-gray-500">
           {countPhrase(tally.absent)} {has(tally.absent)} no combined score and no reason recorded

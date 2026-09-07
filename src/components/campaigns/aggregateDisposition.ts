@@ -32,6 +32,17 @@ import { AggregateWithholdCause, RoundRecord } from '../../types/campaign';
  * the record is inconsistent with the contract it claims to satisfy. Same
  * reason, different actor, and the note has to say which, because one of them
  * is the system working and the other is a defect to report.
+ *
+ * Every member of this union names a stated obligation the record breaks. The
+ * service commits to withholding the aggregate for `partial_map`,
+ * `completeness_unknown`, `below_scoring_floor` and `floor_unknown`, so a
+ * record that publishes one anyway has broken a rule it declared. The other
+ * three are self-contradictions: a value beside a reason there is no value, a
+ * cardinality that cannot occur, and a round that answered more than it asked.
+ *
+ * That is the membership test, and it is stated here because the note under the
+ * chart tells the reader this in as many words. Anything that fails the test
+ * belongs in `PanelLimit`. See there for the two that did.
  */
 export type PageRefusal =
   /** An aggregate arrived alongside a stated reason for there being none. */
@@ -40,10 +51,6 @@ export type PageRefusal =
   | 'partial_map'
   /** A site-keyed map with more entries than sites recorded as having scored. */
   | 'map_exceeds_count'
-  /** A per-unit map arrived without saying what it is keyed by. */
-  | 'per_site_basis_unstated'
-  /** The map is keyed by something the record carries no denominator for. */
-  | 'per_site_not_site_keyed'
   /** No `n_sites_scored`, so neither completeness nor the floor can be checked. */
   | 'completeness_unknown'
   /** More sites recorded as scoring than were asked to evaluate. */
@@ -53,10 +60,71 @@ export type PageRefusal =
   /** No floor stated, so it cannot be shown to have been met. */
   | 'floor_unstated';
 
+/**
+ * Why this panel cannot check an aggregate whose record is entirely correct.
+ *
+ * A fourth outcome, and the reason it is fourth is the same reason there were
+ * three. `PageRefusal` means the record contradicts its own declared format, and
+ * the note under the chart says so in as many words. That sentence was true of
+ * every member when it was written, and then `per_site_basis` was added in
+ * 0.4.0 so a producer could DECLARE a non-site key space, which made
+ * `'dataset'` a conforming value and left a conforming record sitting inside a
+ * category the page describes as malformed.
+ *
+ * That is this file's own defect class arriving in prose. 0.4.0 and 0.5.0 both
+ * removed doc comments asserting a property of a value the comment could not
+ * see. This was a RENDERED sentence asserting a property of a set the sentence
+ * could not see, filled at runtime, and it is the worse of the two because a
+ * doc comment misleads a maintainer while this misleads a reader about somebody
+ * else's data.
+ *
+ * The cost is not hypothetical. The pooled arm of the federated layout is one
+ * site scoring six datasets, its map is dataset-keyed permanently and by
+ * design, and it is 15 of the 75 arms in the completed consortium run. Under
+ * the old category the page told a reader that a fifth of that run failed to
+ * match its own format. Nothing about those records is wrong.
+ *
+ * The aggregate is still withheld, and that part was never the mistake. A
+ * dataset-keyed map has no denominator anywhere in the record to check its
+ * completeness against, so an aggregate published beside it can still fill in
+ * entries the map omits. Withholding is right. Calling it a defect was not.
+ *
+ * Both members are key-space causes, and that is not a coincidence. Key space
+ * is the one property the schema made declarable in 0.4.0 without attaching any
+ * completeness commitment to the non-site case, so it is exactly the region
+ * where a producer can conform fully and still leave this page unable to check
+ * anything. Only one of the two was reported. The other was found by asking
+ * which remaining members actually fail the membership test written above
+ * `PageRefusal`, which is the check that should have existed when that sentence
+ * was first rendered.
+ */
+export type PanelLimit =
+  /**
+   * The map is keyed by something the record carries no count of.
+   *
+   * `n_sites_scored` is the only denominator in the schema and it counts sites,
+   * so completeness is assertable in the site key space and in no other. This
+   * is a gap in the format rather than a fault in the record, and it is fixed
+   * by the producer publishing a count in the map's own key space, not by this
+   * page inferring one.
+   */
+  | 'per_site_not_site_keyed'
+  /**
+   * A per-unit map arrived without saying what it is keyed by.
+   *
+   * `per_site_basis: null` is documented as "the producer did not say", an
+   * explicitly permitted value rather than an omission, and no service withhold
+   * cause covers it. So a record can reach here having broken nothing. It
+   * carries less than this page needs, which is a different thing from carrying
+   * something it should not.
+   */
+  | 'per_site_basis_unstated';
+
 export type AggregateDisposition =
   | { plot: true; value: number }
   | { plot: false; by: 'service'; cause: AggregateWithholdCause }
   | { plot: false; by: 'page'; cause: PageRefusal }
+  | { plot: false; by: 'unrenderable'; cause: PanelLimit }
   | { plot: false; by: 'absent' };
 
 /**
@@ -118,14 +186,20 @@ export function aggregateDisposition(
     // mirror image will never surface, because both arms inherit the same bad
     // premise.
     if (metric.per_site_basis === null) {
-      return { plot: false, by: 'page', cause: 'per_site_basis_unstated' };
+      return { plot: false, by: 'unrenderable', cause: 'per_site_basis_unstated' };
     }
     if (metric.per_site_basis !== 'site') {
       // A dataset-keyed map is well-formed and this page still cannot check it:
       // the record carries no count of datasets scored, so completeness is not
       // assertable, and an aggregate published beside an unverifiable map is
       // exactly the reconstruction hazard the site-keyed case withholds for.
-      return { plot: false, by: 'page', cause: 'per_site_not_site_keyed' };
+      //
+      // `unrenderable`, not `page`. Same withhold, different actor at fault, and
+      // nobody is at fault here: the basis field exists so this value can be
+      // declared, so declaring it cannot be a violation. Grouping it with the
+      // format breaches put a correct record under a heading that calls it
+      // broken, permanently, for every pooled arm ever run.
+      return { plot: false, by: 'unrenderable', cause: 'per_site_not_site_keyed' };
     }
   }
 
@@ -188,6 +262,7 @@ export interface DispositionTally {
   plotted: number;
   service: Record<AggregateWithholdCause, number>;
   page: Record<PageRefusal, number>;
+  unrenderable: Record<PanelLimit, number>;
   absent: number;
 }
 
@@ -204,12 +279,14 @@ export function emptyTally(): DispositionTally {
       contradictory_withhold: 0,
       partial_map: 0,
       map_exceeds_count: 0,
-      per_site_basis_unstated: 0,
-      per_site_not_site_keyed: 0,
       completeness_unknown: 0,
       scoring_exceeds_eval_set: 0,
       below_scoring_floor: 0,
       floor_unstated: 0,
+    },
+    unrenderable: {
+      per_site_not_site_keyed: 0,
+      per_site_basis_unstated: 0,
     },
     absent: 0,
   };
@@ -222,5 +299,6 @@ export function tally(tallied: DispositionTally, d: AggregateDisposition): void 
   }
   if (d.by === 'service') tallied.service[d.cause] += 1;
   else if (d.by === 'page') tallied.page[d.cause] += 1;
+  else if (d.by === 'unrenderable') tallied.unrenderable[d.cause] += 1;
   else tallied.absent += 1;
 }

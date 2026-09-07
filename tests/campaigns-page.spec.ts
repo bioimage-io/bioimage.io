@@ -957,6 +957,79 @@ test('the pooled arm is refused for its key space, not as a count mismatch', asy
 });
 
 /**
+ * Who the page accuses when it holds a figure back.
+ *
+ * The two key-space tests above both set `aggregate: null`, so neither of them
+ * ever reached the block that decides an aggregate. That is why this went
+ * unseen: the key space was tested, the accusation attached to it was not, and
+ * the two only meet when a round publishes a combined score AND a map the page
+ * cannot check. Both tests below do that, and before the fix both landed in the
+ * amber box, which ends by telling the reader the record broke a rule.
+ *
+ * Neither record broke anything. A dataset basis is a value the format added a
+ * field for, and a null basis is documented as "the producer did not say". The
+ * pooled arm of the federated layout is permanently dataset-keyed, one site
+ * scoring several datasets, and it is 15 of the 75 arms in the only completed
+ * run there is, so this was not a corner: the page told every reader of that
+ * campaign that a fifth of it was malformed.
+ *
+ * The withholding is correct and unchanged in both. Only the attribution moves.
+ */
+test('a map the page cannot check is not called a breach of the format', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-dataset-x': 0.66, 'stub-dataset-y': 0.68 },
+      per_site_basis: 'dataset',
+      n_sites_scored: 1,
+      aggregate: 0.67,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('not keyed by site');
+  expect(text).toContain('the record is not at fault');
+  // The accusation, and the sentence underneath it that spells the accusation
+  // out. Both must be absent, because the heading alone is what a reader skims.
+  expect(text).not.toContain('holding back figures the campaign did publish');
+  expect(text).not.toContain('its own record then broke');
+  // Still withheld. The fix is about who is blamed, not about what is shown,
+  // and a fix that started plotting this would be a worse bug than the one it
+  // replaced: the map has no denominator, so the figure could fill in a gap.
+  expect(text).not.toContain('0.67');
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
+});
+
+test('an unstated key space is not called a breach of the format either', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: null,
+      n_sites_scored: 2,
+      aggregate: 0.7,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('without recording what the units are');
+  expect(text).toContain('Saying nothing is a permitted answer');
+  expect(text).not.toContain('holding back figures the campaign did publish');
+  expect(text).not.toContain('its own record then broke');
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
+});
+
+/**
  * The scoring floor, and the operand it is checked against.
  *
  * The floor exists to stop a pooled figure being published when too few sites

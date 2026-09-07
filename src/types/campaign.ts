@@ -483,6 +483,19 @@ export interface RoundMetric {
    * The page draws per-site curves only for 'site'. For 'dataset' it has a map
    * it can label but no denominator in the record to check it against, since
    * `n_sites_scored` counts sites. For null it has neither.
+   *
+   * That missing denominator is a gap in this schema and not a fault in any
+   * record, which is worth stating because the page briefly implied otherwise.
+   * `n_sites_scored` is the only count here and it counts sites, so an aggregate
+   * can be shown complete in the site key space and in no other. A campaign
+   * whose map is permanently dataset-keyed, which is the correct and unchanging
+   * shape of a pooled arm, therefore has its aggregate withheld forever with
+   * nothing it could do about it.
+   *
+   * Closing the gap means a count in the map's own key space, published by the
+   * producer. It is deliberately not specified here yet: inventing the field
+   * unilaterally would repeat the mistake this basis field was added to fix,
+   * which is one side asserting a property the other never agreed to.
    */
   per_site_basis: KeySpace | null;
   /**

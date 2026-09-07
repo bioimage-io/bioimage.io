@@ -132,10 +132,10 @@ try {
   // unless the map is site-keyed, and this module used to assume it was.
   eq('a map that does not say what it is keyed by refuses',
     aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
-    { plot: false, by: 'page', cause: 'per_site_basis_unstated' });
+    { plot: false, by: 'unrenderable', cause: 'per_site_basis_unstated' });
   eq('a dataset-keyed map refuses for want of a denominator, not as malformed',
     aggregateDisposition(ok({ metric: { per_site_basis: 'dataset' } }), 3),
-    { plot: false, by: 'page', cause: 'per_site_not_site_keyed' });
+    { plot: false, by: 'unrenderable', cause: 'per_site_not_site_keyed' });
 
   // The pooled arm of the current federated layout: six datasets scored at one
   // site. This is a CORRECT round and the previous revision of this file
@@ -151,6 +151,41 @@ try {
   };
   eq('the pooled arm is not reported as a count mismatch',
     aggregateDisposition(ok(pooledArm), 1).cause, 'per_site_not_site_keyed');
+
+  // And it is not reported as a page refusal either, which is the stronger
+  // claim and the one that took a second pass to see. `by` decides which block
+  // on screen the sentence lands in, and the page-refusal block ends by saying
+  // the record does not match the format it declares. A dataset basis is a
+  // value the format added a field for in 0.4.0, so publishing one is
+  // conformance. The pooled arm is permanently this shape and is 15 of the 75
+  // arms in the completed run, so the old grouping was not an edge case: it
+  // told a reader a fifth of that run was malformed, every time, forever.
+  //
+  // The behaviour is unchanged and was never the mistake. Same withhold, same
+  // cause, different actor at fault, and here no actor is.
+  eq('the pooled arm is not accused of breaching the format',
+    aggregateDisposition(ok(pooledArm), 1).by, 'unrenderable');
+  eq('the pooled arm aggregate is still withheld',
+    aggregateDisposition(ok(pooledArm), 1).plot, false);
+  // Control on the split. A genuinely malformed record must STILL be a page
+  // refusal, or the fix has merely stopped the page accusing anyone of
+  // anything, which loses the finding rather than classifying it.
+  // The membership test for `page`, applied to the two remaining key-space
+  // causes rather than only to the one that was reported. `per_site_basis: null`
+  // is documented as "the producer did not say", a permitted value, and no
+  // service withhold cause covers it, so a record can reach it having broken
+  // nothing. It moves too.
+  eq('an unstated key space is a panel limit, not an accusation',
+    aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3).by, 'unrenderable');
+  // Control on the split. A record that really did break a stated rule must
+  // STILL be a page refusal, or the fix has stopped the page accusing anyone of
+  // anything, which loses the finding rather than classifying it. The service
+  // commits to withholding below the floor, so publishing anyway is a breach.
+  eq('a floor breach is still a page refusal',
+    aggregateDisposition(ok({ eval_on: ['a','b','c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3).by,
+    'page');
+  eq('a self-contradicting round is still a page refusal',
+    aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3).by, 'page');
 
   // The cardinality comparisons survive, in the space where they mean
   // something. A site-keyed map really cannot have more entries than sites.
@@ -235,17 +270,27 @@ try {
     aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'floor_unknown' } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
+    aggregateDisposition(ok(pooledArm), 1),
   ].forEach((d) => tally(t, d));
   eq('tally counts plotted', t.plotted, 1);
   eq('tally counts the page refusal', t.page.below_scoring_floor, 1);
   eq('tally counts the service withhold', t.service.floor_unknown, 1);
   eq('tally counts the absence', t.absent, 1);
+  eq('tally counts the panel limit', t.unrenderable.per_site_not_site_keyed, 1);
   // Every round lands in exactly one bucket. A round counted twice overstates
   // how much is missing, and a round counted nowhere is the original bug.
+  //
+  // This sum has to enumerate EVERY bucket or it stops being a conservation
+  // check and becomes a check that four particular buckets add up. Adding
+  // `unrenderable` without adding it here would have left the pooled arm
+  // counted nowhere, which is the exact bug this assertion exists to catch,
+  // reintroduced inside it. A conservation law with a term missing is not a
+  // weaker law, it is a different one that happens to pass.
   const total = t.plotted + t.absent
     + Object.values(t.service).reduce((a, b) => a + b, 0)
-    + Object.values(t.page).reduce((a, b) => a + b, 0);
-  eq('every round lands in exactly one bucket', total, 4);
+    + Object.values(t.page).reduce((a, b) => a + b, 0)
+    + Object.values(t.unrenderable).reduce((a, b) => a + b, 0);
+  eq('every round lands in exactly one bucket', total, 5);
 
   console.log(fail ? `\n${fail} FAILED` : `\nall ${passed} passed`);
   process.exit(fail ? 1 : 0);
