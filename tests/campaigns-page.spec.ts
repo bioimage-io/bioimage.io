@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.2.4-draft';
+const SCHEMA_VERSION = '0.2.5-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -831,6 +831,76 @@ test('a site that reports no provenance does not get its values presented as mea
   // reason to withhold the figure, only a reason not to vouch for it.
   expect(text).toContain('Elbonia');
   expect(text).toContain('536');
+});
+
+/**
+ * The three provenance states must be mutually distinguishable ON THE PAGE.
+ *
+ * The unknown branch is kept even though the service now guarantees `declared`,
+ * on the argument that a producer guarantee is not a mechanism on this side.
+ * That argument only holds while the branch is LOUD. A fallback that renders
+ * like the success case is worse than no fallback, because it converts a loud
+ * failure into a quiet one: the code would still be there, the protection would
+ * be gone, and nothing would say so.
+ *
+ * So this asserts discrimination directly rather than checking each state in
+ * isolation. Every per-state assertion elsewhere in this file would still pass
+ * on a component that had collapsed two states into one rendering. This one
+ * would not.
+ *
+ * Measured is asserted to be UNMARKED specifically, because unmarked is the
+ * baseline the other two are read against. If a mark ever appears on measured
+ * values, the absence of a mark stops meaning anything and both other states
+ * lose their contrast, even though each would still render its own string.
+ */
+test('the three provenance states are distinguishable from each other', async ({ page }) => {
+  const record = stubRecord();
+  const base = (record.sites as any[])[0];
+  const sites = [
+    // Declared: the site listed this field on its join form.
+    { ...base, site_id: 'prov-declared', site_name: 'Declared site', declared: ['n_train_images'] },
+    // Measured: a declared list exists and this field is not on it, so the
+    // platform observed it. An empty list is a positive statement, not silence.
+    { ...base, site_id: 'prov-measured', site_name: 'Measured site', declared: [] },
+    // Unknown: no declared list at all. Not evidence of measurement.
+    { ...base, site_id: 'prov-unknown', site_name: 'Unknown site', declared: null },
+  ];
+  await stubCampaignService(page, { record: { ...record, sites } });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  // Two marks, not three: the measured site is deliberately unmarked.
+  await expect(page.locator('[data-provenance]')).toHaveCount(2);
+  await expect(page.locator('[data-provenance="declared"]')).toHaveCount(1);
+  await expect(page.locator('[data-provenance="unknown"]')).toHaveCount(1);
+
+  // Asserted on the row itself, so this fails if the measured site picks up a
+  // mark of any kind rather than only if the total count changes.
+  const measuredRow = page.locator('tr', { hasText: 'Measured site' });
+  await expect(measuredRow.locator('[data-provenance]')).toHaveCount(0);
+  // ...and the row still shows its value. Unmarked means observed, not hidden.
+  await expect(measuredRow).toContainText('536');
+
+  const declaredMark = page.locator('[data-provenance="declared"]');
+  const unknownMark = page.locator('[data-provenance="unknown"]');
+  const [declaredText, unknownText, declaredTitle, unknownTitle] = await Promise.all([
+    declaredMark.innerText(),
+    unknownMark.innerText(),
+    declaredMark.getAttribute('title'),
+    unknownMark.getAttribute('title'),
+  ]);
+
+  // Both the visible string and the hover text discriminate. A component that
+  // kept the attribute correct while rendering one shared caption would pass
+  // the count assertions above and fail here.
+  expect(new Set([declaredText, unknownText]).size).toBe(2);
+  expect(new Set([declaredTitle, unknownTitle]).size).toBe(2);
+
+  // And they say different things, rather than merely differing. The unknown
+  // mark must not claim the site declared anything.
+  expect(declaredTitle).toContain('Declared by the site');
+  expect(unknownTitle).toContain('did not report where its values came from');
+  expect(unknownTitle).not.toContain('Declared by the site');
 });
 
 // ---------------------------------------------------------------------------

@@ -143,8 +143,28 @@
  *    from "the run genuinely skipped this round", which are different facts.
  */
 
-/** Bump on any breaking change to the shapes below. */
-export const CAMPAIGN_SCHEMA_VERSION = '0.2.4-draft';
+/**
+ * The version this page is written against.
+ *
+ * Which component to bump is a criterion, not a judgement call, because
+ * "is this breaking?" gets answered differently by the producer and the reader:
+ *
+ *   MINOR  a consumer must change to stay correct.
+ *   PATCH  only the producer's obligations tighten.
+ *
+ * `assertSchema` compares major.minor, so a patch bump is accepted silently and
+ * a minor bump refuses the record until this constant moves. That asymmetry is
+ * the whole point and also the hazard: "it is only a tightening" is exactly the
+ * argument that would smuggle a breaking change past the component nothing
+ * checks. When it is not obvious which one applies, take the minor. A spurious
+ * refusal costs one bump; a wrongly-silent patch costs a reader a false page.
+ *
+ * 0.2.5-draft: `declared` became required and non-nullable on the service, and
+ * a null `n_sites_scored` now withholds the aggregate service-side. Both narrow
+ * what may be emitted and neither invalidates a reader that handled the looser
+ * case, so both are patches.
+ */
+export const CAMPAIGN_SCHEMA_VERSION = '0.2.5-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -270,6 +290,18 @@ export interface SiteRecord {
    * Which of this site's own fields are self-declared rather than measured.
    * Rendered visually distinct from measured values, so a reader can tell a
    * form entry from an observation without being told per field.
+   *
+   * An empty array is a positive statement that nothing was declared. It is not
+   * the same as null and must not be collapsed into it.
+   *
+   * Still nullable here even though the service has required it since
+   * 0.2.5-draft, because this type describes what can arrive over the wire, not
+   * what the producer promises to send. Nothing on this side type-checks the
+   * JSON. Dropping the null would delete the page's only handling of a producer
+   * regression and replace it with the assumption that regressions do not
+   * happen, which is how the self-declared values would go back to being
+   * presented as platform-measured. SiteRoster renders the third state visibly
+   * rather than silently picking a side.
    */
   declared: DeclaredSiteField[] | null;
 }
