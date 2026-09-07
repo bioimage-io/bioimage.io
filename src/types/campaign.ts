@@ -207,8 +207,40 @@
  * Prose in a schema binds nobody. The producer never agreed to the sentence and
  * the reader cannot check it, which makes it the same class of thing as a tier
  * asserted in a comment on a method that cannot know its caller.
+ *
+ * 0.5.0-draft: MINOR. `RoundRecord.scored_with_basis` and
+ * `ObservedTransport.per_site_basis`, which are the same defect as 0.4.0 in the
+ * two places 0.4.0 did not look, plus the `KeySpace` alias that names the thing
+ * once instead of three times.
+ *
+ * 0.4.0 fixed one field and left two more asserting their key space in prose,
+ * one of them on a field of the same name in the same file, sixty lines below
+ * the fix. Both assertions are TRUE today, checked against the driver. That is
+ * the point rather than a mitigation: true-and-unverifiable is the state these
+ * basis fields exist to eliminate, because a consumer has no way to confirm it,
+ * and one producer refactor turns a true comment into a false one with every
+ * reader downstream inheriting it.
+ *
+ * The rule this file is converging on, which is worth stating once here: a
+ * property that no single side can verify has to be a declaration each side
+ * publishes, never a check one side runs. Key space is that kind of property,
+ * and so is provenance, and so is the derivation of an aggregate.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.4.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.5.0-draft';
+
+/**
+ * What a per-unit map is keyed by.
+ *
+ * One alias rather than a repeated union, because the three maps that carry a
+ * basis must offer the same vocabulary. A site-keyed map and a dataset-keyed
+ * map are both well-formed, and which one a page can use depends entirely on
+ * what else in the record shares that space.
+ *
+ * Null is not a member and never means 'site'. Every field of this type is
+ * `KeySpace | null` at its use site, and null there means the producer did not
+ * say, which is a third state the reader has to handle separately.
+ */
+export type KeySpace = 'site' | 'dataset';
 
 /**
  * What crosses the site boundary each round.
@@ -418,7 +450,7 @@ export interface RoundMetric {
    * it can label but no denominator in the record to check it against, since
    * `n_sites_scored` counts sites. For null it has neither.
    */
-  per_site_basis: 'site' | 'dataset' | null;
+  per_site_basis: KeySpace | null;
   /**
    * Null when the campaign does not define a single pooled figure, which is the
    * honest default: the driver records the metric per dataset and there is no
@@ -542,12 +574,33 @@ export interface RoundRecord {
   /** Digest of the merged weights, so a curve can be tied to the exact aggregate. */
   global_sha256: string | null;
   /**
-   * Keyed by site id: the digest of the aggregate each site ACTUALLY scored on.
-   * The driver already writes this and raises if the digests disagree, which
-   * makes it the strongest provenance field in the record. The honest rendering
-   * of "6 sites training" is "6 sites scored on a22dba37...".
+   * The digest of the aggregate each unit ACTUALLY scored on.
+   *
+   * The strongest provenance field in the record. The driver writes it after
+   * the merge and the pull, and raises when a unit's digest matches the
+   * previous round's while the aggregate moved, which catches a site scoring on
+   * weights it never received. The honest rendering of "6 sites training" is
+   * "6 sites scored on a22dba37...".
+   *
+   * Which makes the key space load-bearing rather than incidental, and this
+   * comment used to assert it. `scored_with` comes out of the same function as
+   * `RoundMetric.per_site` and the two are keyed DIFFERENTLY: `val_dice()`
+   * writes `scored_with[site]` and `scores[dataset]` in one loop. Today the
+   * site half is genuinely site-keyed, checked at run_federated.py:343 where
+   * the call passes `eval_on`. It is still not a fact any consumer can confirm,
+   * and a page that renders the map's size as a count of sites is asserting the
+   * key space every time it prints the sentence.
    */
   scored_with: Record<string, string> | null;
+  /**
+   * What `scored_with` is keyed by. Null means the producer did not say.
+   *
+   * The page names a count of sites in the provenance sentence, so it prints
+   * that sentence only for 'site'. Under any other basis it has a digest it
+   * could show and no way to say how many sites stand behind it, and a digest
+   * without that count is the part a reader would supply themselves.
+   */
+  scored_with_basis: KeySpace | null;
   transport: RoundTransport | null;
 }
 
@@ -573,8 +626,26 @@ export interface ObservedTransport {
   valid: boolean;
   /** Why the windows disagree, in words a reader can act on. Null when valid. */
   invalid_reason: string | null;
-  /** Keyed by site id. */
+  /**
+   * One transport window per contributing unit.
+   *
+   * Nothing renders this today. The basis below is here anyway, because the
+   * reason the other two maps went wrong was not that someone read the comment
+   * carelessly, it was that the comment was the only thing a consumer had. A
+   * field with no consumer is exactly where that gap survives longest: the
+   * first component to use it inherits an unverifiable claim and there is
+   * nothing at that point to notice it against.
+   */
   per_site: Record<string, RoundTransport> | null;
+  /**
+   * What `per_site` is keyed by. Null means the producer did not say.
+   *
+   * `run_federated.py:681` builds it over `apps.items()`, the same namespace as
+   * `eval_on`, so it is site-keyed today and `TransportWindow.source` agrees.
+   * Both of those are facts about the current driver rather than about the
+   * record, which is the distinction this field exists to carry.
+   */
+  per_site_basis: KeySpace | null;
   driver: RoundTransport | null;
   windows: TransportWindow[] | null;
 }

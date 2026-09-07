@@ -157,6 +157,7 @@ function adapterRounds(total: number): RoundRecord[] {
       },
       global_sha256: digest,
       scored_with,
+      scored_with_basis: 'site' as const,
       transport: {
         bytes_out: ADAPTER_BYTES * roster.length,
         bytes_in: ADAPTER_BYTES * roster.length,
@@ -219,6 +220,7 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
       valid: true,
       invalid_reason: null,
       per_site: null,
+      per_site_basis: null,
       driver: {
         bytes_out: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_out ?? 0), 0),
         bytes_in: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_in ?? 0), 0),
@@ -357,6 +359,7 @@ function unetRounds(total: number): RoundRecord[] {
       },
       global_sha256: digest,
       scored_with: { 'site-a': digest, 'site-b': digest },
+      scored_with_basis: 'site' as const,
       transport: {
         bytes_out: UNET_STATE_DICT_BYTES * UNET_SITES.length,
         bytes_in: UNET_STATE_DICT_BYTES * UNET_SITES.length,
@@ -425,6 +428,7 @@ const UNET_CAMPAIGN: CampaignRecord = {
         'The driver was relaunched several times during this run, so its log covers only the '
         + 'last stretch of it while the site logs cover much more.',
       per_site: null,
+      per_site_basis: null,
       driver: {
         bytes_out: UNET_STATE_DICT_BYTES * 123,
         bytes_in: UNET_STATE_DICT_BYTES * 123,

@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.4.0-draft';
+const SCHEMA_VERSION = '0.5.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -56,6 +56,7 @@ function stubRounds(): Array<Record<string, unknown>> {
     // Both sites scored on the same aggregate, which is the strongest
     // provenance claim the record carries.
     scored_with: { 'stub-site-a': STUB_DIGEST, 'stub-site-b': STUB_DIGEST },
+    scored_with_basis: 'site',
     transport: { bytes_out: 15_520_000, bytes_in: 15_520_000, n_transfers: 4, sources_complete: true },
   }));
 }
@@ -873,6 +874,18 @@ test('an over-long map is named in the refusal box when an aggregate is publishe
  * Hence `per_site_basis`, and hence these two tests: the key space has to come
  * from the record, and each of the two ways it can fail has to be visible as
  * itself rather than borrowing the count-mismatch wording.
+ *
+ * READ THIS BEFORE TRUSTING THE SITE-KEYED PATH. The driver emits 'dataset'
+ * today, so in production the site-keyed branch of that gate is never taken and
+ * the cardinality comparisons behind it never run. Every assertion here that
+ * exercises them does so on a stub. That makes them untested against a real
+ * record, not validated by one, and the distinction erodes fast: a year of
+ * green turns into "this has been working in production for a year" in
+ * somebody's memory. It has not been running at all. What makes the branch safe
+ * to keep is that removing it fails these tests and nothing else, which is a
+ * statement about coverage rather than about the field ever having been
+ * exercised. The real exercise arrives when `#0001` carries (site, dataset)
+ * through.
  */
 test('a per-site map that does not say what it is keyed by is not drawn', async ({ page }) => {
   const rounds = stubRounds().map((round: any) => ({
@@ -1028,6 +1041,99 @@ test('the round log reports the digest the sites actually scored on', async ({ p
   expect(text).toContain('a22dba37');
   // Only the first eight characters, never the whole digest.
   expect(text).not.toContain(STUB_DIGEST);
+});
+
+/**
+ * The provenance sentence, which had the same two defects as the per-site map
+ * and kept them one commit longer.
+ *
+ * "All N scored on X" took N from `scored_with` itself. A map is always all of
+ * itself, so the word "all" could not be wrong and could not be right: it read
+ * as a coverage claim and asserted nothing. The denominator has to come from
+ * `eval_on`, which is the set the driver builds the map over.
+ *
+ * And the sentence calls those entries sites, which is a claim about the key
+ * space that the schema used to make in a doc comment. `scored_with` comes out
+ * of the same driver function as the per-site metric map, keyed differently.
+ *
+ * The four tests below are the four states, and the control above is the fifth.
+ * Without the control, every one of these would pass on a page that had simply
+ * deleted the sentence.
+ */
+test('a short digest set is reported as a fraction, not as all of itself', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    // Two sites evaluated, one digest came back.
+    scored_with: { 'stub-site-a': STUB_DIGEST },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('1 of 2 scored on');
+  // The old sentence would have rendered "All 1 scored on", which is true about
+  // the map and false about the round.
+  expect(text).not.toContain('All 1 scored on');
+  expect(text).toContain('a22dba37');
+});
+
+test('with no evaluating set recorded, the digest carries no coverage claim', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    eval_on: null,
+    scored_with: { 'stub-site-a': STUB_DIGEST },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // The digest is still worth showing. What is not available is the denominator,
+  // so the sentence states what it has and claims nothing further.
+  expect(text).toContain('1 site scored on');
+  expect(text).not.toContain('All 1');
+  expect(text).not.toContain(' of 2 scored on');
+});
+
+test('digests reported without a key space are not counted as sites', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    scored_with_basis: null,
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('without recording that they belong to sites');
+  expect(text).not.toContain('All 2 scored on');
+  // The digest is not shown either, because the sentence that carries it is the
+  // sentence making the claim.
+  expect(text).not.toContain('a22dba37');
+});
+
+test('more digests than evaluating sites withholds provenance and says so', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    scored_with: {
+      'stub-site-a': STUB_DIGEST,
+      'stub-site-b': STUB_DIGEST,
+      'stub-site-c': STUB_DIGEST,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('does not match the evaluating set');
+  // Both directions of the wrong reading are refused. "All 3" would invent a
+  // third site and "3 of 2" would print an impossible fraction rather than
+  // reporting that the record contradicts itself.
+  expect(text).not.toContain('All 3 scored on');
+  expect(text).not.toContain('3 of 2 scored on');
+  expect(text).not.toContain('a22dba37');
 });
 
 // ---------------------------------------------------------------------------
@@ -1368,7 +1474,7 @@ test('the three provenance states are distinguishable from each other', async ({
 // ---------------------------------------------------------------------------
 
 test('a service on a different schema is refused at the index, not rendered', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.5.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.6.0-draft' });
   await page.goto('/#/campaigns');
 
   // The refusal is visible. A silent empty list would be the wrong outcome:
@@ -1379,8 +1485,8 @@ test('a service on a different schema is refused at the index, not rendered', as
   // test green while it had quietly stopped checking that the page reports
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
-  await expect(page.getByText(/reports schema 0\.5\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.4\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.6\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.5\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1394,11 +1500,11 @@ test('a service on a different schema is refused at the index, not rendered', as
 });
 
 test('a service on a different schema is refused at the detail page too', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.5.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.6.0-draft' });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
-  await expect(page.getByText(/reports schema 0\.5\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.4\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.6\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.5\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1438,7 +1544,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.4.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.5.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();

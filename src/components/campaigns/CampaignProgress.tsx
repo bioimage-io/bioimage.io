@@ -80,9 +80,33 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
           // claim about intent; "6 sites scored on a22dba37" is a claim the
           // driver checked, because it compares the digests and raises when
           // they disagree. Prefer it wherever it exists.
-          const digests = round.scored_with ? Object.values(round.scored_with) : [];
+          //
+          // Two things had to be established before that sentence can be
+          // printed, and the sentence used to establish neither.
+          //
+          // The key space, because the sentence counts this map's entries and
+          // calls them sites. `scored_with` comes out of the same driver
+          // function as the per-site metric map and the two are keyed
+          // differently, so "it is next to site data" is not evidence.
+          //
+          // And the denominator. "All N scored on X" took N from inside the map
+          // it was describing, and a map is always all of itself, so the word
+          // "all" could not be wrong and could not be right. It read as a
+          // coverage claim while asserting nothing. The denominator has to come
+          // from `eval_on`, which is the set the driver actually scores over.
+          const scoredWith = round.scored_with_basis === 'site' ? round.scored_with : null;
+          const digests = scoredWith ? Object.values(scoredWith) : [];
           const agreedDigest =
             digests.length > 0 && digests.every((d) => d === digests[0]) ? digests[0] : null;
+          const evalCount = round.eval_on !== null ? round.eval_on.length : null;
+          // Both counts are site counts here, so this comparison is in one
+          // space and both directions mean something. More digests than
+          // evaluating sites is a contradiction rather than a coverage gap: it
+          // cannot come from the driver, which builds the map over `eval_on`,
+          // so it says the record was assembled wrong and nothing in it can be
+          // read as coverage.
+          const provenanceContradicts = evalCount !== null && digests.length > evalCount;
+          const provenanceUnkeyed = round.scored_with !== null && scoredWith === null;
           // Same decision the chart makes, from the same function, so the two
           // surfaces cannot disagree about whether a round's pooled figure is
           // publishable.
@@ -100,15 +124,33 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
                 Merged weights from {names.length} {names.length === 1 ? 'site' : 'sites'}
                 {names.length > 0 && `: ${names.join(', ')}`}
                 {out && `. ${out} of weights moved.`}
-                {agreedDigest && (
+                {agreedDigest && !provenanceContradicts && (
                   <>
                     {' '}
-                    All {digests.length} scored on{' '}
+                    {evalCount === null
+                      ? `${digests.length} ${digests.length === 1 ? 'site' : 'sites'} scored on`
+                      : digests.length === evalCount
+                      ? `All ${digests.length} scored on`
+                      : `${digests.length} of ${evalCount} scored on`}{' '}
                     <code className="rounded bg-gray-100 px-1 text-xs text-gray-600">
                       {agreedDigest.slice(0, 8)}
                     </code>
                     .
                   </>
+                )}
+                {/* The two ways the provenance sentence can be unsupported. Both
+                    are marked rather than dropped, because the sentence is
+                    optional per round already, so its silent absence carries no
+                    information and a reader cannot tell a round that reported no
+                    digest from a round whose digest this page would not stand
+                    behind. */}
+                {provenanceContradicts && (
+                  <> The digest count does not match the evaluating set, so provenance is not
+                    shown for this round.</>
+                )}
+                {provenanceUnkeyed && (
+                  <> Digests were reported without recording that they belong to sites, so they
+                    are not counted as sites here.</>
                 )}
                 {/* The metric is withheld with the rest of the outcome axis.
                     A service that sends one anyway must still not have it
