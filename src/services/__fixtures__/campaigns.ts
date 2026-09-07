@@ -150,6 +150,11 @@ function adapterRounds(total: number): RoundRecord[] {
         aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
         aggregate_basis: 'merge-weighted mean over the per-site validation F1',
         n_sites_scored: roster.length,
+        // Null, and not because the count is unknown. There is no per-unit map
+        // at all here, so no key space to count in, and 0.7.0 specifies the
+        // field as present only on a dataset-keyed round. A number here would
+        // be a count of something this record never claims to have measured.
+        n_datasets_scored: null,
         // An aggregate is present, so nothing was withheld and there is no
         // cause to state. Null here is the absence of a decision, not a
         // decision to say nothing.
@@ -351,6 +356,10 @@ function unetRounds(total: number): RoundRecord[] {
         // Both sites scored every round. Round 7 published only one of the two
         // curves, which is what makes its per-site map partial.
         n_sites_scored: UNET_SITES.length,
+        // Site-keyed round, so this stays null. Setting it would be the
+        // `count_key_space_mismatch` refusal, which is exactly what that gate
+        // is for.
+        n_datasets_scored: null,
         // The aggregate is present on every round including the partial one.
         // That is deliberate: this fixture exercises the PAGE refusing a figure
         // the record carries, which is a different path from the campaign

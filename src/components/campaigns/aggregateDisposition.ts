@@ -53,6 +53,18 @@ export type PageRefusal =
   | 'map_exceeds_count'
   /** No `n_sites_scored`, so neither completeness nor the floor can be checked. */
   | 'completeness_unknown'
+  /**
+   * A dataset count on a round whose map is not dataset-keyed.
+   *
+   * `n_datasets_scored` is specified as present when and only when
+   * `per_site_basis` is 'dataset', so a record carrying it anywhere else has
+   * not decided what it counts. Note the direction: it is the COUNT that is
+   * out of place, never the co-occurrence of the two counts. A dataset-keyed
+   * round with an aggregate carries both, because the floor is a rule about
+   * sites however the map is keyed, and reading their co-occurrence as the
+   * contradiction would reopen 0.6.0's leak in the dataset key space.
+   */
+  | 'count_key_space_mismatch'
   /** More sites recorded as scoring than were asked to evaluate. */
   | 'scoring_exceeds_eval_set'
   /** Fewer SCORING sites than the campaign's own floor. */
@@ -100,13 +112,22 @@ export type PageRefusal =
  */
 export type PanelLimit =
   /**
-   * The map is keyed by something the record carries no count of.
+   * The map is keyed by something this record carries no count of.
    *
-   * `n_sites_scored` is the only denominator in the schema and it counts sites,
-   * so completeness is assertable in the site key space and in no other. This
-   * is a gap in the format rather than a fault in the record, and it is fixed
-   * by the producer publishing a count in the map's own key space, not by this
+   * Until 0.7.0 that was every dataset-keyed round, because `n_sites_scored`
+   * was the schema's only denominator and it counts sites, so completeness was
+   * assertable in the site key space and in no other. `n_datasets_scored`
+   * closed that gap, and it closed it the way the gap had to be closed: by the
+   * producer publishing a count in the map's own key space rather than by this
    * page inferring one.
+   *
+   * So this now fires only on a dataset-keyed round that carries no dataset
+   * count, which after 0.7.0 means a record written before the field existed.
+   * It stays a panel limit and does not become a refusal, because the completed
+   * consortium run cannot be regenerated and a record cannot be at fault for
+   * omitting a field that did not exist when it was written. The behaviour it
+   * selects is the pre-0.7.0 behaviour exactly: the map cannot be checked, so
+   * the aggregate is withheld, and nobody is accused.
    */
   | 'per_site_not_site_keyed'
   /**
@@ -119,6 +140,58 @@ export type PanelLimit =
    * something it should not.
    */
   | 'per_site_basis_unstated';
+
+/**
+ * The obligation each refusal says the record broke.
+ *
+ * This exists because the membership test above `PageRefusal` was applied once,
+ * by hand, and found two members that failed it. A test applied once catches the
+ * instances present that day. The two it caught had been wrong since 0.4.0 and
+ * were not noticed for three versions, so the useful output of that exercise is
+ * the test, not its two results, and a test only survives as something the code
+ * runs.
+ *
+ * So each cause has to name the obligation, in one sentence, and the check
+ * script asserts the two directions that make the naming load-bearing: every
+ * cause this module can emit is registered, and every registered cause is
+ * actually reachable. Adding a member to either union without deciding which
+ * side it belongs on now fails a test instead of shipping.
+ *
+ * The sentences are for the maintainer, not the reader. Reader-facing wording
+ * lives in `RoundChart`, phrased as the withhold rather than as the breach.
+ */
+export const REFUSAL_OBLIGATION: Record<PageRefusal, string> = {
+  contradictory_withhold:
+    'A record states a reason there is no aggregate, or it publishes one. Not both.',
+  partial_map:
+    'The service withholds the aggregate when the per-unit map is short of the count, because the aggregate would fill the omissions back in.',
+  map_exceeds_count:
+    'A map cannot hold more entries than the record says scored, in whatever key space the map declares.',
+  completeness_unknown:
+    '`n_sites_scored` is required whenever `aggregate` is non-null, since it is the denominator the mean is over.',
+  count_key_space_mismatch:
+    '`n_datasets_scored` is present when and only when `per_site_basis` is `dataset`.',
+  scoring_exceeds_eval_set:
+    'A site cannot return a score for a round it was not asked to evaluate.',
+  below_scoring_floor:
+    'The service withholds the aggregate when fewer sites scored than the campaign\'s own floor.',
+  floor_unstated:
+    'A campaign publishing aggregates states its floor, or the floor cannot be shown to have been met.',
+};
+
+/**
+ * Why each panel limit is NOT a broken obligation.
+ *
+ * The other half of the same test. A member here has to be defensible as a
+ * record that conformed, so the entry says what permits it. If no such sentence
+ * can be written, the cause belongs in `PageRefusal` instead.
+ */
+export const PANEL_LIMIT_PERMISSION: Record<PanelLimit, string> = {
+  per_site_not_site_keyed:
+    '`per_site_basis: dataset` is a conforming declaration, and before 0.7.0 the schema offered no count to pair it with.',
+  per_site_basis_unstated:
+    '`per_site_basis: null` is documented as "the producer did not say", an explicitly permitted answer rather than an omission.',
+};
 
 export type AggregateDisposition =
   | { plot: true; value: number }
@@ -168,6 +241,23 @@ export function aggregateDisposition(
     return { plot: false, by: 'page', cause: 'contradictory_withhold' };
   }
 
+  // Normalised, and this is load-bearing rather than defensive tidiness. Every
+  // record written before 0.7.0 arrives over HTTP with no such key, so the
+  // field reads `undefined` and not `null`, and a strict `!== null` below would
+  // have read "absent" as "present" and accused the entire completed
+  // consortium run of a key-space contradiction. The type says `number | null`,
+  // the wire says the key may not be there, and the gate has to agree with the
+  // wire. Missing and null mean the same thing here: no count was given.
+  const nDatasets = metric.n_datasets_scored ?? null;
+
+  // Outside the `per_site` block on purpose. This is a property of the record,
+  // not of the map: a count in a key space the record does not claim is wrong
+  // whether or not a map arrived to be counted. Nesting it would repeat the
+  // 0.6.0 mistake of guarding a record-level check on the presence of a map.
+  if (nDatasets !== null && metric.per_site_basis !== 'dataset') {
+    return { plot: false, by: 'page', cause: 'count_key_space_mismatch' };
+  }
+
   if (metric.per_site !== null) {
     // The key space first, because every check below it is a comparison against
     // `n_sites_scored`, which counts SITES. Comparing the length of a map to a
@@ -188,17 +278,21 @@ export function aggregateDisposition(
     if (metric.per_site_basis === null) {
       return { plot: false, by: 'unrenderable', cause: 'per_site_basis_unstated' };
     }
-    if (metric.per_site_basis !== 'site') {
-      // A dataset-keyed map is well-formed and this page still cannot check it:
-      // the record carries no count of datasets scored, so completeness is not
-      // assertable, and an aggregate published beside an unverifiable map is
-      // exactly the reconstruction hazard the site-keyed case withholds for.
+    if (metric.per_site_basis !== 'site' && nDatasets === null) {
+      // A dataset-keyed map is well-formed and, with no count in its own key
+      // space, this page still cannot check it: completeness is not assertable,
+      // and an aggregate published beside an unverifiable map is exactly the
+      // reconstruction hazard the site-keyed case withholds for.
       //
       // `unrenderable`, not `page`. Same withhold, different actor at fault, and
       // nobody is at fault here: the basis field exists so this value can be
       // declared, so declaring it cannot be a violation. Grouping it with the
       // format breaches put a correct record under a heading that calls it
       // broken, permanently, for every pooled arm ever run.
+      //
+      // The `n_datasets_scored === null` arm is what makes this narrow rather
+      // than permanent. With the count present the map is checkable and falls
+      // through to the cardinality gate below, in its own key space.
       return { plot: false, by: 'unrenderable', cause: 'per_site_not_site_keyed' };
     }
   }
@@ -215,16 +309,24 @@ export function aggregateDisposition(
 
   if (metric.per_site !== null) {
     // Both sides are in the same space by now, so both directions are
-    // meaningful. A site-keyed map really cannot have more entries than sites
-    // scored. Split from the basis checks above rather than merged back with
-    // them, because the two ask different questions: the basis is a property of
-    // the map, the count is a property of the record, and only their join is a
-    // cardinality claim.
+    // meaningful. A map really cannot have more entries than units recorded as
+    // having scored. Split from the basis checks above rather than merged back
+    // with them, because the two ask different questions: the basis is a
+    // property of the map, the count is a property of the record, and only
+    // their join is a cardinality claim.
+    //
+    // The denominator is chosen by the map's declared key space, which is the
+    // whole reason 0.7.0 exists. Reading `n_sites_scored` here for a
+    // dataset-keyed map would be the original wrong-space comparison restored,
+    // just further down the function: six datasets against one site is not a
+    // partial map, it is two different questions being subtracted.
     const mapped = Object.keys(metric.per_site).length;
-    if (mapped < metric.n_sites_scored) {
+    const scored =
+      metric.per_site_basis === 'dataset' ? (nDatasets as number) : metric.n_sites_scored;
+    if (mapped < scored) {
       return { plot: false, by: 'page', cause: 'partial_map' };
     }
-    if (mapped > metric.n_sites_scored) {
+    if (mapped > scored) {
       return { plot: false, by: 'page', cause: 'map_exceeds_count' };
     }
   }
@@ -280,6 +382,7 @@ export function emptyTally(): DispositionTally {
       partial_map: 0,
       map_exceeds_count: 0,
       completeness_unknown: 0,
+      count_key_space_mismatch: 0,
       scoring_exceeds_eval_set: 0,
       below_scoring_floor: 0,
       floor_unstated: 0,

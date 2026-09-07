@@ -251,8 +251,32 @@
  * `n_sites_scored` stops being an optional stand-in for `per_site` and becomes
  * the field the floor is checked against, required whenever an aggregate is
  * published.
+ *
+ * 0.7.0-draft: MINOR. `RoundMetric.n_datasets_scored`, the denominator 0.4.0
+ * left missing when it made the key space declarable. A consumer that ignores
+ * it keeps withholding correct dataset-keyed aggregates forever, so ignoring it
+ * is not a safe default and every reader of `per_site` must change.
+ *
+ * 0.4.0 let a producer SAY its map was dataset-keyed and gave it no way to say
+ * how many datasets there were, so declaring the truth made the map permanently
+ * uncheckable. The field was the honest move and it was half a mechanism: a
+ * declaration with no matching count is a claim a reader still cannot verify,
+ * which is the condition these basis fields exist to remove rather than
+ * relocate.
+ *
+ * Named by the producer, not here. The page had the gap written down for a
+ * version with the field deliberately unspecified, because inventing it would
+ * have been one side asserting a property the other never agreed to, which is
+ * the mistake `per_site_basis` was added to fix.
+ *
+ * The counts are siblings and NOT alternatives. `n_sites_scored` stays required
+ * whenever `aggregate` is non-null, because the scoring floor is a rule about
+ * sites however the map is keyed, and a dataset-keyed round therefore carries
+ * both. Reading their co-occurrence as the contradiction would reopen 0.6.0's
+ * leak in a second key space. The contradiction is a dataset count on a
+ * site-keyed round, which is a record that has not decided what it counts.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.6.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.7.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -484,18 +508,12 @@ export interface RoundMetric {
    * it can label but no denominator in the record to check it against, since
    * `n_sites_scored` counts sites. For null it has neither.
    *
-   * That missing denominator is a gap in this schema and not a fault in any
-   * record, which is worth stating because the page briefly implied otherwise.
-   * `n_sites_scored` is the only count here and it counts sites, so an aggregate
-   * can be shown complete in the site key space and in no other. A campaign
-   * whose map is permanently dataset-keyed, which is the correct and unchanging
-   * shape of a pooled arm, therefore has its aggregate withheld forever with
-   * nothing it could do about it.
-   *
-   * Closing the gap means a count in the map's own key space, published by the
-   * producer. It is deliberately not specified here yet: inventing the field
-   * unilaterally would repeat the mistake this basis field was added to fix,
-   * which is one side asserting a property the other never agreed to.
+   * For 'dataset' the denominator is `n_datasets_scored`, added in 0.7.0 and
+   * named by the producer rather than here, which is the same reason this field
+   * is data and not prose. Before it existed there was no count in any key space
+   * but site, so a campaign whose map is permanently dataset-keyed, the correct
+   * and unchanging shape of a pooled arm, had its aggregate withheld forever
+   * with nothing it could do about it.
    */
   per_site_basis: KeySpace | null;
   /**
@@ -552,6 +570,38 @@ export interface RoundMetric {
    * gap, and the page reports it as one.
    */
   n_sites_scored: number | null;
+  /**
+   * How many datasets contributed a score this round.
+   *
+   * A count in the same key space as the VALUES of the driver's `scored_by` map,
+   * which is what makes it comparable to `len(val_dice)` and to nothing else.
+   * That sentence is the whole point of the field and it lives here rather than
+   * in the page, because a page-side derivation is exactly the unverifiable
+   * claim `per_site_basis` was added to replace, and the next reader would
+   * otherwise have to re-derive it from the driver.
+   *
+   * Present when and only when `per_site_basis` is 'dataset'. On a site-keyed
+   * round there is nothing for it to count, and a record carrying both a site
+   * map and a dataset count has not decided what it counts, so the page refuses
+   * it rather than picking one. That is a louder failure than silently
+   * preferring either, which is the point of requiring the key spaces to agree.
+   *
+   * This does NOT displace `n_sites_scored`, and the two are not alternatives
+   * even though they are siblings. The scoring floor is a rule about SITES
+   * whatever the map is keyed by: a pooled arm averaging six datasets from one
+   * site is still one site's data under a pooled label, which is the disclosure
+   * the floor exists to stop. So a dataset-keyed round with an aggregate carries
+   * both counts, this one to show its map is complete and `n_sites_scored` for
+   * the floor to stand on. Treating their co-occurrence as the contradiction
+   * would reopen 0.6.0's leak in a second key space.
+   *
+   * Null on a dataset-keyed round is not a fault and is not refused as one. The
+   * field postdates the first completed campaign, whose records cannot be
+   * regenerated, so a dataset-keyed round without it falls back to the older
+   * behaviour: the map cannot be checked, and the aggregate is withheld with no
+   * accusation attached.
+   */
+  n_datasets_scored: number | null;
 }
 
 /**

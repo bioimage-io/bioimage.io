@@ -52,7 +52,13 @@ try {
     process.exit(1);
   }
 
-  const { aggregateDisposition, emptyTally, tally } = require(emitted);
+  const {
+    aggregateDisposition,
+    emptyTally,
+    tally,
+    REFUSAL_OBLIGATION,
+    PANEL_LIMIT_PERMISSION,
+  } = require(emitted);
 
   let fail = 0;
   let passed = 0;
@@ -76,6 +82,12 @@ try {
       aggregate: 0.8,
       aggregate_basis: 'mean',
       n_sites_scored: 3,
+      // Site-keyed base round, so no dataset count. Spelled out rather than
+      // left off, because the two are not the same input: a record written
+      // before 0.7.0 omits the key entirely and one written after it sets null,
+      // and the gate has to treat them alike. The omission case gets its own
+      // case below rather than being smuggled in as this fixture's default.
+      n_datasets_scored: null,
       aggregate_withheld: null,
       ...(over && over.metric),
     },
@@ -187,6 +199,96 @@ try {
   eq('a self-contradicting round is still a page refusal',
     aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3).by, 'page');
 
+  // 0.7.0. The panel limit above was never a property of dataset-keyed rounds,
+  // it was a property of the schema having no denominator outside the site key
+  // space. `n_datasets_scored` supplies one, so the same pooled arm that could
+  // never be checked is now checked in its own units and plots.
+  const pooledArmCounted = {
+    eval_on: ['pooled'],
+    metric: {
+      per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
+      per_site_basis: 'dataset',
+      n_sites_scored: 1,
+      n_datasets_scored: 6,
+    },
+  };
+  eq('a dataset-keyed map with a dataset count plots',
+    aggregateDisposition(ok(pooledArmCounted), 1), { plot: true, value: 0.8 });
+  // The cardinality gate has to move key space with the map. Reading
+  // `n_sites_scored` for these would compare six datasets against one site and
+  // call a complete map partial, which is the original wrong-space subtraction
+  // relocated further down the function rather than removed.
+  eq('a short dataset-keyed map is counted against datasets, not sites',
+    aggregateDisposition(ok({ ...pooledArmCounted, metric: { ...pooledArmCounted.metric, n_datasets_scored: 7 } }), 1),
+    { plot: false, by: 'page', cause: 'partial_map' });
+  eq('an over-long dataset-keyed map is counted against datasets, not sites',
+    aggregateDisposition(ok({ ...pooledArmCounted, metric: { ...pooledArmCounted.metric, n_datasets_scored: 5 } }), 1),
+    { plot: false, by: 'page', cause: 'map_exceeds_count' });
+
+  // THE SIBLING RULE, and the one case this whole change turns on. The counts
+  // are not alternatives. The scoring floor is a rule about SITES however the
+  // map is keyed, because a pooled arm averaging six datasets at one site is
+  // still one site's data under a pooled label, which is the disclosure the
+  // floor exists to stop. So a dataset count must not exempt a round from the
+  // floor, and the presence of both counts must not be read as the
+  // contradiction. Either reading reopens 0.6.0's leak in the dataset key
+  // space, where it would be harder to see because the map looks complete.
+  eq('a complete dataset-keyed map is still subject to the site floor',
+    aggregateDisposition(ok(pooledArmCounted), 3),
+    { plot: false, by: 'page', cause: 'below_scoring_floor' });
+  eq('carrying both counts is not itself a contradiction',
+    aggregateDisposition(ok(pooledArmCounted), 1).plot, true);
+  eq('a dataset-keyed round still needs the site count for the floor to stand',
+    aggregateDisposition(ok({ ...pooledArmCounted, metric: { ...pooledArmCounted.metric, n_sites_scored: null } }), 1),
+    { plot: false, by: 'page', cause: 'completeness_unknown' });
+
+  // The direction that IS the contradiction: the count in a key space the
+  // record does not claim.
+  eq('a dataset count on a site-keyed round refuses',
+    aggregateDisposition(ok({ metric: { n_datasets_scored: 3 } }), 3),
+    { plot: false, by: 'page', cause: 'count_key_space_mismatch' });
+  eq('a dataset count with no stated key space refuses too',
+    aggregateDisposition(ok({ metric: { per_site_basis: null, n_datasets_scored: 3 } }), 3).cause,
+    'count_key_space_mismatch');
+  // Record-level, so it fires with no map at all. Nesting this inside the
+  // `per_site` block would be the 0.6.0 shape exactly: a check on a field of
+  // the record, skipped whenever a different field is absent.
+  eq('a dataset count with no per-unit map at all still refuses',
+    aggregateDisposition(ok({ metric: { per_site: null, per_site_basis: null, n_datasets_scored: 3 } }), 3).cause,
+    'count_key_space_mismatch');
+
+  // Pre-0.7.0 records omit the key entirely, so the field reads `undefined` and
+  // not `null`. A strict `!== null` in the gate would read absent as present
+  // and accuse every round of the completed consortium run of a key-space
+  // contradiction, which is this file's own defect class: a check firing on a
+  // record that broke nothing. These two cases are the only ones that build the
+  // metric by hand, because the fixture supplies the key deliberately.
+  const preV7 = (over) => ({
+    round: 0,
+    participants: ['a', 'b', 'c'],
+    eval_on: ['a', 'b', 'c'],
+    metric: {
+      name: 'validation Dice',
+      higher_is_better: true,
+      per_site: { a: 0.8, b: 0.81, c: 0.79 },
+      per_site_basis: 'site',
+      aggregate: 0.8,
+      aggregate_basis: 'mean',
+      n_sites_scored: 3,
+      aggregate_withheld: null,
+      ...over,
+    },
+  });
+  eq('a record predating the field is not accused of a key-space mismatch',
+    aggregateDisposition(preV7(), 3), { plot: true, value: 0.8 });
+  eq('a pre-0.7.0 dataset-keyed round falls back to the panel limit',
+    aggregateDisposition(preV7({
+      per_site: { d1: 0.8, d2: 0.8 },
+      per_site_basis: 'dataset',
+      n_sites_scored: 1,
+    }), 1),
+    { plot: false, by: 'unrenderable', cause: 'per_site_not_site_keyed' });
+
   // The cardinality comparisons survive, in the space where they mean
   // something. A site-keyed map really cannot have more entries than sites.
   eq('a site-keyed map with more entries than sites scored refuses',
@@ -262,6 +364,50 @@ try {
   ];
   eq('same cause, different actor, stays distinguishable',
     sameName.map((d) => d.by), ['service', 'page']);
+
+  // THE MEMBERSHIP TEST, as something the suite runs rather than something
+  // somebody did once.
+  //
+  // It was applied by hand while splitting `unrenderable` out, and it found two
+  // members that failed it, one of which nobody had reported. Both had been
+  // wrong since 0.4.0 and went three versions unnoticed, which is the argument
+  // for this block: a test applied once catches the instances present that day
+  // and nothing after. What generalises is the question, not its two answers.
+  //
+  // Three assertions, and they only bite together. Registration alone lets a
+  // cause be classified and never emitted, so the registry drifts into fiction.
+  // Reachability alone lets a cause be emitted and never classified, which is
+  // the original defect. Disjointness is what stops a cause satisfying both by
+  // sitting in both.
+  const refusalKeys = Object.keys(REFUSAL_OBLIGATION).sort();
+  const limitKeys = Object.keys(PANEL_LIMIT_PERMISSION).sort();
+  eq('every page refusal names the obligation it says was broken',
+    refusalKeys, Object.keys(emptyTally().page).sort());
+  eq('every panel limit names what permits it',
+    limitKeys, Object.keys(emptyTally().unrenderable).sort());
+  eq('no cause is both a breach and a permitted shape',
+    refusalKeys.filter((k) => limitKeys.includes(k)), []);
+
+  // Reachability. One case per registered cause, so a cause that cannot be
+  // produced by any record fails here instead of sitting in the registry as an
+  // explanation of something that never happens. The list is written out rather
+  // than harvested from the cases above, because harvesting would pass by
+  // whatever those cases happened to cover.
+  const reached = [
+    aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 3, eval_on: null } }), 1),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8 } } }), 3),
+    aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3),
+    aggregateDisposition(ok({ metric: { n_datasets_scored: 3 } }), 3),
+    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 5),
+    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
+    aggregateDisposition(ok(), null),
+    aggregateDisposition(ok(pooledArm), 1),
+    aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
+  ];
+  eq('every registered cause is reachable from some record',
+    Array.from(new Set(reached.filter((d) => d.by === 'page' || d.by === 'unrenderable').map((d) => d.cause))).sort(),
+    refusalKeys.concat(limitKeys).sort());
 
   // A refusal must not be silently rewritten into a plot by the tally.
   const t = emptyTally();

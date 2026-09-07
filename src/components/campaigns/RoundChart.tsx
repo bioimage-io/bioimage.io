@@ -110,16 +110,26 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${reports(n)} both a combined score and a reason for there being none.`
     );
   }
+  // "per-unit" rather than "per-site" in both of these. Since 0.7.0 either can
+  // fire on a dataset-keyed map, counted against the datasets that scored, and
+  // saying "site" would name a key space the record did not declare. That is
+  // the same mistake this block was split apart to stop making.
   if (tally.page.partial_map > 0) {
     const n = tally.page.partial_map;
     refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score next to a partial set of per-site curves, which would let the missing values be worked back out.`
+      `${countPhrase(n)} ${publishes(n)} a combined score next to a partial set of per-unit curves, which would let the missing values be worked back out.`
     );
   }
   if (tally.page.map_exceeds_count > 0) {
     const n = tally.page.map_exceeds_count;
     refused.push(
-      `${countPhrase(n)} ${publishes(n)} more per-site scores than the number of sites it records as having scored, so the two cannot both be describing sites.`
+      `${countPhrase(n)} ${publishes(n)} more per-unit scores than the number of units it records as having scored, so the two cannot both be counting the same thing.`
+    );
+  }
+  if (tally.page.count_key_space_mismatch > 0) {
+    const n = tally.page.count_key_space_mismatch;
+    refused.push(
+      `${countPhrase(n)} ${reports(n)} a count of datasets scored on a round whose per-unit scores are not keyed by dataset, so the record has not settled what it is counting.`
     );
   }
   if (tally.page.completeness_unknown > 0) {
@@ -155,11 +165,17 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
   // datasets and its map is dataset-keyed permanently, so under the old
   // grouping the page called a correct and unchangeable record broken every
   // time it drew that campaign.
+  //
+  // Since 0.7.0 a dataset-keyed round can carry its own count and is checked
+  // like any other, so the first sentence below now describes records written
+  // before that field existed. The block stays: the count cannot be
+  // backfilled into the completed run, and this group is where a record that
+  // conformed to the format of its day belongs.
   const unrenderable: string[] = [];
   if (tally.unrenderable.per_site_not_site_keyed > 0) {
     const n = tally.unrenderable.per_site_not_site_keyed;
     unrenderable.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score beside per-unit scores that are not keyed by site. The campaign format allows that and the record is not at fault. This page holds the combined figure back anyway, because the record counts the sites that scored and counts nothing in the units the scores are actually keyed by, so the set cannot be shown to be complete, and a combined figure beside an incomplete set would let the missing entries be worked back out. A count in the units the scores use would settle it.`
+      `${countPhrase(n)} ${publishes(n)} a combined score beside per-unit scores that are not keyed by site, and records no count in the units those scores use. The campaign format allows that and the record is not at fault: it predates the field that carries the count. This page holds the combined figure back anyway, because the set cannot be shown to be complete without a count in its own units, and a combined figure beside an incomplete set would let the missing entries be worked back out.`
     );
   }
   if (tally.unrenderable.per_site_basis_unstated > 0) {

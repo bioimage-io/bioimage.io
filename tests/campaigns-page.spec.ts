@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.6.0-draft';
+const SCHEMA_VERSION = '0.7.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -853,7 +853,12 @@ test('an over-long map is named in the refusal box when an aggregate is publishe
 
   const text = await regionText(page);
   expect(text).toContain('holding back figures the campaign did publish');
-  expect(text).toContain('more per-site scores than the number of sites it records');
+  // "per-unit", not "per-site". Since 0.7.0 this cause also fires on a
+  // dataset-keyed map counted against its own datasets, so the sentence cannot
+  // name a key space the record did not declare. The separate per-site PANEL
+  // note, asserted against elsewhere in this file, still says "site", because
+  // that one really does only fire on a site-keyed map.
+  expect(text).toContain('more per-unit scores than the number of units it records');
   expect(text).not.toContain('stub-dataset-x');
   // The three sound rounds still plot, so this is a single round withheld and
   // not the gate swallowing the series.
@@ -1027,6 +1032,98 @@ test('an unstated key space is not called a breach of the format either', async 
   expect(text).not.toContain('holding back figures the campaign did publish');
   expect(text).not.toContain('its own record then broke');
   await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
+});
+
+/**
+ * 0.7.0, and the reason the two tests above stop short of the whole story.
+ *
+ * Both of them end with the figure withheld and nobody blamed, which was the
+ * best available answer while `n_sites_scored` was the schema's only
+ * denominator: a dataset-keyed map had no count in its own units, so its
+ * completeness was not checkable by anyone. Not blaming the producer was
+ * correct. Leaving the pooled arm permanently unreadable was not a fix, it was
+ * an accurate description of a gap.
+ *
+ * `n_datasets_scored` closes it, and these two tests are the two directions
+ * that closing has to work in. Given the count, the map is checked in its own
+ * key space and the figure is published. Given the count in a key space the
+ * record does not claim, the record really has contradicted itself and the
+ * amber is correct.
+ *
+ * The first of the two is the one worth watching. Every other assertion in this
+ * region checks that something is withheld, and a page that withheld everything
+ * would pass all of them.
+ */
+test('a dataset-keyed map with a dataset count is checked and published', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-dataset-x': 0.66, 'stub-dataset-y': 0.68, 'stub-dataset-z': 0.7 },
+      per_site_basis: 'dataset',
+      // Both counts, which is the shape able-clam's proposal would have read as
+      // a contradiction. It is not one. The map is complete in datasets and the
+      // floor of 2 stands on sites, so the round satisfies both and publishes.
+      n_datasets_scored: 3,
+      n_sites_scored: 2,
+      aggregate: 0.67,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // Neither of the two ways the page used to decline this round.
+  expect(text).not.toContain('the record is not at fault');
+  expect(text).not.toContain('holding back figures the campaign did publish');
+  expect(text).not.toContain('its own record then broke');
+  // The combined curve is drawn. This is the assertion the whole version turns
+  // on and it is the only positive one in the region, so if the gate reverts to
+  // withholding every dataset-keyed round, this fails alone.
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(1);
+
+  // The per-site PANEL still declines these curves, and that is deliberate
+  // rather than an oversight this test forgot to update. Its lines stand for
+  // sites, and in the launch consortium every dataset name is also a client
+  // name, so drawing three dataset curves there would render as three labelled
+  // site curves that resolve against the roster with nothing for a reader to
+  // check them against. The aggregate is publishable because the record now
+  // proves the set behind it is complete. That says nothing about what the
+  // lines on a per-site chart are allowed to mean.
+  expect(text).toContain('keyed by something other than site');
+});
+
+test('a dataset count on a site-keyed round is a breach, and is named as one', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: 'site',
+      n_sites_scored: 2,
+      // The count in a key space this record does not claim. This is the
+      // contradiction, and it is the ONLY co-occurrence that is one: the two
+      // counts appearing together on a dataset-keyed round is the normal shape,
+      // tested above.
+      n_datasets_scored: 3,
+      aggregate: 0.67,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('has not settled what it is counting');
+  // Amber, unlike the two panel limits above. Here the record did break a rule
+  // it declared, so the accusation is the right one and must not have been
+  // softened along with the two that were wrong.
+  expect(text).toContain('holding back figures the campaign did publish');
+  expect(text).toContain('its own record then broke');
+  expect(text).not.toContain('the record is not at fault');
 });
 
 /**
@@ -1670,7 +1767,7 @@ test('the three provenance states are distinguishable from each other', async ({
 // ---------------------------------------------------------------------------
 
 test('a service on a different schema is refused at the index, not rendered', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.7.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.8.0-draft' });
   await page.goto('/#/campaigns');
 
   // The refusal is visible. A silent empty list would be the wrong outcome:
@@ -1681,8 +1778,8 @@ test('a service on a different schema is refused at the index, not rendered', as
   // test green while it had quietly stopped checking that the page reports
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
-  await expect(page.getByText(/reports schema 0\.7\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.6\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.7\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1696,11 +1793,11 @@ test('a service on a different schema is refused at the index, not rendered', as
 });
 
 test('a service on a different schema is refused at the detail page too', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.7.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.8.0-draft' });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
-  await expect(page.getByText(/reports schema 0\.7\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.6\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.7\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1740,7 +1837,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.6.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.7.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
