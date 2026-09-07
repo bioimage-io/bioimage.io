@@ -47,9 +47,20 @@ interface RoundChartProps {
 const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
   const scored = useMemo(() => rounds.filter((r) => r.metric !== null), [rounds]);
 
-  const { series, metricName, metricBasis, withheldAggregates, xMin, xMax, yMin, yMax } = useMemo(() => {
+  const {
+    series,
+    metricName,
+    metricBasis,
+    withheldAggregates,
+    unverifiableAggregates,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+  } = useMemo(() => {
     const siteNames = new Map(sites.map((s) => [s.site_id, s.site_name]));
     let withheld = 0;
+    let unverifiable = 0;
     const aggregate: Series = {
       key: '__aggregate__',
       label: 'All sites',
@@ -63,14 +74,30 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
       const metric = round.metric!;
       // A partial per-site map plus an aggregate reconstructs the missing site,
       // so the two are only publishable together when the map is complete.
-      const partialPerSite =
-        metric.per_site !== null &&
+      //
+      // `n_sites_scored` is the ONLY thing that can establish completeness, so
+      // when it is null the page cannot tell a complete map from a partial one.
+      // This used to require `n_sites_scored !== null` before calling a round
+      // partial, which meant a silent count made `partialPerSite` false and the
+      // aggregate was published: precisely the combination this gate exists to
+      // prevent, produced by the service saying nothing. A gate that only fires
+      // when the record volunteers the number it needs is not a gate.
+      //
+      // Unknown completeness is therefore counted separately from known
+      // partial. Both withhold, but they are different situations and the note
+      // under the chart must not tell a reader the wrong one.
+      const perSiteReported = metric.per_site !== null;
+      const completenessUnknown = perSiteReported && metric.n_sites_scored === null;
+      const knownPartial =
+        perSiteReported &&
         metric.n_sites_scored !== null &&
-        Object.keys(metric.per_site).length < metric.n_sites_scored;
-      if (metric.aggregate !== null && !partialPerSite) {
+        Object.keys(metric.per_site!).length < metric.n_sites_scored;
+
+      if (metric.aggregate !== null && !knownPartial && !completenessUnknown) {
         aggregate.points.push({ round: round.round, value: metric.aggregate });
       } else if (metric.aggregate !== null) {
-        withheld += 1;
+        if (completenessUnknown) unverifiable += 1;
+        else withheld += 1;
       }
       if (metric.per_site) {
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
@@ -105,6 +132,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
       metricName: scored[0]?.metric?.name ?? null,
       metricBasis: scored.find((r) => r.metric?.aggregate_basis)?.metric?.aggregate_basis ?? null,
       withheldAggregates: withheld,
+      unverifiableAggregates: unverifiable,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
@@ -207,6 +235,20 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites }) => {
           {withheldAggregates} {withheldAggregates === 1 ? 'round is' : 'rounds are'} missing a
           combined score. Where only some sites published a curve, showing the combined figure too
           would let the remaining one be worked back out, so both are held back together.
+        </p>
+      )}
+      {/* A separate sentence from the one above, not a wider version of it. A
+          round held back because the map is known to be short is a different
+          situation from one held back because nobody said how long the map
+          should be, and the second is a gap in the record rather than a
+          disclosure decision. Merging them would tell a reader the campaign
+          chose to withhold something it never reported the shape of. */}
+      {unverifiableAggregates > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          {unverifiableAggregates} {unverifiableAggregates === 1 ? 'round does' : 'rounds do'} not
+          report how many sites were scored, so there is no way to tell a complete set of per-site
+          curves from a partial one. The combined score is held back for those rounds rather than
+          published on the assumption that the set is complete.
         </p>
       )}
     </div>

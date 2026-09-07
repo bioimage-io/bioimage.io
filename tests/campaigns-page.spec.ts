@@ -521,6 +521,51 @@ test('a partial per-site map withholds the aggregate as well', async ({ page }) 
   const text = await regionText(page);
   expect(text).toContain('worked back out');
   expect(text).toContain('merge-weighted mean');
+  // This round is KNOWN to be short. It must not borrow the wording used when
+  // the record never said how many sites were scored.
+  expect(text).not.toContain('do not report how many sites');
+  expect(text).not.toContain('does not report how many sites');
+});
+
+/**
+ * `n_sites_scored` is the only field that can establish the per-site map is
+ * complete, and the completeness gate used to require it to be non-null before
+ * it would call a round partial. So a service that simply did not send the
+ * count made the gate evaluate to "not partial" and the aggregate was
+ * published, which is exactly the aggregate-plus-partial-map combination the
+ * gate exists to prevent. A gate that fires only when the record volunteers
+ * the number it needs is not a gate.
+ *
+ * The direction is the whole point. Silence resolved to the permissive
+ * reading, and it did so in the case where the page had the least basis for
+ * any reading at all.
+ */
+test('an aggregate is withheld when the record does not say how many sites were scored', async ({
+  page,
+}) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as Record<string, unknown>),
+      per_site: { 'stub-site-a': 0.7314 },
+      // The service says nothing about how many sites this covers, so the page
+      // cannot tell one of two from two of two.
+      n_sites_scored: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('do not report how many sites were scored');
+  expect(text).toContain('rather than published on the assumption');
+
+  // A missing count is a gap in the record, not a disclosure decision, so it
+  // must not be described with the wording for a deliberately short map.
+  // Asserting the two states stay apart is what makes this more than a check
+  // that some caveat rendered.
+  expect(text).not.toContain('worked back out');
 });
 
 test('the round log reports the digest the sites actually scored on', async ({ page }) => {
@@ -734,10 +779,58 @@ test('self-declared roster values are marked, and the roster is not called attes
 
   // Site A declared its training-image count; site B reported nothing, so the
   // mark must appear exactly where a declared value was rendered.
-  await expect(page.locator('[title^="Declared by the site"]')).toHaveCount(1);
+  await expect(page.locator('[data-provenance="declared"]')).toHaveCount(1);
 
   const text = await regionText(page);
   expect(text).toContain('does not verify that a deployment belongs to the institution it names');
+});
+
+/**
+ * `declared` is the only mechanism separating a figure a site typed into a
+ * join form from one the platform observed, and the mark is the only visual
+ * difference between them. The check used to be
+ * `site.declared?.includes(field) ?? false`, so a site that reported no
+ * provenance at all had every value it did report rendered unmarked, which is
+ * how the page spells "the platform measured this".
+ *
+ * The marker for weaker evidence failed open toward the stronger claim, which
+ * is the one direction it must never fail in: a reader loses nothing when a
+ * measured value is left unlabelled, and is misled when a self-reported one is
+ * presented as observed.
+ */
+test('a site that reports no provenance does not get its values presented as measured', async ({
+  page,
+}) => {
+  const record = stubRecord();
+  const sites = (record.sites as any[]).map((site, i) =>
+    i === 0
+      ? {
+          ...site,
+          // Values are present. What is absent is any statement of where they
+          // came from, which is not the same as a statement that they were
+          // measured.
+          country: 'Elbonia',
+          declared: null,
+        }
+      : site
+  );
+  await stubCampaignService(page, { record: { ...record, sites } });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  // Both of site A's reported values carry the unknown-provenance mark, and
+  // neither is silently promoted by being left unmarked.
+  await expect(page.locator('[data-provenance="unknown"]')).toHaveCount(2);
+  await expect(page.locator('[data-provenance="declared"]')).toHaveCount(0);
+
+  const text = await regionText(page);
+  // Lowercased: the mark is uppercased in CSS, so innerText reads it back as
+  // "SOURCE NOT STATED".
+  expect(text.toLowerCase()).toContain('source not stated');
+  // The values themselves are still shown. Withholding provenance is not a
+  // reason to withhold the figure, only a reason not to vouch for it.
+  expect(text).toContain('Elbonia');
+  expect(text).toContain('536');
 });
 
 // ---------------------------------------------------------------------------

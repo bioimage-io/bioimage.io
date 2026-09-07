@@ -42,19 +42,53 @@ const ActivityPill: React.FC<{ activity: SiteActivity | null }> = ({ activity })
   );
 };
 
-/** Marks a value the site declared rather than one the platform measured. */
-const DeclaredMark: React.FC = () => (
-  <span
-    className="ml-1.5 align-middle text-[10px] font-medium uppercase tracking-wide text-gray-400"
-    title="Declared by the site on its join form, not measured by the platform."
-  >
-    declared
-  </span>
-);
+/**
+ * Where a rendered value came from.
+ *
+ * `declared` is the only mechanism separating a figure the site typed into a
+ * join form from one the platform observed, so an absent `declared` list must
+ * not resolve to "measured". It used to: the check was
+ * `site.declared?.includes(field) ?? false`, and the mark is the sole visual
+ * difference between the two, so a site that reported no provenance at all had
+ * every one of its values presented as platform-measured. The weaker-evidence
+ * marker failed open toward the stronger claim, which is the one direction it
+ * must never fail in.
+ *
+ * Three states, because the record genuinely has three. A missing list is not
+ * evidence of measurement, it is the absence of evidence either way, and the
+ * page has no basis for choosing between them.
+ */
+type Provenance = 'declared' | 'measured' | 'unknown';
 
-function isDeclared(site: SiteRecord, field: DeclaredSiteField): boolean {
-  return site.declared?.includes(field) ?? false;
+function provenanceOf(site: SiteRecord, field: DeclaredSiteField): Provenance {
+  if (!site.declared) return 'unknown';
+  return site.declared.includes(field) ? 'declared' : 'measured';
 }
+
+/**
+ * Marks how a value was obtained. Renders nothing for a measured value, which
+ * is the unmarked default the columns are read against.
+ */
+const ProvenanceMark: React.FC<{ site: SiteRecord; field: DeclaredSiteField }> = ({
+  site,
+  field,
+}) => {
+  const provenance = provenanceOf(site, field);
+  if (provenance === 'measured') return null;
+  return (
+    <span
+      className="ml-1.5 align-middle text-[10px] font-medium uppercase tracking-wide text-gray-400"
+      data-provenance={provenance}
+      title={
+        provenance === 'declared'
+          ? 'Declared by the site on its join form, not measured by the platform.'
+          : 'This site did not report where its values came from, so the page cannot say whether this was declared on a join form or measured by the platform.'
+      }
+    >
+      {provenance === 'declared' ? 'declared' : 'source not stated'}
+    </span>
+  );
+};
 
 interface SiteRosterProps {
   sites: SiteRecord[];
@@ -101,7 +135,7 @@ const SiteRoster: React.FC<SiteRosterProps> = ({
                   <div className="font-medium text-gray-900">{site.site_name}</div>
                   <div className="text-xs text-gray-500">
                     <Value reason="undeclared" label="Location not declared">{site.country}</Value>
-                    {site.country && isDeclared(site, 'country') && <DeclaredMark />}
+                    {site.country && <ProvenanceMark site={site} field="country" />}
                   </div>
                 </td>
                 <td className="py-3 pr-4 text-gray-700">
@@ -131,8 +165,8 @@ const SiteRoster: React.FC<SiteRosterProps> = ({
                       training-set sizes, so pointing a reader at the service is
                       pointing them at the wrong thing. */}
                   <Value reason="withheld">{formatCount(site.n_train_images)}</Value>
-                  {site.n_train_images !== null && isDeclared(site, 'n_train_images') && (
-                    <DeclaredMark />
+                  {site.n_train_images !== null && (
+                    <ProvenanceMark site={site} field="n_train_images" />
                   )}
                 </td>
                 {showJoinedRound && (
