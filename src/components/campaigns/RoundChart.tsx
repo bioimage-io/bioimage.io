@@ -83,16 +83,16 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${has(n)} no combined score. The campaign could not confirm that every scoring site had reported, so it could not rule out that a combined figure would fill in a missing one.`
     );
   }
-  if (tally.service.below_eval_floor > 0) {
-    const n = tally.service.below_eval_floor;
+  if (tally.service.below_scoring_floor > 0) {
+    const n = tally.service.below_scoring_floor;
     withheld.push(
-      `${countPhrase(n)} ${has(n)} no combined score. Fewer sites evaluated than the campaign publishes a combined figure over. Across very few sites a combined figure is close to one site's own result under a shared label.`
+      `${countPhrase(n)} ${has(n)} no combined score. Fewer sites returned a score than the campaign publishes a combined figure over. Across very few sites a combined figure is close to one site's own result under a shared label.`
     );
   }
   if (tally.service.floor_unknown > 0) {
     const n = tally.service.floor_unknown;
     withheld.push(
-      `${countPhrase(n)} ${has(n)} no combined score. The campaign did not record how many evaluating sites it requires before publishing one, so that condition could not be shown to have been met.`
+      `${countPhrase(n)} ${has(n)} no combined score. The campaign did not record how many scoring sites it requires before publishing one, so that condition could not be shown to have been met.`
     );
   }
 
@@ -130,25 +130,25 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
   if (tally.page.completeness_unknown > 0) {
     const n = tally.page.completeness_unknown;
     refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score without saying how many sites were scored, so a complete set of per-site curves cannot be told from a partial one.`
+      `${countPhrase(n)} ${publishes(n)} a combined score without saying how many sites were scored, which is both the number the score is an average of and the number the campaign's own threshold is checked against.`
     );
   }
-  if (tally.page.below_eval_floor > 0) {
-    const n = tally.page.below_eval_floor;
+  if (tally.page.scoring_exceeds_eval_set > 0) {
+    const n = tally.page.scoring_exceeds_eval_set;
     refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score over fewer evaluating sites than the campaign's own threshold allows.`
+      `${countPhrase(n)} ${publishes(n)} more scoring sites than the record says were asked to evaluate, so the round disagrees with itself about how many results the combined score is drawn from.`
+    );
+  }
+  if (tally.page.below_scoring_floor > 0) {
+    const n = tally.page.below_scoring_floor;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score over fewer scoring sites than the campaign's own threshold allows.`
     );
   }
   if (tally.page.floor_unstated > 0) {
     const n = tally.page.floor_unstated;
     refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score, but the campaign records no threshold for how many evaluating sites one requires.`
-    );
-  }
-  if (tally.page.eval_set_unreported > 0) {
-    const n = tally.page.eval_set_unreported;
-    refused.push(
-      `${countPhrase(n)} ${publishes(n)} a combined score without recording which sites evaluated, so that threshold cannot be checked.`
+      `${countPhrase(n)} ${publishes(n)} a combined score, but the campaign records no threshold for how many scoring sites one requires.`
     );
   }
 
@@ -245,14 +245,14 @@ interface RoundChartProps {
   rounds: RoundRecord[];
   sites: SiteRecord[];
   /**
-   * From `policy.aggregate_min_eval_sites`. Undefined and null both mean the
+   * From `policy.aggregate_min_scoring_sites`. Undefined and null both mean the
    * floor was not stated, which withholds rather than passes: an unstated floor
    * is not a met one, and the page does not supply a value of its own.
    */
-  minEvalSites?: number | null;
+  minScoringSites?: number | null;
 }
 
-const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = null }) => {
+const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minScoringSites = null }) => {
   const scored = useMemo(() => rounds.filter((r) => r.metric !== null), [rounds]);
 
   const {
@@ -292,7 +292,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       // counted. The decision itself lives in aggregateDisposition so it can be
       // checked without rendering anything: a wrong gate here draws a curve
       // that looks exactly like a right one, just with more points on it.
-      const disposition = aggregateDisposition(round, minEvalSites);
+      const disposition = aggregateDisposition(round, minScoringSites);
       tallyInto(tallied, disposition);
       if (disposition.plot) {
         aggregate.points.push({ round: round.round, value: disposition.value });
@@ -384,7 +384,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       yMin: Math.max(0, lo - span * 0.15),
       yMax: hi + span * 0.15,
     };
-  }, [scored, sites, minEvalSites]);
+  }, [scored, sites, minScoringSites]);
 
   if (series.length === 0) {
     // "Nothing reported" and "everything held back" are different claims, and

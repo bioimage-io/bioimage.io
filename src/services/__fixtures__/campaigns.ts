@@ -197,7 +197,7 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // Four sites on the roster, so a floor of three still admits a pooled
     // figure while ruling out the case where the pooled figure is one site's
     // own result under a shared label.
-    aggregate_min_eval_sites: 3,
+    aggregate_min_scoring_sites: 3,
   },
   base_model: {
     id: 'bioimage-io/cellpose-sam',
@@ -405,7 +405,7 @@ const UNET_CAMPAIGN: CampaignRecord = {
     // underdetermined within one round, but across rounds where membership
     // changes while the protected quantity does not, the system can solve. This
     // fixture holds membership fixed, which is the case where it does not.
-    aggregate_min_eval_sites: 2,
+    aggregate_min_scoring_sites: 2,
   },
   base_model: null,
   aggregation: { method: 'FedAvg', weighting: 'sample count' },

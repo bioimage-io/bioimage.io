@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.5.0-draft';
+const SCHEMA_VERSION = '0.6.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -81,7 +81,7 @@ function stubRecord(overrides: Record<string, unknown> = {}) {
       roster_attested: false,
       outcomes_released: true,
       // Two sites, so two is the only floor that admits a pooled figure at all.
-      aggregate_min_eval_sites: 2,
+      aggregate_min_scoring_sites: 2,
     },
     base_model: null,
     aggregation: { method: 'FedAvg', weighting: 'sample count' },
@@ -610,7 +610,7 @@ test('a withheld aggregate is attributed to the campaign and names its reason', 
           metric: {
             ...(round.metric as Record<string, unknown>),
             aggregate: null,
-            aggregate_withheld: 'below_eval_floor',
+            aggregate_withheld: 'below_scoring_floor',
           },
         }
       : round
@@ -621,7 +621,7 @@ test('a withheld aggregate is attributed to the campaign and names its reason', 
 
   const text = await regionText(page);
   expect(text).toContain('1 round has no combined score');
-  expect(text).toContain('Fewer sites evaluated than the campaign publishes a combined figure over');
+  expect(text).toContain('Fewer sites returned a score than the campaign publishes a combined figure over');
   // The campaign made this decision, so the page must not present it as its own
   // refusal, which is what the amber block says and which would read as a
   // defect in the record rather than as the disclosure rule working.
@@ -651,7 +651,7 @@ test('a null aggregate with no stated reason is not reported as a withhold', asy
   const text = await regionText(page);
   expect(text).toContain('no reason recorded for its absence');
   expect(text).toContain('does not describe it as either');
-  expect(text).not.toContain('Fewer sites evaluated');
+  expect(text).not.toContain('Fewer sites returned a score');
   expect(text).not.toContain('holding back figures the campaign did publish');
 });
 
@@ -665,10 +665,12 @@ test('the three reasons a round has no combined score stay distinguishable', asy
       };
     }
     if (round.round === 4) {
-      // The campaign published a figure over one evaluating site, under a floor
-      // of two. Every leave-one-site-out fold has a singleton eval set, so this
-      // is the shape the floor exists for.
-      return { ...round, eval_on: ['stub-site-a'] };
+      // The campaign published a figure over one SCORING site, under a floor of
+      // two. Both sites were asked; one answered. That is the shape the floor
+      // exists for, and it used to be written here as a short `eval_on`, which
+      // is a different round: it cleared the floor because the floor was
+      // reading the sites asked rather than the sites that scored.
+      return { ...round, metric: { ...(round.metric as any), n_sites_scored: 1 } };
     }
     if (round.round === 5) {
       // Neither: no figure and no reason.
@@ -687,7 +689,7 @@ test('the three reasons a round has no combined score stay distinguishable', asy
   // All three fire at once and each says something the other two do not.
   expect(text).toContain('Only some sites published a curve');
   expect(text).toContain('holding back figures the campaign did publish');
-  expect(text).toContain('over fewer evaluating sites than the campaign');
+  expect(text).toContain('over fewer scoring sites than the campaign');
   expect(text).toContain('no reason recorded for its absence');
   // One round each, so none of them absorbed another's count. A round counted
   // twice overstates how much is missing and a round counted nowhere is the
@@ -954,6 +956,127 @@ test('the pooled arm is refused for its key space, not as a count mismatch', asy
   await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
 });
 
+/**
+ * The scoring floor, and the operand it is checked against.
+ *
+ * The floor exists to stop a pooled figure being published when too few sites
+ * stand behind it. It was comparing `eval_on`, the sites ASKED to evaluate,
+ * against the threshold, while the figure it gates is a mean over
+ * `n_sites_scored`, the sites that ANSWERED. Nothing in the record or in this
+ * page related those two numbers, so a round that asked six sites and heard
+ * back from one satisfied a floor of six and published that one site's own
+ * value under a pooled label.
+ *
+ * The failure is invisible on screen by construction. A wrong point and a right
+ * point are the same dot, and the reader has no surface to check the pairing
+ * against: the round is real, the sites are real, the number is real, and only
+ * the claim about what it is an average of is wrong. So these tests assert on
+ * the refusal sentence and on the absence of the value, and the last one is the
+ * control that stops a page which simply refuses everything from passing.
+ */
+test('a pooled figure over one site is withheld even when the eval set is large', async ({
+  page,
+}) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    // Asked three, heard from one. Under the old operand this cleared a floor
+    // of two and plotted.
+    eval_on: ['stub-site-a', 'stub-site-b', 'stub-site-c'],
+    metric: {
+      ...(round.metric as any),
+      per_site: null,
+      per_site_basis: null,
+      n_sites_scored: 1,
+      aggregate: 0.88,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('fewer scoring sites than the campaign');
+  // The value itself never reaches the page. Asserting only the sentence would
+  // pass on a page that printed both.
+  expect(text).not.toContain('0.880');
+  expect(text).not.toContain('0.88');
+});
+
+test('an aggregate with no count of scoring sites is withheld', async ({ page }) => {
+  // The wider half of the same defect. With `per_site` null the whole per-site
+  // block was skipped, `n_sites_scored` was never read at all, and the floor
+  // passed on the eval set. Withholding the map is a legitimate disclosure
+  // choice; withholding the count leaves the floor with no operand.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: null,
+      per_site_basis: null,
+      n_sites_scored: null,
+      aggregate: 0.88,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('without saying how many sites were scored');
+  expect(text).not.toContain('0.88');
+});
+
+test('more scoring sites than evaluating sites is reported as a contradiction', async ({
+  page,
+}) => {
+  // Not a coverage shortfall. A site cannot return a score it was not asked
+  // for, so this cannot come from the driver and says the record was assembled
+  // wrong. Reported as its own finding rather than folded into the floor,
+  // because the two send a reader to different places.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    eval_on: ['stub-site-a'],
+    metric: {
+      ...(round.metric as any),
+      per_site: null,
+      per_site_basis: null,
+      n_sites_scored: 2,
+      aggregate: 0.88,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('more scoring sites than the record says were asked to evaluate');
+  expect(text).not.toContain('fewer scoring sites than the campaign');
+  expect(text).not.toContain('0.88');
+});
+
+test('a short eval set does not withhold when enough sites scored', async ({ page }) => {
+  // The control, and the one that stops the fix from being a relabelled version
+  // of the same mistake. If the floor had simply moved to a different wrong
+  // field, or if the page refused any round whose two counts differ, this
+  // withholds and the three tests above would still pass.
+  //
+  // Two sites asked, two scored, floor of two. The eval set is smaller than the
+  // roster and that is not disqualifying: what the threshold is about is how
+  // many results the published mean is over.
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).not.toContain('fewer scoring sites than the campaign');
+  expect(text).not.toContain('more scoring sites than the record says');
+  expect(text).not.toContain('without saying how many sites were scored');
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(1);
+});
+
 test('the caption describing the combined curve does not outlive the curve', async ({ page }) => {
   // Every aggregate withheld, per-site curves present, so the chart still draws
   // something and the empty state does not fire. That combination is the only
@@ -967,7 +1090,7 @@ test('the caption describing the combined curve does not outlive the curve', asy
       per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
       per_site_basis: 'site',
       aggregate: null,
-      aggregate_withheld: 'below_eval_floor',
+      aggregate_withheld: 'below_scoring_floor',
     },
   }));
   await stubCampaignService(page, { record: stubRecord({ rounds }) });
@@ -978,7 +1101,7 @@ test('the caption describing the combined curve does not outlive the curve', asy
   expect(text).not.toContain('The combined curve is a');
   // The per-site curves really are on the chart, so this is a caption suppressed
   // next to a rendered chart and not the empty state swallowing everything.
-  expect(text).toContain('Fewer sites evaluated');
+  expect(text).toContain('Fewer sites returned a score');
 });
 
 test('the same caption does render when a combined curve is actually plotted', async ({ page }) => {
@@ -1474,7 +1597,7 @@ test('the three provenance states are distinguishable from each other', async ({
 // ---------------------------------------------------------------------------
 
 test('a service on a different schema is refused at the index, not rendered', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.6.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.7.0-draft' });
   await page.goto('/#/campaigns');
 
   // The refusal is visible. A silent empty list would be the wrong outcome:
@@ -1485,8 +1608,8 @@ test('a service on a different schema is refused at the index, not rendered', as
   // test green while it had quietly stopped checking that the page reports
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
-  await expect(page.getByText(/reports schema 0\.6\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.5\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.7\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.6\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1500,11 +1623,11 @@ test('a service on a different schema is refused at the index, not rendered', as
 });
 
 test('a service on a different schema is refused at the detail page too', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.6.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.7.0-draft' });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
-  await expect(page.getByText(/reports schema 0\.6\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.5\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/reports schema 0\.7\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.6\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1544,7 +1667,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.5.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.6.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();

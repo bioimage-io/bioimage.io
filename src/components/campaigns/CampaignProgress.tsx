@@ -112,7 +112,7 @@ const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
           // publishable.
           const disposition = aggregateDisposition(
             round,
-            record.policy?.aggregate_min_eval_sites ?? null
+            record.policy?.aggregate_min_scoring_sites ?? null
           );
           const aggregateShown = disposition.plot ? disposition.value : null;
           return (
@@ -290,7 +290,7 @@ const CampaignProgress: React.FC = () => {
           <RoundChart
             rounds={data.rounds}
             sites={data.sites}
-            minEvalSites={data.policy?.aggregate_min_eval_sites ?? null}
+            minScoringSites={data.policy?.aggregate_min_scoring_sites ?? null}
           />
         ) : (
           <p className="text-sm leading-relaxed text-gray-600">

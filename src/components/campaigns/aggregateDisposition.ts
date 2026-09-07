@@ -44,14 +44,14 @@ export type PageRefusal =
   | 'per_site_basis_unstated'
   /** The map is keyed by something the record carries no denominator for. */
   | 'per_site_not_site_keyed'
-  /** No `n_sites_scored`, so a complete per-site map is indistinguishable from a short one. */
+  /** No `n_sites_scored`, so neither completeness nor the floor can be checked. */
   | 'completeness_unknown'
-  /** Fewer evaluating sites than the campaign's own floor. */
-  | 'below_eval_floor'
+  /** More sites recorded as scoring than were asked to evaluate. */
+  | 'scoring_exceeds_eval_set'
+  /** Fewer SCORING sites than the campaign's own floor. */
+  | 'below_scoring_floor'
   /** No floor stated, so it cannot be shown to have been met. */
-  | 'floor_unstated'
-  /** No `eval_on`, so the floor cannot be checked against anything. */
-  | 'eval_set_unreported';
+  | 'floor_unstated';
 
 export type AggregateDisposition =
   | { plot: true; value: number }
@@ -62,10 +62,17 @@ export type AggregateDisposition =
 /**
  * Decides one round's aggregate.
  *
- * `minEvalSites` comes from `policy.aggregate_min_eval_sites` and is never
+ * `minScoringSites` comes from `policy.aggregate_min_scoring_sites` and is never
  * defaulted. Supplying a value here would present one consortium's disclosure
  * threshold as a property of the platform, which is a worse error than a wrong
  * default: it misattributes whose judgement it is.
+ *
+ * It is checked against `n_sites_scored` and not against `eval_on.length`. The
+ * distinction is the whole of the 0.6.0 change and it is not a nuance: the
+ * value this function returns is a mean over the sites that scored, so a floor
+ * read from the sites that were ASKED is a rule about a different number than
+ * the one that gets published. `eval_on` appears below exactly once, in a
+ * contradiction check, and restoring it to the floor would reopen the leak.
  *
  * When several refusals apply, the first in source order is reported and the
  * rest are not enumerated. One round produces one reason, because the note
@@ -74,7 +81,7 @@ export type AggregateDisposition =
  */
 export function aggregateDisposition(
   round: RoundRecord,
-  minEvalSites: number | null
+  minScoringSites: number | null
 ): AggregateDisposition {
   const metric = round.metric;
   if (!metric) return { plot: false, by: 'absent' };
@@ -120,11 +127,25 @@ export function aggregateDisposition(
       // exactly the reconstruction hazard the site-keyed case withholds for.
       return { plot: false, by: 'page', cause: 'per_site_not_site_keyed' };
     }
-    if (metric.n_sites_scored === null) {
-      return { plot: false, by: 'page', cause: 'completeness_unknown' };
-    }
-    // Now both sides are in the same space, so both directions are meaningful.
-    // A site-keyed map really cannot have more entries than sites scored.
+  }
+
+  // Unconditional, and it used to sit inside the block above where it guarded
+  // only a cardinality comparison. `n_sites_scored` is the denominator of
+  // `aggregate` and therefore the operand of the floor, so a record without it
+  // has no floor to check even when it publishes no per-site map at all. That
+  // path was the wider half of the leak: with `per_site` null the whole block
+  // was skipped, this field was never read, and the floor passed on `eval_on`.
+  if (metric.n_sites_scored === null) {
+    return { plot: false, by: 'page', cause: 'completeness_unknown' };
+  }
+
+  if (metric.per_site !== null) {
+    // Both sides are in the same space by now, so both directions are
+    // meaningful. A site-keyed map really cannot have more entries than sites
+    // scored. Split from the basis checks above rather than merged back with
+    // them, because the two ask different questions: the basis is a property of
+    // the map, the count is a property of the record, and only their join is a
+    // cardinality claim.
     const mapped = Object.keys(metric.per_site).length;
     if (mapped < metric.n_sites_scored) {
       return { plot: false, by: 'page', cause: 'partial_map' };
@@ -134,19 +155,30 @@ export function aggregateDisposition(
     }
   }
 
+  // The only place `eval_on` is read, and it is a contradiction check rather
+  // than a coverage one. A site cannot return a score it was not asked for, so
+  // scoring more sites than were evaluated cannot come from the driver: it says
+  // the record was assembled wrong, and an aggregate from a record that
+  // contradicts itself about its own denominator is not publishable whatever
+  // the floor says.
+  //
+  // Scoring FEWER than were asked is not checked here and must not be. That is
+  // an ordinary partial round, and the floor below is the rule that decides
+  // whether it stands.
+  if (round.eval_on !== null && metric.n_sites_scored > round.eval_on.length) {
+    return { plot: false, by: 'page', cause: 'scoring_exceeds_eval_set' };
+  }
+
   // The floor is checked even though the service is supposed to have checked
   // it, for the same reason the completeness gate is: the service refusing at
   // its boundary is its guarantee, not a mechanism on this side. A single
-  // evaluating site makes the pooled figure that site's own value under a
-  // pooled label, and every leave-one-site-out fold has a singleton eval set.
-  if (minEvalSites === null) {
+  // scoring site makes the pooled figure that site's own value under a pooled
+  // label, and every leave-one-site-out fold has a singleton eval set.
+  if (minScoringSites === null) {
     return { plot: false, by: 'page', cause: 'floor_unstated' };
   }
-  if (round.eval_on === null) {
-    return { plot: false, by: 'page', cause: 'eval_set_unreported' };
-  }
-  if (round.eval_on.length < minEvalSites) {
-    return { plot: false, by: 'page', cause: 'below_eval_floor' };
+  if (metric.n_sites_scored < minScoringSites) {
+    return { plot: false, by: 'page', cause: 'below_scoring_floor' };
   }
 
   return { plot: true, value: metric.aggregate };
@@ -165,7 +197,7 @@ export function emptyTally(): DispositionTally {
     service: {
       partial_map: 0,
       completeness_unknown: 0,
-      below_eval_floor: 0,
+      below_scoring_floor: 0,
       floor_unknown: 0,
     },
     page: {
@@ -175,9 +207,9 @@ export function emptyTally(): DispositionTally {
       per_site_basis_unstated: 0,
       per_site_not_site_keyed: 0,
       completeness_unknown: 0,
-      below_eval_floor: 0,
+      scoring_exceeds_eval_set: 0,
+      below_scoring_floor: 0,
       floor_unstated: 0,
-      eval_set_unreported: 0,
     },
     absent: 0,
   };

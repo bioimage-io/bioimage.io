@@ -225,8 +225,34 @@
  * property that no single side can verify has to be a declaration each side
  * publishes, never a check one side runs. Key space is that kind of property,
  * and so is provenance, and so is the derivation of an aggregate.
+ *
+ * 0.6.0-draft: MINOR. `policy.aggregate_min_eval_sites` becomes
+ * `aggregate_min_scoring_sites` and the withhold cause `below_eval_floor`
+ * becomes `below_scoring_floor`. Every consumer of either name must change.
+ *
+ * The rename is the visible part of a real defect. The floor exists to stop a
+ * pooled figure standing on too few sites, and it was comparing the size of
+ * `eval_on`, the sites ASKED to evaluate, against the threshold. `aggregate` is
+ * a mean over `n_sites_scored`, the sites that ANSWERED. Nothing in the record
+ * or in this page related those two numbers, so a round that asked six sites
+ * and heard back from one satisfied the floor and published that one site's
+ * value under a pooled label. That is precisely the leak the floor was added
+ * for, restored intact, by the field the floor reads.
+ *
+ * This is the same class as 0.5.0's self-referential denominator, one step
+ * sideways. There the check took its operand from the thing it was checking and
+ * could not fail. Here the check takes an operand the published figure is not
+ * derived from, and fails against the wrong quantity. Both read as a rule about
+ * the number on screen, and neither was.
+ *
+ * A parameter named after the wrong operand is the doc-comment defect in
+ * field-name form: `min_eval_sites` describes what the gate READ, and the name
+ * was the argument for keeping it. So the name moves with the operand, and
+ * `n_sites_scored` stops being an optional stand-in for `per_site` and becomes
+ * the field the floor is checked against, required whenever an aggregate is
+ * published.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.5.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.6.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -395,10 +421,18 @@ export interface SiteRecord {
  *                           aggregate would reconstruct the rest.
  *  - `completeness_unknown` the service could not establish that the per-site
  *                           map was complete, so it could not rule out the above.
- *  - `below_eval_floor`     fewer than `policy.aggregate_min_eval_sites` sites
- *                           evaluated. At one site the aggregate IS that site's
- *                           value under a pooled label, and every
+ *  - `below_scoring_floor`  fewer than `policy.aggregate_min_scoring_sites`
+ *                           sites SCORED. At one site the aggregate IS that
+ *                           site's value under a pooled label, and every
  *                           leave-one-site-out fold has a singleton eval set.
+ *
+ *                           Scored, not asked. This cause was `below_eval_floor`
+ *                           and both the name and the check read the size of the
+ *                           eval set, which is the set of sites invited to
+ *                           evaluate. The aggregate is a mean over the ones that
+ *                           returned a score. Where those differ the gate passes
+ *                           on a number the published figure has nothing to do
+ *                           with.
  *  - `floor_unknown`        the floor itself was not stated, so the service
  *                           could not prove it was met.
  *
@@ -409,7 +443,7 @@ export interface SiteRecord {
 export type AggregateWithholdCause =
   | 'partial_map'
   | 'completeness_unknown'
-  | 'below_eval_floor'
+  | 'below_scoring_floor'
   | 'floor_unknown';
 
 /** The scoring for one round. `name` is campaign-specific and rendered as given. */
@@ -461,8 +495,9 @@ export interface RoundMetric {
    * an aggregate plus n-1 per-site values reconstructs the nth, which would
    * leak the value the per-site withholding exists to protect.
    *
-   * Also withheld when fewer than `policy.aggregate_min_eval_sites` sites
-   * evaluated. See `aggregate_withheld`.
+   * Also withheld when fewer than `policy.aggregate_min_scoring_sites` sites
+   * scored, and when `n_sites_scored` is null, since that is the count the
+   * threshold is checked against. See `aggregate_withheld`.
    */
   aggregate: number | null;
   /**
@@ -483,7 +518,26 @@ export interface RoundMetric {
    * figure with an unnamed basis is not checkable.
    */
   aggregate_basis: string | null;
-  /** How many sites contributed a score this round. The public stand-in for per_site. */
+  /**
+   * How many sites contributed a score this round.
+   *
+   * The denominator of `aggregate`, and therefore the operand the scoring floor
+   * is checked against. It began life as the public stand-in for `per_site`, a
+   * way to state completeness without publishing the map, and it is still that.
+   * It is no longer only that, which is why the doc comment grew: the floor used
+   * to read `eval_on` instead, and a page reading this field as an optional
+   * completeness hint would not notice that the floor now depends on it.
+   *
+   * Required whenever `aggregate` is non-null, whether or not `per_site` is
+   * published. Null withholds the aggregate rather than skipping the floor,
+   * because the alternative is publishing a pooled figure with no statement of
+   * how many sites stand behind it, which is the condition the floor exists to
+   * rule out.
+   *
+   * Never greater than `|eval_on|` where both are present: a site cannot return
+   * a score it was not asked for. That is a contradiction rather than a coverage
+   * gap, and the page reports it as one.
+   */
   n_sites_scored: number | null;
 }
 
@@ -813,13 +867,21 @@ export interface CampaignPolicy {
    */
   outcomes_released: boolean | null;
   /**
-   * The minimum number of evaluating sites below which `RoundMetric.aggregate`
-   * is withheld. A campaign-level judgement, not a derivation, which is exactly
+   * The minimum number of SCORING sites below which `RoundMetric.aggregate` is
+   * withheld. A campaign-level judgement, not a derivation, which is exactly
    * why it lives here and is not a constant in this repo: a page that supplied
    * its own value would present one consortium's disclosure threshold as a
    * property of the platform.
    *
-   * The long name is deliberate. A bare `min_eval_sites` reads as a validity
+   * Checked against `RoundMetric.n_sites_scored` and deliberately NOT against
+   * `RoundRecord.eval_on`, which is the earlier reading and the reason for the
+   * rename. `eval_on` is who was asked. The aggregate is a mean over who
+   * answered. A round can invite six sites, hear from one, and the pooled figure
+   * is then that one site's own value: the exact disclosure this threshold
+   * exists to prevent, passing the threshold. Restoring `eval_on` here would
+   * reinstate it, so this sentence is the guard against that.
+   *
+   * The long name is deliberate. A bare `min_scoring_sites` reads as a validity
    * condition on the round, which would have the page drop the round entirely.
    * This gates ONE outcome field and leaves every process field standing.
    *
@@ -835,7 +897,7 @@ export interface CampaignPolicy {
    * because the service refusing at the boundary is its guarantee, not a
    * mechanism on this side.
    */
-  aggregate_min_eval_sites: number | null;
+  aggregate_min_scoring_sites: number | null;
 }
 
 export interface CampaignSteward {

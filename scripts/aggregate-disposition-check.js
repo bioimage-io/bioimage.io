@@ -85,21 +85,30 @@ try {
 
   // Plots. Without these the refusal cases below prove nothing.
   eq('complete round plots', aggregateDisposition(ok(), 3), { plot: true, value: 0.8 });
-  eq('eval count exactly at the floor plots',
-    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'] }), 3).plot, true);
-  eq('per_site withheld entirely still plots',
-    aggregateDisposition(ok({ metric: { per_site: null, n_sites_scored: null } }), 3),
+  eq('scoring count exactly at the floor plots',
+    aggregateDisposition(ok(), 3).plot, true);
+  // Withholding the per-site map is a legitimate privacy choice and does not
+  // withhold the aggregate. Withholding the COUNT is a different thing and now
+  // does, because the count is what the floor is checked against. This case
+  // used to pass `n_sites_scored: null` and plot, which is the wider half of
+  // the operand leak: with no map the per-site block was skipped entirely, the
+  // count was never read, and the floor passed on the eval set instead.
+  eq('per_site withheld entirely still plots when the count is stated',
+    aggregateDisposition(ok({ metric: { per_site: null } }), 3),
     { plot: true, value: 0.8 });
+  eq('per_site withheld AND the count withheld does not plot',
+    aggregateDisposition(ok({ metric: { per_site: null, n_sites_scored: null } }), 3),
+    { plot: false, by: 'page', cause: 'completeness_unknown' });
 
   // The bug this module was written for: a null aggregate used to fall out of
   // both branches of the chart's loop and produce nothing at all.
   eq('service withhold is attributed to the service',
-    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'below_eval_floor' } }), 3),
-    { plot: false, by: 'service', cause: 'below_eval_floor' });
+    aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'below_scoring_floor' } }), 3),
+    { plot: false, by: 'service', cause: 'below_scoring_floor' });
   eq('every service cause is carried through, not flattened',
-    ['partial_map', 'completeness_unknown', 'below_eval_floor', 'floor_unknown'].map((c) =>
+    ['partial_map', 'completeness_unknown', 'below_scoring_floor', 'floor_unknown'].map((c) =>
       aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: c } }), 3).cause),
-    ['partial_map', 'completeness_unknown', 'below_eval_floor', 'floor_unknown']);
+    ['partial_map', 'completeness_unknown', 'below_scoring_floor', 'floor_unknown']);
 
   // A null with no stated cause is an absence, not a withhold. Reporting it as
   // a withhold would attribute a decision to a service that made none.
@@ -163,15 +172,35 @@ try {
     ],
     ['partial_map', 'map_exceeds_count', 'per_site_not_site_keyed']);
 
-  eq('below the floor refuses',
-    aggregateDisposition(ok({ eval_on: ['a', 'b'] }), 3),
-    { plot: false, by: 'page', cause: 'below_eval_floor' });
-  eq('singleton eval set refuses',
-    aggregateDisposition(ok({ eval_on: ['a'] }), 3),
-    { plot: false, by: 'page', cause: 'below_eval_floor' });
-  eq('unreported eval set refuses',
+  // THE OPERAND. The floor exists to stop a pooled figure standing on too few
+  // sites, and the figure is a mean over `n_sites_scored`. It used to be checked
+  // against `eval_on.length`, which counts the sites ASKED to evaluate, and
+  // nothing anywhere related the two numbers. The four cases below are that
+  // distinction, and before the fix the first two plotted.
+  eq('one site scoring out of a full eval set is below the floor',
+    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
+    { plot: false, by: 'page', cause: 'below_scoring_floor' });
+  eq('the same round with the map withheld is still below the floor',
+    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: null, n_sites_scored: 1 } }), 3),
+    { plot: false, by: 'page', cause: 'below_scoring_floor' });
+  // The mirror. A short eval set is not itself disqualifying: what matters is
+  // how many sites the published mean is over. Without this the fix would look
+  // correct while having merely moved the same wrong refusal to a new field.
+  eq('a short eval set does not refuse when enough sites scored',
+    aggregateDisposition(ok({ eval_on: ['a', 'b'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 2),
+    { plot: true, value: 0.8 });
+  eq('an unreported eval set does not refuse when enough sites scored',
     aggregateDisposition(ok({ eval_on: null }), 3),
-    { plot: false, by: 'page', cause: 'eval_set_unreported' });
+    { plot: true, value: 0.8 });
+  // More scored than were asked. Impossible from the driver, so it is a
+  // contradiction in the record and not a coverage shortfall, and it is
+  // reported as its own cause rather than folded into the floor.
+  eq('more scoring sites than evaluating sites is a contradiction',
+    aggregateDisposition(ok({ eval_on: ['a', 'b'], metric: { per_site: { a: 0.8, b: 0.8, c: 0.8 }, n_sites_scored: 3 } }), 3),
+    { plot: false, by: 'page', cause: 'scoring_exceeds_eval_set' });
+  eq('the contradiction is not reported as a floor failure',
+    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 5).cause,
+    'scoring_exceeds_eval_set');
   eq('unstated floor refuses',
     aggregateDisposition(ok(), null),
     { plot: false, by: 'page', cause: 'floor_unstated' });
@@ -185,8 +214,11 @@ try {
   // property of the platform.
   eq('null floor does not fall through to a default of 3',
     aggregateDisposition(ok(), null).plot, false);
-  eq('null floor refuses even a large eval set',
-    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c', 'd', 'e', 'f'] }), null).plot, false);
+  eq('null floor refuses however many sites scored',
+    aggregateDisposition(ok({
+      eval_on: ['a', 'b', 'c', 'd', 'e', 'f'],
+      metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8, e: 0.8, f: 0.8 }, n_sites_scored: 6 },
+    }), null).plot, false);
 
   // Service and page causes with the same name are not the same finding.
   const sameName = [
@@ -200,12 +232,12 @@ try {
   const t = emptyTally();
   [
     aggregateDisposition(ok(), 3),
-    aggregateDisposition(ok({ eval_on: ['a'] }), 3),
+    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'floor_unknown' } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
   ].forEach((d) => tally(t, d));
   eq('tally counts plotted', t.plotted, 1);
-  eq('tally counts the page refusal', t.page.below_eval_floor, 1);
+  eq('tally counts the page refusal', t.page.below_scoring_floor, 1);
   eq('tally counts the service withhold', t.service.floor_unknown, 1);
   eq('tally counts the absence', t.absent, 1);
   // Every round lands in exactly one bucket. A round counted twice overstates
