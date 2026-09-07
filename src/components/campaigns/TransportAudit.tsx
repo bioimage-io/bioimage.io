@@ -41,26 +41,47 @@ import { Value } from './MissingValue';
  *
  * Where the crossing falls is set by the corpus size relative to the payload,
  * NOT by whether the payload is an adapter or a whole model. The transfer
- * pattern is structural: 3N+1 payloads per round for N participants, being a
- * push and a pull each, plus one aggregate write and one store read each. So
- * the campaign saves data for as long as
+ * pattern is structural, one payload per transfer:
  *
- *     payload_bytes * (3N + 1) * rounds  <  corpus_bytes
+ *     2 * |participants|  +  1  +  |participants union eval_on|
  *
- * Two campaigns of identical shape, six sites over a 600 GB corpus, land in
- * completely different places under that condition. This platform's U-Net has
- * a 7.8 MB state dict and crosses at about round 4,000, so its sixty-round
- * schedule never approaches it. A Cellpose-SAM-scale state dict at 1.2 GB
- * crosses at about round 26 and finishes the same schedule having moved more
- * than twice what it avoided moving. Both are full state dicts. The payload
- * kind predicts nothing on its own.
+ * being a push and a pull for each site that trains, one aggregate write, and
+ * one store read for each site that reads the aggregate, which is every site
+ * that trains OR evaluates. So the campaign saves data for as long as
+ *
+ *     payload_bytes * multiplier * rounds  <  corpus_bytes
+ *
+ * This used to be written as a flat 3N+1, which is the value the expression
+ * takes ONLY at full participation, where eval_on is a subset of participants
+ * and the union is just N. It is not a general coefficient. A leave-one-site-out
+ * fold at six sites trains five and evaluates six, so it is 2*5 + 1 + 6 = 17,
+ * not 19. Applying 19 across a mixed series overstates transport for precisely
+ * the rounds that had fewer sites, which is the direction that makes the
+ * campaign look worse than it was, but it is wrong either way and the error
+ * grows with how uneven the schedule is.
+ *
+ * So the curve must read `participants` and `eval_on` from each round record
+ * rather than take an N from the campaign. Then it is right by construction and
+ * no round needs to be special-cased.
+ *
+ * Two campaigns of identical shape, six sites at FULL participation over a
+ * 600 GB corpus, land in completely different places under that condition. This
+ * platform's U-Net has a 7.8 MB state dict and crosses at about round 4,000, so
+ * its sixty-round schedule never approaches it. A Cellpose-SAM-scale state dict
+ * at 1.2 GB crosses at about round 26 and finishes the same schedule having
+ * moved more than twice what it avoided moving. Both are full state dicts. The
+ * payload kind predicts nothing on its own.
  *
  * What is correct, when the page has a campaign that can supply it, is a
  * cumulative-to-date curve with that crossing marked. That is a real finding
  * and this panel is where it will go. It needs per-round coverage from round
- * zero, which the consortium run cannot supply retroactively, and it must use
- * the 3N+1 coefficient above: a 2N approximation that counts only the pushes
- * and pulls puts the crossing 58% too late.
+ * zero, which the consortium run cannot supply retroactively.
+ *
+ * It also needs the real multiplier and not an approximation. Counting only the
+ * pushes and pulls gives 2N, which at six sites and full participation is 12
+ * against 19 and puts the crossing 58% too late. That 58% is itself specific to
+ * full participation, which is the point: there is no single correction factor
+ * to apply, only the per-round sets.
  *
  * Until then the panel shows both quantities and no quotient. A reader who
  * wants the ratio can divide, and will have both labels in front of them when

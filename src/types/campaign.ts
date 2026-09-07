@@ -386,6 +386,34 @@ export interface RoundRecord {
   /** Site ids that trained this round. May be a subset of the roster. */
   participants: string[];
   /**
+   * Site ids that evaluated this round's aggregate. May include sites that did
+   * not train, which is the whole reason it is a separate field: a
+   * leave-one-site-out fold trains five and evaluates six.
+   *
+   * Needed for the transport multiplier, whose last term is
+   * `|participants union eval_on|`, one store read per site that pulls the
+   * aggregate. Without it the multiplier is only computable at full
+   * participation, and assuming full participation is the same class of error
+   * as any other flattering default.
+   *
+   * It is NOT derived from `scored_with`, whose keys are the same set, because
+   * `scored_with` belongs to the outcome axis: it travels with `metric` and the
+   * page gates that whole surface on `policy.outcomes_released`. Deriving the
+   * multiplier from it would make a process quantity conditional on an outcome
+   * flag, and the transport curve would be withheld for every running campaign,
+   * which is exactly when it is worth reading.
+   *
+   * The test that settles which axis it belongs to: the model was shipped to
+   * those sites whether or not any score is ever released. The bytes moved. So
+   * the SET is a process quantity and only the VALUES are an outcome.
+   *
+   * Nullable and fails closed. A null withholds the point rather than assuming
+   * the eval set equalled the participant set, which is the flattering
+   * assumption: it undercounts the aggregate reads, understates the multiplier,
+   * and so puts the crossover later than it belongs.
+   */
+  eval_on: string[] | null;
+  /**
    * FedAvg weights actually applied, keyed by site id. Opt-in: sample-count
    * weights publish every site's training-set size. Null when withheld.
    */
@@ -463,7 +491,16 @@ export interface ComputedTransport {
    * for the only claim this page is really making.
    */
   bytes_moved: number | null;
-  /** The formula, e.g. "3N+1 transfers per round x measured payload size". */
+  /**
+   * The formula, rendered verbatim, e.g.
+   * "2|participants| + 1 + |participants union eval_on| transfers per round
+   * x measured payload size".
+   *
+   * The example here used to read "3N+1", which is that expression evaluated at
+   * full participation and not the general form. It is only an example string,
+   * but a wrong coefficient sitting in a doc comment is how a flat one ends up
+   * in code, so it is corrected rather than left as shorthand.
+   */
   basis: string;
   /** What the formula was checked against, e.g. a control run. Null if unchecked. */
   validated_against: string | null;
