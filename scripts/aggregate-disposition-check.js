@@ -72,6 +72,7 @@ try {
       name: 'validation Dice',
       higher_is_better: true,
       per_site: { a: 0.8, b: 0.81, c: 0.79 },
+      per_site_basis: 'site',
       aggregate: 0.8,
       aggregate_basis: 'mean',
       n_sites_scored: 3,
@@ -117,36 +118,50 @@ try {
   eq('unknown completeness refuses',
     aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3),
     { plot: false, by: 'page', cause: 'completeness_unknown' });
-  // The other direction of the same comparison. The gate was written to catch a
-  // short map, and a gate that tests one direction passes the other in silence.
-  eq('a map with more entries than sites scored refuses',
+  // The key space is checked BEFORE any comparison against n_sites_scored,
+  // which counts sites. Comparing a map's length to a site count means nothing
+  // unless the map is site-keyed, and this module used to assume it was.
+  eq('a map that does not say what it is keyed by refuses',
+    aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
+    { plot: false, by: 'page', cause: 'per_site_basis_unstated' });
+  eq('a dataset-keyed map refuses for want of a denominator, not as malformed',
+    aggregateDisposition(ok({ metric: { per_site_basis: 'dataset' } }), 3),
+    { plot: false, by: 'page', cause: 'per_site_not_site_keyed' });
+
+  // The pooled arm of the current federated layout: six datasets scored at one
+  // site. This is a CORRECT round and the previous revision of this file
+  // rejected it as a malformed site map, because the over-long gate inferred a
+  // key space from a cardinality it had no business comparing.
+  const pooledArm = {
+    eval_on: ['pooled'],
+    metric: {
+      per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
+      per_site_basis: 'dataset',
+      n_sites_scored: 1,
+    },
+  };
+  eq('the pooled arm is not reported as a count mismatch',
+    aggregateDisposition(ok(pooledArm), 1).cause, 'per_site_not_site_keyed');
+
+  // The cardinality comparisons survive, in the space where they mean
+  // something. A site-keyed map really cannot have more entries than sites.
+  eq('a site-keyed map with more entries than sites scored refuses',
     aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.81, c: 0.79, d: 0.78 } } }), 3),
     { plot: false, by: 'page', cause: 'map_exceeds_count' });
   // Control. Without this the rule above would also pass if the gate refused
   // every map that is not short, which would withhold every correct round.
   eq('a map of exactly n_sites_scored entries still plots',
     aggregateDisposition(ok(), 3), { plot: true, value: 0.8 });
-  // The two directions must stay separable, because they send a reader to
-  // different places: a short map is missing entries, an over-long one means
-  // the keys are not site ids and every label on the chart would be a guess.
-  eq('short and over-long are not the same finding',
+  // Short, over-long and wrong-space are three findings, not one. They send a
+  // reader to three different places: entries are missing, the count disagrees,
+  // or the question was never answerable from this record.
+  eq('the three per-site findings stay separable',
     [
       aggregateDisposition(ok({ metric: { per_site: { a: 0.8 } } }), 3).cause,
       aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8 } } }), 3).cause,
+      aggregateDisposition(ok(pooledArm), 1).cause,
     ],
-    ['partial_map', 'map_exceeds_count']);
-  // The realised case rather than a hypothetical one: the driver keys scores by
-  // dataset while n_sites_scored counts sites, and one arm of the current
-  // federated layout scores six datasets at a single site.
-  eq('six dataset-keyed scores from one scoring site refuses',
-    aggregateDisposition(ok({
-      eval_on: ['pooled'],
-      metric: {
-        per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
-        n_sites_scored: 1,
-      },
-    }), 1),
-    { plot: false, by: 'page', cause: 'map_exceeds_count' });
+    ['partial_map', 'map_exceeds_count', 'per_site_not_site_keyed']);
 
   eq('below the floor refuses',
     aggregateDisposition(ok({ eval_on: ['a', 'b'] }), 3),

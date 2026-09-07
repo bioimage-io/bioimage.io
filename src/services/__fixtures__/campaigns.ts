@@ -146,6 +146,7 @@ function adapterRounds(total: number): RoundRecord[] {
         // running campaign: a live per-site curve is a public leaderboard of
         // whose data is hardest. Only the aggregate is published.
         per_site: null,
+        per_site_basis: null,
         aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
         aggregate_basis: 'merge-weighted mean over the per-site validation F1',
         n_sites_scored: roster.length,
@@ -342,6 +343,7 @@ function unetRounds(total: number): RoundRecord[] {
         name: 'validation Dice',
         higher_is_better: true,
         per_site,
+        per_site_basis: 'site' as const,
         aggregate,
         aggregate_basis: 'merge-weighted mean over the per-dataset validation Dice',
         // Both sites scored every round. Round 7 published only one of the two

@@ -187,8 +187,28 @@
  * this page handles that version, so bumping first would have made the claim
  * false for as long as the gap stayed open, and the page would have accepted
  * 0.3.0 records while dropping their withheld rounds on the floor.
+ *
+ * 0.4.0-draft: MINOR. `RoundMetric.per_site_basis`, and every reader of
+ * `per_site` must change, so this is the clearest minor in the list.
+ *
+ * The previous version asserted "keyed by site_id" in a doc comment, which the
+ * only known producer does not do. Everything the page then computed from that
+ * map inherited the mistake, including a completeness gate comparing the map's
+ * length to `n_sites_scored`. Two maps in two key spaces compared by
+ * cardinality: the comparison had no meaning in EITHER direction, so extending
+ * it to catch the second direction extended something that was never sound.
+ *
+ * That is the failure mode this file's basis fields exist for. `aggregate_basis`
+ * and `images_held.basis` were both added because a number whose derivation is
+ * unstated cannot be checked. A map whose KEY SPACE is unstated is the same
+ * defect one level up, and it went unnoticed longer because a key space feels
+ * like a property of the field rather than a claim about a value.
+ *
+ * Prose in a schema binds nobody. The producer never agreed to the sentence and
+ * the reader cannot check it, which makes it the same class of thing as a tier
+ * asserted in a comment on a method that cannot know its caller.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.3.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.4.0-draft';
 
 /**
  * What crosses the site boundary each round.
@@ -366,12 +386,39 @@ export interface RoundMetric {
   name: string;
   higher_is_better: boolean;
   /**
-   * Keyed by `SiteRecord.site_id`. Null when the campaign withholds per-site
-   * curves, which is the default: publishing them live amounts to a
-   * leaderboard of whose data is hardest. Where it is present, a site absent
-   * from the map was not scored that round.
+   * Per-unit scores. Null when the campaign publishes none.
+   *
+   * The key space is NOT implied. It is stated by `per_site_basis` and this
+   * field means nothing without it.
+   *
+   * This doc comment used to say "keyed by `SiteRecord.site_id`" and that was
+   * the defect. The only known producer keys by DATASET: `val_dice()` in
+   * run_federated.py builds `scores[dataset]` while returning `scored_with[site]`
+   * from the same loop, so the two key spaces come out of one function. A page
+   * that reads this map as site-keyed resolves dataset names through the roster
+   * and renders whichever ones happen to match as labelled site curves.
+   *
+   * Nothing detects that by inspection. In the launch consortium the client
+   * name and the dataset name are the identical string for all six datasets
+   * (deploy.py:60-71), so every dataset key resolves against the roster and a
+   * dataset-keyed map is indistinguishable from a site-keyed one. An
+   * attributability check passes by naming coincidence, which is the worst
+   * case: it passes, so nobody looks again.
+   *
+   * Hence the basis is data and not prose. A key space asserted in a comment is
+   * the same class of error as a tier asserted in a comment: the producer never
+   * agreed to it and the reader cannot check it.
    */
   per_site: Record<string, number> | null;
+  /**
+   * What `per_site` is keyed by. Null means the producer did not say, which is
+   * not a default to 'site'.
+   *
+   * The page draws per-site curves only for 'site'. For 'dataset' it has a map
+   * it can label but no denominator in the record to check it against, since
+   * `n_sites_scored` counts sites. For null it has neither.
+   */
+  per_site_basis: 'site' | 'dataset' | null;
   /**
    * Null when the campaign does not define a single pooled figure, which is the
    * honest default: the driver records the metric per dataset and there is no

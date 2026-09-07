@@ -115,6 +115,18 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${publishes(n)} more per-site scores than the number of sites it records as having scored, so the two cannot both be describing sites.`
     );
   }
+  if (tally.page.per_site_basis_unstated > 0) {
+    const n = tally.page.per_site_basis_unstated;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score beside a set of per-unit scores that does not say what it is keyed by, so there is no way to tell what the combined figure would fill in.`
+    );
+  }
+  if (tally.page.per_site_not_site_keyed > 0) {
+    const n = tally.page.per_site_not_site_keyed;
+    refused.push(
+      `${countPhrase(n)} ${publishes(n)} a combined score beside scores keyed by something other than site, and the record carries no count of those to check the set against.`
+    );
+  }
   if (tally.page.completeness_unknown > 0) {
     const n = tally.page.completeness_unknown;
     refused.push(
@@ -190,8 +202,23 @@ const PerSiteNotes: React.FC<{
   short: number;
   unknown: number;
   unattributable: number;
-}> = ({ short, unknown, unattributable }) => (
+  basisUnstated: number;
+  notSiteKeyed: number;
+}> = ({ short, unknown, unattributable, basisUnstated, notSiteKeyed }) => (
   <>
+    {basisUnstated > 0 && (
+      <p className="mt-3 text-xs text-gray-500">
+        {countPhrase(basisUnstated)} {publishes(basisUnstated)} a score per unit without recording
+        what those units are, so this page cannot say whether each one is a site and does not label
+        them as though it could.
+      </p>
+    )}
+    {notSiteKeyed > 0 && (
+      <p className="mt-3 text-xs text-gray-500">
+        {countPhrase(notSiteKeyed)} {publishes(notSiteKeyed)} scores keyed by something other than
+        site, so they are not drawn on a chart whose lines stand for sites.
+      </p>
+    )}
     {short > 0 && (
       <p className="mt-3 text-xs text-gray-500">
         {countPhrase(short)} {has(short)} curves from fewer sites than scored that round, so the
@@ -235,6 +262,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     shortPerSite,
     unknownPerSite,
     unattributablePerSite,
+    basisUnstatedPerSite,
+    notSiteKeyedPerSite,
     tally,
     xMin,
     xMax,
@@ -254,6 +283,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
     let shortPerSite = 0;
     let unknownPerSite = 0;
     let unattributablePerSite = 0;
+    let basisUnstatedPerSite = 0;
+    let notSiteKeyedPerSite = 0;
 
     scored.forEach((round) => {
       const metric = round.metric!;
@@ -273,21 +304,33 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       // did report as though they were the whole set. Same rule as the log
       // fix: the statement belongs on the value's own exit path, not on
       // whichever sibling happened to need it first.
-      // An over-long map is not drawn at all, which is stricter than the short
-      // case on purpose. A short map is site-keyed and missing entries, so the
-      // curves it does carry are still attributable and only the set is
-      // incomplete. A map with more entries than sites scored cannot be
-      // site-keyed at all, so `siteNames.get(key) ?? key` would fall through
-      // and render whatever the keys really are as though each were a site.
-      // Labelling a dataset as a site is not a missing curve, it is a wrong
-      // one, and a wrong curve with a plausible label is the failure this whole
-      // panel is supposed to be incapable of.
+      // Curves are drawn only when the record SAYS the map is site-keyed.
+      //
+      // `siteNames.get(key) ?? key` cannot be made safe by inspection. In the
+      // launch consortium every dataset name is also a client name, so a
+      // dataset-keyed map resolves cleanly against the roster and renders as
+      // labelled site curves with nothing anywhere reporting a problem. A check
+      // that passes by naming coincidence is worse than no check, because it
+      // passes and nobody looks again.
+      //
+      // So the key space is taken from the record or the curves are not drawn.
+      // This replaces an over-long gate that inferred the key space from a
+      // cardinality comparison against a count of sites, which rejected the
+      // pooled arm of the current layout: six datasets scored at one site is a
+      // correct round, and reading it as a malformed site map was the same
+      // wrong-space mistake in a different coat.
+      if (metric.per_site !== null && metric.per_site_basis === null) {
+        basisUnstatedPerSite += 1;
+      } else if (metric.per_site !== null && metric.per_site_basis !== 'site') {
+        notSiteKeyedPerSite += 1;
+      }
       const overlong =
         metric.per_site !== null &&
+        metric.per_site_basis === 'site' &&
         metric.n_sites_scored !== null &&
         Object.keys(metric.per_site).length > metric.n_sites_scored;
       if (overlong) unattributablePerSite += 1;
-      if (metric.per_site && !overlong) {
+      if (metric.per_site && metric.per_site_basis === 'site' && !overlong) {
         if (metric.n_sites_scored === null) unknownPerSite += 1;
         else if (Object.keys(metric.per_site).length < metric.n_sites_scored) shortPerSite += 1;
         Object.entries(metric.per_site).forEach(([siteId, value]) => {
@@ -334,6 +377,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
       shortPerSite,
       unknownPerSite,
       unattributablePerSite,
+      basisUnstatedPerSite,
+      notSiteKeyedPerSite,
       xMin: roundNumbers.length > 0 ? Math.min(...roundNumbers) : 0,
       xMax: roundNumbers.length > 0 ? Math.max(...roundNumbers) : 1,
       yMin: Math.max(0, lo - span * 0.15),
@@ -368,6 +413,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
           short={shortPerSite}
           unknown={unknownPerSite}
           unattributable={unattributablePerSite}
+          basisUnstated={basisUnstatedPerSite}
+          notSiteKeyed={notSiteKeyedPerSite}
         />
       </div>
     );
@@ -445,6 +492,8 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minEvalSites = n
         short={shortPerSite}
         unknown={unknownPerSite}
         unattributable={unattributablePerSite}
+        basisUnstated={basisUnstatedPerSite}
+        notSiteKeyed={notSiteKeyedPerSite}
       />
       {metricBasis && (
         <p className="mt-3 text-xs text-gray-500">

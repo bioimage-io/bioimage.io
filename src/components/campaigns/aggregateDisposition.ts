@@ -38,8 +38,12 @@ export type PageRefusal =
   | 'contradictory_withhold'
   /** Some per-site values published; the aggregate reconstructs the rest. */
   | 'partial_map'
-  /** More entries in the per-site map than sites recorded as having scored. */
+  /** A site-keyed map with more entries than sites recorded as having scored. */
   | 'map_exceeds_count'
+  /** A per-unit map arrived without saying what it is keyed by. */
+  | 'per_site_basis_unstated'
+  /** The map is keyed by something the record carries no denominator for. */
+  | 'per_site_not_site_keyed'
   /** No `n_sites_scored`, so a complete per-site map is indistinguishable from a short one. */
   | 'completeness_unknown'
   /** Fewer evaluating sites than the campaign's own floor. */
@@ -90,17 +94,37 @@ export function aggregateDisposition(
   }
 
   if (metric.per_site !== null) {
+    // The key space first, because every check below it is a comparison against
+    // `n_sites_scored`, which counts SITES. Comparing the length of a map to a
+    // count of sites means nothing unless the map is site-keyed, and this
+    // module used to assume it was on the strength of a doc comment.
+    //
+    // That made the previous fix wrong in an instructive way. The gate tested
+    // `length < n_sites_scored` and I extended it to catch `>` as well, on the
+    // grounds that a gate testing one direction passes the other in silence.
+    // The general point holds. It did not apply here: the comparison had no
+    // meaning in either direction, so completing it made a wrong-space check
+    // symmetric rather than making it right, and the new arm rejected the
+    // pooled arm of the current federated layout, which is a correct record.
+    //
+    // Symmetry is not soundness. A check can be wrong in a way that testing its
+    // mirror image will never surface, because both arms inherit the same bad
+    // premise.
+    if (metric.per_site_basis === null) {
+      return { plot: false, by: 'page', cause: 'per_site_basis_unstated' };
+    }
+    if (metric.per_site_basis !== 'site') {
+      // A dataset-keyed map is well-formed and this page still cannot check it:
+      // the record carries no count of datasets scored, so completeness is not
+      // assertable, and an aggregate published beside an unverifiable map is
+      // exactly the reconstruction hazard the site-keyed case withholds for.
+      return { plot: false, by: 'page', cause: 'per_site_not_site_keyed' };
+    }
     if (metric.n_sites_scored === null) {
       return { plot: false, by: 'page', cause: 'completeness_unknown' };
     }
-    // Both directions of the mismatch, because this check was written to catch
-    // a short map and a gate that tests one direction passes the other in
-    // silence. An over-long map is the more serious of the two: the count and
-    // the keys cannot both be about sites, so either the count is wrong or the
-    // keys are not site ids, and the second means every label on the chart is a
-    // guess. The driver makes this concrete rather than hypothetical, since it
-    // keys its scores by dataset while the sites' own count is a count of
-    // sites, and one arm of the current layout scores six datasets at one site.
+    // Now both sides are in the same space, so both directions are meaningful.
+    // A site-keyed map really cannot have more entries than sites scored.
     const mapped = Object.keys(metric.per_site).length;
     if (mapped < metric.n_sites_scored) {
       return { plot: false, by: 'page', cause: 'partial_map' };
@@ -148,6 +172,8 @@ export function emptyTally(): DispositionTally {
       contradictory_withhold: 0,
       partial_map: 0,
       map_exceeds_count: 0,
+      per_site_basis_unstated: 0,
+      per_site_not_site_keyed: 0,
       completeness_unknown: 0,
       below_eval_floor: 0,
       floor_unstated: 0,

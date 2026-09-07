@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.3.0-draft';
+const SCHEMA_VERSION = '0.4.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -46,6 +46,7 @@ function stubRounds(): Array<Record<string, unknown>> {
       name: 'validation Dice',
       higher_is_better: true,
       per_site: null,
+      per_site_basis: null,
       aggregate: 0.4 + round * 0.07,
       aggregate_basis: 'merge-weighted mean over the per-dataset validation Dice',
       n_sites_scored: 2,
@@ -519,6 +520,7 @@ test('a partial per-site map withholds the aggregate as well', async ({ page }) 
             // One of two sites published a curve. With two sites, the aggregate
             // plus this one value reconstructs the other exactly.
             per_site: { 'stub-site-a': 0.7314 },
+            per_site_basis: 'site',
             n_sites_scored: 2,
           },
         }
@@ -561,6 +563,7 @@ test('an aggregate is withheld when the record does not say how many sites were 
     metric: {
       ...(round.metric as Record<string, unknown>),
       per_site: { 'stub-site-a': 0.7314 },
+      per_site_basis: 'site',
       // The service says nothing about how many sites this covers, so the page
       // cannot tell one of two from two of two.
       n_sites_scored: null,
@@ -704,6 +707,7 @@ test('a short per-site map is reported even when no aggregate reasoning runs', a
     metric: {
       ...(round.metric as any),
       per_site: { 'stub-site-a': 0.71 },
+      per_site_basis: 'site',
       n_sites_scored: 2,
       aggregate: null,
       aggregate_withheld: null,
@@ -727,6 +731,7 @@ test('per-site curves of unknowable completeness say so', async ({ page }) => {
     metric: {
       ...(round.metric as any),
       per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: 'site',
       n_sites_scored: null,
       aggregate: null,
       aggregate_withheld: null,
@@ -752,6 +757,7 @@ test('neither per-site note fires on a record that reports a complete map', asyn
     metric: {
       ...(round.metric as any),
       per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: 'site',
       n_sites_scored: 2,
     },
   }));
@@ -763,17 +769,31 @@ test('neither per-site note fires on a record that reports a complete map', asyn
   expect(text).not.toContain('not every site that took part');
   expect(text).not.toContain('without saying how many sites scored');
   expect(text).not.toContain('more per-site scores than sites recorded as scoring');
+  // The key-space notes are absences too, so they need the same control. A
+  // basis of 'site' is the case where both must stay quiet.
+  expect(text).not.toContain('without recording what those units are');
+  expect(text).not.toContain('keyed by something other than site');
   // And the curves really are on the chart, so this is not the empty state.
+  // This is also the control for the two key-space tests below, which assert
+  // the chart is absent. Without a case that draws one, "no chart" would pass
+  // just as well if the chart had been deleted.
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(1);
   expect(text).toContain('Stub site A');
 });
 
 test('a per-site map with more entries than sites scored is not drawn at all', async ({ page }) => {
-  // The other direction of the completeness comparison. The gate was written to
-  // catch a short map, and a gate that tests one direction passes the other in
-  // silence. This is the more serious direction: three entries against two
-  // sites means the keys cannot be site ids, so the label fall-through would
-  // render whatever they really are as though each were a site. A wrong curve
-  // under a plausible label is worse than a missing one.
+  // The other direction of the completeness comparison, in the one space where
+  // that comparison means anything: the record SAYS this map is site-keyed and
+  // it still carries three entries against two sites. That is a contradiction
+  // inside a single key space rather than an inference across two, which is
+  // what the earlier revision of this test got wrong. It asserted that an
+  // over-long map proves the keys are not site ids, and a dataset-keyed map is
+  // over-long by construction without any key being wrong.
+  //
+  // What survives is the consequence. Something here does not add up, and the
+  // label fall-through would render whichever keys those are as though each
+  // were a site. A wrong curve under a plausible label is worse than a missing
+  // one.
   //
   // No aggregate either, so nothing else on the page has any reason to mention
   // these rounds. That also puts the chart in its empty branch, which is where
@@ -783,6 +803,7 @@ test('a per-site map with more entries than sites scored is not drawn at all', a
     metric: {
       ...(round.metric as any),
       per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69, 'stub-dataset-x': 0.66 },
+      per_site_basis: 'site',
       n_sites_scored: 2,
       aggregate: null,
       aggregate_withheld: null,
@@ -817,6 +838,7 @@ test('an over-long map is named in the refusal box when an aggregate is publishe
           metric: {
             ...(round.metric as any),
             per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69, 'stub-dataset-x': 0.66 },
+            per_site_basis: 'site',
             n_sites_scored: 2,
           },
         }
@@ -835,6 +857,90 @@ test('an over-long map is named in the refusal box when an aggregate is publishe
   expect(text).toContain('The combined curve is a merge-weighted mean');
 });
 
+/**
+ * The two tests below cover the defect the pair above were built on top of.
+ *
+ * Both cardinality gates compare the length of `per_site` against
+ * `n_sites_scored`, which counts sites. That comparison means nothing unless
+ * the map is site-keyed, and the schema used to assert it was in a doc comment
+ * while the only known producer keys by dataset. So a correct dataset-keyed
+ * round was arriving at a gate built for a malformed site-keyed one.
+ *
+ * Nothing catches that by looking at the keys. In the launch consortium every
+ * dataset name is also a client name, so a dataset-keyed map resolves cleanly
+ * against the roster and renders as labelled site curves with nothing reporting
+ * a problem. A check that passes by naming coincidence is worse than no check.
+ * Hence `per_site_basis`, and hence these two tests: the key space has to come
+ * from the record, and each of the two ways it can fail has to be visible as
+ * itself rather than borrowing the count-mismatch wording.
+ */
+test('a per-site map that does not say what it is keyed by is not drawn', async ({ page }) => {
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: null,
+      n_sites_scored: 2,
+      aggregate: null,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('without recording what those units are');
+  // Two entries, two sites scored. The counts agree, so nothing about this
+  // round is a count mismatch and the page must not report one.
+  expect(text).not.toContain('more per-site scores than sites recorded as scoring');
+  expect(text).not.toContain('not every site that took part');
+  // And the record is not described as carrying nothing. It carried a map and
+  // this page declined to draw it.
+  expect(text).not.toContain('No per-site curves are in this record');
+
+  // Nothing is plotted. Checked on the chart itself rather than by looking for
+  // "Stub site A" in the page text, because these keys DO resolve against the
+  // roster and the site names appear in the round log and the roster table
+  // regardless of what the chart does. A text-absence assertion would have
+  // failed here for a reason that has nothing to do with the chart, and in the
+  // mirror case it would have passed while a curve was on screen.
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
+});
+
+test('the pooled arm is refused for its key space, not as a count mismatch', async ({ page }) => {
+  // Six datasets scored at one site, which is the pooled arm of the current
+  // federated layout and a CORRECT round. The over-long gate rejected it as a
+  // malformed site map, which is the case that proved the gate was comparing
+  // across two key spaces.
+  const rounds = stubRounds().map((round: any) => ({
+    ...round,
+    metric: {
+      ...(round.metric as any),
+      per_site: { 'stub-dataset-x': 0.66, 'stub-dataset-y': 0.68, 'stub-dataset-z': 0.7 },
+      per_site_basis: 'dataset',
+      n_sites_scored: 1,
+      aggregate: null,
+      aggregate_withheld: null,
+    },
+  }));
+  await stubCampaignService(page, { record: stubRecord({ rounds }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('keyed by something other than site');
+  // Three entries against one site scored. Under the old gate that was an
+  // over-long map; it is a well-formed record and must not be reported as
+  // malformed, because that sends a reader to look for a producer bug that is
+  // not there.
+  expect(text).not.toContain('more per-site scores than sites recorded as scoring');
+  expect(text).not.toContain('not every site that took part');
+  expect(text).not.toContain('stub-dataset-x');
+  await expect(page.getByRole('img', { name: /by round$/ })).toHaveCount(0);
+});
+
 test('the caption describing the combined curve does not outlive the curve', async ({ page }) => {
   // Every aggregate withheld, per-site curves present, so the chart still draws
   // something and the empty state does not fire. That combination is the only
@@ -846,6 +952,7 @@ test('the caption describing the combined curve does not outlive the curve', asy
     metric: {
       ...(round.metric as any),
       per_site: { 'stub-site-a': 0.71, 'stub-site-b': 0.69 },
+      per_site_basis: 'site',
       aggregate: null,
       aggregate_withheld: 'below_eval_floor',
     },
@@ -1261,12 +1368,19 @@ test('the three provenance states are distinguishable from each other', async ({
 // ---------------------------------------------------------------------------
 
 test('a service on a different schema is refused at the index, not rendered', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.4.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.5.0-draft' });
   await page.goto('/#/campaigns');
 
   // The refusal is visible. A silent empty list would be the wrong outcome:
   // it reads as "no campaigns exist" when the truth is "we cannot read this".
-  await expect(page.getByText(/schema 0\.4\.0-draft/)).toBeVisible({ timeout: 20000 });
+  //
+  // Both versions are named, and both are written out. Matching only one of
+  // them is what this assertion used to do, and it meant a pin bump left the
+  // test green while it had quietly stopped checking that the page reports
+  // which version IT is on. A mismatch message that names one side tells a
+  // reader half of what they need to fix it.
+  await expect(page.getByText(/reports schema 0\.5\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.4\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1280,10 +1394,11 @@ test('a service on a different schema is refused at the index, not rendered', as
 });
 
 test('a service on a different schema is refused at the detail page too', async ({ page }) => {
-  await stubCampaignService(page, { servedSchema: '0.4.0-draft' });
+  await stubCampaignService(page, { servedSchema: '0.5.0-draft' });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
-  await expect(page.getByText(/schema 0\.4\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/reports schema 0\.5\.0-draft/)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/this page expects 0\.4\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1323,7 +1438,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.3.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.4.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
