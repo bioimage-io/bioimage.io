@@ -8,6 +8,7 @@ metadata:
     - apps/model-runner/model-runner.md
     - apps/cellpose3-runner.md
     - apps/cellpose-finetuning.md
+    - apps/omezarr-view.md
 ---
 
 # BioEngine
@@ -678,6 +679,8 @@ request_id = await app.infer(model_id="affable-shark", inputs="<url>")
 
 Some apps (e.g. cellpose-finetuning) take HTTPS URIs of OME-Zarr datasets as input rather than streaming through the worker. Discover candidate datasets via the BioImage Archive search API, the IDR OME-NGFF samples catalogue, or any other public source — see [references/data_sources.md](references/data_sources.md) for the BIA, IDR / OMERO query patterns and how to extract `.ome.zarr` URIs from the response.
 
+When the data the user has is **not** OME-Zarr — an archive of OME-TIFF or CZI they do not want to migrate — [apps/omezarr-view.md](apps/omezarr-view.md) serves those files as lazy OME-Zarr views in place, producing exactly such a URI without converting or copying anything.
+
 ### App-specific subskills
 
 When working with a specific deployed app, load its dedicated subskill for the method signatures, conventions, and known quirks:
@@ -687,6 +690,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
 | Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | Running the Cellpose-3-and-earlier zoo models — which model-runner cannot serve |
 | Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
+| OME-Zarr View | [apps/omezarr-view.md](apps/omezarr-view.md) | Serving existing OME-TIFF / CZI files as OME-Zarr without converting them — for a viewer, an annotation UI, or a training loader |
 
 > **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
 
