@@ -200,6 +200,26 @@ Annotation surface: `add_shapes(shapes, {name, shape_type, label, edge_color, fa
 
 Order the `dimensions` keys `x, y, z` before `t`; suffix the channel dimension `c^`. Nothing else needs overriding — `displayDimensions` at the top level had no effect in the deployed viewer, and giving `t` a seconds unit while leaving it first did not help either. It is the **ordering** that decides.
 
+**The scales in that block must agree with what the view publishes.** This is the half of the override that is easy to get wrong, because getting it wrong looks like the view being broken rather than the state being broken. Writing `{"x": [1, ""], "y": [1, ""], "z": [1, ""]}` — dimensionless, against a view publishing 1e-7 m — makes Neuroglancer fail to resolve the source **at all**. Six states on one correctly-mapped `t,c,z,y,x` view, isolated one difference at a time:
+
+| `dimensions` block | chunks | source resolved | central levels | renders |
+|---|---|---|---|---|
+| none | 5 | yes | 8 | no |
+| `x,y,z,t,c^`, real scales + units | 1 | yes | 256 | **yes** |
+| only `x,y,z`, real scales | 1 | yes | 256 | **yes** |
+| only `x,y,z`, all `[1, ""]`, + `displayDimensions` | **0** | **no** | 3 | no |
+| `x,y,z,t,c^` but all `[1, ""]` | **0** | **no** | 3 | no |
+| `t,c^,z,y,x`, real scales (t first) | 5 | yes | 8 | no |
+
+Two independent requirements, and each fails differently:
+
+- **Scales consistent with the view** — otherwise the source never resolves.
+- **Spatial axes before `t`** — otherwise it resolves and draws the wrong plane.
+
+Naming `t` and `c^` in the block is optional; row 3 omits both and still renders. It is the scales that are load-bearing, and the ordering of whatever you do name.
+
+**Count the chunk requests to tell the two failures apart.** Zero chunk requests means Neuroglancer never resolved the source — a state bug. Chunks fetched with status 200 and a flat frame means it resolved and displayed the wrong axes. Both look like an empty canvas; only the request log separates them, which is one more reason a screenshot is not evidence on its own.
+
 **The override is required even when the view's own `t` axis is correct.** An earlier version of this section guessed the opposite — that a `t` axis published with scale `1.0` and no unit was what made Neuroglancer treat it as a display axis, so fixing the mapping would make the override unnecessary. That guess has since been tested and is **wrong**. Against a view publishing `t` as scale `2.526`, unit `second`, the minimal state still fetched five chunks with status 200 and painted the same flat grey frame (`central_distinct_levels` 8); the same view with `x, y, z` ordered ahead of `t` fetched one chunk and rendered (256 levels). Neuroglancer picks by **position in the coordinate space, not by unit**, so a correct mapping does not rescue it. Pass the override on every view with a `t` axis, and treat a metadata fix and this override as two separate obligations.
 
 ### OpenLayers / Leaflet and custom annotation UIs (tiles)
