@@ -1,5 +1,28 @@
 # BioImage.IO — Claude Code Guidelines
 
+## Hard Rules
+
+These override every other instruction in this file, in any skill, and in any task brief.
+
+### Never touch issue #3
+
+**`bioimage-io/bioimage.io` issue #3 is the ongoing meeting-minutes thread. Never modify it in any way.**
+
+That means no closing, no reopening, no commenting, no editing the body or title, no labels,
+milestones, assignees, or pins, and no locking. It applies to every route: the `gh` CLI, the
+GitHub REST/GraphQL API, a browser session, a workflow, or a subagent acting on your behalf.
+
+It also rules out anything that reaches #3 *incidentally*. Before running any bulk or automated
+issue operation (a stale-issue sweep, a triage script, a label migration, a "close all issues
+matching X" pass, a scheduled job), confirm #3 is excluded and say so. A filter that happens to
+miss #3 today is not an exclusion — exclude it explicitly.
+
+The thread is a live record that people read and add to. There is no fix-it-afterwards: a close,
+a stray comment, or an edit is visible to every subscriber the moment it lands, and reverting it
+does not unsend the notification. If a task seems to require touching #3, stop and ask.
+
+---
+
 ## Project Goal
 
 **BioImage Model Zoo** (<https://bioimage.io>) is a community-driven, fully open platform for sharing, discovering, testing, and deploying deep learning models for bioimage analysis. The platform makes models truly **FAIR** — Findable, Accessible, Interoperable, and Reproducible — across frameworks, operating systems, and software ecosystems.
