@@ -4,7 +4,7 @@ description: Packages, validates, and submits deep learning models to the BioIma
 compatibility: Designed for Claude Code, Gemini CLI, or any agentic AI assistant with file system and bash access. Requires Python 3.8+ and internet access for submission.
 metadata:
   author: bioimage-io
-  version: "1.9"
+  version: "1.10"
 ---
 
 # BioImage Model Zoo — Model Contribution Agent
@@ -67,7 +67,7 @@ Required:
 [ ] Input tensor: shape, dtype, axes, channel names, expected value range
 [ ] Output tensor: shape, dtype, axes, channel names, value range
 [ ] Preprocessing — prefer adaptable normalization (`zero_mean_unit_variance`, `scale_range`) over fixed values when compatible with the model; verify whether any upstream pipeline already applies it
-[ ] Postprocessing — `sigmoid`, `none`, or a custom callable (Cellpose flow dynamics, StarDist NMS, custom decoders → see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)); note that `softmax` is NOT a valid built-in op — embed it in `forward()` instead
+[ ] Postprocessing — `sigmoid`, `softmax`, `none`, or a custom callable (Cellpose flow dynamics, StarDist NMS, custom decoders → see [references/custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md)); `softmax` **is** a built-in op on the 0.5 spec line (`id: softmax`, `kwargs: {axis: channel}`) — only `format_version: 0.4.x` lacks it, and there it has to live in `forward()`
 [ ] Representative example image(s) for test/sample/cover use — search the source repo/model card/dataset links first, then ask the user if needed
 [ ] Model name — specific, human-readable (e.g. "cFOS Segmentation 2D UNet - Mouse Hippocampus")
 [ ] Description — 2-4 sentences: what it does, modality, organism/tissue, training data
@@ -193,6 +193,26 @@ printf 'generated/\n' >> model_package/.gitignore
    - `## Validation` (exact heading, required by `bioimageio test`) — mention test results
    - `## Citation` — reference the paper
 
+### Large models (any file over 2 GiB)
+
+Nothing in this skill's path builds a zip — you assemble `generated/` as a directory and upload the
+files individually — so a large model works, with two caveats worth knowing before you start:
+
+- **Don't call `bioimageio package` on it.** `bioimageio.spec` writes archive members via
+  `zip.open(name, "w")` without `force_zip64`, so any member over 2 GiB aborts with
+  `RuntimeError: File size too large, try using force_zip64` **and leaves a truncated archive
+  behind** — which is easy to mistake for a good one. Still present in 0.5.14.1
+  ([spec #769](https://github.com/bioimage-io/spec-bioimage-io/issues/769)). If you need an
+  archive, force ZIP64 on write-mode members yourself and delete any previous output first.
+- **Uploading needs roughly as much free RAM as the largest file.** `upload_model.py` (and the
+  re-upload snippet in Step 6a-fix) do `content=fobj.read()`, buffering the whole file before the
+  PUT — a 3.15 GiB weight file measured 3.19 GiB peak RSS. Submit from a host with headroom.
+
+There is no published per-model size limit. The mechanical ceiling is about 48 GiB (10 000 S3
+parts x 5 MiB minimum part size). If the weights are already published somewhere stable, prefer
+referencing them by URL instead of packaging the bytes at all (see "A weights `source` may be a
+remote URL" above).
+
 ### Spec 0.5.11+ packaging notes
 
 - Use `format_version: 0.5.11` or the latest released model spec supported by `bioimageio.core`.
@@ -264,7 +284,7 @@ Fix errors and retry. Common issues:
 - Wrong `format_version` — use `0.5.11` or the latest released model spec supported by the installed `bioimageio.spec` package; custom license files require `0.5.11` or newer
 - Duplicate axis `id` values **within** a single tensor (same IDs across input/output tensors is fine)
 - `pytorch_state_dict` must NOT have a `parent` field
-- `softmax` is NOT a valid postprocessing operation — embed it inside the model's `forward()`
+- `softmax` **is** a valid postprocessing operation on the 0.5 spec line — declare it as `id: softmax` with `kwargs: {axis: channel}` (`SoftmaxDescr` has been in `bioimageio.spec` since 0.5.5.0 and `bioimageio.core` has executed it since 0.9.1, so any version this skill targets has it). Only `format_version: 0.4.x` has no softmax op; there, embed it inside the model's `forward()`
 - Current spec versions expect file descriptors for `covers` and `documentation`; include both `source` and `sha256`
 - `SizeReference` has NO `scale` field — cannot express "output = input/2". For models with stride/grid > 1 (e.g., StarDist grid=2), use fixed output sizes instead of a reference
 
@@ -277,11 +297,13 @@ Fix errors and retry. Common issues:
 ```bash
 pip install -q "bioimageio.spec>=0.5.11" "bioimageio.core>=0.10"
 bioimageio test model_package/generated/rdf.yaml
-
-# For models that use custom pre/postprocessing (id: custom, source: .py),
-# opt in to executing the shipped callable:
-bioimageio test model_package/generated/rdf.yaml --allow-custom-postprocessing
 ```
+
+> **Custom pre/postprocessing needs no opt-in flag.** Models declaring `id: custom` with a
+> `source: .py` are executed by the same command — there is no `--allow-custom-postprocessing`
+> CLI flag and no `allow_custom_postprocessing=` parameter in current `bioimageio.core`. The
+> `.py` is imported after its declared `sha256` is verified, and that hash check is the only
+> technical control. See [custom-processing.md](https://bioimage.io/skills/bioimageio-models/references/custom-processing.md#security-model).
 
 Or with conda (handles Python version automatically):
 ```bash
@@ -436,7 +458,37 @@ call so the runner builds and tests inside that conda env (first run is slow; se
 Such a model is testable but **not servable for inference** on the shared runtime — prefer a
 TorchScript/ONNX export if it must be runnable via `infer()`.
 
+> **For a custom-environment model, `inference_check: failed` is the expected outcome — don't chase
+> it.** The report carries an `inference_check` field *separate* from `report["status"]`. The five
+> status checks run inside your conda env and can pass 5/5 while `inference_check` fails with a
+> `ModuleNotFoundError` for your package, because that check calls a plain `infer()` in the shared
+> Ray serving runtime, which by definition does not have your dependencies. It does not affect
+> `report["status"]` and it is not something to fix — it is the same non-servability described
+> above, surfaced as a field. Chasing it wastes a debugging cycle.
+
 ### Step 6a-fix — Fixing remote test failures
+
+> **An artifact stores the RDF twice, and nothing warns you when the two diverge.** `rdf.yaml` is a
+> file in the artifact's inventory; the artifact *also* carries a separate stored **manifest**
+> record. Different calls update them: `put_file` changes only the file, `am.edit(stage=True,
+> manifest=…)` changes only the record. **Any time you change a packaged file that `rdf.yaml`
+> hashes — the documentation, the dependencies file, the weights, the architecture — you must
+> re-upload the file *and* re-run `am.edit` with the regenerated `rdf.yaml`.** Static validation and
+> the BioEngine test both read the *file*, so they stay green while the record rots; a curator reads
+> the *record*. The snippet below does both, in that order, which is why it always sends the
+> manifest even when you think only files changed. Verify before requesting review:
+>
+> ```python
+> import yaml
+> stored = (await am.read(artifact_id=artifact_id, stage=True))["manifest"]
+> shipped = yaml.safe_load(open("model_package/generated/rdf.yaml"))
+> stale = sorted(k for k, v in shipped.items() if stored.get(k) != v)
+> assert not stale, f"stored manifest is stale for: {stale}"
+> ```
+>
+> Every key in the shipped file must match the record. The record legitimately carries a few extra
+> keys that never appear in `rdf.yaml` (`status`, `id`, `id_emoji`), which is why this checks one
+> direction rather than comparing the two dicts outright.
 
 If the remote test fails, update the staged artifact (no need to re-create it):
 
@@ -454,12 +506,16 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
     }) as server:
         am = await server.get_service("public/artifact-manager")
 
-        # Update manifest if rdf.yaml changed
+        # Re-sync the stored manifest from the regenerated rdf.yaml.
+        # Read the CURRENT staged record and merge on top of it, so server-side
+        # fields that never appear in rdf.yaml (status, id, id_emoji) survive.
+        # Passing the bare rdf.yaml here would clobber them.
         with open(package / "rdf.yaml") as f:
-            manifest = yaml.safe_load(f)
+            rdf = yaml.safe_load(f)
+        staged = await am.read(artifact_id=artifact_id, stage=True)
         await am.edit(
             artifact_id=artifact_id,
-            manifest=manifest,
+            manifest={**(staged.get("manifest") or {}), **rdf},
             stage=True,
         )
 
@@ -478,6 +534,48 @@ asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", pack
 ```
 
 After re-uploading, re-run Step 6a. Repeat until the status is `passed` or `valid-format`.
+
+#### If only a handful of elements mismatch, declare a tolerance
+
+A model that is bit-exact locally can still differ by a few elements on the BioEngine GPU. This is
+normal for anything using fp16 autocast — accumulation order changes, and boundary pixels move.
+**Do not regenerate the test tensors on the hardware that failed** (that bakes one GPU's rounding
+into the package and hides the variance from the next user), and do not conclude the package is
+broken. The supported way to state the variance is `config.bioimageio.reproducibility_tolerance`:
+
+```yaml
+config:
+  bioimageio:
+    reproducibility_tolerance:
+      - output_ids: [instance_labels]
+        weights_formats: [pytorch_state_dict]
+        mismatched_elements_per_million: 2800
+```
+
+- `_get_tolerance` takes the **first** matching entry, so list specific entries before any catch-all.
+  An entry with empty `output_ids` / `weights_formats` matches everything.
+- `mismatched_elements_per_million` defaults to 100 and is capped at 5000.
+- For **integer / label outputs, `relative_tolerance` and `absolute_tolerance` do nothing useful** —
+  a boundary pixel flipping from `0` to label `23` is arbitrarily far in both — so use the ppm knob
+  alone and leave the other two at their defaults.
+
+**First confirm the difference is numerical noise, not a wrong answer.** A tolerance is for
+rounding, not for a model that disagrees with itself. Check that the two outputs are structurally
+identical: same instance count, same label set, every differing pixel adjacent to a boundary. If
+that does not hold, you have a real bug, and widening the tolerance only hides it.
+
+**Then size the allowance against a structural ceiling, not against your measurement.** Fitting the
+number just above the mismatch you happened to observe (say 500 ppm for an observed 430 ppm) leaves
+86% of the allowance consumed on the single GPU you tested, so a different card flips the report to
+`failed` with no change to the model, and the next person will not know why. Instead work out the
+largest allowance that still could not conceal a real error, declare just under it, and **state that
+reasoning in the RDF**. Worked example: a 1 016 064-element instance-label output whose smallest
+reference instance is 2 907 px gives a ceiling of 2 861 ppm, since an allowance below that cannot
+hide an instance being gained, lost, split, or merged. Declaring 2 800 ppm against an observed
+385.8 ppm leaves roughly 7x headroom and still bounds the error meaningfully.
+
+Changing `config` means the RDF changed, so re-upload `rdf.yaml` **and** re-sync the stored manifest
+(see the warning at the top of this step).
 
 ### Step 6b — Request curator review
 
@@ -557,6 +655,11 @@ The `report.md` section structure + the full tag list live on the collection man
 
 ## Key Reference Files
 
+This table is the **complete inventory** of the skill directory. The skill is served as flat files
+from a static host, so there is no directory listing to browse — if a file is not listed here, it
+does not exist, and everything that does exist is listed here. Fetch any of them with
+`curl -sSL <url>` (not WebFetch — see the note at the top).
+
 | File | When to Read |
 |------|-------------|
 | [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md) | Writing `rdf.yaml` — all fields explained |
@@ -570,3 +673,5 @@ The `report.md` section structure + the full tag list live on the collection man
 | [scripts/compute_sha256.py](https://bioimage.io/skills/bioimageio-models/scripts/compute_sha256.py) | SHA256 hash utility |
 | [scripts/generate_test_tensors.py](https://bioimage.io/skills/bioimageio-models/scripts/generate_test_tensors.py) | Generate test_input/output .npy files |
 | [scripts/validate_package.sh](https://bioimage.io/skills/bioimageio-models/scripts/validate_package.sh) | One-shot validation runner |
+| [scripts/upload_model.py](https://bioimage.io/skills/bioimageio-models/scripts/upload_model.py) | Phase 5 — create the staged draft and upload the package |
+| [scripts/submit_for_review.py](https://bioimage.io/skills/bioimageio-models/scripts/submit_for_review.py) | Phase 6b — flip `status: draft -> in-review` |

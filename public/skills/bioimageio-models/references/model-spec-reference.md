@@ -262,6 +262,7 @@ Applied to output tensors after inference:
 | Operation | kwargs |
 |-----------|--------|
 | `sigmoid` | none |
+| `softmax` | `axis: channel` |
 | `scale_linear` | `gain`, `offset` |
 | `ensure_dtype` | `dtype: float32` |
 | `binarize` | `threshold: 0.5` |
@@ -270,10 +271,22 @@ Applied to output tensors after inference:
 | `scale_range` | `axes`, `min_percentile`, `max_percentile` |
 | `scale_mean_variance` | `axes` |
 
-> **Note:** `softmax` is NOT a valid postprocessing operation in `bioimageio.spec` 0.5.x.
-> For multi-class models that need softmax, embed it inside the model's `forward()` method
-> so the output tensor is already a probability map. This keeps the model self-contained
-> and compatible with all runtimes.
+> **Note on `softmax`:** it is a genuine built-in on the 0.5 spec line, valid as both a
+> preprocessing and a postprocessing op. `SoftmaxDescr` has been in `bioimageio.spec` since
+> 0.5.5.0 and `bioimageio.core` has executed it since 0.9.1, so every version this skill
+> targets supports it. Its single kwarg `axis` defaults to `channel`; set it explicitly if
+> the tensor has no channel axis, since the default would then reference an axis that does
+> not exist.
+>
+> ```yaml
+> postprocessing:
+>   - id: softmax
+>     kwargs:
+>       axis: channel
+> ```
+>
+> Only `format_version: 0.4.x` has no softmax op. On that line, embed it inside the model's
+> `forward()` so the output tensor is already a probability map.
 
 > **Beyond built-ins:** Cellpose flow dynamics (`cellpose_flow_dynamics` — kwargs `cellprob_threshold`, `flow_threshold`, `do_3D`, `min_size`, `output_dtype`), StarDist NMS (`stardist_postprocessing` — kwargs `grid`, `prob_threshold`, `nms_threshold`, `n_rays`), and any other decoder shipped as a callable live under `id: custom` (or the registered `id:` for the two ops above). See [custom-processing.md](custom-processing.md) for the full pattern including the SHA256 security model.
 
