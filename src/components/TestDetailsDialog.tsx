@@ -16,6 +16,8 @@ import {
   Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import yaml from 'js-yaml';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -84,6 +86,79 @@ interface TestDetailsDialogProps {
   /** Whether the connected runner supports cancellation (feature-detected). */
   canCancel?: boolean;
 }
+
+/**
+ * Renders `ValidationDetail.recommended_env` as a conda environment.yaml.
+ *
+ * The payload is a `CondaEnv` (spec-bioimage-io `conda_env.py:32`): `name`,
+ * `channels`, and `dependencies`, where a dependency is either a spec string
+ * or a `{pip: [...]}` block. That is exactly the content of an
+ * environment.yaml, so YAML is both the more readable rendering and one the
+ * user can paste straight into `conda env create -f`. It used to be shown as
+ * JSON, which conda cannot consume.
+ *
+ * lineWidth: -1 disables line folding. At the default width js-yaml wraps a
+ * long dependency into a `>-` block, e.g. a git+https pip URL split across two
+ * indented lines. That still parses back to the same string, so it is not a
+ * correctness problem, but it is unreadable and it stops the block from
+ * looking like an environment.yaml anyone would recognise.
+ *
+ * js-yaml throws on values it cannot represent (a cycle, a function). The
+ * payload is server-sent and typed `any`, so we fall back to JSON rather than
+ * let a malformed report take the whole dialog down.
+ */
+const RecommendedEnv: React.FC<{ env: any }> = ({ env }) => {
+  const [copied, setCopied] = React.useState(false);
+
+  const { text, isYaml } = React.useMemo(() => {
+    try {
+      return { text: yaml.dump(env, { lineWidth: -1, noRefs: true }), isYaml: true };
+    } catch {
+      return { text: JSON.stringify(env, null, 2), isYaml: false };
+    }
+  }, [env]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+          Recommended Environment:
+        </Typography>
+        <Tooltip title={copied ? 'Copied' : 'Copy as environment.yaml'} placement="top">
+          <IconButton onClick={handleCopy} size="small" sx={{ padding: '2px' }}>
+            <ContentCopyIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        {copied && (
+          <Typography variant="caption" sx={{ color: 'success.main' }}>
+            Copied
+          </Typography>
+        )}
+      </Box>
+      <Paper
+        sx={{
+          p: 2,
+          backgroundColor: 'rgba(249, 250, 251, 0.8)',
+          border: '1px solid rgba(255, 255, 255, 0.5)',
+          borderRadius: '8px',
+        }}
+      >
+        <pre style={{ margin: 0, fontSize: '0.875rem', overflow: 'auto' }}>{text}</pre>
+      </Paper>
+      {!isYaml && (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          This environment could not be shown as YAML, so it is shown as JSON.
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   open,
@@ -708,23 +783,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
 
                           {/* Recommended Environment */}
                           {detail.recommended_env && (
-                            <Box sx={{ mb: 2 }}>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
-                                Recommended Environment:
-                              </Typography>
-                              <Paper
-                                sx={{
-                                  p: 2,
-                                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                                  border: '1px solid rgba(255, 255, 255, 0.5)',
-                                  borderRadius: '8px',
-                                }}
-                              >
-                                <pre style={{ margin: 0, fontSize: '0.875rem', overflow: 'auto' }}>
-                                  {JSON.stringify(detail.recommended_env, null, 2)}
-                                </pre>
-                              </Paper>
-                            </Box>
+                            <RecommendedEnv env={detail.recommended_env} />
                           )}
 
                           {/* Conda List */}
