@@ -1443,6 +1443,30 @@ export interface EmptyMerge {
  * does not state what decides a merge. Choosing the nearest member would be
  * asserting what the schema can express over what is true, and the page depicts
  * an agent when the field carries one, not before.
+ *
+ * DECIDED AND WORTH NOT RELITIGATING: there will be no 'agent_judgement' kind.
+ * It was proposed here and ruled out on 12 Sep 2026, and the reason is a
+ * distinction this type should carry rather than a preference.
+ *
+ * The agent's genuine judgement in this design is WHAT TO ADMIT: the greedy
+ * gate takes a contribution or records it as evaluated and not included. That
+ * decision is already in the record, in the gate and assessed fields, and it is
+ * not a property of the trigger. WHEN a merge batch fires is a rule (a cadence,
+ * a contribution threshold, a human, or nothing), and the agent executes that
+ * rule rather than deliberating over it.
+ *
+ * A trigger member meaning "the agent decided it was time" would invite the
+ * page to draw the agent choosing WHEN, which is a bigger claim than anything
+ * the backend makes, and the harder kind of overclaim to notice because it
+ * flatters the design. Two axes, rule and actor, describe every campaign;
+ * judgement is a third thing and it lives with the gate.
+ *
+ * The one case that reopens this: a backend that says the agent genuinely
+ * decides timing by its own reading, with no rule it can name. That does not
+ * get drawn on this page without going back to the paper side first. Note the
+ * two failures point in opposite directions, so both need guarding. An
+ * agent label over a timer is a decorative agent. A deliberation claim over a
+ * nameable rule is an inflated one.
  */
 export interface MergeTrigger {
   kind: 'manual' | 'scheduled' | 'on_contributions' | null;
