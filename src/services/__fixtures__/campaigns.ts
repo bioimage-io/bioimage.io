@@ -636,16 +636,25 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // "started from Cellpose-SAM" names a set. The baseline level on the
     // lineage chart is only reproducible if the record says which one it is.
     //
-    // THIS PARTICULAR VALUE IS NOT YET CONFIRMED UPSTREAM, as of 12 Sep 2026.
-    // The backend reports it trains from "cpsam_v2" and expects that to be
-    // zoo version 0.2.0, but has not checked the version-and-hash pin against
-    // what the training code actually loads, so it sends `version: null` and
-    // the page renders the generic label. 0.2.0 is written here because a
-    // fixture's job is to exercise the identified path, and both paths are
-    // covered by tests. Do not read it as a verified fact about the live
-    // campaign, and do not let it reach a figure caption or the paper until
-    // the pin is confirmed: naming the wrong checkpoint is worse than the
-    // generic label, because it is reproducible-looking and wrong.
+    // CONFIRMED UPSTREAM 12 Sep 2026, both legs, by declared sha rather than
+    // by name. The training side loads cellpose 4.2.1.1 `pretrained_model
+    // cpsam_v2`, whose HuggingFace LFS sha256 is 0f1cc3f7ecdd...c667, and the
+    // zoo RDF at idealistic-eagle v1 (the commit that carries `version: 0.2.0`)
+    // declares exactly that sha for its pytorch_state_dict. Same bytes, and the
+    // packaged file is 1,233,586,851 bytes, matching the upstream checkpoint.
+    //
+    // Worth knowing before anyone re-derives this: the packaged weight file is
+    // named `cpsam` in BOTH committed versions. Only the sha changes (v0
+    // declares e1440429...abe2, the April 2025 cpsam). So matching on the
+    // filename says "this entry ships cpsam, not cpsam_v2" and is wrong at
+    // every version. The two-versions-one-name hazard that motivated pinning
+    // this field in the first place turns out to repeat one level down, at the
+    // file inside the package, which is why the digest is the identifier that
+    // actually settles it.
+    //
+    // The backend still sends `version: null` because it reports what it loads
+    // rather than resolving it to a zoo version, so the generic-label path is
+    // live and both paths stay covered by tests.
     version: '0.2.0',
     url: '#/models/cellpose-sam',
   },
