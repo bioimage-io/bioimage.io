@@ -1417,6 +1417,32 @@ export interface EmptyMerge {
  * shows the threshold and the count against it and stops short of a time. A
  * predicted merge time that slips is worse than no prediction on a page whose
  * entire claim is that its numbers are observations.
+ *
+ * THIS UNION IS KNOWN TO BE INCOMPLETE, as of 12 Sep 2026. Recorded here rather
+ * than tracked elsewhere, because the next person to read it will otherwise
+ * reasonably assume the three members are the whole space.
+ *
+ * The Cellpose-SAM community campaign's merges are driven by an AGENT through
+ * the skill interface: it fires the merge, runs the greedy gate, publishes the
+ * versioned checkpoint, and records a non-improving contribution as evaluated
+ * and not included. That is confirmed by the backend owner, and none of the
+ * three members says it. 'scheduled' is a timer, and the point of the
+ * confirmation was that there is no timer. 'manual' is a person pressing
+ * something, which is a claim about a human doing the work.
+ *
+ * The gap is not cosmetic, because `kind` is doing two jobs at once. It mixes
+ * WHAT DECIDES to merge with WHAT THE RULE IS, and those are independent: an
+ * agent could act on a clock, on a threshold, or on its own reading of what has
+ * arrived. Collapsing them is exactly what lets a cron with an agent-shaped
+ * wrapper be reported as agent-driven, and a page that drew an agent from such
+ * a record would be decorating an automated loop. Whatever replaces this has to
+ * keep the two separable, so a reader can tell those apart from the record.
+ *
+ * Until the encoding is settled with the backend, which owns the semantics, the
+ * flagship campaign reports `merge_trigger: null` and the page says the record
+ * does not state what decides a merge. Choosing the nearest member would be
+ * asserting what the schema can express over what is true, and the page depicts
+ * an agent when the field carries one, not before.
  */
 export interface MergeTrigger {
   kind: 'manual' | 'scheduled' | 'on_contributions' | null;

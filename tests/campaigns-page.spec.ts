@@ -2529,6 +2529,53 @@ test('an unstated merge trigger produces no prediction of any kind', async ({ pa
 });
 
 /**
+ * An unstated trigger is NAMED as unstated, rather than rendering as silence.
+ *
+ * This used to be silence, and silence was defensible while `merge_trigger:
+ * null` only ever meant a campaign whose steward had not configured one. It
+ * stopped being defensible on 12 Sep 2026, when the flagship async campaign
+ * moved to this state on purpose: its merges are driven by something the wire
+ * cannot describe yet, so it reports no trigger rather than claim the nearest
+ * member of a union that does not contain the truth.
+ *
+ * A reader looking at merge markers with no explanation supplies one, and the
+ * one they supply is a schedule. That is the claim the field was just corrected
+ * to stop making, so an unnamed gap would reinstate it by implication.
+ */
+test('an unstated merge trigger is disclosed rather than left as silence', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord({ merge_trigger: null }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('does not say what decides when a merge runs');
+  expect(text).toContain('nothing here should be read as a schedule');
+
+  // It reports the absence and stops. It does NOT fill the gap with the thing
+  // that is actually true of the flagship campaign, because the record does not
+  // carry that yet and a page that drew it from nothing would be decorating.
+  expect(text.toLowerCase()).not.toContain('an agent decides');
+  expect(text).not.toContain('scheduled for');
+});
+
+/**
+ * The disclosure appears ONLY when there is an absence to disclose.
+ *
+ * Without this, the sentence could be rendered unconditionally and every test
+ * above would still pass, which would put "nothing here should be read as a
+ * schedule" on a campaign that had just given a schedule.
+ */
+test('a stated trigger does not also report an unstated one', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('The next merge is scheduled for');
+  expect(text).not.toContain('does not say what decides when a merge runs');
+});
+
+/**
  * The nouns follow the mode.
  *
  * A contributor trains when it suits them and owes nobody a schedule. Calling

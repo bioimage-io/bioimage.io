@@ -104,8 +104,16 @@ const DAY_MS = 86_400_000;
 /** The day the fixture is generated "as of". Contributions land up to here. */
 const TODAY = 89;
 
-/** Soups run every 7 days from day 7, which is what makes the trigger scheduled. */
-const SOUP_INTERVAL_DAYS = 7;
+/**
+ * How far apart this fixture spaces its merges, in days.
+ *
+ * A GENERATION CONVENIENCE, not a claim. Even spacing makes the stream readable
+ * and the empty-merge slots easy to place. It used to be described as "what
+ * makes the trigger scheduled", and that got the direction backwards: a merge
+ * record says when a merge happened, and nothing about a set of timestamps
+ * tells a reader what decided to run them.
+ */
+const MERGE_SPACING_DAYS = 7;
 
 function isoAt(day: number, hourOffset = 0): string {
   return new Date(CAMPAIGN_START_MS + day * DAY_MS + hourOffset * 3_600_000).toISOString();
@@ -147,10 +155,15 @@ const CONTRIBUTOR_SEEDS: ContributorSeed[] = [
     dataset: { name: 'ashgrove-embryos', objects: 'embryo cross-sections' }, accelerator: 'NVIDIA A100' },
 ];
 
-/** Every scheduled merge slot. Not every one of these produces a version. */
-const SCHEDULED_SOUP_DAYS: number[] = [];
-for (let day = SOUP_INTERVAL_DAYS; day <= TODAY; day += SOUP_INTERVAL_DAYS) {
-  SCHEDULED_SOUP_DAYS.push(day);
+/**
+ * Every day a merge ran. Not every one of these produces a version.
+ *
+ * Named for the merge, not for a schedule. Whatever decides to run a merge, the
+ * record of one is the same shape.
+ */
+const MERGE_SLOT_DAYS: number[] = [];
+for (let day = MERGE_SPACING_DAYS; day <= TODAY; day += MERGE_SPACING_DAYS) {
+  MERGE_SLOT_DAYS.push(day);
 }
 
 /** One finished local run, before soup slots are resolved to versions. */
@@ -244,10 +257,10 @@ interface MergeSlot {
   taken: RawContribution[];
 }
 
-const SLOTS: MergeSlot[] = SCHEDULED_SOUP_DAYS.map((day, i) => {
+const SLOTS: MergeSlot[] = MERGE_SLOT_DAYS.map((day, i) => {
   // Merges land at hour 2 and pushes at hour 3 or later, so a contribution
   // recorded on the day of a merge missed it and waits for the next one.
-  const previous = i === 0 ? -1 : SCHEDULED_SOUP_DAYS[i - 1];
+  const previous = i === 0 ? -1 : MERGE_SLOT_DAYS[i - 1];
   const pool = RAW.filter((r) => r.day >= previous && r.day < day);
   // No fallback. An earlier revision of this fixture forced every slot to admit
   // at least one candidate, because whether the backend even recorded a merge
@@ -635,20 +648,31 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // eleven merges for a campaign that ran more than eleven.
     empty_merges: EMPTY_MERGES,
     contributors: CONTRIBUTORS,
-    // Weekly, so the page may render a next merge. Under 'manual' there would
-    // be nothing to predict, and under 'on_contributions' a countdown would
-    // depend on when volunteers finish runs on hardware nobody here controls.
-    merge_trigger: {
-      kind: 'scheduled',
-      // Off the schedule, not off the last published version. A slot that
-      // published nothing still consumed its turn, so counting forward from the
-      // newest version would predict a merge that has already gone by.
-      next_merge_at: isoAt(
-        SCHEDULED_SOUP_DAYS[SCHEDULED_SOUP_DAYS.length - 1] + SOUP_INTERVAL_DAYS,
-        2
-      ),
-      contributions_per_merge: null,
-    },
+    // NULL, AND THE REASON IS NOT "nobody configured one". Read this before
+    // putting a value back.
+    //
+    // This fixture said `kind: 'scheduled'` with a next-merge date until
+    // 12 Sep 2026, and that is now known to be FALSE about the campaign it
+    // stands for. The model-finetune backend (live-kudu) confirmed the merge,
+    // the greedy gate and the publish are driven by an agent through the skill
+    // interface. No timer fires them.
+    //
+    // The honest value would be "an agent decides when to merge", and
+    // `MergeTrigger.kind` cannot say it. The union is manual | scheduled |
+    // on_contributions, and none of those three is it: 'scheduled' is a timer,
+    // and 'manual' means a person pressed something, which is a different claim
+    // about who is doing the work. Picking the nearest member would be the
+    // fixture asserting the thing the schema happens to be able to express
+    // instead of the thing that is true, which is the failure mode this whole
+    // file is written against.
+    //
+    // So it reports no trigger. That is a real loss, the page can no longer say
+    // anything about when the next merge is, and it is the correct loss: the
+    // page is silent about a question it cannot answer instead of confident
+    // about an answer that is wrong. The encoding is being settled with
+    // live-kudu, whose backend owns the semantics, and this comes back with a
+    // value the moment the wire can carry it.
+    merge_trigger: null,
   },
   reporting: { dropped_reports: 0, reconciled: false, reconciled_at: null },
   transport: {

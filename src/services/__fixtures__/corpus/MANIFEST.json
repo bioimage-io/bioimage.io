@@ -1,7 +1,7 @@
 {
   "digest": "sha256 over the sorted-key JSON in this directory",
   "files": {
-    "cellpose-sam-community.json": "e84ac3c3ed7cd3fb44e4e00367739af043b2090808b566c1cdb7f4a0980f305b",
+    "cellpose-sam-community.json": "96c8daa102d319d0c420a4a23d788e84acde6fae403abe2163e57047bf45dd23",
     "index.json": "1f8ee4c14931526f5a7e74ec7a52af6e91cd4a47cc53d4e62a7d5bec0fe26f08",
     "unet-consortium.json": "ffbb96d835fb0b36eaf429dd0dea1dc36c3403b280720b6bc3466c4ba0d4ca60"
   },

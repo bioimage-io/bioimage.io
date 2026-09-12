@@ -377,6 +377,30 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
             date to show.
           </p>
         )}
+        {/* The fourth case, which used to render nothing at all.
+
+            Silence was defensible while an unstated trigger meant a campaign
+            whose steward had not configured one. It stopped being defensible
+            on 12 Sep 2026, when the flagship async campaign moved to this
+            state deliberately: its merges are driven by something the wire
+            cannot yet describe, so it reports no trigger rather than claim the
+            nearest member of a union that does not contain the truth.
+
+            A reader looking at evenly-ish spaced merge markers with no
+            explanation will supply one, and the one they will supply is a
+            schedule. That is the claim this field was just corrected to stop
+            making, so leaving the gap unnamed would reinstate it by
+            implication. Naming the gap costs a sentence.
+
+            It says what the RECORD does not contain, and deliberately nothing
+            about what is actually driving the merges. The page depicts that
+            when the field carries it, not before. */}
+        {!progress.merge_trigger?.kind && (
+          <p className="mt-4 text-sm text-gray-600">
+            This record does not say what decides when a merge runs, so there is no next date to
+            show and nothing here should be read as a schedule.
+          </p>
+        )}
       </div>
 
       <Section
