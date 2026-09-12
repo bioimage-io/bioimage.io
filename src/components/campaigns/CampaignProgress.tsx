@@ -14,6 +14,7 @@ import TransportAudit from './TransportAudit';
 import TransportHeadline from './TransportHeadline';
 import { outcomesReleased } from './disclosure';
 import { formatBytes, formatCount, formatDate } from './format';
+import { describeMergeActor, resolveMergeActor } from './mergeProvenance';
 import { Value } from './MissingValue';
 
 /**
@@ -305,6 +306,11 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
   // countdown under the other two kinds would be the page's guess.
   const nextMerge =
     progress.merge_trigger?.kind === 'scheduled' ? progress.merge_trigger.next_merge_at : null;
+  // WHO runs the merges, resolved separately from WHAT RULE fires them, because
+  // the record states them separately and either can be known without the other.
+  // This campaign is the case that motivated the split: the actor is known and
+  // the rule is not.
+  const mergeActor = describeMergeActor(resolveMergeActor(progress.merge_trigger));
 
   return (
     <>
@@ -371,10 +377,13 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
               there is no date to give.
             </p>
           )}
+        {/* Rule only, no longer "by the campaign stewards". Who runs a merge is
+            `decided_by` now, and saying it here as well would have produced two
+            sentences making overlapping claims from one field each, with no way
+            for a reader to tell they came from different facts. */}
         {progress.merge_trigger?.kind === 'manual' && (
           <p className="mt-4 text-sm text-gray-600">
-            Merges are run by the campaign stewards rather than on a schedule, so there is no next
-            date to show.
+            Merges run on demand rather than on a schedule, so there is no next date to show.
           </p>
         )}
         {/* The fourth case, which used to render nothing at all.
@@ -395,12 +404,21 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
             It says what the RECORD does not contain, and deliberately nothing
             about what is actually driving the merges. The page depicts that
             when the field carries it, not before. */}
+        {/* Narrowed from "what decides when a merge runs" to the RULE alone, on
+            12 Sep 2026. The old wording was written when `kind` was the only
+            trigger field, so an unstated kind really did mean the record said
+            nothing. It says something now: this campaign states an actor and no
+            rule, and the old sentence would have denied the half that is known. */}
         {!progress.merge_trigger?.kind && (
           <p className="mt-4 text-sm text-gray-600">
-            This record does not say what decides when a merge runs, so there is no next date to
+            This record does not state a rule for when a merge fires, so there is no next date to
             show and nothing here should be read as a schedule.
           </p>
         )}
+        {/* Who, after what. The actor is the smaller claim and the rule is what a
+            reader is looking for when they ask about the next merge, so the rule
+            branches keep the position they had. */}
+        {mergeActor && <p className="mt-3 text-sm text-gray-600">{mergeActor}</p>}
       </div>
 
       <Section

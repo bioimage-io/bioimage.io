@@ -810,6 +810,19 @@
       {
         "assessed": [],
         "merged_at": "2026-07-27T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6985,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
         "transport": {
           "bytes_in": 0,
           "bytes_out": 0,
@@ -824,6 +837,19 @@
           "copperlake-0"
         ],
         "merged_at": "2026-08-03T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6985,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
         "transport": {
           "bytes_in": 3900000000,
           "bytes_out": 0,
@@ -838,6 +864,19 @@
           "driftwood-1"
         ],
         "merged_at": "2026-09-07T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7677,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
         "transport": {
           "bytes_in": 3900000000,
           "bytes_out": 0,
@@ -846,7 +885,13 @@
         }
       }
     ],
-    "merge_trigger": null,
+    "merge_trigger": {
+      "agent": null,
+      "contributions_per_merge": null,
+      "decided_by": null,
+      "kind": null,
+      "next_merge_at": null
+    },
     "mode": "asynchronous",
     "soups": [
       {
@@ -1342,7 +1387,7 @@
     "reconciled": false,
     "reconciled_at": null
   },
-  "schema_version": "0.12.0-draft",
+  "schema_version": "0.13.0-draft",
   "status": "open",
   "stewards": [
     {

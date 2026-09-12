@@ -50,5 +50,5 @@
       "title": "U-Net nucleus segmentation consortium"
     }
   ],
-  "schema_version": "0.12.0-draft"
+  "schema_version": "0.13.0-draft"
 }

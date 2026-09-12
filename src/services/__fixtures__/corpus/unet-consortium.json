@@ -534,7 +534,7 @@
     "reconciled": true,
     "reconciled_at": "2026-07-21T08:40:00Z"
   },
-  "schema_version": "0.12.0-draft",
+  "schema_version": "0.13.0-draft",
   "status": "completed",
   "stewards": [
     {

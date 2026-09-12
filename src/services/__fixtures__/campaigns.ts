@@ -488,6 +488,28 @@ const SOUPS = buildSoups();
  * inbound only: the candidates were pulled and scored, and nothing went back out
  * because there was no new version to send.
  */
+/**
+ * The gate's score for the model the campaign started from, on the SELECTION
+ * split. Not the same figure as `baseline_metric`, which is the base model on
+ * the WITNESS split, and deliberately a different number so the two cannot be
+ * confused by eye or swapped without the value changing.
+ *
+ * This exists for one case: an empty FIRST merge, where there is no published
+ * version yet and the bar a candidate failed to clear is the base model's own.
+ * That case is the whole argument for `EmptyMerge.selection_metric` being a
+ * field rather than something read off the preceding record, so the fixture
+ * would be a poor test of it if the value were unavailable.
+ */
+const BASE_MODEL_GATE = 0.5981;
+
+/** The gate score of the version current on a given day, or the base model's before the first. */
+function gateBarAt(day: number): number {
+  const published = SOUP_DAYS.filter((d) => d <= day).length;
+  return published === 0
+    ? BASE_MODEL_GATE
+    : Number((0.612 + 0.0173 * published).toFixed(4));
+}
+
 function buildEmptyMerges(): EmptyMerge[] {
   return EMPTY_SLOTS.map((slot) => ({
     merged_at: isoAt(slot.day, 2),
@@ -499,6 +521,25 @@ function buildEmptyMerges(): EmptyMerge[] {
       bytes_in: CHECKPOINT_BYTES * slot.pool.length,
       n_transfers: slot.pool.length,
       sources_complete: true,
+    },
+    // The bar nothing cleared. Carried so the record is a complete audit row,
+    // and never drawn, under the same role refusal that protects every other
+    // selection figure. A merge that declines everything leaves the head
+    // unchanged, so this is the head's own score and not a fresh measurement of
+    // anything the merge produced.
+    selection_metric: {
+      role: 'selection' as const,
+      aggregate_scope: 'campaign_holdout' as const,
+      name: 'pooled AP50 on the selection split',
+      higher_is_better: true,
+      per_site: null,
+      per_site_basis: null,
+      aggregate: gateBarAt(slot.day),
+      aggregate_basis:
+        'the score the greedy gate required a contribution to beat, which none of the assessed contributions did',
+      n_sites_scored: null,
+      n_datasets_scored: null,
+      aggregate_withheld: null,
     },
   }));
 }
@@ -594,6 +635,17 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // versions with different weights (0.1.0, and 0.2.0 carrying cpsam_v2), so
     // "started from Cellpose-SAM" names a set. The baseline level on the
     // lineage chart is only reproducible if the record says which one it is.
+    //
+    // THIS PARTICULAR VALUE IS NOT YET CONFIRMED UPSTREAM, as of 12 Sep 2026.
+    // The backend reports it trains from "cpsam_v2" and expects that to be
+    // zoo version 0.2.0, but has not checked the version-and-hash pin against
+    // what the training code actually loads, so it sends `version: null` and
+    // the page renders the generic label. 0.2.0 is written here because a
+    // fixture's job is to exercise the identified path, and both paths are
+    // covered by tests. Do not read it as a verified fact about the live
+    // campaign, and do not let it reach a figure caption or the paper until
+    // the pin is confirmed: naming the wrong checkpoint is worse than the
+    // generic label, because it is reproducible-looking and wrong.
     version: '0.2.0',
     url: '#/models/cellpose-sam',
   },
@@ -648,31 +700,72 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // eleven merges for a campaign that ran more than eleven.
     empty_merges: EMPTY_MERGES,
     contributors: CONTRIBUTORS,
-    // NULL, AND THE REASON IS NOT "nobody configured one". Read this before
-    // putting a value back.
+    // HALF STATED, HALF NULL, and the split is the point. Read this before
+    // filling in the null half.
     //
     // This fixture said `kind: 'scheduled'` with a next-merge date until
-    // 12 Sep 2026, and that is now known to be FALSE about the campaign it
-    // stands for. The model-finetune backend (live-kudu) confirmed the merge,
-    // the greedy gate and the publish are driven by an agent through the skill
-    // interface. No timer fires them.
+    // 12 Sep 2026, which was FALSE about the campaign it stands for. The
+    // model-finetune backend (live-kudu) then read the shipped code: no
+    // scheduler, cron or timer fires a merge anywhere in the app, the only
+    // timed calls being a PUT-retry backoff and training and export tasks, none
+    // of which merge. The trigger went null while `kind` was the only field,
+    // because none of manual | scheduled | on_contributions was true and the
+    // nearest member would have been the fixture asserting what the schema
+    // could express over what was the case.
     //
-    // The honest value would be "an agent decides when to merge", and
-    // `MergeTrigger.kind` cannot say it. The union is manual | scheduled |
-    // on_contributions, and none of those three is it: 'scheduled' is a timer,
-    // and 'manual' means a person pressed something, which is a different claim
-    // about who is doing the work. Picking the nearest member would be the
-    // fixture asserting the thing the schema happens to be able to express
-    // instead of the thing that is true, which is the failure mode this whole
-    // file is written against.
+    // 0.13.0-draft split the rule from the actor, so the two halves no longer
+    // share a fate.
     //
-    // So it reports no trigger. That is a real loss, the page can no longer say
-    // anything about when the next merge is, and it is the correct loss: the
-    // page is silent about a question it cannot answer instead of confident
-    // about an answer that is wrong. The encoding is being settled with
-    // live-kudu, whose backend owns the semantics, and this comes back with a
-    // value the moment the wire can carry it.
-    merge_trigger: null,
+    // decided_by AND invoked_by ARE HELD NULL, and this is the half most likely
+    // to be filled in by someone who reads only the first paragraph. Two
+    // independent reasons, either of which is sufficient.
+    //
+    // ONE, the value would not be evidence. `aggregate()` threads no caller
+    // identity, so `decided_by` would be a hard-set constant that reads 'agent'
+    // no matter who called. A human invoking the same method would be
+    // mislabelled by it, and threading a principal id would NOT repair that: a
+    // principal id is an identity, not an actor TYPE, so it cannot separate an
+    // agent from a person either. The field would be a label describing how the
+    // campaign is meant to be operated, presented in the position where this
+    // page puts measurements.
+    //
+    // TWO, and this is the binding one: how loudly the flagship claims agent
+    // autonomy is not a call the page makes. "An agent decides each merge with
+    // no rule behind it" is the strongest autonomy claim in the surrounding
+    // work, and there is a conservative fork (give the campaign a simple merge
+    // policy, weaker claim, more reproducible) that is a live option. That is
+    // reserved for the project owner, and until it is decided the fixture does
+    // not pre-empt it by asserting the loud version.
+    //
+    // Note what is NOT the reason: dishonesty. The no-timer finding is grounded
+    // in shipped code and the agent-operated description is accurate. This is a
+    // hold on a claim that is probably true, which is the kind most worth
+    // holding deliberately rather than by accident.
+    //
+    // kind IS NULL, and not for want of asking. live-kudu checked: nothing in
+    // the code fires a merge. There is no threshold, no cadence and no
+    // schedule. The agent decides each merge by its own reading of the pool.
+    // So there is no rule to name, and null says exactly that.
+    //
+    // 'manual' was offered as an alternative and is refused. It means a person
+    // decided, and the whole finding here is that an agent did.
+    //
+    // DO NOT read max_batch=32 as `contributions_per_merge`. It bounds how many
+    // undecided candidates a merge weighs once it has ALREADY been triggered,
+    // deferring the overflow to be re-scored next time. It triggers nothing. It
+    // is the most plausible wrong answer in the codebase to the question this
+    // field asks, which is why it is written down here.
+    // An all-null trigger rather than `merge_trigger: null`, and the difference
+    // is small but real: this campaign HAS been characterised and the answer to
+    // every question was "nothing to state yet". A missing trigger is a campaign
+    // nobody asked about. The page renders them the same, the record does not.
+    merge_trigger: {
+      kind: null,
+      decided_by: null,
+      agent: null,
+      next_merge_at: null,
+      contributions_per_merge: null,
+    },
   },
   reporting: { dropped_reports: 0, reconciled: false, reconciled_at: null },
   transport: {

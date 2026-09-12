@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.12.0-draft';
+const SCHEMA_VERSION = '0.13.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const ASYNC_CAMPAIGN_ID = 'stub-soup';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
@@ -437,6 +437,24 @@ function stubEmptyMerges(): Array<Record<string, unknown>> {
         n_transfers: 2,
         sources_complete: true,
       },
+      // The bar nothing cleared (0.13.0-draft). Deliberately a value that
+      // appears nowhere else in this file, so the never-rendered assertion
+      // catches a leak by NUMBER and not only by the word "selection". It is
+      // also set ABOVE every witness value in the stub, so a leak into the
+      // lineage chart would be visibly wrong rather than plausible.
+      selection_metric: {
+        role: 'selection',
+        aggregate_scope: 'campaign_holdout',
+        name: 'pooled AP50 on the selection split',
+        higher_is_better: true,
+        per_site: null,
+        per_site_basis: null,
+        aggregate: 0.8137,
+        aggregate_basis: 'the bar the assessed contributions did not clear',
+        n_sites_scored: null,
+        n_datasets_scored: null,
+        aggregate_withheld: null,
+      },
     },
     {
       merged_at: '2026-09-12T02:00:00Z',
@@ -447,6 +465,9 @@ function stubEmptyMerges(): Array<Record<string, unknown>> {
         n_transfers: 0,
         sources_complete: true,
       },
+      // The ordinary reporting gap: a merge declined everything and the service
+      // did not publish what it was measuring against.
+      selection_metric: null,
     },
   ];
 }
@@ -481,8 +502,14 @@ function stubAsyncRecord(
       soups: stubSoups(),
       empty_merges: stubEmptyMerges(),
       contributors: stubContributors(),
+      // Rule stated, ACTOR unstated, which is the shape most of these tests want:
+      // it exercises the rule branches without a second sentence about who runs
+      // the merges landing in every assertion on region text. The tests that care
+      // about the actor state it themselves.
       merge_trigger: {
         kind: 'scheduled',
+        decided_by: null,
+        agent: null,
         next_merge_at: '2026-09-14T02:00:00Z',
         contributions_per_merge: null,
       },
@@ -2091,7 +2118,7 @@ test('a service on a different schema is refused at the index, not rendered', as
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.12\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.13\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -2109,7 +2136,7 @@ test('a service on a different schema is refused at the detail page too', async 
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.12\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.13\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -2149,7 +2176,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.12.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.13.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
@@ -2379,7 +2406,14 @@ test('the improvement curve is drawn from the witness metric, never the selectio
   // None of the gate's values reach the page. Naming a metric is publication of
   // a criterion; rendering its series is publication of a result, and this is
   // the one series on the page that would be circular.
-  for (const value of ['0.629', '0.647', '0.6293', '0.6466']) {
+  //
+  // 0.8137 is the newest origin, added with `EmptyMerge.selection_metric` in
+  // 0.13.0-draft: the bar no candidate cleared on a merge that published
+  // nothing. It is a second place a selection value can enter the page, and the
+  // rule that it is never drawn does not care which door it came through. It is
+  // listed here rather than in a test of its own so that this loop stays the one
+  // place that has to be updated when a third origin appears.
+  for (const value of ['0.629', '0.647', '0.6293', '0.6466', '0.813', '0.8137']) {
     expect(text, `a selection-metric value ${value} was rendered`).not.toContain(value);
   }
 });
@@ -2474,16 +2508,26 @@ test('a scheduled trigger gives a date and says what it covers', async ({ page }
 test('a manual trigger predicts nothing', async ({ page }) => {
   await stubCampaignService(page, {
     record: stubAsyncRecord({
-      merge_trigger: { kind: 'manual', next_merge_at: null, contributions_per_merge: null },
+      merge_trigger: {
+        kind: 'manual',
+        decided_by: null,
+        agent: null,
+        next_merge_at: null,
+        contributions_per_merge: null,
+      },
     }),
   });
   await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).toContain('run by the campaign stewards');
+  expect(text).toContain('Merges run on demand');
   expect(text).toContain('no next date to show');
   expect(text).not.toContain('scheduled for');
+  // The rule branch says nothing about WHO, and this record does not state an
+  // actor. Before 0.13.0-draft this copy read "run by the campaign stewards",
+  // which was `kind` making an actor claim it had no field to support.
+  expect(text).not.toContain('run by the campaign stewards');
 });
 
 /**
@@ -2497,7 +2541,13 @@ test('a manual trigger predicts nothing', async ({ page }) => {
 test('an on-contributions trigger names the threshold and gives no date', async ({ page }) => {
   await stubCampaignService(page, {
     record: stubAsyncRecord({
-      merge_trigger: { kind: 'on_contributions', next_merge_at: null, contributions_per_merge: 5 },
+      merge_trigger: {
+        kind: 'on_contributions',
+        decided_by: null,
+        agent: null,
+        next_merge_at: null,
+        contributions_per_merge: 5,
+      },
     }),
   });
   await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
@@ -2548,14 +2598,124 @@ test('an unstated merge trigger is disclosed rather than left as silence', async
   await waitForLoaded(page);
 
   const text = await regionText(page);
-  expect(text).toContain('does not say what decides when a merge runs');
+  expect(text).toContain('does not state a rule for when a merge fires');
   expect(text).toContain('nothing here should be read as a schedule');
 
-  // It reports the absence and stops. It does NOT fill the gap with the thing
-  // that is actually true of the flagship campaign, because the record does not
-  // carry that yet and a page that drew it from nothing would be decorating.
-  expect(text.toLowerCase()).not.toContain('an agent decides');
+  // It reports the absence and stops. A record with no trigger at all states no
+  // actor either, so nothing here may describe the merges as agent-run: drawing
+  // an agent from an empty field is the decorative case in its purest form.
+  expect(text.toLowerCase()).not.toContain('agent');
   expect(text).not.toContain('scheduled for');
+});
+
+/**
+ * The rule and the actor are INDEPENDENT, and the page renders each on its own
+ * evidence.
+ *
+ * This is the flagship campaign's real shape as of 12 Sep 2026 and the case
+ * that forced `MergeTrigger` apart in 0.13.0-draft. The backend read its own
+ * code: no scheduler, cron or timer fires a merge anywhere, and an agent
+ * decides each batch by its own reading of the pool. So the actor is known and
+ * there is no rule to name.
+ *
+ * Under the old single-field encoding this campaign had to report nothing at
+ * all, and the page said the record did not say what decides a merge, which
+ * denied the half that was actually established.
+ */
+test('a stated actor and an unstated rule are reported separately', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      merge_trigger: {
+        kind: null,
+        decided_by: 'agent',
+        agent: { invoked_by: 'skill_call' },
+        next_merge_at: null,
+        contributions_per_merge: null,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // The actor, stated.
+  expect(text).toContain('run by an agent acting through the campaign skill interface');
+  // The rule, absent, and still named as absent. The actor being known does not
+  // license a prediction, and this is the assertion that would fail if anyone
+  // ever decided a known agent implies a cadence.
+  expect(text).toContain('does not state a rule for when a merge fires');
+  expect(text).toContain('nothing here should be read as a schedule');
+  expect(text).not.toContain('scheduled for');
+  expect(text).not.toContain('A merge runs every');
+});
+
+/**
+ * An agent the record says a TIMER starts is not drawn as an agent.
+ *
+ * The decorative-agent case, caught by the field that exists to catch it. A
+ * scheduled loop with an agent-shaped wrapper is a scheduled loop, and the
+ * whole reason `decided_by` and `invoked_by` are separate fields is that the
+ * collapsed encoding made this record indistinguishable from a genuine one.
+ *
+ * The page reports what the record says rather than silently downgrading it,
+ * because a refusal that renders nothing looks exactly like a record that said
+ * nothing, and this is a case worth someone noticing.
+ */
+test('an agent started by a timer is reported as a scheduled job, not an agent', async ({
+  page,
+}) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      merge_trigger: {
+        kind: null,
+        decided_by: 'agent',
+        agent: { invoked_by: 'timer' },
+        next_merge_at: null,
+        contributions_per_merge: null,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('says the agent is started by a timer');
+  expect(text).toContain('what it describes is a scheduled job');
+  // The claim the refusal exists to block. The word "agent" DOES appear, in the
+  // sentence explaining the refusal, so this asserts on the claim rather than on
+  // the word.
+  expect(text).not.toContain('run by an agent acting through');
+  expect(text).not.toContain('applies the gate that decides which contributions are kept');
+});
+
+/**
+ * An agent whose invocation the record does not state is not drawn either.
+ *
+ * The strict-branch default, for the same reason `aggregate_scope` has one: a
+ * check that can be disabled by omitting a field is not a check. If a missing
+ * `agent` block bought the agent depiction, the cheapest route past the
+ * decorative-agent guard would be to send less than the honest record does,
+ * which inverts the incentive the guard is for.
+ */
+test('an agent with no stated invocation is not described as agent-run', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      merge_trigger: {
+        kind: null,
+        decided_by: 'agent',
+        agent: null,
+        next_merge_at: null,
+        contributions_per_merge: null,
+      },
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('does not say what starts the agent');
+  expect(text).not.toContain('run by an agent acting through');
+  expect(text).not.toContain('applies the gate that decides which contributions are kept');
 });
 
 /**

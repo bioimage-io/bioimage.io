@@ -474,6 +474,24 @@
  * backend ever re-evaluates the unchanged head for a noise floor, that is a
  * fresh number and this decision reopens.
  *
+ * 0.13.0-draft: `MergeTrigger` splits the rule from the actor, and `EmptyMerge`
+ * gains a merge-level `selection_metric`.
+ *
+ * The trigger change is the load-bearing one. `kind` was carrying two
+ * independent facts, WHAT DECIDES and WHAT THE RULE IS, so a cron in an agent
+ * wrapper and a genuine agent loop produced identical records. `decided_by` and
+ * `agent.invoked_by` separate them and make the decorative case detectable
+ * rather than merely disallowed. This landed AHEAD of the evidence that lets
+ * the flagship campaign state a rule, on purpose: the backend was already
+ * emitting provenance the wire did not define, and a field set two services
+ * disagree about is worse than a field nobody populates yet.
+ *
+ * `EmptyMerge.selection_metric` records the gate bar no candidate cleared. It
+ * is never plotted, for the same reason no selection metric ever is. The
+ * argument for a field rather than reading the bar off the preceding
+ * `SoupRecord` is in the field doc, and it turns on the empty FIRST merge,
+ * where there is no preceding record to read.
+ *
  * 0.12.0-draft: `base_model` becomes `BaseModelRef` and gains `version`.
  *
  * 0.11.0-draft gave the async arm a `baseline_metric` and called it "the level
@@ -490,7 +508,7 @@
  * changed without it is the drift this envelope exists to catch. The backend is
  * making the same disambiguation, so it is a coordinated change either way.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.12.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.13.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -1402,13 +1420,42 @@ export interface EmptyMerge {
    * published merges to be silently different numbers.
    */
   transport: RoundTransport | null;
+  /**
+   * The gate bar no candidate cleared, on the SELECTION split. Never plotted.
+   *
+   * `role` is 'selection' and the page holds to the rule it holds everywhere:
+   * the selection metric is the score the greedy gate admits against, it rises
+   * by construction, and drawing it would be drawing the gate's own opinion of
+   * itself. This is on the wire for audit, named in prose at most, and the
+   * suite asserts it is not rendered.
+   *
+   * It is MERGE-LEVEL, one scalar for the bar, and carries no per-member
+   * scores. The per-contributor version of this is a rejection ranking, which
+   * the campaign does not publish in any form.
+   *
+   * The deciding argument for putting it HERE rather than reading the bar off
+   * the preceding `SoupRecord`: an empty FIRST merge has no preceding record,
+   * and the bar in that case is the base model's own score on the selection
+   * split, which is nowhere on the wire. The read-it-off-the-previous-row
+   * shortcut is also only sound while the community checkpoint is unchanged,
+   * which is true across a run of empty merges but is a property the reader has
+   * to derive rather than read. A field that is recoverable most of the time
+   * and silently unrecoverable at the one moment a campaign is most likely to
+   * decline everything is not the cheaper option.
+   *
+   * Null is the ordinary reporting gap: a merge declined everything and the
+   * service did not publish what it was measuring against.
+   */
+  selection_metric: RoundMetric | null;
 }
 
 /**
  * What causes the next soup to run.
  *
- * Campaign-level and steward-chosen, per the backend design: manual, on a
- * schedule, or once N contributions have accumulated.
+ * Campaign-level, and TWO independent facts rather than one: the rule a merge
+ * batch fires on (`kind`), and the actor that makes the call (`decided_by`,
+ * with `agent` when that actor is an agent). Either can be stated without the
+ * other, and the page renders whichever it is given.
  *
  * The page renders a NEXT merge ONLY for 'scheduled' with a non-null
  * `next_merge_at`. Under 'manual' there is nothing to predict. Under
@@ -1418,31 +1465,40 @@ export interface EmptyMerge {
  * predicted merge time that slips is worse than no prediction on a page whose
  * entire claim is that its numbers are observations.
  *
- * THIS UNION IS KNOWN TO BE INCOMPLETE, as of 12 Sep 2026. Recorded here rather
- * than tracked elsewhere, because the next person to read it will otherwise
- * reasonably assume the three members are the whole space.
+ * THE UNION WAS INCOMPLETE AND IS NOW SPLIT IN TWO. Resolved 12 Sep 2026, and
+ * recorded here because the shape of the fix is the part worth keeping.
  *
  * The Cellpose-SAM community campaign's merges are driven by an AGENT through
  * the skill interface: it fires the merge, runs the greedy gate, publishes the
  * versioned checkpoint, and records a non-improving contribution as evaluated
- * and not included. That is confirmed by the backend owner, and none of the
- * three members says it. 'scheduled' is a timer, and the point of the
- * confirmation was that there is no timer. 'manual' is a person pressing
- * something, which is a claim about a human doing the work.
+ * and not included. None of the three original members said that. 'scheduled'
+ * is a timer, and the backend has since verified in shipped code that no
+ * scheduler, cron or timer fires a merge anywhere in the app. 'manual' is a
+ * person pressing something, which is a claim about a human doing the work.
  *
- * The gap is not cosmetic, because `kind` is doing two jobs at once. It mixes
+ * The gap was not cosmetic, because `kind` was doing two jobs at once. It mixed
  * WHAT DECIDES to merge with WHAT THE RULE IS, and those are independent: an
  * agent could act on a clock, on a threshold, or on its own reading of what has
- * arrived. Collapsing them is exactly what lets a cron with an agent-shaped
- * wrapper be reported as agent-driven, and a page that drew an agent from such
- * a record would be decorating an automated loop. Whatever replaces this has to
- * keep the two separable, so a reader can tell those apart from the record.
+ * arrived. Collapsed, a cron in an agent-shaped wrapper and a genuine agent
+ * loop produce identical records, and a page drawing an agent from one of them
+ * would be decorating an automated loop.
  *
- * Until the encoding is settled with the backend, which owns the semantics, the
- * flagship campaign reports `merge_trigger: null` and the page says the record
- * does not state what decides a merge. Choosing the nearest member would be
- * asserting what the schema can express over what is true, and the page depicts
- * an agent when the field carries one, not before.
+ * So they are separate fields now. `kind` carries only the RULE. `decided_by`
+ * carries the ACTOR. `agent.invoked_by` carries what called the agent, and it
+ * is there to make the decorative case CHECKABLE rather than merely forbidden:
+ * `decided_by: 'agent'` alongside `invoked_by: 'timer'` describes a cron in an
+ * agent wrapper, and the page refuses to draw an agent for that combination. A
+ * rule the page can only state in prose is not a rule the page enforces.
+ *
+ * DEFINING A FIELD IS NOT POPULATING IT, and the two moved separately on
+ * purpose. The fields landed as soon as the encoding was agreed, because the
+ * backend was already emitting provenance the wire did not define, which is the
+ * precise drift the schema version exists to catch. What each field is allowed
+ * to SAY is gated on evidence independently: `decided_by` and `invoked_by` are
+ * grounded in the backend's code reading, so the flagship campaign states them.
+ * `kind` is not, because nobody has yet established whether this campaign fires
+ * merges on a nameable rule or the agent reads each batch for itself, so it
+ * stays null and the page says the record does not state the rule.
  *
  * DECIDED AND WORTH NOT RELITIGATING: there will be no 'agent_judgement' kind.
  * It was proposed here and ruled out on 12 Sep 2026, and the reason is a
@@ -1469,11 +1525,93 @@ export interface EmptyMerge {
  * nameable rule is an inflated one.
  */
 export interface MergeTrigger {
-  kind: 'manual' | 'scheduled' | 'on_contributions' | null;
-  /** ISO 8601. Only meaningful for 'scheduled'. Null under every other kind, and null when unknown. */
+  /**
+   * The RULE that fires a merge batch. Not who runs it.
+   *
+   * Null means the record does not state the rule, and the page says so rather
+   * than leaving a gap for the reader to fill with "a schedule". Null is NOT
+   * 'manual': a campaign nobody has characterised and a campaign someone runs
+   * by hand are different facts.
+   */
+  kind: MergeRule | null;
+  /**
+   * The ACTOR that makes the call. Not the rule it acts on.
+   *
+   * Independent of `kind` in both directions. An agent can execute a cadence, a
+   * threshold, or its own reading, and a human can do the same. Null means
+   * unstated.
+   *
+   * A LABEL, NOT MEASURED PROVENANCE, and the distinction limits how much the
+   * refusal below can be trusted. Established 12 Sep 2026 against the
+   * model-finetune backend: the merge entry point threads no caller identity,
+   * so any value here is a constant chosen by whoever configured the campaign
+   * rather than an observation of who called. A human invoking the same method
+   * is mislabelled by it.
+   *
+   * Threading a caller id would NOT repair this, which is the part worth
+   * writing down before someone tries. A principal id is an identity, not an
+   * actor type: it cannot separate an agent from a person, because both arrive
+   * as principals. Distinguishing them needs the invocation path to say what
+   * KIND of thing it is, which is what `agent.invoked_by` does, and which is
+   * why the anti-decorative check keys on that field and not on this one.
+   *
+   * So `resolveMergeActor` is strong on the pair (agent + timer is caught) and
+   * weak on this field alone (it reads 'agent' whenever the campaign says so).
+   * Anyone reading a drawn agent as verified provenance is reading more than is
+   * here.
+   */
+  decided_by: MergeDecider | null;
+  /**
+   * Present only when `decided_by` is 'agent'. Null otherwise, and null when an
+   * agent decided but the service did not say what called it.
+   *
+   * Nested rather than flattened into a sibling `invoked_by` so that the
+   * dependency is structural: there is no way to describe how an agent was
+   * invoked without saying an agent was involved, and no orphan field sitting
+   * null for every human-driven campaign, which is how a reader learns to
+   * ignore a field.
+   */
+  agent: MergeAgent | null;
+  /** ISO 8601. Only meaningful for kind 'scheduled'. Null under every other kind, and null when unknown. */
   next_merge_at: string | null;
-  /** The N for 'on_contributions'. Null under every other kind. */
+  /** The N for kind 'on_contributions'. Null under every other kind. */
   contributions_per_merge: number | null;
+}
+
+/**
+ * What fires a merge batch: a person, a clock, or an agent.
+ *
+ * 'timer' and an agent are not mutually exclusive in the world, only in this
+ * field. A timer that calls an agent is recorded as `decided_by: 'agent'` with
+ * `invoked_by: 'timer'`, because the agent is what runs and the timer is what
+ * started it. That pair is exactly the decorative case, and it is written down
+ * rather than made unrepresentable so that the page can DETECT it. A schema
+ * that cannot express the dishonest case cannot catch it either.
+ */
+export type MergeDecider = 'human' | 'timer' | 'agent';
+
+/**
+ * What invoked the agent.
+ *
+ * 'skill_call' is an agent acting through the skill interface, which is the
+ * case this campaign is in. 'human' is a person starting an agent run, which is
+ * still a genuine agent doing the work. 'timer' is a scheduled invocation, and
+ * the page treats it as a loop wearing an agent label.
+ *
+ * HONOUR SYSTEM, and worth being precise about the limit. This field is
+ * self-reported by the service, so the refusal it drives catches the honest
+ * case where a timer-invoked agent is described accurately, not a service that
+ * decides to write 'skill_call' over a cron. That is still worth having: the
+ * failure this guards against is a system drifting into decoration without
+ * anyone intending it, which is the likely failure, not a lie.
+ */
+export type AgentInvocation = 'skill_call' | 'timer' | 'human';
+
+/** The rule a merge batch fires on. Carries no claim about who applies it. */
+export type MergeRule = 'manual' | 'scheduled' | 'on_contributions';
+
+export interface MergeAgent {
+  invoked_by: AgentInvocation | null;
 }
 
 /**
