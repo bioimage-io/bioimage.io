@@ -643,7 +643,18 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // 0f1cc3f7ecdd...c667. The backend reached the same digest and byte count
     // independently, from the file cellpose's own downloader resolves for the
     // name cpsam_v2, which is a different host and a different path to the same
-    // bytes. So the training side demonstrably loads the zoo 0.2.0 weights.
+    // bytes.
+    //
+    // WHAT THAT DOES AND DOES NOT ESTABLISH, because the two are easy to blur
+    // and this comment had blurred them. It establishes the IDENTITY of the
+    // checkpoint this fixture pins: the name cpsam_v2 and zoo 0.2.0 are the
+    // same bytes. It does not by itself establish what any DEPLOYED worker
+    // loaded, which is a claim about a machine nobody measured. A deployed soup
+    // instance has since been hashed and reproduces the same digest, so that
+    // claim is now partly observed rather than inferred from the download URL,
+    // but "training ran from this checkpoint in deployment" still waits on the
+    // campaign run itself. None of that weakens the pin, which is what this
+    // field is for. It only marks where the evidence for the pin stops.
     //
     // Count the evidence carefully, because it is easy to inflate. Two
     // independent CONTENT measurements agree, reached by different routes. The
