@@ -245,6 +245,21 @@ const CampaignDetail: React.FC = () => {
                    page is entitled to make from an absence. */
                 <Value>{null}</Value>
               )}
+              {/* The name is the zoo ENTRY and the campaign started from one
+                  committed version of it. Those differ: the Cellpose-SAM entry
+                  holds two versions with different weights. Printing the
+                  version when it is stated, and saying so when it is not,
+                  keeps the cell from reading as a checkpoint it may not be. */}
+              {data.base_model?.version && (
+                <span className="ml-1 font-normal tabular-nums text-gray-600">
+                  {data.base_model.version}
+                </span>
+              )}
+              {data.base_model && data.base_model.version === null && (
+                <span className="ml-1 text-xs font-normal text-gray-500">
+                  (version not stated)
+                </span>
+              )}
             </dd>
           </div>
           <div>

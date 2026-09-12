@@ -4,7 +4,8 @@
       "base_model": {
         "id": "bioimage-io/cellpose-sam",
         "name": "Cellpose-SAM",
-        "url": "#/models/cellpose-sam"
+        "url": "#/models/cellpose-sam",
+        "version": "0.2.0"
       },
       "campaign_id": "cellpose-sam-community",
       "description": "An open community fine-tunes Cellpose-SAM on microscopy archives that are too large to move. Each contributor trains locally, whenever it suits them, and the checkpoints that come back are periodically averaged into a community model that everyone can use. Each merge tries the checkpoints it has received one at a time and keeps the ones that improve the pooled model.",
@@ -49,5 +50,5 @@
       "title": "U-Net nucleus segmentation consortium"
     }
   ],
-  "schema_version": "0.11.0-draft"
+  "schema_version": "0.12.0-draft"
 }

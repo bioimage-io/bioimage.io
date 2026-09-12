@@ -577,6 +577,11 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   base_model: {
     id: 'bioimage-io/cellpose-sam',
     name: 'Cellpose-SAM',
+    // Pinned, and the pin is the point. The zoo entry has two committed
+    // versions with different weights (0.1.0, and 0.2.0 carrying cpsam_v2), so
+    // "started from Cellpose-SAM" names a set. The baseline level on the
+    // lineage chart is only reproducible if the record says which one it is.
+    version: '0.2.0',
     url: '#/models/cellpose-sam',
   },
   // Greedy souping. A merge walks the checkpoints it has received, adds each to
@@ -608,8 +613,19 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
       higher_is_better: true,
       per_site: null,
       per_site_basis: null,
-      aggregate: 0.71,
-      aggregate_basis: 'the published Cellpose-SAM weights, scored on the campaign holdout before the first merge',
+      // DISTINCT from every value the curve generates, on purpose. Three series
+      // come out of the same scoring path here (witness, selection, baseline),
+      // and a fixture where two of them can coincide only catches a swap by its
+      // tag. Distinct values catch it by the number, which is the check that
+      // still works when the tag is the thing that went wrong. It is also below
+      // the whole curve, which is the shape the campaign is claiming.
+      //
+      // Deliberately NOT the curve's zero-contribution intercept, even though
+      // that reads as tidier. Equal values are exactly what makes a
+      // baseline/witness swap draw a plausible chart.
+      aggregate: 0.6412,
+      aggregate_basis:
+        'Cellpose-SAM 0.2.0 as published, scored on the campaign holdout before the first merge',
       n_sites_scored: null,
       n_datasets_scored: null,
       aggregate_withheld: null,

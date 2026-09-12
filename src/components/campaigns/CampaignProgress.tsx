@@ -407,7 +407,7 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
           // the chart falls back to a generic label rather than inventing one:
           // this page has been wrong once already by reading a null
           // `base_model` as "trained from scratch".
-          baselineLabel={record.base_model?.name ?? null}
+          baselineModel={record.base_model}
         />
       </Section>
 

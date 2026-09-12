@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { SoupRecord, WitnessMetric } from '../../types/campaign';
+import { BaseModelRef, SoupRecord, WitnessMetric } from '../../types/campaign';
 import {
   AggregateDisposition,
   DispositionTally,
@@ -125,8 +125,15 @@ export interface SoupLineageProps {
    * the field's doc for why that distinction is structural and not cosmetic.
    */
   baselineMetric?: WitnessMetric | null;
-  /** `base_model.name`, used to label the reference level. */
-  baselineLabel?: string | null;
+  /**
+   * `record.base_model`, used to label the reference level.
+   *
+   * The whole reference rather than the name alone, because the label is only
+   * allowed to name the model when the record also says WHICH committed version
+   * it is. A zoo entry can have several, with different weights, so the name on
+   * its own points at a set. See BaseModelRef for the case that found this.
+   */
+  baselineModel?: BaseModelRef | null;
 }
 
 const SoupLineage: React.FC<SoupLineageProps> = ({
@@ -134,7 +141,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
   minScoringSites = null,
   showMetric,
   baselineMetric = null,
-  baselineLabel = null,
+  baselineModel = null,
 }) => {
   const { points, tally, metricName, gateName, baseline, baselineWithheld, lo, hi, yMin, yMax } = useMemo(() => {
     const tallied = emptyTally();
@@ -190,12 +197,30 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
     const low = values.length > 0 ? Math.min(...values) : 0;
     const high = values.length > 0 ? Math.max(...values) : 1;
     const span = high - low || 1;
+
+    // A name without a version identifies a zoo ENTRY, and an entry can hold
+    // several committed versions with different weights. Labelling the line
+    // "Cellpose-SAM" when the record does not say which one would hand a reader
+    // an address that does not resolve, and they would have no way to tell.
+    //
+    // The value still renders, which is the same split this file makes
+    // everywhere: a figure the service stated is shown, a claim it did not make
+    // is not. So the level stays and the name comes off, with a caption that
+    // says why rather than leaving a bare "Base model" to look like a style
+    // choice.
+    const baselineNamed = baselineModel !== null && baselineModel.version !== null;
     return {
       points: plotted,
       tally: tallied,
       baseline:
         baselineValue !== null
-          ? { value: baselineValue, label: baselineLabel ?? 'Base model' }
+          ? {
+              value: baselineValue,
+              label: baselineNamed
+                ? `${baselineModel!.name} ${baselineModel!.version}`
+                : 'Base model',
+              named: baselineNamed,
+            }
           : null,
       // A record carried a baseline and the chart is not drawing it. Said out
       // loud rather than left as an empty space, because an absent reference
@@ -216,7 +241,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
       yMin: Math.max(0, low - span * 0.15),
       yMax: high + span * 0.15,
     };
-  }, [soups, minScoringSites, baselineMetric, baselineLabel]);
+  }, [soups, minScoringSites, baselineMetric, baselineModel]);
 
   if (soups.length === 0) {
     return (
@@ -337,6 +362,17 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
             <p className="mt-2 text-xs text-gray-500">
               The dashed line is {baseline.label} scored the same way before the first merge. It is
               the level the community versions are read against, not one of them.
+            </p>
+          )}
+          {/* An entry name is not a checkpoint. Saying which version was scored
+              is what makes the level reproducible, and when the record does not
+              say, the honest move is to admit the gap rather than to print a
+              name that points at more than one set of weights. */}
+          {baseline && !baseline.named && (
+            <p className="mt-2 text-xs text-gray-500">
+              This record does not say which published version of the base model that level was
+              scored from, so it is labelled generically. A model entry can hold several versions
+              with different weights.
             </p>
           )}
           {baselineWithheld === 'incomparable' && (

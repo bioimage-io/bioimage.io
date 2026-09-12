@@ -473,8 +473,24 @@
  * would restate a measurement at a timestamp where nothing was measured. If the
  * backend ever re-evaluates the unchanged head for a noise floor, that is a
  * fresh number and this decision reopens.
+ *
+ * 0.12.0-draft: `base_model` becomes `BaseModelRef` and gains `version`.
+ *
+ * 0.11.0-draft gave the async arm a `baseline_metric` and called it "the level
+ * the community versions are read against". The reproducibility check closed on
+ * 12 Sep 2026 found that the level had no address: the zoo entry "Cellpose-SAM"
+ * has two committed versions with different weights, so the label the page drew
+ * on that reference line named an entry, not a checkpoint, and a reader could
+ * not have fetched the weights that produced the number.
+ *
+ * This is a MINOR bump on a draft that the backend is mid-implementation
+ * against, which is a cost worth naming. Adding a required field under the
+ * existing version would have been the cheaper move and the wrong one: the
+ * version string is what tells a reader which wire they are on, and a wire that
+ * changed without it is the drift this envelope exists to catch. The backend is
+ * making the same disambiguation, so it is a coordinated change either way.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.11.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.12.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -1818,6 +1834,42 @@ export interface PublishedModel {
 }
 
 /**
+ * The model a campaign started from.
+ *
+ * One interface rather than the inline shape it replaces, because the summary
+ * and the detail both carry it and had drifted apart once already.
+ *
+ * WHY `version` EXISTS. A zoo entry is a name over a sequence of committed
+ * versions, and those versions are not the same weights. The reproducibility
+ * check closed on 12 Sep 2026 found the entry "Cellpose-SAM" has two committed
+ * versions, 0.1.0 and 0.2.0 (cpsam_v2), with DIFFERENT weights under the one
+ * name. So "the published Cellpose-SAM weights" does not identify a checkpoint,
+ * and a baseline labelled that way cannot be reproduced by a reader: they would
+ * have to guess which of the two produced the number.
+ *
+ * The page treats an unstated `version` the way it treats every other unstated
+ * field. The VALUE still renders, because a score the service stated is a score
+ * the service stated. The NAME does not, because naming the entry while the
+ * checkpoint is unknown is the page asserting an identity the record does not
+ * carry. See SoupLineage for where that falls out.
+ */
+export interface BaseModelRef {
+  /** Fully qualified artifact id, e.g. "bioimage-io/cellpose-sam". */
+  id: string;
+  name: string;
+  /**
+   * Which committed version the campaign started from, e.g. "0.2.0".
+   *
+   * Null means the service did not say. It does NOT mean "latest": resolving it
+   * that way would silently re-point an old campaign's baseline every time the
+   * zoo entry gains a version, which is the exact failure this field exists to
+   * prevent.
+   */
+  version: string | null;
+  url: string | null;
+}
+
+/**
  * What `list_campaigns` returns.
  *
  * It is an envelope rather than a bare array, and the version lives on the
@@ -1845,7 +1897,7 @@ export interface CampaignSummary {
   title: string;
   description: string | null;
   status: CampaignStatus;
-  base_model: { id: string; name: string; url: string | null } | null;
+  base_model: BaseModelRef | null;
   /**
    * Mode-appropriate headline progress, discriminated exactly as the full
    * record's is.
@@ -1898,7 +1950,7 @@ export interface CampaignRecord {
   /** Which arm-seed this campaign is. See CampaignExperiment for why it is pinned. */
   experiment: CampaignExperiment | null;
   policy: CampaignPolicy | null;
-  base_model: { id: string; name: string; url: string | null } | null;
+  base_model: BaseModelRef | null;
   /**
    * How contributions become a shared model. Free text, rendered verbatim,
    * because the page must not be the thing that decides what counts as a method.

@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.11.0-draft';
+const SCHEMA_VERSION = '0.12.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const ASYNC_CAMPAIGN_ID = 'stub-soup';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
@@ -2091,7 +2091,7 @@ test('a service on a different schema is refused at the index, not rendered', as
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.11\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.12\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -2109,7 +2109,7 @@ test('a service on a different schema is refused at the detail page too', async 
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.11\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.12\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -2149,7 +2149,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.11.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.12.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
@@ -3059,10 +3059,18 @@ function stubBaseline(over: Record<string, unknown> = {}): Record<string, unknow
   return { ...stubWitness(0.6891, 3), ...over };
 }
 
-/** The named base model, so the reference level has something to be a level of. */
+/**
+ * The named base model, so the reference level has something to be a level of.
+ *
+ * It carries a `version` because the default case is the identified one. A zoo
+ * entry can hold several committed versions with different weights, so a stub
+ * without one would have made "the record does not say which checkpoint" the
+ * shape every baseline test ran against.
+ */
 const STUB_BASE_MODEL = {
   id: 'stub-workspace/stub-base-model',
   name: 'Stub base model',
+  version: '3.1.0',
   url: null,
 };
 
@@ -3099,6 +3107,67 @@ test('the base model is drawn as a reference level and adds no point to the curv
   expect(text).toContain('Stub base model');
   expect(text).toContain('scored the same way before the first merge');
   expect(text).toContain('not one of them');
+});
+
+// ---------------------------------------------------------------------------
+// Which checkpoint the level is (0.12.0-draft).
+//
+// A model NAME is an entry over a sequence of committed versions, and those
+// versions are not the same weights: the reproducibility check on 12 Sep 2026
+// found "Cellpose-SAM" carries two. So a reference level labelled with a bare
+// entry name gives a reader an address that does not resolve, and gives them
+// no way to notice. The value is still the service's to state, so it renders
+// either way. The identity is the part the page will not invent.
+// ---------------------------------------------------------------------------
+
+test('the reference level names the checkpoint it was scored from', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({ baseline_metric: stubBaseline() }, { base_model: STUB_BASE_MODEL }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const svgText = await page.evaluate(() => {
+    const g = document.querySelector('svg g[data-baseline]');
+    return g ? (g.textContent ?? '') : '';
+  });
+  // The version is on the line itself, not only in prose further down. The
+  // label is what a reader carries away from the chart.
+  expect(svgText).toContain('Stub base model 3.1.0');
+
+  // And the page does not also apologise for an absence that is not there.
+  expect(await regionText(page)).not.toContain('does not say which published version');
+});
+
+test('an unversioned base model is not named on the reference level', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord(
+      { baseline_metric: stubBaseline() },
+      { base_model: { ...STUB_BASE_MODEL, version: null } }
+    ),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const svgText = await page.evaluate(() => {
+    const g = document.querySelector('svg g[data-baseline]');
+    return g ? (g.textContent ?? '') : '';
+  });
+
+  // The level is still drawn: the score is a figure the service stated, and
+  // the missing piece is the identity, not the measurement.
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(1);
+  expect(svgText).toContain('0.689');
+
+  // But it is not labelled with the entry name, which would read as a
+  // checkpoint the reader could go and fetch.
+  expect(svgText).not.toContain('Stub base model');
+  expect(svgText).toContain('Base model');
+
+  // And the gap is stated rather than left looking like a style choice.
+  const text = await regionText(page);
+  expect(text).toContain('does not say which published version');
+  expect(text).toContain('several versions with different weights');
 });
 
 test('the baseline value is rendered, so the comparison can actually be made', async ({ page }) => {
