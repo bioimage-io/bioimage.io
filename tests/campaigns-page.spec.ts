@@ -3518,3 +3518,120 @@ test('a campaign with no baseline draws no reference level and says nothing abou
   expect(text).not.toContain('scored the same way before the first merge');
   expect(text).not.toContain('measured differently from the versions above');
 });
+
+/**
+ * The house punctuation rule, checked where the rule can actually be broken.
+ *
+ * CLAUDE.md bans the em dash from every string that reaches a user, and bans
+ * the en dash from prose. A grep over `src/` enforces that for the copy we
+ * author, and that is the easy half. The half that has no check is the half
+ * that matters here: metric names, `aggregate_basis`, campaign descriptions and
+ * contributor labels all arrive over the wire and render VERBATIM. They are not
+ * in our source, so no source-level check can see them, and the page has no
+ * business rewriting a producer's prose on the way to the screen.
+ *
+ * This is not hypothetical. The backend shipped an em dash in SELECTION_BASIS
+ * and an unnecessary semicolon in WITNESS_BASIS, and both were caught by a
+ * human reading a message rather than by anything that runs. A rule enforced
+ * only by careful reading is a rule that holds until the first busy week.
+ *
+ * WHAT IS AUTOMATED, AND WHAT IS DELIBERATELY NOT. The em dash is decidable:
+ * it is banned everywhere, no exceptions. The en dash is decidable with one
+ * carve-out, because CLAUDE.md permits it between numeric bounds in a compact
+ * label such as `5-95%`, so a dash with a digit on both sides is allowed and
+ * anything else is not. "Unnecessary semicolon" is a judgement about whether a
+ * cleaner rewrite exists, not a pattern, so it is NOT automated. That omission
+ * is recorded rather than quietly accepted: this guard covers two of the three
+ * house rules and a semicolon still needs a reader.
+ *
+ * THE LIMIT. This reads rendered text, so it covers exactly the strings some
+ * test actually renders: our JSX, and the producer strings our stubs and
+ * fixtures carry. A live backend string that no test ever puts on screen is
+ * invisible to it. That is the same shape as the role-guard limit and it is
+ * worth stating plainly, because the guard's value is regression protection
+ * over the strings we do render, not coverage of the wire.
+ */
+const EM_DASH = '—';
+const EN_DASH = '–';
+
+/** The predicate both the guard and its mutation test run, so they cannot drift. */
+function bannedPunctuationIn(text: string): string[] {
+  const findings: string[] = [];
+  const context = (index: number): string =>
+    text
+      .slice(Math.max(0, index - 40), index + 40)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === EM_DASH) {
+      findings.push(`em dash: ...${context(i)}...`);
+      continue;
+    }
+    if (ch !== EN_DASH) continue;
+    // Permitted only between numeric bounds, e.g. a compact `5-95%` label.
+    const numericRange = /\d/.test(text[i - 1] ?? '') && /\d/.test(text[i + 1] ?? '');
+    if (!numericRange) findings.push(`en dash in prose: ...${context(i)}...`);
+  }
+  return findings;
+}
+
+test('no campaign route renders a banned dash, including in wire-sourced strings', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubRecord() });
+  for (const route of GLYPH_ROUTES) {
+    await page.goto(route.path);
+    await waitForLoaded(page);
+    const offending = bannedPunctuationIn(await regionText(page));
+    expect(offending, `${route.label} breaks the house punctuation rule: ${offending.join(' | ')}`).toEqual(
+      []
+    );
+  }
+});
+
+test('the async campaign routes are covered by the same punctuation rule', async ({ page }) => {
+  // Stubbed separately for the same reason the glyph rule is: the async record
+  // is what drives the lineage caption and the contribution stream, and those
+  // carry the longest stretches of producer-supplied prose on the page.
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  for (const path of [
+    `/#/campaigns/${ASYNC_CAMPAIGN_ID}`,
+    `/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`,
+  ]) {
+    await page.goto(path);
+    await waitForLoaded(page);
+    const offending = bannedPunctuationIn(await regionText(page));
+    expect(offending, `${path} breaks the house punctuation rule: ${offending.join(' | ')}`).toEqual([]);
+  }
+});
+
+test('the punctuation guard fires on an em dash arriving from the wire', async ({ page }) => {
+  // The mutation is planted in a PRODUCER string rather than in our JSX,
+  // because a guard that only catches our own copy would be redundant with a
+  // source grep. This proves it catches the case a grep structurally cannot.
+  const record = stubAsyncRecord() as Record<string, unknown>;
+  const dirty = `pooled over the shared corpus ${EM_DASH} not per site`;
+  record.description = dirty;
+
+  await stubCampaignService(page, { record });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text, 'the planted string never reached the screen, so this proves nothing').toContain(
+    'pooled over the shared corpus'
+  );
+  const offending = bannedPunctuationIn(text);
+  expect(offending.length, 'an em dash from the wire walked through the punctuation guard').toBeGreaterThan(0);
+  expect(offending[0]).toContain('em dash');
+});
+
+test('the punctuation guard allows a numeric range but not a prose en dash', async ({ page }) => {
+  // Both halves of the en-dash carve-out, checked directly on the predicate.
+  // Without the negative half the rule could be satisfied by never firing.
+  expect(bannedPunctuationIn(`central 5${EN_DASH}95% of sites`)).toEqual([]);
+  expect(bannedPunctuationIn(`merged weekly ${EN_DASH} whenever checkpoints arrived`)).toHaveLength(1);
+  expect(bannedPunctuationIn(`a clean sentence with no dashes at all`)).toEqual([]);
+});
