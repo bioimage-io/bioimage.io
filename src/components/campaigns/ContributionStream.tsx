@@ -279,6 +279,7 @@ const ContributionStream: React.FC<ContributionStreamProps> = ({
       <svg
         viewBox={`0 0 ${VIEW_W} ${viewH}`}
         className="w-full"
+        data-icon="chart-contribution-stream"
         role="img"
         aria-label="Contributions over time, with the dates the community model was merged"
       >

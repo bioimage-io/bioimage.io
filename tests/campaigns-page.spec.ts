@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.10.0-draft';
+const SCHEMA_VERSION = '0.11.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
 const ASYNC_CAMPAIGN_ID = 'stub-soup';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
@@ -2091,7 +2091,7 @@ test('a service on a different schema is refused at the index, not rendered', as
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.10\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.11\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -2109,7 +2109,7 @@ test('a service on a different schema is refused at the detail page too', async 
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.10\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.11\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -2149,7 +2149,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.10.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.11.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
@@ -2788,4 +2788,412 @@ test('exclusions from an empty merge still reach the campaign-wide total', async
   expect(text).toContain('4 assessed and not included');
   // Still no per-contributor breakdown of any of them.
   expect(text).not.toMatch(/Stub (Alpha|Beta|Gamma)[^.]{0,40}(excluded|not included|assessed)/i);
+});
+
+/*
+ * ICON GUARDS.
+ *
+ * Every other honesty guard on this page reads TEXT: `regionText` returns
+ * `innerText`, so a claim made in words is catchable and a claim made in a
+ * glyph is not. The render keeps an icon's PATHS and forgets its NAME, so a
+ * padlock asserting protection is, to a text guard, a handful of bezier
+ * coordinates. calm-elan hit exactly this on the paper figures: a lock glyph
+ * walked through a guard built to reject the word "privacy".
+ *
+ * That blind spot was live here. The payload pill on the campaign detail page
+ * was drawn with a shield-check in emerald beside "Only model weights leave
+ * each site", which is the privacy claim this page bans in words, made in
+ * iconography instead. Weight averaging is not a confidentiality mechanism and
+ * the pitch is deliberately data gravity, not privacy. See the note in
+ * CampaignList.
+ *
+ * The fix has to be at DRAW time, because nothing downstream can recover a name
+ * the render discarded. Every `<svg>` under `src/components/campaigns/` carries
+ * `data-icon`, and these guards read those names.
+ */
+
+/** Glyph names rendered in the campaign region, plus a count of unnamed ones. */
+async function campaignGlyphs(page: Page): Promise<{ named: string[]; unnamed: number }> {
+  return page.evaluate(() => {
+    const region = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
+    const svgs = Array.from(region ? region.querySelectorAll('svg') : []);
+    const named: string[] = [];
+    let unnamed = 0;
+    for (const svg of svgs) {
+      const name = svg.getAttribute('data-icon');
+      if (name === null || name.trim() === '') unnamed += 1;
+      else named.push(name.trim().toLowerCase());
+    }
+    return { named, unnamed };
+  });
+}
+
+/**
+ * Glyph families that assert protection, secrecy, or a safety verdict.
+ *
+ * Deliberately broader than the word list the text guards use. A text guard can
+ * afford to be precise because prose says what it means; an icon is read as a
+ * gestalt, so anything in the padlock-shield-verified family carries the claim
+ * whatever the designer called the file.
+ */
+const BANNED_GLYPHS = [
+  'lock',
+  'padlock',
+  'unlock',
+  'shield',
+  'secure',
+  'security',
+  'privacy',
+  'private',
+  'key',
+  'vault',
+  'safe',
+  'guard',
+  'fingerprint',
+  'badge-check',
+  'verified',
+  'certificate',
+];
+
+/** The predicate both the guard and its mutation test run, so they cannot drift. */
+function bannedGlyphsIn(names: string[]): string[] {
+  return names.filter((name) => BANNED_GLYPHS.some((banned) => name.includes(banned)));
+}
+
+const GLYPH_ROUTES = [
+  { path: `/#/campaigns`, label: 'index' },
+  { path: `/#/campaigns/${CAMPAIGN_ID}`, label: 'synchronous detail' },
+  { path: `/#/campaigns/${CAMPAIGN_ID}/progress`, label: 'synchronous progress' },
+  { path: `/#/campaigns/${ASYNC_CAMPAIGN_ID}`, label: 'asynchronous detail' },
+  { path: `/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`, label: 'asynchronous progress' },
+];
+
+test('no glyph on any campaign route asserts protection or secrecy', async ({ page }) => {
+  await stubCampaignService(page, { record: stubRecord() });
+  for (const route of GLYPH_ROUTES) {
+    await page.goto(route.path);
+    await waitForLoaded(page);
+    const { named } = await campaignGlyphs(page);
+    const offending = bannedGlyphsIn(named);
+    expect(
+      offending,
+      `${route.label} renders a glyph making a protection claim: ${offending.join(', ')}`
+    ).toEqual([]);
+  }
+});
+
+test('the async campaign routes are covered by the same glyph rule', async ({ page }) => {
+  // Stubbed separately because the async record is what drives the soup
+  // lineage, the contribution stream and the payload pill, and the pill is
+  // where the shield actually was.
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  for (const path of [`/#/campaigns/${ASYNC_CAMPAIGN_ID}`, `/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`]) {
+    await page.goto(path);
+    await waitForLoaded(page);
+    const { named } = await campaignGlyphs(page);
+    expect(bannedGlyphsIn(named), `${path} renders a protection glyph`).toEqual([]);
+  }
+});
+
+/**
+ * The omission hole, closed.
+ *
+ * A name-based guard is only as good as the naming discipline, and the natural
+ * way to defeat it is not to rename a padlock but to add one with no name at
+ * all. An unnamed glyph is indistinguishable from an absent one to every check
+ * above, so the absence of names is itself the failure.
+ */
+test('every campaign glyph carries a name, so none can hide from the guard', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  for (const path of [`/#/campaigns/${ASYNC_CAMPAIGN_ID}`, `/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`]) {
+    await page.goto(path);
+    await waitForLoaded(page);
+    const { named, unnamed } = await campaignGlyphs(page);
+    expect(unnamed, `${path} renders ${unnamed} glyph(s) with no data-icon`).toBe(0);
+    // And the guard is actually looking at something, rather than passing
+    // because the page drew no icons at all.
+    expect(named.length).toBeGreaterThan(0);
+  }
+});
+
+/**
+ * MUTATION TEST. A guard that passes on good input has not been shown to fail
+ * on bad input.
+ *
+ * This drops a padlock into the live DOM and asserts the guard catches it,
+ * through the same collection helper and the same predicate the real tests use.
+ * Without this, every assertion above would keep passing if `campaignGlyphs`
+ * silently returned an empty array.
+ */
+test('the glyph guard fails when a padlock is deliberately planted', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  const clean = bannedGlyphsIn((await campaignGlyphs(page)).named);
+  expect(clean, 'the page was already dirty, so this test proves nothing').toEqual([]);
+
+  await page.evaluate(() => {
+    const region = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('data-icon', 'lock-closed');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    region?.appendChild(svg);
+  });
+
+  const dirty = bannedGlyphsIn((await campaignGlyphs(page)).named);
+  expect(dirty, 'a planted padlock walked through the glyph guard').toEqual(['lock-closed']);
+});
+
+/**
+ * The same mutation, against the unnamed-glyph rule.
+ *
+ * Proves the omission check fires rather than merely counting zero forever.
+ */
+test('the naming rule fails when an unnamed glyph is planted', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}`);
+  await waitForLoaded(page);
+
+  expect((await campaignGlyphs(page)).unnamed).toBe(0);
+
+  await page.evaluate(() => {
+    const region = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    region?.appendChild(svg);
+  });
+
+  expect(
+    (await campaignGlyphs(page)).unnamed,
+    'an unnamed glyph was not counted, so the omission hole is open'
+  ).toBe(1);
+});
+
+/**
+ * The no-ratio rule, extended past text.
+ *
+ * cool-ruff's point (2): the two transport numbers must never become a quotient
+ * in ANY form, and a badge or glyph is a form. A "12x" pill would carry the
+ * saving claim with no matching text, so the text guard at the top of this file
+ * would pass it.
+ */
+test('no glyph or badge renders the transport figures as a ratio', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const { named } = await campaignGlyphs(page);
+  for (const name of named) {
+    expect(name, `glyph "${name}" names a ratio`).not.toMatch(
+      /ratio|saving|multiple|fold|times|quotient|percent/
+    );
+  }
+
+  // Nor as an image, which is the other way a rendered number escapes innerText.
+  const images = await page.evaluate(() => {
+    const region = document.querySelector('div.mx-auto.max-w-6xl, div.mx-auto.max-w-5xl');
+    return Array.from(region ? region.querySelectorAll('img') : []).map(
+      (img) => `${img.getAttribute('src') ?? ''} ${img.getAttribute('alt') ?? ''}`
+    );
+  });
+  for (const image of images) {
+    expect(image, `an image carries saving framing: ${image}`).not.toMatch(
+      /ratio|saving|times.less|x.less/i
+    );
+  }
+});
+
+/**
+ * The lineage table names its metric, and never calls it "Score".
+ *
+ * `RoundMetric.name` has said "never abbreviated to 'score' by the page" since
+ * the field existed, and this column was the last place breaking it. The cost
+ * is specific rather than stylistic: the record carries a witness metric and a
+ * gate metric, and a column headed "Score" beside a column of version numbers
+ * says nothing about which split produced it. The chart above names its metric
+ * in the caption; a reader who scrolls past that caption to the table had
+ * nothing. The circular reading, that these are the numbers the merge selected
+ * on, is the one that needs no extra assumption, so an unlabelled column
+ * defaults to exactly the reading the witness/selection split exists to prevent.
+ */
+test('the lineage table heads its metric column with the metric name', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const heads = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('th')).map((th) =>
+      (th as HTMLElement).innerText.trim().toLowerCase()
+    )
+  );
+  expect(heads, 'the metric column is headed with the bare word "score"').not.toContain('score');
+  // And it is headed with the name the record supplied, so the column is not
+  // merely renamed to something else equally uninformative.
+  expect(heads.some((h) => h.includes('witness'))).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// The baseline reference level (0.11.0-draft).
+//
+// The lineage curve on its own answers a question nobody asked. A greedy gate
+// admits a contribution only when the pooled model improves, so successive
+// versions rising past each other is the selection rule working, and it is
+// true of any campaign that ran the rule correctly. What a reader outside the
+// campaign wants to know is whether the community model beat the published
+// model they already have, and that comparison needs a second number the curve
+// does not contain.
+//
+// `progress.baseline_metric` carries it. Every test below is about the same
+// distinction: the baseline is a LEVEL the versions are read against, and the
+// moment it becomes a point on the curve the page has asserted that the base
+// model is a community version this campaign produced.
+// ---------------------------------------------------------------------------
+
+/** The base model on the same split, below every version the campaign published. */
+function stubBaseline(over: Record<string, unknown> = {}): Record<string, unknown> {
+  // Built from stubWitness so the name, the basis and the scope match the
+  // soups' metrics by construction rather than by two literals being kept in
+  // step by hand. The comparability rule under test is exactly that they match,
+  // so a copy-pasted second literal would be the thing most likely to drift.
+  return { ...stubWitness(0.6891, 3), ...over };
+}
+
+/** The named base model, so the reference level has something to be a level of. */
+const STUB_BASE_MODEL = {
+  id: 'stub-workspace/stub-base-model',
+  name: 'Stub base model',
+  url: null,
+};
+
+test('the base model is drawn as a reference level and adds no point to the curve', async ({
+  page,
+}) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({ baseline_metric: stubBaseline() }, { base_model: STUB_BASE_MODEL }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(1);
+
+  // The whole point. Two soups, two points, still two with a baseline present.
+  // A third point here would be a version on the axis that the campaign never
+  // published and nobody can download.
+  expect(await page.locator('svg circle[data-version]').count()).toBe(2);
+
+  // And no row either. The lineage table is a list of published checkpoints.
+  const lineageRows = await page.evaluate(() => {
+    const table = Array.from(document.querySelectorAll('table')).find((t) =>
+      Array.from(t.querySelectorAll('th')).some((th) =>
+        (th.textContent ?? '').toLowerCase().includes('folded in')
+      )
+    );
+    return table ? table.querySelectorAll('tbody tr').length : -1;
+  });
+  expect(lineageRows).toBe(2);
+
+  // The level says what it is a level OF. An unlabelled dashed line is a line
+  // the reader has to guess the meaning of, and the available guess is wrong.
+  const text = await regionText(page);
+  expect(text).toContain('Stub base model');
+  expect(text).toContain('scored the same way before the first merge');
+  expect(text).toContain('not one of them');
+});
+
+test('the baseline value is rendered, so the comparison can actually be made', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({ baseline_metric: stubBaseline() }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // A line at an unstated height is a picture of a comparison rather than the
+  // comparison. The version figures are on the page in this form already, so
+  // withholding only the one they are measured against would be the odd choice.
+  const svgText = await page.evaluate(() => {
+    const g = document.querySelector('svg g[data-baseline]');
+    return g ? (g.textContent ?? '') : '';
+  });
+  expect(svgText).toContain('0.689');
+
+  // This stub reports no base model, so the level falls back to a generic
+  // label. It does NOT fall back to a name, which is the mistake this page
+  // made once before: a null `base_model` was rendered as "Trained from
+  // scratch", a claim the record never made.
+  expect(svgText).toContain('Base model');
+});
+
+test('a baseline measured under a different name is not drawn across the curve', async ({
+  page,
+}) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      baseline_metric: stubBaseline({ name: 'some other validation score' }),
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // A line drawn across a curve asserts the two are the same measurement. Two
+  // scores under different names may sit at the same height and mean different
+  // things, and the reader has no way to tell from the picture.
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(0);
+
+  // Not silently. An absent reference level and one this page declined to draw
+  // look identical, and only one of them is the campaign's doing.
+  const text = await regionText(page);
+  expect(text).toContain('measured differently from the versions above');
+  // The rejected figure does not leak in as a number somewhere else.
+  expect(text).not.toContain('0.689');
+});
+
+test('a baseline on a different scope is not drawn either', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      // Same metric name, same split name, measured on the campaign's own
+      // holdout while the versions are pooled over participants. This is the
+      // harder half of comparability and the one a name check alone misses:
+      // everything the reader can see about the two figures agrees.
+      baseline_metric: stubBaseline({ aggregate_scope: 'campaign_holdout', n_sites_scored: null }),
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(0);
+  expect(await regionText(page)).toContain('measured differently from the versions above');
+});
+
+test('a baseline the page refuses is reported, not silently dropped', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      // Comparable, and unrenderable for the ordinary reason: a figure with no
+      // count of what it is a mean over. The baseline goes through the same
+      // disposition function as every version, so it fails the same way.
+      baseline_metric: stubBaseline({ n_sites_scored: null }),
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(0);
+  const text = await regionText(page);
+  expect(text).toContain('will not render');
+  expect(text).not.toContain('measured differently from the versions above');
+});
+
+test('a campaign with no baseline draws no reference level and says nothing about one', async ({
+  page,
+}) => {
+  // The control. Without it every negative case above would also pass on a
+  // page that had never implemented the baseline at all.
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  await expect(page.locator('svg g[data-baseline]')).toHaveCount(0);
+  const text = await regionText(page);
+  expect(text).not.toContain('scored the same way before the first merge');
+  expect(text).not.toContain('measured differently from the versions above');
 });

@@ -439,8 +439,42 @@
  * campaign total with no per-merge home and the breakdown could not reconcile
  * with the headline. `EmptyMerge.transport` closes that, and the backend is
  * putting a transport block on every merge record it stores, published or not.
+ *
+ * 0.11.0-draft: MINOR and additive, in two parts, both from the Cellpose-SAM
+ * soup backend's field contract (live-kudu, 12 Sep 2026).
+ *
+ * `RoundMetric.aggregate_scope`. The scoring floor assumed every aggregate is a
+ * mean over PARTICIPANT-held scores, because that is what the synchronous
+ * consortium produced, and it refuses any aggregate with a null
+ * `n_sites_scored`. The soup campaign scores its witness split centrally on a
+ * campaign-owned holdout, so there is no participant-held quantity in the number
+ * and no site count to report. The rule did not merely fail on that record, it
+ * did not apply to it, and the page's answer was to withhold the whole
+ * improvement curve for want of a denominator that has no meaning here.
+ *
+ * The tempting fix was for the producer to put SOMETHING in `n_sites_scored`,
+ * which is how a disclosure rule turns into a formality: a declared denominator
+ * is the only evidence this page has, and an invented one passes every check.
+ * Declaring the scope instead keeps the floor exactly as strict as it was on
+ * pooled figures and stops it firing on figures it was never about. Same reason
+ * `per_site_basis` is data: an eval basis asserted in prose is a claim nobody
+ * can check.
+ *
+ * `baseline_metric` on the async arm. The lineage curve starts at the first
+ * community version, so a reader can see the versions rise past each other and
+ * cannot see whether any of them beat the model the campaign started from. That
+ * is the comparison the campaign exists to make and it was absent. It renders as
+ * a reference level rather than as the first point on the curve, because the
+ * base model is not a community version and a point on that curve asserts one.
+ *
+ * NOT added, and worth recording as a decision rather than an oversight: a
+ * witness metric on `EmptyMerge`. A no-admit merge leaves the checkpoint
+ * unchanged and the backend carries the previous value forward, so plotting it
+ * would restate a measurement at a timestamp where nothing was measured. If the
+ * backend ever re-evaluates the unchanged head for a noise floor, that is a
+ * fresh number and this decision reopens.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.10.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.11.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -688,6 +722,38 @@ export type AggregateWithholdCause =
  */
 export type MetricRole = 'witness' | 'selection';
 
+/**
+ * Who holds the data an aggregate was measured on, which decides whether the
+ * scoring floor is a rule about this number or a rule about a different kind of
+ * number entirely.
+ *
+ *  - 'participant_pool': the aggregate is pooled over scores computed on data
+ *    each participant holds. `n_sites_scored` is its denominator and is
+ *    REQUIRED, and the floor applies, because a mean over few participants is
+ *    one participant's value wearing a pooled label.
+ *  - 'campaign_holdout': one measurement on a split the campaign owns, scored
+ *    centrally. No participant-held quantity enters it, so there is nothing for
+ *    the floor to protect and no site count to report. `n_sites_scored` is
+ *    legitimately null and the completeness gate and the floor are both
+ *    INAPPLICABLE rather than failed.
+ *
+ * Null means the producer did not say, and the page treats that as
+ * 'participant_pool', which is the strict reading. That default is deliberate
+ * and is the opposite of the usual "null means unknown, so withhold": here the
+ * conservative branch is the one that keeps checking, and silently upgrading an
+ * unlabelled metric to 'campaign_holdout' would let a pooled figure skip the
+ * floor by omitting a field.
+ *
+ * NOTE TO PRODUCERS, and this is the whole point of the field. If your metric is
+ * a central holdout, declare it. Do NOT reach for a plausible `n_sites_scored`
+ * to get past the floor. A denominator is the only evidence the page has about
+ * where a number came from, an invented one passes every check, and the result
+ * is a pooled-looking figure standing on nothing. That is the same failure as
+ * declaring a gate metric 'witness', and this schema now has two fields whose
+ * only defence is that the producer told the truth.
+ */
+export type AggregateScope = 'participant_pool' | 'campaign_holdout';
+
 /** The scoring for one round. `name` is campaign-specific and rendered as given. */
 export interface RoundMetric {
   /**
@@ -695,6 +761,12 @@ export interface RoundMetric {
    * field here that is about the campaign's process rather than its numbers.
    */
   role: MetricRole;
+  /**
+   * Whose data `aggregate` was measured on. See `AggregateScope`. Null is read
+   * as 'participant_pool', the strict branch, so an unlabelled metric cannot
+   * skip the scoring floor by omission.
+   */
+  aggregate_scope: AggregateScope | null;
   /** e.g. "validation Dice". Never abbreviated to "score" by the page. */
   name: string;
   higher_is_better: boolean;
@@ -1444,6 +1516,39 @@ export type CampaignProgressRecord =
        * pick one noun and mean it.
        */
       soups: SoupRecord[];
+      /**
+       * The base model's own witness score, measured on the same split by the
+       * same code before any contribution was folded in. Null when the campaign
+       * did not measure one.
+       *
+       * It is NOT the first point of the lineage, and the field exists at this
+       * level rather than as `soups[-1]` so that it cannot be made into one by
+       * an off-by-one. A lineage point is a published community version with a
+       * `soup_id`, an `index`, a member list and a digest. The baseline has
+       * none of those: it is the starting checkpoint, which the campaign did
+       * not produce and cannot point a reader at as its own output. Splicing it
+       * into the series would put a version-0 on the axis that never existed,
+       * and would make the first real merge look like an increment from a
+       * campaign artefact rather than from the published model everyone
+       * already had.
+       *
+       * What it is for is the question a witness curve cannot answer alone.
+       * Without it the curve says the community model improved over successive
+       * merges, which is true and uninteresting, since a greedy gate admits
+       * only what improves. With it the curve says whether the community model
+       * is better than the thing it started from, which is the only comparison
+       * a reader outside the campaign has any use for. Render it as a reference
+       * LEVEL across the whole chart, labelled with the base model's name.
+       *
+       * Typed `WitnessMetric` so the role declaration is required and the same
+       * refusals apply. A baseline measured on the selection split is a gate
+       * figure and must not be drawn beside a witness curve as though the two
+       * were comparable, and nothing about being a baseline exempts it. For the
+       * comparison to mean anything it must carry the same `name` and the same
+       * `aggregate_scope` as the soups' witness metrics, and a page that finds
+       * they differ should say so rather than drawing the line anyway.
+       */
+      baseline_metric: WitnessMetric | null;
       /**
        * Merges that ran and published nothing. Separate array because they are a
        * different kind of event, not a degenerate soup. See `EmptyMerge`.

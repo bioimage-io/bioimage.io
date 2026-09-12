@@ -361,10 +361,11 @@ function buildSoups(): SoupRecord[] {
     const cumulative = CONTRIBUTIONS.filter(
       (c) => c.merged_into !== null && index >= Number(c.merged_into.split('-')[1])
     ).length;
-    // Everyone who had contributed at least once by this merge evaluates the
-    // new version on their own held-out split, which is what the aggregate is a
-    // mean over and therefore what the scoring floor stands on.
-    const scoring = CONTRIBUTOR_SEEDS.filter((s) => s.joinDay < day).length;
+    // Everyone who had contributed at least once by this merge pulls the new
+    // version, which is what the outbound byte count is a multiple of. It is
+    // NOT a scoring denominator: the witness figure below is one central
+    // measurement on a campaign-held split, not a mean over these people.
+    const pullers = CONTRIBUTOR_SEEDS.filter((s) => s.joinDay < day).length;
     const version = `v${index + 1}`;
     const ceiling = 0.906;
     const witness = Number((ceiling - (ceiling - 0.71) * Math.exp(-cumulative / 14)).toFixed(4));
@@ -397,42 +398,60 @@ function buildSoups(): SoupRecord[] {
       },
       witness_metric: {
         role: 'witness' as const,
-        name: 'validation F1 (witness split)',
+        // A campaign-owned split, scored centrally on one machine, so there is
+        // no pooling and no participant denominator. This is the shape the
+        // model-finetune backend actually emits, and the reason `aggregate_scope`
+        // exists: the earlier draft of this fixture pooled per-contributor
+        // scores, which made `n_sites_scored` the curve's denominator and put
+        // the whole async arm under the scoring floor. The real producer has no
+        // such number to report, and would have had to invent one to be drawn.
+        aggregate_scope: 'campaign_holdout' as const,
+        name: 'mean instance F1 at IoU 0.5',
         higher_is_better: true,
         // Withheld by the standing disclosure rule. A per-contributor curve is
         // a public leaderboard of whose data is hardest, and that is a worse
         // hazard in an open community than in a closed consortium.
+        //
+        // Under 'campaign_holdout' it is also structurally empty: nothing here
+        // was measured per participant, so there is no map to withhold. Both
+        // readings give null, and the page refuses the record outright if a
+        // holdout-scoped metric ever arrives carrying one.
         per_site: null,
         per_site_basis: null,
         aggregate: witness,
         aggregate_basis:
-          'mean over the contributors that evaluated this version on a held-out split held back from selection',
-        n_sites_scored: scoring,
+          'scored on the campaign holdout, which is held back from the selection split and from every contributor',
+        // Legitimately absent rather than withheld. See `AggregateScope`.
+        n_sites_scored: null,
         // No per-unit map at all, so no key space to count in.
         n_datasets_scored: null,
         aggregate_withheld: null,
       },
       selection_metric: {
         role: 'selection' as const,
+        // Also campaign-held: the gate runs centrally against a split the
+        // campaign owns. Declared for the same reason the witness is, even
+        // though the role refusal fires first and this figure is never a curve.
+        aggregate_scope: 'campaign_holdout' as const,
         name: 'pooled AP50 on the selection split',
         higher_is_better: true,
         per_site: null,
         per_site_basis: null,
         aggregate: gate,
         aggregate_basis: 'the score the greedy gate admitted contributions against, on the split it selects on',
-        n_sites_scored: scoring,
+        n_sites_scored: null,
         n_datasets_scored: null,
         aggregate_withheld: null,
       },
       global_sha256: digest,
       transport: {
         // The merge distributes the new version to everyone who pulls it.
-        bytes_out: CHECKPOINT_BYTES * scoring,
+        bytes_out: CHECKPOINT_BYTES * pullers,
         // Every ASSESSED checkpoint crossed the network, including the ones the
         // gate declined. Billing this to the taken set would be the audit
         // quietly undercounting itself.
         bytes_in: CHECKPOINT_BYTES * pool.length,
-        n_transfers: scoring + pool.length,
+        n_transfers: pullers + pool.length,
         sources_complete: true,
       },
     };
@@ -545,9 +564,14 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // per-contributor curves stay withheld, which is the half of the disclosure
     // that was ever about comparison.
     outcomes_released: true,
-    // The floor still stands on contributors, however the campaign aggregates.
-    // Three rules out the case where the pooled figure is one contributor's own
-    // result wearing a community label.
+    // Kept, and inert on this campaign's current metrics, which is the correct
+    // state rather than a leftover. Three rules out the case where a pooled
+    // figure is one contributor's own result wearing a community label. Both
+    // metrics here are campaign-held holdouts, so nothing they publish is
+    // pooled over contributors and the floor has nothing to check. It stays
+    // because the campaign is open-ended: the moment it publishes a figure
+    // pooled over participant-held data, the threshold it is checked against
+    // has to already be on the record, not chosen after the number is known.
     aggregate_min_scoring_sites: 3,
   },
   base_model: {
@@ -570,6 +594,26 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     started_at: isoAt(0),
     contributions: CONTRIBUTIONS,
     soups: SOUPS,
+    // Stock Cellpose-SAM on the same holdout, scored before anything was folded
+    // in. Same name and same scope as the soups' witness metrics, which is what
+    // makes it comparable to them at all, and 0.71 is not a free parameter: it
+    // is the value the curve above takes at zero folded contributions, so the
+    // reference line meets the lineage where the lineage starts.
+    //
+    // It is here and not in `soups` deliberately. See `baseline_metric`.
+    baseline_metric: {
+      role: 'witness' as const,
+      aggregate_scope: 'campaign_holdout' as const,
+      name: 'mean instance F1 at IoU 0.5',
+      higher_is_better: true,
+      per_site: null,
+      per_site_basis: null,
+      aggregate: 0.71,
+      aggregate_basis: 'the published Cellpose-SAM weights, scored on the campaign holdout before the first merge',
+      n_sites_scored: null,
+      n_datasets_scored: null,
+      aggregate_withheld: null,
+    },
     // Every scheduled slot that published no version, which is what makes the
     // merge markers on the stream complete. Without these the chart would show
     // eleven merges for a campaign that ran more than eleven.
@@ -733,6 +777,17 @@ function unetRounds(total: number): RoundRecord[] {
       eval_on: UNET_SITES.map((s) => s.site_id),
       merge_weights: { 'site-a': 536, 'site-b': 482 },
       metric: {
+        // Lockstep FedAvg selects nothing, so this is a witness by
+        // construction. It is still declared, because "by construction" is a
+        // fact about the campaign and not a property of the record, and
+        // `RoundRecord.metric` is typed `WitnessMetric` so the declaration is
+        // what makes it assignable.
+        role: 'witness' as const,
+        // The opposite arm from the community soup above, and the reason both
+        // exist in this file: this aggregate IS pooled over scores each site
+        // computed on data it holds, so `n_sites_scored` is its denominator and
+        // the floor is about exactly this number.
+        aggregate_scope: 'participant_pool' as const,
         name: 'validation Dice',
         higher_is_better: true,
         per_site,

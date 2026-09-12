@@ -156,6 +156,18 @@ const DispositionNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
       `${countPhrase(n)} ${publishes(n)} a combined score, but the campaign records no threshold for how many scoring sites one requires.`
     );
   }
+  // Worth a sentence of its own rather than folding into a generic "malformed",
+  // because the reader's question here is why a score the campaign published is
+  // missing, and the answer is specific: the record gave two incompatible
+  // accounts of where its own number came from. The copy names both accounts
+  // and takes neither side, which is the only honest thing to say about a
+  // record that has not settled the question itself.
+  if (tally.page.holdout_scope_with_per_site_map > 0) {
+    const n = tally.page.holdout_scope_with_per_site_map;
+    refused.push(
+      `${countPhrase(n)} ${reports(n)} a combined score as one central measurement on the campaign's own data, and also publishes per-unit scores from the participants, so the record does not say which of the two the figure is.`
+    );
+  }
 
   // Separate from `refused` and rendered without the amber, because the amber
   // block ends by telling the reader the record does not match its own declared
@@ -485,6 +497,7 @@ const RoundChart: React.FC<RoundChartProps> = ({ rounds, sites, minScoringSites 
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         className="w-full"
+        data-icon="chart-round-metric"
         role="img"
         aria-label={`${metricName ?? 'Metric'} by round`}
       >

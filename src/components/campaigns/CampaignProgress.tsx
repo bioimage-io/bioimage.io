@@ -401,6 +401,13 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
           soups={progress.soups}
           minScoringSites={record.policy?.aggregate_min_scoring_sites ?? null}
           showMetric={outcomesReleased(record)}
+          baselineMetric={progress.baseline_metric}
+          // The base model's name, so the reference level says what it is a
+          // level of. Null when the campaign did not report a base model, and
+          // the chart falls back to a generic label rather than inventing one:
+          // this page has been wrong once already by reading a null
+          // `base_model` as "trained from scratch".
+          baselineLabel={record.base_model?.name ?? null}
         />
       </Section>
 
@@ -462,7 +469,13 @@ const CampaignProgress: React.FC = () => {
         to={`/campaigns/${data.campaign_id}`}
         className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors duration-200 hover:text-gray-800"
       >
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="h-4 w-4"
+          data-icon="chevron-left"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
         Back to campaign

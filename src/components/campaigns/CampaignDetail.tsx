@@ -95,7 +95,13 @@ const CampaignDetail: React.FC = () => {
         to="/campaigns"
         className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors duration-200 hover:text-gray-800"
       >
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="h-4 w-4"
+          data-icon="chevron-left"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
         All campaigns
@@ -136,14 +142,33 @@ const CampaignDetail: React.FC = () => {
           </p>
         )}
 
+        {/* This pill states WHAT MOVES. It is not a safety badge, and it used to
+            be drawn as one: a shield-check glyph in emerald, which is the
+            padlock argument in a different costume. The page bans privacy
+            framing in words (see the pitch note in CampaignList) and weight
+            averaging is not a confidentiality mechanism, so a shield asserting
+            protection was making in iconography exactly the claim the copy is
+            written to avoid. A text guard could never have caught it, because
+            the render keeps the path and forgets the name.
+
+            Hence an outbound arrow, which depicts leaving, and the neutral
+            palette. Emerald on this page means STATUS ('Open to join',
+            'Reported'), and reusing the status colour for a claim about the
+            protocol confuses two different kinds of statement. */}
         {weightsOnly && (
-          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-800">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-1.5 text-sm font-medium text-gray-700">
+            <svg
+              className="h-4 w-4"
+              data-icon="arrow-right"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                d="M13 7l5 5m0 0l-5 5m5-5H6"
               />
             </svg>
             {data.payload?.label

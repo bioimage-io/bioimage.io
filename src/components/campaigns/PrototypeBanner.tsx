@@ -18,7 +18,13 @@ const PrototypeBanner: React.FC = () => {
       data-testid="campaign-prototype-banner"
       className="mb-6 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900"
     >
-      <svg className="mt-0.5 h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg
+        className="mt-0.5 h-5 w-5 flex-shrink-0"
+        data-icon="alert-triangle"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
         <path
           strokeLinecap="round"
           strokeLinejoin="round"

@@ -395,6 +395,90 @@ try {
     aggregateDisposition(ok({ metric: { role: 'something_new' } }), 3).cause,
     'gate_metric_as_witness');
 
+  // 0.11.0-draft. `aggregate_scope` decides whether the scoring floor is a rule
+  // about this number or a rule about a different kind of number entirely. The
+  // async soup's witness figure is one central measurement on a campaign-held
+  // split, so it has no participant denominator to report, and under the 0.10.0
+  // gates that made it unplottable for want of a count it never had. The fix is
+  // a declaration, and every case below is about that declaration being a
+  // narrow exemption rather than an escape hatch.
+  //
+  // Note what the FIRST case does not assert: it does not check that the page
+  // found a number and let it through on a technicality. It checks that a
+  // record with no `n_sites_scored` at all, which is the exact shape that fails
+  // `completeness_unknown`, now plots. That is the whole change.
+  eq('a campaign holdout with no site count plots',
+    aggregateDisposition(ok({
+      metric: { aggregate_scope: 'campaign_holdout', per_site: null, n_sites_scored: null },
+    }), 3),
+    { plot: true, value: 0.8 });
+  // Inapplicable, not satisfied. A floor of 50 is not "met" by a holdout, and
+  // if this gate were implemented as "count >= floor with a generous default"
+  // it would fail here. It passes because the floor is never consulted.
+  eq('the floor is not consulted on a campaign holdout, however high it is',
+    aggregateDisposition(ok({
+      metric: { aggregate_scope: 'campaign_holdout', per_site: null, n_sites_scored: null },
+    }), 50).plot, true);
+  // And an unstated floor is not a refusal either, for the same reason. This is
+  // the case the ordering matters for: `floor_unstated` fires on a null
+  // threshold regardless of the count, so a scope gate placed after it would
+  // refuse every holdout published by a campaign that never set one.
+  eq('an unstated floor does not refuse a campaign holdout',
+    aggregateDisposition(ok({
+      metric: { aggregate_scope: 'campaign_holdout', per_site: null, n_sites_scored: null },
+    }), null).plot, true);
+
+  // THE ESCAPE-HATCH CASES. The permissive branch turns the floor off, so the
+  // only thing standing between a thin pooled figure and publication is the
+  // producer's declaration. These four say what the page does about that.
+
+  // One. The declaration is refused when the record contradicts it. A central
+  // measurement has no per-participant map, so a record carrying both has not
+  // settled where its number came from, and this is the branch that skips the
+  // floor.
+  eq('a holdout carrying a per-site map refuses',
+    aggregateDisposition(ok({ metric: { aggregate_scope: 'campaign_holdout' } }), 3),
+    { plot: false, by: 'page', cause: 'holdout_scope_with_per_site_map' });
+  // Two. The contradiction is not laundered by a matching count. A well-formed
+  // pooled record that merely CLAIMS to be a holdout is still refused, so the
+  // refusal is about the claim and not about the map being malformed.
+  eq('a complete per-site map does not make the holdout claim credible',
+    aggregateDisposition(ok({
+      metric: { aggregate_scope: 'campaign_holdout', per_site: { a: 0.8, b: 0.81, c: 0.79 }, n_sites_scored: 3 },
+    }), 3).cause,
+    'holdout_scope_with_per_site_map');
+  // Three. The failure direction that matters, and it is the mirror of the
+  // role check: an unstated scope must NOT fall through to the permissive
+  // branch. A check a producer can disable by omitting a field is not a check,
+  // and this is the assertion that would catch someone "tidying" the null
+  // handling into a `?? 'campaign_holdout'`.
+  eq('an unstated scope keeps the floor on',
+    aggregateDisposition(ok({ metric: { aggregate_scope: null, n_sites_scored: 1, per_site: { a: 0.8 }, eval_on: ['a'] } }), 3),
+    { plot: false, by: 'page', cause: 'below_scoring_floor' });
+  eq('a missing scope key keeps the floor on',
+    aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3).cause,
+    'completeness_unknown');
+  // Four. An unrecognised scope is not a holdout. A future value added to the
+  // enum must not silently acquire the exemption on a page that predates it.
+  eq('an unrecognised scope keeps the floor on',
+    aggregateDisposition(ok({ metric: { aggregate_scope: 'something_new', n_sites_scored: null } }), 3).cause,
+    'completeness_unknown');
+  // The role check still runs first. A gate metric does not become plottable by
+  // declaring itself centrally measured, which is the one combination that
+  // stacks both of this schema's honour-system fields in a producer's favour.
+  eq('a holdout-scoped gate metric is still refused on its role',
+    aggregateDisposition(ok({
+      metric: { role: 'selection', aggregate_scope: 'campaign_holdout', per_site: null, n_sites_scored: null },
+    }), 3),
+    { plot: false, by: 'page', cause: 'gate_metric_as_witness' });
+  // And absence still wins over the scope branch, so a holdout with nothing in
+  // it is not reported as a plotted zero.
+  eq('a campaign holdout with no aggregate is an absence',
+    aggregateDisposition(ok({
+      metric: { aggregate_scope: 'campaign_holdout', per_site: null, n_sites_scored: null, aggregate: null, aggregate_withheld: null },
+    }), 3),
+    { plot: false, by: 'absent' });
+
   // The failure direction that matters. A null floor must not be read as met,
   // and the page must not supply 3 of its own: the threshold is one
   // consortium's judgement and a page that invented one would present it as a
@@ -455,6 +539,7 @@ try {
     aggregateDisposition(ok(pooledArm), 1),
     aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
     aggregateDisposition(ok({ metric: { role: 'selection' } }), 3),
+    aggregateDisposition(ok({ metric: { aggregate_scope: 'campaign_holdout' } }), 3),
   ];
   eq('every registered cause is reachable from some record',
     Array.from(new Set(reached.filter((d) => d.by === 'page' || d.by === 'unrenderable').map((d) => d.cause))).sort(),

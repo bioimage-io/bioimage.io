@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { SoupRecord } from '../../types/campaign';
+import { SoupRecord, WitnessMetric } from '../../types/campaign';
 import {
   AggregateDisposition,
   DispositionTally,
@@ -119,14 +119,24 @@ export interface SoupLineageProps {
   minScoringSites?: number | null;
   /** Gate from `disclosure.outcomesReleased`. False hides the curve and the column. */
   showMetric: boolean;
+  /**
+   * From `progress.baseline_metric`. The base model's own score on the same
+   * split, drawn as a reference level and never as a point on the curve. See
+   * the field's doc for why that distinction is structural and not cosmetic.
+   */
+  baselineMetric?: WitnessMetric | null;
+  /** `base_model.name`, used to label the reference level. */
+  baselineLabel?: string | null;
 }
 
 const SoupLineage: React.FC<SoupLineageProps> = ({
   soups,
   minScoringSites = null,
   showMetric,
+  baselineMetric = null,
+  baselineLabel = null,
 }) => {
-  const { points, tally, metricName, gateName, lo, hi, yMin, yMax } = useMemo(() => {
+  const { points, tally, metricName, gateName, baseline, baselineWithheld, lo, hi, yMin, yMax } = useMemo(() => {
     const tallied = emptyTally();
     const plotted: Array<{ key: string; ms: number; value: number; label: string }> = [];
     soups.forEach((soup) => {
@@ -146,13 +156,56 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
       }
     });
     plotted.sort((a, b) => a.ms - b.ms);
+
+    // The baseline goes through the SAME disposition function as every version
+    // on the curve. A reference level is a published figure like any other, and
+    // exempting it would mean the one number on this chart that is not checked
+    // is the one the campaign is measured against.
+    const witnessRef = soups.find((s) => s.witness_metric)?.witness_metric ?? null;
+    const baselineDisposition = baselineMetric
+      ? aggregateDisposition({ metric: baselineMetric, eval_on: null }, minScoringSites)
+      : null;
+    // Comparability, which the disposition function cannot check because it
+    // sees one metric at a time. A line drawn across a curve asserts that the
+    // two are the same measurement, and if the names or the scopes differ they
+    // are not: a central holdout figure and a participant-pooled figure can sit
+    // at the same height and mean different things. Withholding the line is the
+    // only honest response, because the alternative is a comparison the reader
+    // has no way to know is invalid.
+    const comparable =
+      baselineMetric !== null &&
+      witnessRef !== null &&
+      baselineMetric.name === witnessRef.name &&
+      (baselineMetric.aggregate_scope ?? null) === (witnessRef.aggregate_scope ?? null);
+    const baselineValue =
+      baselineDisposition !== null && baselineDisposition.plot && comparable
+        ? baselineDisposition.value
+        : null;
+
+    // The baseline enters the y domain. Otherwise a base model the community
+    // has comfortably passed sits below the axis and the chart silently crops
+    // the whole point of drawing it.
     const values = plotted.map((p) => p.value);
+    if (baselineValue !== null) values.push(baselineValue);
     const low = values.length > 0 ? Math.min(...values) : 0;
     const high = values.length > 0 ? Math.max(...values) : 1;
     const span = high - low || 1;
     return {
       points: plotted,
       tally: tallied,
+      baseline:
+        baselineValue !== null
+          ? { value: baselineValue, label: baselineLabel ?? 'Base model' }
+          : null,
+      // A record carried a baseline and the chart is not drawing it. Said out
+      // loud rather than left as an empty space, because an absent reference
+      // level and a reference level this page declined to draw look identical.
+      baselineWithheld:
+        baselineMetric !== null && baselineValue === null
+          ? comparable
+            ? 'unshown'
+            : 'incomparable'
+          : null,
       metricName: soups.find((s) => s.witness_metric)?.witness_metric?.name ?? null,
       // Named, never drawn. Naming it is what lets a reader see that the curve
       // above is not it: a page that plotted "the score" and said nothing else
@@ -163,7 +216,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
       yMin: Math.max(0, low - span * 0.15),
       yMax: high + span * 0.15,
     };
-  }, [soups, minScoringSites]);
+  }, [soups, minScoringSites, baselineMetric, baselineLabel]);
 
   if (soups.length === 0) {
     return (
@@ -193,6 +246,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
           <svg
             viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
             className="w-full"
+            data-icon="chart-soup-lineage"
             role="img"
             aria-label={`${metricName ?? 'Metric'} of each community version, by merge date`}
           >
@@ -211,6 +265,33 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
                 </text>
               </g>
             ))}
+            {/* Drawn BEFORE the curve so the curve sits on top of it, which is
+                the visual form of the same rule the schema states: this is a
+                level the versions are read against, not one of them. Dashed,
+                grey, spanning the full width and carrying no marker, so there
+                is nothing on it that could be mistaken for a version. */}
+            {baseline && (
+              <g data-baseline={baseline.label}>
+                <line
+                  x1={PAD_L}
+                  x2={VIEW_W - PAD_R}
+                  y1={y(baseline.value)}
+                  y2={y(baseline.value)}
+                  stroke="#9ca3af"
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                />
+                <text
+                  x={VIEW_W - PAD_R}
+                  y={y(baseline.value) - 6}
+                  textAnchor="end"
+                  fontSize={11}
+                  fill="#6b7280"
+                >
+                  {baseline.label}, {formatMetric(baseline.value)}
+                </text>
+              </g>
+            )}
             <path
               d={points
                 .map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.ms).toFixed(1)} ${y(p.value).toFixed(1)}`)
@@ -248,6 +329,29 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
               {formatDate(new Date(hi).toISOString())}
             </text>
           </svg>
+          {/* The comparison the curve alone cannot make. A greedy gate admits
+              only what improves, so the versions rising past each other is the
+              selection rule working and says nothing about whether any of them
+              beat the model everybody already had. */}
+          {baseline && (
+            <p className="mt-2 text-xs text-gray-500">
+              The dashed line is {baseline.label} scored the same way before the first merge. It is
+              the level the community versions are read against, not one of them.
+            </p>
+          )}
+          {baselineWithheld === 'incomparable' && (
+            <p className="mt-2 text-xs text-gray-500">
+              The base model carries a score in this record, measured differently from the versions
+              above. It is not drawn, because a line across this curve would state that the two are
+              the same measurement.
+            </p>
+          )}
+          {baselineWithheld === 'unshown' && (
+            <p className="mt-2 text-xs text-gray-500">
+              The base model carries a score in this record that this page will not render, for the
+              same reason it holds back a version's score.
+            </p>
+          )}
           <p className="mt-2 text-xs text-gray-500">
             Each point is a published checkpoint, placed on the date it was merged rather than
             spaced by version number. Not every merge publishes a version, whether because nothing
@@ -280,8 +384,19 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
               <th scope="col" className="py-2 pr-4 font-semibold">Merged</th>
               <th scope="col" className="py-2 pr-4 font-semibold">Folded in</th>
               <th scope="col" className="py-2 pr-4 font-semibold">Contributions so far</th>
+              {/* The metric's own name, never the word "Score". `RoundMetric.name`
+                  says so and this column was the one place still breaking it.
+                  It matters more here than anywhere: the record carries a
+                  witness metric AND a gate metric, the chart caption above
+                  names which one it drew, and a reader who scrolls past that
+                  caption to the table saw a column of numbers beside version
+                  numbers with nothing saying which split they came from. The
+                  circular reading is the one that needs no extra assumption,
+                  so an unlabelled column defaults to it. */}
               {showMetric && (
-                <th scope="col" className="py-2 pr-4 font-semibold">Score</th>
+                <th scope="col" className="py-2 pr-4 font-semibold">
+                  {metricName ?? 'Witness metric'}
+                </th>
               )}
               <th scope="col" className="py-2 font-semibold">Weights moved</th>
             </tr>

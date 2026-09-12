@@ -92,7 +92,25 @@ export type PageRefusal =
    * flattering. A defect that looks like success and cannot be seen is the one
    * that survives review.
    */
-  | 'gate_metric_as_witness';
+  | 'gate_metric_as_witness'
+  /**
+   * A metric declaring `aggregate_scope: 'campaign_holdout'` also published a
+   * per-participant map.
+   *
+   * The scope says the number was measured centrally on data the campaign owns,
+   * and the map says it was measured on data the participants hold. Both cannot
+   * be true of one figure, and the page cannot pick, because the two readings
+   * differ in exactly the way the scoring floor cares about: one has a
+   * disclosure hazard and the other does not.
+   *
+   * A refusal rather than a panel limit, and cleanly so: `aggregate_scope` is a
+   * declaration about the record's own contents, and the map contradicts it.
+   * The cause exists because 'campaign_holdout' SKIPS the floor. Any field that
+   * can turn a check off has to be unable to turn it off by accident, so the
+   * one shape where the declaration is not credible is refused rather than
+   * quietly honoured.
+   */
+  | 'holdout_scope_with_per_site_map';
 
 /**
  * Why this panel cannot check an aggregate whose record is entirely correct.
@@ -201,6 +219,8 @@ export const REFUSAL_OBLIGATION: Record<PageRefusal, string> = {
     'A campaign publishing aggregates states its floor, or the floor cannot be shown to have been met.',
   gate_metric_as_witness:
     'A metric in a plotted slot declares `role: witness`. A score contributions were selected on is not one, and a series of it rises by construction.',
+  holdout_scope_with_per_site_map:
+    'A metric measured on a campaign-owned holdout has no per-participant map, so a record declaring `campaign_holdout` and publishing one has contradicted itself about where the number came from.',
 };
 
 /**
@@ -331,14 +351,53 @@ export function aggregateDisposition(
   //      ever emits the gate metric under `role: 'witness'`.
   // Both are open with live-kudu as of 12 Sep 2026, driven by cool-ruff.
   //
-  // Until those land, the direction is UNVERIFIED and this comment is the only
-  // thing saying so. Keep it until the contract test exists, and delete it in
-  // the same change that makes it untrue. The definition being assumed is
-  // cool-ruff's and it is fixed: witness is split B, gates nothing, and is the
-  // only thing plotted or reported; selection is split A, the greedy gate,
-  // internal, never plotted.
+  // Status as of 12 Sep 2026: CONFIRMED BY THE BACKEND OWNER, PENDING TEST.
+  // live-kudu has agreed the mapping in writing and cool-ruff has relayed it,
+  // so the definition is no longer this page's guess. It is still not a
+  // verified guarantee, because an agreed definition and a code path that
+  // cannot violate it are different things, and the failure above is silent.
+  // This comment comes out when (1) and (2) land and both suites run against
+  // the one corpus, not when the agreement is restated.
+  //
+  // The definition, which is fixed: witness is split B, gates nothing, and is
+  // the only thing plotted or reported. Selection is split A, the greedy gate,
+  // internal, nameable, never drawn.
+  //
+  // One rule that is NOT this function's to enforce and belongs with it
+  // anyway. A per-member gate score must not reach the wire at all, which is
+  // stronger than "must not be plotted": the no-leaderboard rule is about
+  // publication, not display. `SoupRecord.assessed` is a list of ids and
+  // carries no score field, so the shape forbids it, and a payload that
+  // carried one would be a contract violation to report rather than a
+  // rendering decision to make.
   if ((metric.role as string) !== 'witness') {
     return { plot: false, by: 'page', cause: 'gate_metric_as_witness' };
+  }
+
+  // The scope gate, and it sits here for a reason: after the role check, which
+  // is about whether this number may be plotted AT ALL, and before every
+  // completeness and floor check, which are about a denominator a central
+  // holdout does not have.
+  //
+  // Normalised to the STRICT branch on null. That is the opposite of the usual
+  // rule in this file, where an unstated property withholds. Here an unstated
+  // scope keeps checking, because the permissive branch is the one that turns
+  // the floor off, and a check that can be disabled by omitting a field is not
+  // a check. See `AggregateScope`.
+  const scope = metric.aggregate_scope ?? 'participant_pool';
+  if (scope === 'campaign_holdout') {
+    // The one shape where the declaration is not credible. A central
+    // measurement has no per-participant map, so a record carrying both has
+    // contradicted itself about where its number came from, and this is the
+    // branch that skips the floor, so it must not be reachable by accident.
+    if (metric.per_site !== null) {
+      return { plot: false, by: 'page', cause: 'holdout_scope_with_per_site_map' };
+    }
+    // No participant-held quantity in the number, so `n_sites_scored` has
+    // nothing to count and the floor has nothing to protect. INAPPLICABLE, not
+    // satisfied: the page is not deciding the record passed a weaker check, it
+    // is recognising that the check was about a different kind of figure.
+    return { plot: true, value: metric.aggregate };
   }
 
   // Normalised, and this is load-bearing rather than defensive tidiness. Every
@@ -487,6 +546,7 @@ export function emptyTally(): DispositionTally {
       below_scoring_floor: 0,
       floor_unstated: 0,
       gate_metric_as_witness: 0,
+      holdout_scope_with_per_site_map: 0,
     },
     unrenderable: {
       per_site_not_site_keyed: 0,
