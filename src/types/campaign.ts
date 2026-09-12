@@ -2063,14 +2063,14 @@ export interface BaseModelRef {
    */
   version: string | null;
   url: string | null;
-  /*
-   * KNOWN GAP, recorded here rather than filled, as of 12 Sep 2026: there is no
-   * `sha256`, so the base model is the ONE checkpoint in the chain that is not
-   * content-identified. Every checkpoint the campaign produces carries
-   * `SoupRecord.global_sha256`. The base model is the only one the campaign did
-   * not make, and therefore the only one whose identity rests on an external
-   * registry agreeing with itself, so the missing field sits exactly where the
-   * external dependency is.
+  /**
+   * Digest of the exact weights the campaign started from, lowercase hex.
+   *
+   * WHY THIS EXISTS AT ALL, given `version` above. The base model is the ONE
+   * checkpoint in the chain the campaign did not make. Every checkpoint it
+   * produces carries `SoupRecord.global_sha256`, so this is the only identity
+   * in the chain that rests on an external registry agreeing with itself, and
+   * the weak link sits exactly where the external dependency is.
    *
    * A digest is the stronger identifier even when `version` is confirmed, and
    * not by a small margin. A registry can re-upload the same version string
@@ -2080,19 +2080,26 @@ export interface BaseModelRef {
    * wire currently says, so a silent re-upload would change which weights the
    * page describes with nothing in the record to catch it.
    *
-   * Not landed yet for one reason only, and it is not doubt about the field.
-   * Two services are re-pinning against 0.13.0-draft right now, a field nobody
-   * populates is not worth a third re-pin, and there is no schedule risk in
-   * waiting. It goes in with the next change that already forces a re-pin.
-   * There is a producer for it from day one: the training side reports the
-   * digest of the checkpoint it actually loaded, so this would not ship as a
-   * nullable field waiting for someone to find a value.
+   * FULL DIGEST ONLY, never truncated. A reader cannot check a partial hash
+   * against anything, so a truncated value has the appearance of content
+   * identification without the substance, which is worse than omitting it.
    *
-   * When it lands, note what it does and does not buy. Showing a digest lets a
-   * reader check; it is not itself a check, because the page has no independent
-   * expected value to compare against. Calling it verification would be the
-   * same overclaim `resolveMergeActor` documents about `decided_by`.
+   * WHY OPTIONAL RATHER THAN REQUIRED-NULLABLE, which is how `version` is
+   * modelled one field up. Required would force every existing producer and the
+   * fixture corpus to restate the field immediately, and two services are
+   * mid-re-pin against 0.13.0-draft. Optional is purely additive: it costs no
+   * re-pin, and it gives the backend a declared place to write the value today
+   * instead of populating into a void. It tightens to `string | null`, matching
+   * `version`, with the next change that already forces a re-pin and populates
+   * the fixture. Until then, absent and null both mean the service did not say.
+   *
+   * Note what this does and does not buy when populated. Showing a digest lets
+   * a reader check; it is not itself a check, because the page has no
+   * independent expected value to compare against. Calling it verification
+   * would be the same overclaim `resolveMergeActor` documents about
+   * `decided_by`.
    */
+  sha256?: string | null;
 }
 
 /**
