@@ -636,12 +636,23 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // "started from Cellpose-SAM" names a set. The baseline level on the
     // lineage chart is only reproducible if the record says which one it is.
     //
-    // CONFIRMED UPSTREAM 12 Sep 2026, both legs, by declared sha rather than
-    // by name. The training side loads cellpose 4.2.1.1 `pretrained_model
-    // cpsam_v2`, whose HuggingFace LFS sha256 is 0f1cc3f7ecdd...c667, and the
-    // zoo RDF at idealistic-eagle v1 (the commit that carries `version: 0.2.0`)
-    // declares exactly that sha for its pytorch_state_dict. Same bytes, and the
-    // packaged file is 1,233,586,851 bytes, matching the upstream checkpoint.
+    // CONFIRMED UPSTREAM 12 Sep 2026 by digest, not by name, and the digest was
+    // MEASURED rather than taken on the registry's word. The full 1,233,586,851
+    // byte weight file at zoo idealistic-eagle v1 (the commit carrying
+    // `version: 0.2.0`) was streamed through sha256sum and hashes to
+    // 0f1cc3f7ecdd...c667. The backend reached the same digest and byte count
+    // independently, from the file cellpose's own downloader resolves for the
+    // name cpsam_v2, which is a different host and a different path to the same
+    // bytes. So the training side demonstrably loads the zoo 0.2.0 weights.
+    //
+    // Count the evidence carefully, because it is easy to inflate. Two
+    // independent CONTENT measurements agree, reached by different routes. The
+    // RDF's declared pytorch_state_dict sha is a third data point but not a
+    // third measurement: it is the claim those measurements tested, and it
+    // passed. That is worth recording in its own right, since the entire reason
+    // this field is pinned by digest is that a registry's declared version can
+    // be re-pointed, so "the declaration turned out to be accurate here" is a
+    // finding rather than an assumption.
     //
     // Worth knowing before anyone re-derives this: the packaged weight file is
     // named `cpsam` in BOTH committed versions. Only the sha changes (v0
